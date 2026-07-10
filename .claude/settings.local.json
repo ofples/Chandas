@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git checkout:*)",
+      "Bash(git rm:*)",
+      "Bash(git add:*)",
+      "Bash(git push:*)",
+      "Bash(git rebase:*)",
+      "Bash(ffmpeg:*)",
+      "Bash(cd:*)"
+    ]
+  }
+}
