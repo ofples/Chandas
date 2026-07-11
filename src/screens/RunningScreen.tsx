@@ -316,6 +316,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 10,
+    // Must exceed .overlay's zIndex: RN only compares zIndex between direct
+    // siblings, and overlay is a sibling of mediaRow (not of the popups
+    // nested inside it) — without this, overlay paints on top of the whole
+    // mediaRow subtree and swallows every touch meant for the popup/Slider.
+    zIndex: 12,
   },
   mediaRowLeft: {
     flexDirection: 'row',
