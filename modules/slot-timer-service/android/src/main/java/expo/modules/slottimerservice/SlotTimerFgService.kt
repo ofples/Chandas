@@ -190,6 +190,8 @@ class SlotTimerFgService : Service() {
     if (bgPlayer == null || bgPlayerTrack != cfg.bgTrack) {
       bgPlayer?.release()
       val resId = bgTrackResId(cfg.bgTrack)
+      // Background tracks are a few MB — prepare asynchronously so onStartCommand
+      // (main thread) never blocks on decoding a multi-megabyte file.
       bgPlayer = MediaPlayer().apply {
         setAudioAttributes(musicAttributes())
         val afd = resources.openRawResourceFd(resId)
@@ -197,8 +199,8 @@ class SlotTimerFgService : Service() {
         afd.close()
         isLooping = true
         setVolume(cfg.bgVolume, cfg.bgVolume)
-        prepare()
-        start()
+        setOnPreparedListener { it.start() }
+        prepareAsync()
       }
       bgPlayerTrack = cfg.bgTrack
     } else {

@@ -152,7 +152,10 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
     rafRef.current = requestAnimationFrame(rafLoop)
     await activateKeepAwakeAsync(KEEP_AWAKE_TAG)
 
-    const notifGranted = config.notificationsEnabled ? await ensureNotificationPermission() : false
+    // Requested unconditionally: on Android, the foreground service must show
+    // *some* ongoing notification regardless of the user's "notifications"
+    // preference below — that preference only controls how much detail it shows.
+    const notifGranted = await ensureNotificationPermission()
 
     if (isNativeServiceAvailable) {
       SlotTimerService.start({
@@ -224,6 +227,17 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
       SlotTimerService.update({ volume: config.volume, notificationsEnabled: config.notificationsEnabled })
     }
   }, [config.volume, config.notificationsEnabled])
+
+  // Live-update volume in the JS fallback path — reschedule so the pending
+  // timeout (which closed over the previous volume) picks up the new one
+  // instead of firing once more at the stale value.
+  useEffect(() => {
+    if (!isRunningRef.current || isNativeServiceAvailable) return
+    if (tickTimeoutRef.current) {
+      clearTimeout(tickTimeoutRef.current)
+      scheduleFallbackTick()
+    }
+  }, [config.volume, scheduleFallbackTick])
 
   // Live-update bg track / volume
   useEffect(() => {
