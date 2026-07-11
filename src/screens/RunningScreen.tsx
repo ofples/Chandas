@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Animated, Dimensions, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Animated, Dimensions, Modal, Pressable, StyleSheet, Text, View } from 'react-native'
 import Svg, { Circle } from 'react-native-svg'
 import Slider from '@react-native-community/slider'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -130,114 +130,55 @@ export function RunningScreen({
       </View>
 
       <View style={styles.bottom}>
-        {openPanel && (
-          <Pressable style={styles.overlay} onPress={() => setOpenPanel(null)} />
-        )}
-
         <View style={styles.mediaRow}>
           <View style={styles.mediaRowLeft}>
-            <View style={styles.mediaBtnWrap}>
-              <Pressable
-                onPress={snapEnabled ? onRestartUnsynced : onSnapToClock}
-                style={[styles.mediaBtn, { borderColor: tokens.accent }]}
-                accessibilityLabel={snapEnabled ? 'Unsync and restart the timer' : 'Snap the timer to the clock'}
-              >
-                {snapEnabled ? <RestartIcon color={tokens.accent} /> : <ClockIcon color={tokens.accent} />}
-              </Pressable>
-            </View>
+            <Pressable
+              onPress={snapEnabled ? onRestartUnsynced : onSnapToClock}
+              style={[styles.mediaBtn, { borderColor: tokens.accent }]}
+              accessibilityLabel={snapEnabled ? 'Unsync and restart the timer' : 'Snap the timer to the clock'}
+            >
+              {snapEnabled ? <RestartIcon color={tokens.accent} /> : <ClockIcon color={tokens.accent} />}
+            </Pressable>
 
-            <View style={styles.mediaBtnWrap}>
-              <Pressable
-                onPress={handleBellPress}
-                style={[styles.mediaBtn, { borderColor: openPanel === 'bell' ? tokens.accent : tokens.border }]}
-                accessibilityLabel="Gong & bell volume"
-              >
-                <BellIcon muted={volume === 0} color={openPanel === 'bell' ? tokens.accent : tokens.textMuted} />
-              </Pressable>
-              {openPanel === 'bell' && (
-                <View style={[styles.popup, styles.popupLeft, { backgroundColor: tokens.surface, borderColor: tokens.border }]}>
-                  <Slider
-                    style={styles.horizontalSlider}
-                    minimumValue={0}
-                    maximumValue={1}
-                    step={0.01}
-                    value={volume}
-                    onValueChange={onVolumeChange}
-                    minimumTrackTintColor={tokens.accent}
-                    maximumTrackTintColor={tokens.surfaceHi}
-                    thumbTintColor={tokens.accent}
-                  />
-                </View>
-              )}
-            </View>
+            <Pressable
+              onPress={handleBellPress}
+              style={[styles.mediaBtn, { borderColor: openPanel === 'bell' ? tokens.accent : tokens.border }]}
+              accessibilityLabel="Gong & bell volume"
+            >
+              <BellIcon muted={volume === 0} color={openPanel === 'bell' ? tokens.accent : tokens.textMuted} />
+            </Pressable>
           </View>
 
           <View style={styles.mediaRowRight}>
-            <View style={styles.mediaBtnWrap}>
-              <Pressable
-                onPress={onToggleAlarmMode}
-                style={[
-                  styles.mediaBtn,
-                  {
-                    borderColor: alarmModeEnabled ? tokens.accent : tokens.border,
-                    backgroundColor: alarmModeEnabled ? 'rgba(124,111,247,0.14)' : 'transparent',
-                  },
-                ]}
-                accessibilityLabel={alarmModeEnabled ? 'Disable alarm mode' : 'Enable alarm mode'}
-              >
-                <AlarmIcon color={alarmModeEnabled ? tokens.accent : tokens.textMuted} />
-              </Pressable>
-            </View>
+            <Pressable
+              onPress={onToggleAlarmMode}
+              style={[
+                styles.mediaBtn,
+                {
+                  borderColor: alarmModeEnabled ? tokens.accent : tokens.border,
+                  backgroundColor: alarmModeEnabled ? 'rgba(124,111,247,0.14)' : 'transparent',
+                },
+              ]}
+              accessibilityLabel={alarmModeEnabled ? 'Disable alarm mode' : 'Enable alarm mode'}
+            >
+              <AlarmIcon color={alarmModeEnabled ? tokens.accent : tokens.textMuted} />
+            </Pressable>
 
-            <View style={styles.mediaBtnWrap}>
-              <Pressable
-                onPress={() => setOpenPanel(p => (p === 'track' ? null : 'track'))}
-                style={[styles.mediaBtn, { borderColor: openPanel === 'track' ? tokens.accent : tokens.border }]}
-                accessibilityLabel="Select background track"
-              >
-                <NoteIcon color={openPanel === 'track' ? tokens.accent : tokens.textMuted} />
-              </Pressable>
-              {openPanel === 'track' && (
-                <View style={[styles.popup, styles.trackPopup, { backgroundColor: tokens.surface, borderColor: tokens.border }]}>
-                  {BG_TRACKS.map(t => (
-                    <Pressable
-                      key={t.id}
-                      onPress={() => { onBgTrackChange(t.id); setOpenPanel(null) }}
-                      style={[styles.mediaChip, bgTrack === t.id && { backgroundColor: 'rgba(124,111,247,0.18)' }]}
-                    >
-                      <Text style={[styles.mediaChipLabel, { color: bgTrack === t.id ? tokens.accent : tokens.textMuted }]}>
-                        {t.name}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-              )}
-            </View>
+            <Pressable
+              onPress={() => setOpenPanel(p => (p === 'track' ? null : 'track'))}
+              style={[styles.mediaBtn, { borderColor: openPanel === 'track' ? tokens.accent : tokens.border }]}
+              accessibilityLabel="Select background track"
+            >
+              <NoteIcon color={openPanel === 'track' ? tokens.accent : tokens.textMuted} />
+            </Pressable>
 
-            <View style={styles.mediaBtnWrap}>
-              <Pressable
-                onPress={handleBgVolumePress}
-                style={[styles.mediaBtn, { borderColor: openPanel === 'volume' ? tokens.accent : tokens.border }]}
-                accessibilityLabel="Background volume"
-              >
-                <VolumeIcon muted={bgVolume === 0} color={openPanel === 'volume' ? tokens.accent : tokens.textMuted} />
-              </Pressable>
-              {openPanel === 'volume' && (
-                <View style={[styles.popup, { backgroundColor: tokens.surface, borderColor: tokens.border }]}>
-                  <Slider
-                    style={styles.horizontalSlider}
-                    minimumValue={0}
-                    maximumValue={1}
-                    step={0.01}
-                    value={bgVolume}
-                    onValueChange={onBgVolumeChange}
-                    minimumTrackTintColor={tokens.accent}
-                    maximumTrackTintColor={tokens.surfaceHi}
-                    thumbTintColor={tokens.accent}
-                  />
-                </View>
-              )}
-            </View>
+            <Pressable
+              onPress={handleBgVolumePress}
+              style={[styles.mediaBtn, { borderColor: openPanel === 'volume' ? tokens.accent : tokens.border }]}
+              accessibilityLabel="Background volume"
+            >
+              <VolumeIcon muted={bgVolume === 0} color={openPanel === 'volume' ? tokens.accent : tokens.textMuted} />
+            </Pressable>
           </View>
         </View>
 
@@ -251,6 +192,91 @@ export function RunningScreen({
           <Text style={[styles.stopLabel, { color: tokens.textMuted }]}>Stop</Text>
         </Pressable>
       </View>
+
+      {/* Popovers render as Modals (their own native overlay layer) rather than
+          absolutely-positioned Views — a position:absolute + manual zIndex popup
+          nested several levels deep turned out to be unreliable for touch
+          delivery on at least one real device (taps didn't reach the Slider at
+          all, even though the same Slider component works fine in normal
+          document flow on ConfigScreen). Modal sidesteps that whole class of
+          bug, and CustomMinutePicker already uses the same pattern reliably. */}
+
+      <Modal transparent animationType="fade" visible={openPanel === 'bell'} onRequestClose={() => setOpenPanel(null)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setOpenPanel(null)}>
+          <Pressable
+            style={[
+              styles.modalSheet,
+              { backgroundColor: tokens.surface, borderColor: tokens.border, paddingBottom: Math.max(insets.bottom, 32) },
+            ]}
+            onPress={e => e.stopPropagation()}
+          >
+            <Text style={[styles.modalTitle, { color: tokens.textMuted }]}>Gong & bell volume</Text>
+            <Slider
+              style={styles.modalSlider}
+              minimumValue={0}
+              maximumValue={1}
+              step={0.01}
+              value={volume}
+              onValueChange={onVolumeChange}
+              minimumTrackTintColor={tokens.accent}
+              maximumTrackTintColor={tokens.surfaceHi}
+              thumbTintColor={tokens.accent}
+            />
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal transparent animationType="fade" visible={openPanel === 'track'} onRequestClose={() => setOpenPanel(null)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setOpenPanel(null)}>
+          <Pressable
+            style={[
+              styles.modalSheet,
+              { backgroundColor: tokens.surface, borderColor: tokens.border, paddingBottom: Math.max(insets.bottom, 32) },
+            ]}
+            onPress={e => e.stopPropagation()}
+          >
+            <Text style={[styles.modalTitle, { color: tokens.textMuted }]}>Background track</Text>
+            <View style={styles.trackChips}>
+              {BG_TRACKS.map(t => (
+                <Pressable
+                  key={t.id}
+                  onPress={() => { onBgTrackChange(t.id); setOpenPanel(null) }}
+                  style={[styles.mediaChip, bgTrack === t.id && { backgroundColor: 'rgba(124,111,247,0.18)' }]}
+                >
+                  <Text style={[styles.mediaChipLabel, { color: bgTrack === t.id ? tokens.accent : tokens.textMuted }]}>
+                    {t.name}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal transparent animationType="fade" visible={openPanel === 'volume'} onRequestClose={() => setOpenPanel(null)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setOpenPanel(null)}>
+          <Pressable
+            style={[
+              styles.modalSheet,
+              { backgroundColor: tokens.surface, borderColor: tokens.border, paddingBottom: Math.max(insets.bottom, 32) },
+            ]}
+            onPress={e => e.stopPropagation()}
+          >
+            <Text style={[styles.modalTitle, { color: tokens.textMuted }]}>Background volume</Text>
+            <Slider
+              style={styles.modalSlider}
+              minimumValue={0}
+              maximumValue={1}
+              step={0.01}
+              value={bgVolume}
+              onValueChange={onBgVolumeChange}
+              minimumTrackTintColor={tokens.accent}
+              maximumTrackTintColor={tokens.surfaceHi}
+              thumbTintColor={tokens.accent}
+            />
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   )
 }
@@ -303,24 +329,11 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 420,
   },
-  overlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 10,
-  },
   mediaRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 10,
-    // Must exceed .overlay's zIndex: RN only compares zIndex between direct
-    // siblings, and overlay is a sibling of mediaRow (not of the popups
-    // nested inside it) — without this, overlay paints on top of the whole
-    // mediaRow subtree and swallows every touch meant for the popup/Slider.
-    zIndex: 12,
   },
   mediaRowLeft: {
     flexDirection: 'row',
@@ -330,9 +343,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
   },
-  mediaBtnWrap: {
-    zIndex: 11,
-  },
   mediaBtn: {
     width: 36,
     height: 36,
@@ -341,40 +351,43 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  popup: {
-    position: 'absolute',
-    bottom: 46,
-    right: 0,
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalSheet: {
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
     borderWidth: 1.5,
-    borderRadius: 12,
-    padding: 10,
-    width: 168,
-    height: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderBottomWidth: 0,
+    padding: 24,
+    gap: 16,
   },
-  popupLeft: {
-    right: 'auto',
-    left: 0,
+  modalTitle: {
+    fontSize: 13,
+    fontWeight: '500',
+    letterSpacing: 1.3,
+    textTransform: 'uppercase',
   },
-  horizontalSlider: {
-    width: 148,
-    height: 32,
+  modalSlider: {
+    width: '100%',
+    height: 40,
   },
-  trackPopup: {
-    height: undefined,
-    width: 100,
-    flexDirection: 'column',
-    gap: 2,
-    padding: 6,
+  trackChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
   },
   mediaChip: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 9999,
+    borderWidth: 1.5,
+    borderColor: 'transparent',
   },
   mediaChipLabel: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '500',
   },
   stopBtn: {

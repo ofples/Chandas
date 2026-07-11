@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '../theme/ThemeContext'
 
 interface Props {
@@ -14,6 +15,7 @@ interface Props {
 // Bottom-sheet numeric picker — ported from legacy-web .modal-overlay/.modal-sheet.
 export function CustomMinutePicker({ title, initial, min = 1, max = 59, onConfirm, onClose }: Props) {
   const { tokens } = useTheme()
+  const insets = useSafeAreaInsets()
   const [text, setText] = useState(String(initial))
 
   const handleConfirm = () => {
@@ -26,7 +28,10 @@ export function CustomMinutePicker({ title, initial, min = 1, max = 59, onConfir
     <Modal transparent animationType="fade" visible onRequestClose={onClose}>
       <Pressable style={styles.overlay} onPress={onClose}>
         <Pressable
-          style={[styles.sheet, { backgroundColor: tokens.surface, borderColor: tokens.border }]}
+          style={[
+            styles.sheet,
+            { backgroundColor: tokens.surface, borderColor: tokens.border, paddingBottom: Math.max(insets.bottom, 32) },
+          ]}
           onPress={e => e.stopPropagation()}
         >
           <Text style={[styles.title, { color: tokens.textMuted }]}>{title}</Text>
@@ -66,7 +71,6 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderBottomWidth: 0,
     padding: 24,
-    paddingBottom: 32,
     gap: 16,
   },
   title: {
