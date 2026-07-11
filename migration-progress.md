@@ -177,11 +177,14 @@ silent, since the service plays the gong itself rather than relying on notificat
 
 ### Phase 4 — Ship
 - [x] `expo-font` + `@expo-google-fonts/jetbrains-mono`; `app.json` name/permissions/plugins finalized
-- [ ] Icons/splash/adaptive-icon polish (currently the Expo scaffold's placeholder assets — swap
-      in SlotTimer's actual icon before a real release)
-- [ ] `eas.json` build profiles
-- [ ] EAS build (internal / Play internal testing)
-- [ ] EAS Update replaces the SW update banner
+- [x] Icons/splash/adaptive-icon regenerated from SlotTimer's actual mark (`legacy-web/public/icon-512.png`
+      → `assets/icon.png`, `android-icon-foreground.png`, `android-icon-monochrome.png`, `splash-icon.png`,
+      `favicon.png`); adaptive icon background uses the flat `#0b0c10` brand color (no image needed)
+- [x] `expo-splash-screen` installed and configured (dark `#0b0c10` background + the mark)
+- [x] `eas.json` build profiles (development/preview/production)
+- [ ] `eas init` / account link — **needs the user's Expo account**, not something this session can do
+- [ ] EAS build (internal / Play internal testing) — needs the account link above, then a real device/CI run
+- [ ] EAS Update replaces the SW update banner — set up alongside the first EAS build
 
 ---
 
