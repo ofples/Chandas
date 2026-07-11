@@ -19,7 +19,6 @@ import androidx.core.app.ServiceCompat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import kotlin.math.abs
 import kotlin.math.min
 
 /**
@@ -60,7 +59,6 @@ class SlotTimerFgService : Service() {
     private const val NOTIF_ID = 1001
     private const val ALARM_NOTIF_ID = 1002
 
-    private const val TICK_TOLERANCE_MS = 1000L
     private const val MINUTE_MS = 60_000L
 
     // Whether the alarm is ringing right now — read by SlotTimerServiceModule's
@@ -96,6 +94,16 @@ class SlotTimerFgService : Service() {
   private var bgPlayer: MediaPlayer? = null
   private var bgPlayerTrack: Int = -1
   private var alarmPlayer: MediaPlayer? = null
+
+  // Which tick(s) the next tickRunnable firing corresponds to — decided once,
+  // at schedule time, by rescheduleAll(). onTick() must NOT recompute this by
+  // calling TimerMath.nextTick()/nextSubTick() again with "now": those always
+  // return a time strictly *after* now, so by the time the tick actually
+  // fires, "now" has caught up to the scheduled instant and recomputing would
+  // silently skip forward to the *following* cycle instead of recognizing the
+  // one that just happened — which meant gong/bell almost never played.
+  private var scheduledMain = false
+  private var scheduledSub = false
 
   private val tickRunnable = Runnable { onTick() }
   private val minuteRunnable = Runnable { onMinuteBoundary() }
@@ -173,7 +181,11 @@ class SlotTimerFgService : Service() {
       TimerMath.nextSubTick(now, cfg.mainMs, cfg.subMs, cfg.phase)
     else
       Long.MAX_VALUE
-    val delay = (min(nextMain, nextSub) - now).coerceAtLeast(0)
+
+    val target = min(nextMain, nextSub)
+    scheduledMain = target == nextMain
+    scheduledSub = target == nextSub
+    val delay = (target - now).coerceAtLeast(0)
     handler.postDelayed(tickRunnable, delay)
 
     scheduleMinuteBoundary(cfg)
@@ -191,24 +203,15 @@ class SlotTimerFgService : Service() {
 
   private fun onTick() {
     val cfg = config ?: return
-    val now = System.currentTimeMillis()
-    val nextMain = TimerMath.nextTick(now, cfg.mainMs, cfg.phase)
-    val nextSub = if (cfg.subEnabled && cfg.subMs > 0)
-      TimerMath.nextSubTick(now, cfg.mainMs, cfg.subMs, cfg.phase)
-    else
-      Long.MAX_VALUE
 
-    val firedMain = abs(now - nextMain) < TICK_TOLERANCE_MS
-    val firedSub = !firedMain && nextSub != Long.MAX_VALUE && abs(now - nextSub) < TICK_TOLERANCE_MS
-
-    if (firedMain && cfg.alarmModeEnabled) {
+    if (scheduledMain && cfg.alarmModeEnabled) {
       // Continuous alarm — pauses scheduling until stopAlarmRinging() resumes it.
       startAlarmRinging(cfg)
       return
     }
 
-    if (firedMain) playOneShot(gongPlayer, cfg.volume)
-    else if (firedSub) playOneShot(bellPlayer, cfg.volume)
+    if (scheduledMain) playOneShot(gongPlayer, cfg.volume)
+    else if (scheduledSub) playOneShot(bellPlayer, cfg.volume)
 
     updateNotification(cfg)
     rescheduleAll(cfg)

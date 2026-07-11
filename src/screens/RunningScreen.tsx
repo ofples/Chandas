@@ -67,8 +67,27 @@ export function RunningScreen({
   }, [mainCountdown, pulseAnim])
 
   const dashOffset = CIRC * (1 - progress)
-  const togglePanel = (panel: 'track' | 'volume' | 'bell') =>
-    setOpenPanel(p => (p === panel ? null : panel))
+
+  // First tap on a volume button opens its slider; a second tap (while it's
+  // already open) mutes that channel completely and closes the popup —
+  // instead of just toggling the popup open/closed.
+  const handleBellPress = () => {
+    if (openPanel === 'bell') {
+      onVolumeChange(0)
+      setOpenPanel(null)
+    } else {
+      setOpenPanel('bell')
+    }
+  }
+
+  const handleBgVolumePress = () => {
+    if (openPanel === 'volume') {
+      onBgVolumeChange(0)
+      setOpenPanel(null)
+    } else {
+      setOpenPanel('volume')
+    }
+  }
 
   const ringScale = pulseAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.04] })
 
@@ -115,44 +134,42 @@ export function RunningScreen({
           <Pressable style={styles.overlay} onPress={() => setOpenPanel(null)} />
         )}
 
-        <Pressable
-          onPress={snapEnabled ? onRestartUnsynced : onSnapToClock}
-          style={({ pressed }) => [
-            styles.syncBtn,
-            { borderColor: tokens.accent, opacity: pressed ? 0.7 : 1 },
-          ]}
-          accessibilityLabel={snapEnabled ? 'Unsync and restart the timer' : 'Snap the timer to the clock'}
-        >
-          {snapEnabled ? <RestartIcon color={tokens.accent} /> : <ClockIcon color={tokens.accent} />}
-          <Text style={[styles.syncBtnLabel, { color: tokens.accent }]}>
-            {snapEnabled ? 'Restart (unsync)' : 'Snap to clock'}
-          </Text>
-        </Pressable>
-
         <View style={styles.mediaRow}>
-          <View style={styles.mediaBtnWrap}>
-            <Pressable
-              onPress={() => togglePanel('bell')}
-              style={[styles.mediaBtn, { borderColor: openPanel === 'bell' ? tokens.accent : tokens.border }]}
-              accessibilityLabel="Gong & bell volume"
-            >
-              <BellIcon muted={volume === 0} color={openPanel === 'bell' ? tokens.accent : tokens.textMuted} />
-            </Pressable>
-            {openPanel === 'bell' && (
-              <View style={[styles.popup, styles.popupLeft, { backgroundColor: tokens.surface, borderColor: tokens.border }]}>
-                <Slider
-                  style={styles.verticalSliderFlat}
-                  minimumValue={0}
-                  maximumValue={1}
-                  step={0.01}
-                  value={volume}
-                  onValueChange={onVolumeChange}
-                  minimumTrackTintColor={tokens.accent}
-                  maximumTrackTintColor={tokens.surfaceHi}
-                  thumbTintColor={tokens.accent}
-                />
-              </View>
-            )}
+          <View style={styles.mediaRowLeft}>
+            <View style={styles.mediaBtnWrap}>
+              <Pressable
+                onPress={snapEnabled ? onRestartUnsynced : onSnapToClock}
+                style={[styles.mediaBtn, { borderColor: tokens.accent }]}
+                accessibilityLabel={snapEnabled ? 'Unsync and restart the timer' : 'Snap the timer to the clock'}
+              >
+                {snapEnabled ? <RestartIcon color={tokens.accent} /> : <ClockIcon color={tokens.accent} />}
+              </Pressable>
+            </View>
+
+            <View style={styles.mediaBtnWrap}>
+              <Pressable
+                onPress={handleBellPress}
+                style={[styles.mediaBtn, { borderColor: openPanel === 'bell' ? tokens.accent : tokens.border }]}
+                accessibilityLabel="Gong & bell volume"
+              >
+                <BellIcon muted={volume === 0} color={openPanel === 'bell' ? tokens.accent : tokens.textMuted} />
+              </Pressable>
+              {openPanel === 'bell' && (
+                <View style={[styles.popup, styles.popupLeft, { backgroundColor: tokens.surface, borderColor: tokens.border }]}>
+                  <Slider
+                    style={styles.horizontalSlider}
+                    minimumValue={0}
+                    maximumValue={1}
+                    step={0.01}
+                    value={volume}
+                    onValueChange={onVolumeChange}
+                    minimumTrackTintColor={tokens.accent}
+                    maximumTrackTintColor={tokens.surfaceHi}
+                    thumbTintColor={tokens.accent}
+                  />
+                </View>
+              )}
+            </View>
           </View>
 
           <View style={styles.mediaRowRight}>
@@ -174,7 +191,7 @@ export function RunningScreen({
 
             <View style={styles.mediaBtnWrap}>
               <Pressable
-                onPress={() => togglePanel('track')}
+                onPress={() => setOpenPanel(p => (p === 'track' ? null : 'track'))}
                 style={[styles.mediaBtn, { borderColor: openPanel === 'track' ? tokens.accent : tokens.border }]}
                 accessibilityLabel="Select background track"
               >
@@ -199,7 +216,7 @@ export function RunningScreen({
 
             <View style={styles.mediaBtnWrap}>
               <Pressable
-                onPress={() => togglePanel('volume')}
+                onPress={handleBgVolumePress}
                 style={[styles.mediaBtn, { borderColor: openPanel === 'volume' ? tokens.accent : tokens.border }]}
                 accessibilityLabel="Background volume"
               >
@@ -208,7 +225,7 @@ export function RunningScreen({
               {openPanel === 'volume' && (
                 <View style={[styles.popup, { backgroundColor: tokens.surface, borderColor: tokens.border }]}>
                   <Slider
-                    style={styles.verticalSliderFlat}
+                    style={styles.horizontalSlider}
                     minimumValue={0}
                     maximumValue={1}
                     step={0.01}
@@ -294,26 +311,15 @@ const styles = StyleSheet.create({
     bottom: 0,
     zIndex: 10,
   },
-  syncBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 10,
-    borderRadius: 9999,
-    borderWidth: 1.5,
-    marginBottom: 14,
-  },
-  syncBtnLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    letterSpacing: 0.4,
-  },
   mediaRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 10,
+  },
+  mediaRowLeft: {
+    flexDirection: 'row',
+    gap: 8,
   },
   mediaRowRight: {
     flexDirection: 'row',
@@ -336,9 +342,9 @@ const styles = StyleSheet.create({
     right: 0,
     borderWidth: 1.5,
     borderRadius: 12,
-    padding: 8,
-    width: 44,
-    height: 150,
+    padding: 10,
+    width: 168,
+    height: 52,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -346,10 +352,9 @@ const styles = StyleSheet.create({
     right: 'auto',
     left: 0,
   },
-  verticalSliderFlat: {
-    width: 120,
-    height: 40,
-    transform: [{ rotate: '-90deg' }],
+  horizontalSlider: {
+    width: 148,
+    height: 32,
   },
   trackPopup: {
     height: undefined,
