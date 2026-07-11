@@ -16,7 +16,7 @@ function Root() {
   const [appState, setAppState] = useState<AppState>('config')
   const [ready, setReady] = useState(false)
 
-  const { mainCountdown, subCountdown, progress, start, stop } = useTimer(
+  const { mainCountdown, subCountdown, progress, start, stop, resyncPhase } = useTimer(
     config ?? {
       mainInterval: 30, subInterval: 5, snapEnabled: false, snapOffset: 0,
       subEnabled: true, notificationsEnabled: true, volume: 0.8, bgTrack: 1, bgVolume: 0.5,
@@ -55,6 +55,21 @@ function Root() {
     setAppState('config')
   }
 
+  // Unsync from the clock and restart the current interval fresh from now —
+  // phase = now % mainMs makes the next gong exactly one full interval away.
+  const handleRestartUnsynced = () => {
+    const mainMs = config.mainInterval * 60_000
+    resyncPhase(Date.now() % mainMs)
+    handleConfigChange({ ...config, snapEnabled: false })
+  }
+
+  // Snap the running timer to the wall clock immediately, using the
+  // configured snap offset.
+  const handleSnapToClock = () => {
+    resyncPhase(config.snapOffset * 60_000)
+    handleConfigChange({ ...config, snapEnabled: true })
+  }
+
   return (
     <View style={{ flex: 1, backgroundColor: tokens.bg }}>
       <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
@@ -72,6 +87,9 @@ function Root() {
           bgVolume={config.bgVolume}
           onBgTrackChange={t => handleConfigChange({ ...config, bgTrack: t })}
           onBgVolumeChange={v => handleConfigChange({ ...config, bgVolume: v })}
+          snapEnabled={config.snapEnabled}
+          onRestartUnsynced={handleRestartUnsynced}
+          onSnapToClock={handleSnapToClock}
         />
       )}
     </View>

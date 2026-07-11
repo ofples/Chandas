@@ -82,3 +82,24 @@ export function NoteIcon({ color }: { color: string }) {
     </Svg>
   )
 }
+
+// Circular-arrow "restart" icon — used when unsyncing from the clock.
+export function RestartIcon({ color }: { color: string }) {
+  return (
+    <Svg width={15} height={15} viewBox="0 0 24 24" fill="none">
+      <Path d="M1 4v6h6" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"
+        stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  )
+}
+
+// Clock-face icon — used to snap the timer to the wall clock.
+export function ClockIcon({ color }: { color: string }) {
+  return (
+    <Svg width={15} height={15} viewBox="0 0 24 24" fill="none">
+      <Circle cx={12} cy={12} r={9} stroke={color} strokeWidth={2} />
+      <Path d="M12 7v5l3.5 2" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  )
+}

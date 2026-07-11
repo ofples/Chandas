@@ -28,6 +28,7 @@ interface UseTimerReturn extends TimerState {
   isRunning: boolean
   start: () => void
   stop: () => void
+  resyncPhase: (newPhase: number) => void
 }
 
 async function ensureNotificationPermission(): Promise<boolean> {
@@ -208,6 +209,26 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
     setState({ mainCountdown: '--:--', subCountdown: '--:--', progress: 0 })
   }, [])
 
+  // ── Manual re-sync ────────────────────────────────────────────
+  //
+  // Re-anchors the running timer to a new phase without a full restart (no
+  // re-acquiring keep-awake/permissions, no recreating players) — used by the
+  // "restart"/"snap to clock" button on the running screen. mainMs/subMs are
+  // unchanged; only the phase offset moves.
+
+  const resyncPhase = useCallback((newPhase: number) => {
+    if (!isRunningRef.current) return
+    phaseRef.current = newPhase
+    saveSession({ phase: newPhase, mainMs: mainMsRef.current, subMs: subMsRef.current })
+    updateDisplay()
+    if (isNativeServiceAvailable) {
+      SlotTimerService.update({ phase: newPhase })
+    } else if (tickTimeoutRef.current) {
+      clearTimeout(tickTimeoutRef.current)
+      scheduleFallbackTick()
+    }
+  }, [updateDisplay, scheduleFallbackTick])
+
   // Live-update sub-enabled + reschedule fallback ticking
   useEffect(() => {
     subEnabledRef.current = config.subEnabled
@@ -286,5 +307,5 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
     deactivateKeepAwake(KEEP_AWAKE_TAG)
   }, [])
 
-  return { ...state, isRunning, start, stop }
+  return { ...state, isRunning, start, stop, resyncPhase }
 }

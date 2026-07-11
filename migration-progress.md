@@ -93,10 +93,21 @@ testable before Phase 3's native module exists.
 | | Bg volume popup | RN slider popover |
 | | **PiP mini-player** (`usePip`, `documentPictureInPicture`) | **Drop** — desktop-web-only API; no mobile-native equivalent |
 | | Stop button | stops the foreground service |
+| | **New:** Restart/snap button | not in the legacy web app — see below |
 | **Audio** | gong.mp3 / bell.mp3 on ticks | native SoundPool/ExoPlayer in service, at in-app volume |
 | | 3 bg tracks, loop, live volume/track switch | ExoPlayer in service — now **fully optional & mutable** |
 | **Persistence** | config / session (phase,mainMs,subMs) / theme | `@react-native-async-storage/async-storage` |
 | **Background** | silent-audio keepalive + wake lock + SW `setTimeout` | **Replaced** by the foreground service |
+
+**New beyond the legacy app:** a contextual button on the running screen next to the
+Stop button. When the session is snapped to the clock it reads "Restart (unsync)" — tapping
+it sets `snapEnabled = false` and re-anchors the phase to `now % mainMs` (a fresh full-length
+interval starting immediately). When it isn't snapped, it reads "Snap to clock" — tapping it
+sets `snapEnabled = true` and re-anchors the phase to `snapOffset * 60_000` (the configured
+clock alignment), taking effect immediately. Implemented as `useTimer`'s `resyncPhase(newPhase)`
+— a lightweight re-anchor (updates the session, JS display, and pushes `{ phase }` to the
+native service via `update()`) that doesn't tear down keep-awake, players, or permissions the
+way a full `stop()`/`start()` would.
 
 **Dropped (with rationale):** PiP mini-player (desktop-web API), service worker +
 `vite-plugin-pwa` + Workbox (replaced by native service + EAS Update), version

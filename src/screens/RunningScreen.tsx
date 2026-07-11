@@ -4,7 +4,7 @@ import Svg, { Circle } from 'react-native-svg'
 import Slider from '@react-native-community/slider'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '../theme/ThemeContext'
-import { BellIcon, NoteIcon, VolumeIcon } from '../components/Icons'
+import { BellIcon, ClockIcon, NoteIcon, RestartIcon, VolumeIcon } from '../components/Icons'
 
 interface Props {
   mainCountdown: string
@@ -17,6 +17,9 @@ interface Props {
   bgVolume: number
   onBgTrackChange: (t: 1 | 2 | 3) => void
   onBgVolumeChange: (v: number) => void
+  snapEnabled: boolean
+  onRestartUnsynced: () => void
+  onSnapToClock: () => void
 }
 
 const VIEW = 300
@@ -42,6 +45,7 @@ export function RunningScreen({
   mainCountdown, subCountdown, progress, onStop,
   volume, onVolumeChange,
   bgTrack, bgVolume, onBgTrackChange, onBgVolumeChange,
+  snapEnabled, onRestartUnsynced, onSnapToClock,
 }: Props) {
   const { tokens } = useTheme()
   const insets = useSafeAreaInsets()
@@ -107,6 +111,20 @@ export function RunningScreen({
         {openPanel && (
           <Pressable style={styles.overlay} onPress={() => setOpenPanel(null)} />
         )}
+
+        <Pressable
+          onPress={snapEnabled ? onRestartUnsynced : onSnapToClock}
+          style={({ pressed }) => [
+            styles.syncBtn,
+            { borderColor: tokens.accent, opacity: pressed ? 0.7 : 1 },
+          ]}
+          accessibilityLabel={snapEnabled ? 'Unsync and restart the timer' : 'Snap the timer to the clock'}
+        >
+          {snapEnabled ? <RestartIcon color={tokens.accent} /> : <ClockIcon color={tokens.accent} />}
+          <Text style={[styles.syncBtnLabel, { color: tokens.accent }]}>
+            {snapEnabled ? 'Restart (unsync)' : 'Snap to clock'}
+          </Text>
+        </Pressable>
 
         <View style={styles.mediaRow}>
           <View style={styles.mediaBtnWrap}>
@@ -256,6 +274,21 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     zIndex: 10,
+  },
+  syncBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    borderRadius: 9999,
+    borderWidth: 1.5,
+    marginBottom: 14,
+  },
+  syncBtnLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: 0.4,
   },
   mediaRow: {
     flexDirection: 'row',
