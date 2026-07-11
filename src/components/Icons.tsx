@@ -103,3 +103,14 @@ export function ClockIcon({ color }: { color: string }) {
     </Svg>
   )
 }
+
+// Alarm-clock icon — used to toggle alarm mode.
+export function AlarmIcon({ color, size = 16 }: { color: string; size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Circle cx={12} cy={13} r={8} stroke={color} strokeWidth={2} />
+      <Path d="M12 9v4l2.5 1.5" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M5 3 2 6M19 3l3 3" stroke={color} strokeWidth={2} strokeLinecap="round" />
+    </Svg>
+  )
+}

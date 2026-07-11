@@ -4,7 +4,7 @@ import Svg, { Circle } from 'react-native-svg'
 import Slider from '@react-native-community/slider'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '../theme/ThemeContext'
-import { BellIcon, ClockIcon, NoteIcon, RestartIcon, VolumeIcon } from '../components/Icons'
+import { AlarmIcon, BellIcon, ClockIcon, NoteIcon, RestartIcon, VolumeIcon } from '../components/Icons'
 
 interface Props {
   mainCountdown: string
@@ -20,6 +20,8 @@ interface Props {
   snapEnabled: boolean
   onRestartUnsynced: () => void
   onSnapToClock: () => void
+  alarmModeEnabled: boolean
+  onToggleAlarmMode: () => void
 }
 
 const VIEW = 300
@@ -46,6 +48,7 @@ export function RunningScreen({
   volume, onVolumeChange,
   bgTrack, bgVolume, onBgTrackChange, onBgVolumeChange,
   snapEnabled, onRestartUnsynced, onSnapToClock,
+  alarmModeEnabled, onToggleAlarmMode,
 }: Props) {
   const { tokens } = useTheme()
   const insets = useSafeAreaInsets()
@@ -153,6 +156,22 @@ export function RunningScreen({
           </View>
 
           <View style={styles.mediaRowRight}>
+            <View style={styles.mediaBtnWrap}>
+              <Pressable
+                onPress={onToggleAlarmMode}
+                style={[
+                  styles.mediaBtn,
+                  {
+                    borderColor: alarmModeEnabled ? tokens.accent : tokens.border,
+                    backgroundColor: alarmModeEnabled ? 'rgba(124,111,247,0.14)' : 'transparent',
+                  },
+                ]}
+                accessibilityLabel={alarmModeEnabled ? 'Disable alarm mode' : 'Enable alarm mode'}
+              >
+                <AlarmIcon color={alarmModeEnabled ? tokens.accent : tokens.textMuted} />
+              </Pressable>
+            </View>
+
             <View style={styles.mediaBtnWrap}>
               <Pressable
                 onPress={() => togglePanel('track')}

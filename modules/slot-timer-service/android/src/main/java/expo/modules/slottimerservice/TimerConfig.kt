@@ -9,4 +9,5 @@ data class TimerConfig(
   val bgTrack: Int,
   val bgVolume: Float,
   val notificationsEnabled: Boolean,
+  val alarmModeEnabled: Boolean,
 )

@@ -12,6 +12,7 @@ const KEEP_AWAKE_TAG = 'slottimer-running'
 
 const GONG_SOURCE = require('../../assets/sounds/gong.mp3')
 const BELL_SOURCE = require('../../assets/sounds/bell.mp3')
+const ALARM_SOURCE = require('../../assets/sounds/alarm.wav')
 const BG_SOURCES = {
   1: require('../../assets/sounds/bg1.mp3'),
   2: require('../../assets/sounds/bg2.mp3'),
@@ -29,6 +30,8 @@ interface UseTimerReturn extends TimerState {
   start: () => void
   stop: () => void
   resyncPhase: (newPhase: number) => void
+  isAlarmRinging: boolean
+  dismissAlarm: () => void
 }
 
 async function ensureNotificationPermission(): Promise<boolean> {
@@ -50,6 +53,7 @@ async function ensureNotificationPermission(): Promise<boolean> {
 // legacy web app's foreground behavior minus the keep-alive hacks.
 export function useTimer(config: TimerConfig): UseTimerReturn {
   const [isRunning, setIsRunning] = useState(false)
+  const [isAlarmRinging, setIsAlarmRinging] = useState(false)
   const [state, setState] = useState<TimerState>({
     mainCountdown: '--:--',
     subCountdown: '--:--',
@@ -64,9 +68,10 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
   const rafRef            = useRef<number | null>(null)
   const tickTimeoutRef    = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const gongPlayerRef = useRef<AudioPlayer | null>(null)
-  const bellPlayerRef = useRef<AudioPlayer | null>(null)
-  const bgPlayerRef   = useRef<AudioPlayer | null>(null)
+  const gongPlayerRef  = useRef<AudioPlayer | null>(null)
+  const bellPlayerRef  = useRef<AudioPlayer | null>(null)
+  const bgPlayerRef    = useRef<AudioPlayer | null>(null)
+  const alarmPlayerRef = useRef<AudioPlayer | null>(null)
 
   // ── Display update (RAF loop) — always JS-side, always in sync ─
 
@@ -103,6 +108,18 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
     player.play()
   }
 
+  // Starts a looping alarm sound and pauses tick scheduling until dismissed —
+  // the JS-fallback counterpart of the native service's alarm-ringing state.
+  const startFallbackAlarm = (volume: number) => {
+    alarmPlayerRef.current?.remove()
+    const player = createAudioPlayer(ALARM_SOURCE)
+    player.loop = true
+    player.volume = Math.max(0, Math.min(1, volume))
+    player.play()
+    alarmPlayerRef.current = player
+    setIsAlarmRinging(true)
+  }
+
   const scheduleFallbackTick = useCallback(() => {
     if (isNativeServiceAvailable || !isRunningRef.current) return
     const now    = Date.now()
@@ -120,12 +137,17 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
       const firedMain = Math.abs(fireTime - nextMain) < 1000
       const firedSub  = !firedMain && nextSub !== Infinity && Math.abs(fireTime - nextSub) < 1000
 
+      if (firedMain && config.alarmModeEnabled) {
+        // Continuous alarm — pause scheduling; dismissAlarm() resumes it.
+        startFallbackAlarm(config.volume)
+        return
+      }
       if (firedMain) playOneShot(gongPlayerRef.current, config.volume)
       else if (firedSub) playOneShot(bellPlayerRef.current, config.volume)
 
       scheduleFallbackTick()
     }, delay)
-  }, [config.volume])
+  }, [config.volume, config.alarmModeEnabled])
 
   // ── Start / Stop ─────────────────────────────────────────────
 
@@ -149,6 +171,7 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
 
     isRunningRef.current = true
     setIsRunning(true)
+    setIsAlarmRinging(false)
     updateDisplay()
     rafRef.current = requestAnimationFrame(rafLoop)
     await activateKeepAwakeAsync(KEEP_AWAKE_TAG)
@@ -168,6 +191,7 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
         bgTrack: config.bgTrack,
         bgVolume: config.bgVolume,
         notificationsEnabled: notifGranted && config.notificationsEnabled,
+        alarmModeEnabled: config.alarmModeEnabled,
       })
     } else {
       // JS fallback — foreground-only accuracy, mirrors legacy web behavior.
@@ -188,6 +212,7 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
   const stop = useCallback(() => {
     isRunningRef.current = false
     setIsRunning(false)
+    setIsAlarmRinging(false)
     clearSession()
 
     if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
@@ -201,13 +226,28 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
       gongPlayerRef.current?.remove()
       bellPlayerRef.current?.remove()
       bgPlayerRef.current?.remove()
+      alarmPlayerRef.current?.remove()
       gongPlayerRef.current = null
       bellPlayerRef.current = null
       bgPlayerRef.current = null
+      alarmPlayerRef.current = null
     }
 
     setState({ mainCountdown: '--:--', subCountdown: '--:--', progress: 0 })
   }, [])
+
+  // Dismisses an in-progress alarm ring without stopping the whole timer —
+  // ticking resumes for the next interval.
+  const dismissAlarm = useCallback(() => {
+    setIsAlarmRinging(false)
+    if (isNativeServiceAvailable) {
+      SlotTimerService.stopAlarm()
+      return
+    }
+    alarmPlayerRef.current?.remove()
+    alarmPlayerRef.current = null
+    if (isRunningRef.current) scheduleFallbackTick()
+  }, [scheduleFallbackTick])
 
   // ── Manual re-sync ────────────────────────────────────────────
   //
@@ -242,23 +282,27 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
     updateDisplay()
   }, [config.subEnabled, scheduleFallbackTick, updateDisplay])
 
-  // Live-update volume / notifications toggle → native service
+  // Live-update volume / notifications / alarm-mode toggle → native service
   useEffect(() => {
     if (isRunningRef.current && isNativeServiceAvailable) {
-      SlotTimerService.update({ volume: config.volume, notificationsEnabled: config.notificationsEnabled })
+      SlotTimerService.update({
+        volume: config.volume,
+        notificationsEnabled: config.notificationsEnabled,
+        alarmModeEnabled: config.alarmModeEnabled,
+      })
     }
-  }, [config.volume, config.notificationsEnabled])
+  }, [config.volume, config.notificationsEnabled, config.alarmModeEnabled])
 
-  // Live-update volume in the JS fallback path — reschedule so the pending
-  // timeout (which closed over the previous volume) picks up the new one
-  // instead of firing once more at the stale value.
+  // Live-update volume/alarm-mode in the JS fallback path — reschedule so the
+  // pending timeout (which closed over the previous values) picks up the new
+  // ones instead of firing once more at the stale value.
   useEffect(() => {
     if (!isRunningRef.current || isNativeServiceAvailable) return
     if (tickTimeoutRef.current) {
       clearTimeout(tickTimeoutRef.current)
       scheduleFallbackTick()
     }
-  }, [config.volume, scheduleFallbackTick])
+  }, [config.volume, config.alarmModeEnabled, scheduleFallbackTick])
 
   // Live-update bg track / volume
   useEffect(() => {
@@ -300,6 +344,27 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
     return () => sub.remove()
   }, [rafLoop, updateDisplay, scheduleFallbackTick])
 
+  // ── Alarm-ringing state sync (native path only) ───────────────
+  //
+  // The native service can start ringing independently of the JS lifecycle
+  // (e.g. the app was killed and is relaunched from the alarm's full-screen
+  // notification), so this doesn't gate on isRunningRef — it just asks "is it
+  // ringing right now?" on mount and every time the app returns to the
+  // foreground, plus subscribes to live updates while mounted.
+  useEffect(() => {
+    if (!isNativeServiceAvailable) return
+    setIsAlarmRinging(SlotTimerService.isRinging())
+
+    const listener = SlotTimerService.addAlarmListener(setIsAlarmRinging)
+    const sub = AppState.addEventListener('change', next => {
+      if (next === 'active') setIsAlarmRinging(SlotTimerService.isRinging())
+    })
+    return () => {
+      listener?.remove()
+      sub.remove()
+    }
+  }, [])
+
   // Cleanup on unmount
   useEffect(() => () => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current)
@@ -307,5 +372,5 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
     deactivateKeepAwake(KEEP_AWAKE_TAG)
   }, [])
 
-  return { ...state, isRunning, start, stop, resyncPhase }
+  return { ...state, isRunning, start, stop, resyncPhase, isAlarmRinging, dismissAlarm }
 }

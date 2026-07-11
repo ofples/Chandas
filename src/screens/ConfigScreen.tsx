@@ -6,6 +6,7 @@ import { TimerConfig } from '../types'
 import { useTheme } from '../theme/ThemeContext'
 import { IntervalPicker } from '../components/IntervalPicker'
 import { SnapConfig } from '../components/SnapConfig'
+import { Toggle } from '../components/Toggle'
 import { BellIcon, ThemeIcon, VolumeIcon } from '../components/Icons'
 
 const APP_VERSION = '0.2.0'
@@ -106,6 +107,20 @@ export function ConfigScreen({ config, onChange, onStart }: Props) {
           </View>
         </View>
 
+        <View style={styles.section}>
+          <View style={styles.toggleRow}>
+            <Text style={[styles.sectionLabel, { color: tokens.textMuted }]}>Alarm mode</Text>
+            <Toggle
+              value={config.alarmModeEnabled}
+              onChange={v => set('alarmModeEnabled', v)}
+              accessibilityLabel="Alarm mode"
+            />
+          </View>
+          <Text style={[styles.helperText, { color: tokens.textMuted }]}>
+            The main gong rings continuously, full-screen, until dismissed
+          </Text>
+        </View>
+
         <Pressable
           onPress={onStart}
           style={({ pressed }) => [
@@ -152,6 +167,15 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     letterSpacing: 1.3,
     textTransform: 'uppercase',
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  helperText: {
+    fontSize: 12,
+    opacity: 0.8,
   },
   volumeRow: {
     flexDirection: 'row',

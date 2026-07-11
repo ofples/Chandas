@@ -30,6 +30,9 @@ import kotlin.math.min
  * screen is off — no silent-audio keep-alive hack needed, and volume 0 means truly
  * silent.
  *
+ * In alarm mode, the main gong tick instead starts a continuous, looping alarm
+ * that rings until dismissed — see startAlarmRinging()/stopAlarmRinging() below.
+ *
  * The JS side (src/hooks/useTimer.ts) renders the ring/countdown itself, computed
  * from the same deterministic (mainMs, subMs, phase) this service uses — so the two
  * never need to exchange tick events to stay in sync; only start/update/stop calls
@@ -40,6 +43,7 @@ class SlotTimerFgService : Service() {
     const val ACTION_START = "expo.modules.slottimerservice.action.START"
     const val ACTION_UPDATE = "expo.modules.slottimerservice.action.UPDATE"
     const val ACTION_STOP = "expo.modules.slottimerservice.action.STOP"
+    const val ACTION_STOP_ALARM = "expo.modules.slottimerservice.action.STOP_ALARM"
 
     const val EXTRA_MAIN_MS = "mainMs"
     const val EXTRA_SUB_MS = "subMs"
@@ -49,12 +53,39 @@ class SlotTimerFgService : Service() {
     const val EXTRA_BG_TRACK = "bgTrack"
     const val EXTRA_BG_VOLUME = "bgVolume"
     const val EXTRA_NOTIFICATIONS_ENABLED = "notificationsEnabled"
+    const val EXTRA_ALARM_MODE_ENABLED = "alarmModeEnabled"
 
     private const val CHANNEL_ID = "slottimer-running"
+    private const val ALARM_CHANNEL_ID = "slottimer-alarm"
     private const val NOTIF_ID = 1001
+    private const val ALARM_NOTIF_ID = 1002
 
     private const val TICK_TOLERANCE_MS = 1000L
     private const val MINUTE_MS = 60_000L
+
+    // Whether the alarm is ringing right now — read by SlotTimerServiceModule's
+    // synchronous isRinging() query (for cold-start/resume) and updated via the
+    // listener registry below (for live events while JS is mounted). A plain
+    // in-process listener list is enough since the module and service always
+    // share the same process.
+    @Volatile
+    var isRingingNow: Boolean = false
+      private set
+
+    private val ringingListeners = mutableListOf<(Boolean) -> Unit>()
+
+    fun addRingingListener(listener: (Boolean) -> Unit) {
+      ringingListeners.add(listener)
+    }
+
+    fun removeRingingListener(listener: (Boolean) -> Unit) {
+      ringingListeners.remove(listener)
+    }
+
+    private fun notifyRinging(ringing: Boolean) {
+      isRingingNow = ringing
+      ringingListeners.toList().forEach { it(ringing) }
+    }
   }
 
   private val handler = Handler(Looper.getMainLooper())
@@ -64,6 +95,7 @@ class SlotTimerFgService : Service() {
   private var bellPlayer: MediaPlayer? = null
   private var bgPlayer: MediaPlayer? = null
   private var bgPlayerTrack: Int = -1
+  private var alarmPlayer: MediaPlayer? = null
 
   private val tickRunnable = Runnable { onTick() }
   private val minuteRunnable = Runnable { onMinuteBoundary() }
@@ -75,11 +107,17 @@ class SlotTimerFgService : Service() {
       ACTION_START, ACTION_UPDATE -> {
         val next = mergeConfig(intent, config)
         config = next
+        if (isRingingNow) {
+          // Don't disturb an in-progress alarm — just remember the new config
+          // (volume/track/etc.) for when ticking resumes after dismissal.
+          return START_NOT_STICKY
+        }
         ensureNotificationChannel()
         startForegroundNow(next)
         ensurePlayers(next)
         rescheduleAll(next)
       }
+      ACTION_STOP_ALARM -> config?.let { stopAlarmRinging(it) }
       ACTION_STOP -> stopSelfCleanly()
     }
     return START_NOT_STICKY
@@ -89,6 +127,7 @@ class SlotTimerFgService : Service() {
     handler.removeCallbacks(tickRunnable)
     handler.removeCallbacks(minuteRunnable)
     releasePlayers()
+    if (isRingingNow) notifyRinging(false)
     super.onDestroy()
   }
 
@@ -117,6 +156,7 @@ class SlotTimerFgService : Service() {
       bgTrack = int(EXTRA_BG_TRACK, previous?.bgTrack ?: 1),
       bgVolume = float(EXTRA_BG_VOLUME, previous?.bgVolume ?: 0.5f),
       notificationsEnabled = bool(EXTRA_NOTIFICATIONS_ENABLED, previous?.notificationsEnabled ?: true),
+      alarmModeEnabled = bool(EXTRA_ALARM_MODE_ENABLED, previous?.alarmModeEnabled ?: false),
     )
   }
 
@@ -161,6 +201,12 @@ class SlotTimerFgService : Service() {
     val firedMain = abs(now - nextMain) < TICK_TOLERANCE_MS
     val firedSub = !firedMain && nextSub != Long.MAX_VALUE && abs(now - nextSub) < TICK_TOLERANCE_MS
 
+    if (firedMain && cfg.alarmModeEnabled) {
+      // Continuous alarm — pauses scheduling until stopAlarmRinging() resumes it.
+      startAlarmRinging(cfg)
+      return
+    }
+
     if (firedMain) playOneShot(gongPlayer, cfg.volume)
     else if (firedSub) playOneShot(bellPlayer, cfg.volume)
 
@@ -172,6 +218,45 @@ class SlotTimerFgService : Service() {
     val cfg = config ?: return
     updateNotification(cfg)
     scheduleMinuteBoundary(cfg)
+  }
+
+  // ── Alarm mode ─────────────────────────────────────────────────
+
+  private fun startAlarmRinging(cfg: TimerConfig) {
+    handler.removeCallbacks(tickRunnable)
+    handler.removeCallbacks(minuteRunnable)
+    notifyRinging(true)
+
+    alarmPlayer?.release()
+    alarmPlayer = MediaPlayer().apply {
+      setAudioAttributes(alarmAttributes())
+      val afd = resources.openRawResourceFd(R.raw.alarm)
+      setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+      afd.close()
+      isLooping = true
+      val v = cfg.volume.coerceIn(0f, 1f)
+      setVolume(v, v)
+      setOnPreparedListener { it.start() }
+      prepareAsync()
+    }
+
+    ensureAlarmNotificationChannel()
+    val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    // Re-point the foreground service at the alarm notification (a new ID). A
+    // pinned foreground notification can't be reliably dismissed with
+    // NotificationManager.cancel() — startForeground() with a new ID is the
+    // correct way to swap it.
+    promoteForeground(ALARM_NOTIF_ID, buildAlarmNotification(manager))
+  }
+
+  private fun stopAlarmRinging(cfg: TimerConfig) {
+    alarmPlayer?.release()
+    alarmPlayer = null
+    notifyRinging(false)
+
+    ensureNotificationChannel()
+    promoteForeground(NOTIF_ID, buildNotification(cfg))
+    rescheduleAll(cfg)
   }
 
   // ── Audio ─────────────────────────────────────────────────────
@@ -248,9 +333,10 @@ class SlotTimerFgService : Service() {
     bellPlayer?.release(); bellPlayer = null
     bgPlayer?.release(); bgPlayer = null
     bgPlayerTrack = -1
+    alarmPlayer?.release(); alarmPlayer = null
   }
 
-  // ── Notification ──────────────────────────────────────────────
+  // ── Notification (ongoing "running" state) ─────────────────────
 
   private fun ensureNotificationChannel() {
     val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -301,17 +387,83 @@ class SlotTimerFgService : Service() {
   }
 
   private fun startForegroundNow(cfg: TimerConfig) {
-    val notification = buildNotification(cfg)
+    promoteForeground(NOTIF_ID, buildNotification(cfg))
+  }
+
+  // Pins the given notification as the foreground service's notification —
+  // used both for the initial/ongoing "running" state and to swap to the
+  // escalated alarm notification (and back) without stopping the service.
+  private fun promoteForeground(id: Int, notification: Notification) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
       ServiceCompat.startForeground(
         this,
-        NOTIF_ID,
+        id,
         notification,
         ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK,
       )
     } else {
-      startForeground(NOTIF_ID, notification)
+      startForeground(id, notification)
     }
+  }
+
+  // ── Notification (alarm-ringing state) ──────────────────────────
+  //
+  // A separate, high-importance channel is required for the full-screen intent
+  // (which wakes the screen / shows over the lock screen) and the heads-up
+  // "Stop alarm" action — the ongoing "running" channel above is deliberately
+  // low-importance/silent since the service already plays the gong itself.
+
+  private fun ensureAlarmNotificationChannel() {
+    val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    val channel = NotificationChannel(
+      ALARM_CHANNEL_ID,
+      "SlotTimer alarm",
+      NotificationManager.IMPORTANCE_HIGH,
+    ).apply {
+      description = "Shown while SlotTimer's alarm mode is ringing"
+      setSound(null, null) // the service plays the alarm sound itself
+    }
+    manager.createNotificationChannel(channel)
+  }
+
+  private fun buildAlarmNotification(manager: NotificationManager): Notification {
+    val launchIntent = (packageManager.getLaunchIntentForPackage(packageName) ?: Intent())
+      .apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        putExtra(AlarmWindowHelper.EXTRA_ALARM_RINGING, true)
+      }
+    val fullScreenPendingIntent = PendingIntent.getActivity(
+      this, 0, launchIntent,
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+
+    val stopIntent = Intent(this, SlotTimerFgService::class.java).setAction(ACTION_STOP_ALARM)
+    val stopPendingIntent = PendingIntent.getService(
+      this, 0, stopIntent,
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+
+    val builder = NotificationCompat.Builder(this, ALARM_CHANNEL_ID)
+      .setContentTitle("SlotTimer — Time's up")
+      .setContentText("Alarm is ringing")
+      .setSmallIcon(applicationInfo.icon)
+      .setOngoing(true)
+      .setCategory(NotificationCompat.CATEGORY_ALARM)
+      .setPriority(NotificationCompat.PRIORITY_MAX)
+      .setContentIntent(fullScreenPendingIntent)
+      .addAction(0, "Stop alarm", stopPendingIntent)
+
+    // canUseFullScreenIntent() is Android 14+ API — full-screen intents are no
+    // longer unconditionally granted there. If it's not available, the
+    // notification still rings, shows the Stop action, and heads-ups normally;
+    // it just won't force the screen on / draw over the lock screen.
+    val canUseFullScreen = Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE ||
+      manager.canUseFullScreenIntent()
+    if (canUseFullScreen) {
+      builder.setFullScreenIntent(fullScreenPendingIntent, true)
+    }
+
+    return builder.build()
   }
 
   private fun formatTime(epochMs: Long): String =
@@ -321,6 +473,9 @@ class SlotTimerFgService : Service() {
     handler.removeCallbacks(tickRunnable)
     handler.removeCallbacks(minuteRunnable)
     releasePlayers()
+    if (isRingingNow) notifyRinging(false)
+    val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    manager.cancel(ALARM_NOTIF_ID)
     config = null
     ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
     stopSelf()

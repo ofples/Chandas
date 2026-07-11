@@ -14,6 +14,7 @@ export const DEFAULT_CONFIG: TimerConfig = {
   volume: 0.8,
   bgTrack: 1,
   bgVolume: 0.5,
+  alarmModeEnabled: false,
 }
 
 export async function loadConfig(): Promise<TimerConfig> {

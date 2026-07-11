@@ -6,9 +6,10 @@ import { useFonts, JetBrainsMono_300Light, JetBrainsMono_400Regular } from '@exp
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext'
 import { TimerConfig, AppState } from './src/types'
 import { useTimer } from './src/hooks/useTimer'
-import { loadConfig, saveConfig, hasTimerSession } from './src/lib/storage'
+import { loadConfig, saveConfig, hasTimerSession, DEFAULT_CONFIG } from './src/lib/storage'
 import { ConfigScreen } from './src/screens/ConfigScreen'
 import { RunningScreen } from './src/screens/RunningScreen'
+import { AlarmRingingScreen } from './src/screens/AlarmRingingScreen'
 
 function Root() {
   const { tokens, theme } = useTheme()
@@ -16,12 +17,10 @@ function Root() {
   const [appState, setAppState] = useState<AppState>('config')
   const [ready, setReady] = useState(false)
 
-  const { mainCountdown, subCountdown, progress, start, stop, resyncPhase } = useTimer(
-    config ?? {
-      mainInterval: 30, subInterval: 5, snapEnabled: false, snapOffset: 0,
-      subEnabled: true, notificationsEnabled: true, volume: 0.8, bgTrack: 1, bgVolume: 0.5,
-    }
-  )
+  const {
+    mainCountdown, subCountdown, progress, start, stop, resyncPhase,
+    isAlarmRinging, dismissAlarm,
+  } = useTimer(config ?? DEFAULT_CONFIG)
 
   useEffect(() => {
     (async () => {
@@ -74,7 +73,11 @@ function Root() {
     <View style={{ flex: 1, backgroundColor: tokens.bg }}>
       <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
       {appState === 'config' ? (
-        <ConfigScreen config={config} onChange={handleConfigChange} onStart={handleStart} />
+        <ConfigScreen
+          config={config}
+          onChange={handleConfigChange}
+          onStart={handleStart}
+        />
       ) : (
         <RunningScreen
           mainCountdown={mainCountdown}
@@ -90,8 +93,12 @@ function Root() {
           snapEnabled={config.snapEnabled}
           onRestartUnsynced={handleRestartUnsynced}
           onSnapToClock={handleSnapToClock}
+          alarmModeEnabled={config.alarmModeEnabled}
+          onToggleAlarmMode={() => handleConfigChange({ ...config, alarmModeEnabled: !config.alarmModeEnabled })}
         />
       )}
+
+      {isAlarmRinging && <AlarmRingingScreen onDismiss={dismissAlarm} />}
     </View>
   )
 }

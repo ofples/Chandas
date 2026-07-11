@@ -23,7 +23,8 @@
         "FOREGROUND_SERVICE",
         "FOREGROUND_SERVICE_MEDIA_PLAYBACK",
         "POST_NOTIFICATIONS",
-        "WAKE_LOCK"
+        "WAKE_LOCK",
+        "USE_FULL_SCREEN_INTENT"
       ]
     },
     "web": {
@@ -50,7 +51,8 @@
             "backgroundColor": "#0b0c10"
           }
         }
-      ]
+      ],
+      "./modules/slot-timer-service/app.plugin.js"
     ]
   }
 }
