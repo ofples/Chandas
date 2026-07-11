@@ -7,7 +7,7 @@ export interface TimerConfig {
   notificationsEnabled: boolean
   volume: number          // 0–1 (gong/bell volume)
   bgTrack: 1 | 2 | 3     // background music track
-  bgVolume: number        // 0–1; 0 allowed — fully mutable, no keep-alive constraint on native
+  bgVolume: number        // 0–1; clamped to min 0.01 on mobile (prevents silent-tab throttling), 0 allowed on desktop
 }
 
 export type AppState = 'config' | 'running'
