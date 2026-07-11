@@ -15,6 +15,7 @@
     "expo-notifications": "~57.0.3",
     "expo-splash-screen": "~57.0.2",
     "expo-status-bar": "~57.0.0",
+    "expo-updates": "~57.0.6",
     "react": "19.2.3",
     "react-native": "0.86.0",
     "react-native-reanimated": "4.5.0",
@@ -27,10 +28,17 @@
     "typescript": "~6.0.3"
   },
   "scripts": {
-    "start": "expo start",
+    "start": "expo start --dev-client",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "prebuild": "expo prebuild",
+    "prebuild:clean": "expo prebuild --clean",
+    "build:android:dev": "eas build --profile development --platform android",
+    "build:android:preview": "eas build --profile preview --platform android",
+    "build:android:prod": "eas build --profile production --platform android",
+    "publish:preview": "eas update --branch preview --platform android",
+    "publish:production": "eas update --branch production --platform android"
   },
   "private": true
 }

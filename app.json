@@ -24,7 +24,9 @@
         "FOREGROUND_SERVICE_MEDIA_PLAYBACK",
         "POST_NOTIFICATIONS",
         "WAKE_LOCK",
-        "USE_FULL_SCREEN_INTENT"
+        "USE_FULL_SCREEN_INTENT",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
       ]
     },
     "web": {
@@ -53,6 +55,21 @@
         }
       ],
       "./modules/slot-timer-service/app.plugin.js"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "d905367d-c81b-4ab0-8b5a-e89740e9aab8"
+      }
+    },
+    "owner": "ofples",
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/d905367d-c81b-4ab0-8b5a-e89740e9aab8",
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    }
   }
 }
