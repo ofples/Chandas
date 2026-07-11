@@ -1,0 +1,326 @@
+package expo.modules.slottimerservice
+
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.Service
+import android.content.Context
+import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.media.AudioAttributes
+import android.media.MediaPlayer
+import android.os.Build
+import android.os.Handler
+import android.os.IBinder
+import android.os.Looper
+import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlin.math.abs
+import kotlin.math.min
+
+/**
+ * Foreground service (type `mediaPlayback`) that owns SlotTimer's tick scheduling,
+ * gong/bell/background-music playback, and the ongoing "Next gong at HH:MM"
+ * notification. It runs independently of the JS/React Native side, so the timer
+ * keeps chiming accurately whether the app is foregrounded, backgrounded, or the
+ * screen is off — no silent-audio keep-alive hack needed, and volume 0 means truly
+ * silent.
+ *
+ * The JS side (src/hooks/useTimer.ts) renders the ring/countdown itself, computed
+ * from the same deterministic (mainMs, subMs, phase) this service uses — so the two
+ * never need to exchange tick events to stay in sync; only start/update/stop calls
+ * cross the bridge.
+ */
+class SlotTimerFgService : Service() {
+  companion object {
+    const val ACTION_START = "expo.modules.slottimerservice.action.START"
+    const val ACTION_UPDATE = "expo.modules.slottimerservice.action.UPDATE"
+    const val ACTION_STOP = "expo.modules.slottimerservice.action.STOP"
+
+    const val EXTRA_MAIN_MS = "mainMs"
+    const val EXTRA_SUB_MS = "subMs"
+    const val EXTRA_PHASE = "phase"
+    const val EXTRA_SUB_ENABLED = "subEnabled"
+    const val EXTRA_VOLUME = "volume"
+    const val EXTRA_BG_TRACK = "bgTrack"
+    const val EXTRA_BG_VOLUME = "bgVolume"
+    const val EXTRA_NOTIFICATIONS_ENABLED = "notificationsEnabled"
+
+    private const val CHANNEL_ID = "slottimer-running"
+    private const val NOTIF_ID = 1001
+
+    private const val TICK_TOLERANCE_MS = 1000L
+    private const val MINUTE_MS = 60_000L
+  }
+
+  private val handler = Handler(Looper.getMainLooper())
+  private var config: TimerConfig? = null
+
+  private var gongPlayer: MediaPlayer? = null
+  private var bellPlayer: MediaPlayer? = null
+  private var bgPlayer: MediaPlayer? = null
+  private var bgPlayerTrack: Int = -1
+
+  private val tickRunnable = Runnable { onTick() }
+  private val minuteRunnable = Runnable { onMinuteBoundary() }
+
+  override fun onBind(intent: Intent?): IBinder? = null
+
+  override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    when (intent?.action) {
+      ACTION_START, ACTION_UPDATE -> {
+        val next = mergeConfig(intent, config)
+        config = next
+        ensureNotificationChannel()
+        startForegroundNow(next)
+        ensurePlayers(next)
+        rescheduleAll(next)
+      }
+      ACTION_STOP -> stopSelfCleanly()
+    }
+    return START_NOT_STICKY
+  }
+
+  override fun onDestroy() {
+    handler.removeCallbacks(tickRunnable)
+    handler.removeCallbacks(minuteRunnable)
+    releasePlayers()
+    super.onDestroy()
+  }
+
+  // ── Config ─────────────────────────────────────────────────────
+  //
+  // ACTION_UPDATE only carries the fields that changed (mirrors JS's
+  // Partial<NativeTimerConfig>), so unset extras fall back to the previous value.
+
+  private fun mergeConfig(intent: Intent, previous: TimerConfig?): TimerConfig {
+    val extras = intent.extras
+    fun long(key: String, fallback: Long) =
+      if (extras?.containsKey(key) == true) extras.getLong(key) else fallback
+    fun float(key: String, fallback: Float) =
+      if (extras?.containsKey(key) == true) extras.getFloat(key) else fallback
+    fun int(key: String, fallback: Int) =
+      if (extras?.containsKey(key) == true) extras.getInt(key) else fallback
+    fun bool(key: String, fallback: Boolean) =
+      if (extras?.containsKey(key) == true) extras.getBoolean(key) else fallback
+
+    return TimerConfig(
+      mainMs = long(EXTRA_MAIN_MS, previous?.mainMs ?: 0L),
+      subMs = long(EXTRA_SUB_MS, previous?.subMs ?: 0L),
+      phase = long(EXTRA_PHASE, previous?.phase ?: 0L),
+      subEnabled = bool(EXTRA_SUB_ENABLED, previous?.subEnabled ?: true),
+      volume = float(EXTRA_VOLUME, previous?.volume ?: 0.8f),
+      bgTrack = int(EXTRA_BG_TRACK, previous?.bgTrack ?: 1),
+      bgVolume = float(EXTRA_BG_VOLUME, previous?.bgVolume ?: 0.5f),
+      notificationsEnabled = bool(EXTRA_NOTIFICATIONS_ENABLED, previous?.notificationsEnabled ?: true),
+    )
+  }
+
+  // ── Scheduling ────────────────────────────────────────────────
+
+  private fun rescheduleAll(cfg: TimerConfig) {
+    handler.removeCallbacks(tickRunnable)
+    handler.removeCallbacks(minuteRunnable)
+    if (cfg.mainMs <= 0) return
+
+    val now = System.currentTimeMillis()
+    val nextMain = TimerMath.nextTick(now, cfg.mainMs, cfg.phase)
+    val nextSub = if (cfg.subEnabled && cfg.subMs > 0)
+      TimerMath.nextSubTick(now, cfg.mainMs, cfg.subMs, cfg.phase)
+    else
+      Long.MAX_VALUE
+    val delay = (min(nextMain, nextSub) - now).coerceAtLeast(0)
+    handler.postDelayed(tickRunnable, delay)
+
+    scheduleMinuteBoundary(cfg)
+  }
+
+  private fun scheduleMinuteBoundary(cfg: TimerConfig) {
+    handler.removeCallbacks(minuteRunnable)
+    if (cfg.mainMs <= 0) return
+    val now = System.currentTimeMillis()
+    val remaining = TimerMath.nextTick(now, cfg.mainMs, cfg.phase) - now
+    val msIntoMinute = remaining % MINUTE_MS
+    val delay = if (msIntoMinute == 0L) MINUTE_MS else msIntoMinute
+    handler.postDelayed(minuteRunnable, delay)
+  }
+
+  private fun onTick() {
+    val cfg = config ?: return
+    val now = System.currentTimeMillis()
+    val nextMain = TimerMath.nextTick(now, cfg.mainMs, cfg.phase)
+    val nextSub = if (cfg.subEnabled && cfg.subMs > 0)
+      TimerMath.nextSubTick(now, cfg.mainMs, cfg.subMs, cfg.phase)
+    else
+      Long.MAX_VALUE
+
+    val firedMain = abs(now - nextMain) < TICK_TOLERANCE_MS
+    val firedSub = !firedMain && nextSub != Long.MAX_VALUE && abs(now - nextSub) < TICK_TOLERANCE_MS
+
+    if (firedMain) playOneShot(gongPlayer, cfg.volume)
+    else if (firedSub) playOneShot(bellPlayer, cfg.volume)
+
+    updateNotification(cfg)
+    rescheduleAll(cfg)
+  }
+
+  private fun onMinuteBoundary() {
+    val cfg = config ?: return
+    updateNotification(cfg)
+    scheduleMinuteBoundary(cfg)
+  }
+
+  // ── Audio ─────────────────────────────────────────────────────
+
+  private fun ensurePlayers(cfg: TimerConfig) {
+    if (gongPlayer == null) gongPlayer = createOneShotPlayer(R.raw.gong)
+    if (bellPlayer == null) bellPlayer = createOneShotPlayer(R.raw.bell)
+
+    if (cfg.bgVolume <= 0f) {
+      bgPlayer?.release()
+      bgPlayer = null
+      bgPlayerTrack = -1
+      return
+    }
+
+    if (bgPlayer == null || bgPlayerTrack != cfg.bgTrack) {
+      bgPlayer?.release()
+      val resId = bgTrackResId(cfg.bgTrack)
+      bgPlayer = MediaPlayer().apply {
+        setAudioAttributes(musicAttributes())
+        val afd = resources.openRawResourceFd(resId)
+        setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+        afd.close()
+        isLooping = true
+        setVolume(cfg.bgVolume, cfg.bgVolume)
+        prepare()
+        start()
+      }
+      bgPlayerTrack = cfg.bgTrack
+    } else {
+      bgPlayer?.setVolume(cfg.bgVolume, cfg.bgVolume)
+    }
+  }
+
+  private fun createOneShotPlayer(resId: Int): MediaPlayer =
+    MediaPlayer.create(this, resId).apply {
+      setAudioAttributes(alarmAttributes())
+    }
+
+  private fun playOneShot(player: MediaPlayer?, volume: Float) {
+    if (player == null || volume <= 0f) return
+    val v = volume.coerceIn(0f, 1f)
+    player.setVolume(v, v)
+    try {
+      player.seekTo(0)
+      player.start()
+    } catch (_: IllegalStateException) {
+      // Player was in a bad state (rare) — recreate lazily on the next tick.
+    }
+  }
+
+  private fun musicAttributes(): AudioAttributes =
+    AudioAttributes.Builder()
+      .setUsage(AudioAttributes.USAGE_MEDIA)
+      .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+      .build()
+
+  private fun alarmAttributes(): AudioAttributes =
+    AudioAttributes.Builder()
+      .setUsage(AudioAttributes.USAGE_ALARM)
+      .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+      .build()
+
+  private fun bgTrackResId(track: Int): Int = when (track) {
+    2 -> R.raw.bg2
+    3 -> R.raw.bg3
+    else -> R.raw.bg1
+  }
+
+  private fun releasePlayers() {
+    gongPlayer?.release(); gongPlayer = null
+    bellPlayer?.release(); bellPlayer = null
+    bgPlayer?.release(); bgPlayer = null
+    bgPlayerTrack = -1
+  }
+
+  // ── Notification ──────────────────────────────────────────────
+
+  private fun ensureNotificationChannel() {
+    val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    val channel = NotificationChannel(
+      CHANNEL_ID,
+      "SlotTimer running",
+      NotificationManager.IMPORTANCE_LOW, // silent — the service plays the gong itself
+    ).apply {
+      description = "Shows the running SlotTimer session and its next gong time"
+      setShowBadge(false)
+    }
+    manager.createNotificationChannel(channel)
+  }
+
+  private fun buildNotification(cfg: TimerConfig): Notification {
+    val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+    val contentIntent = launchIntent?.let {
+      PendingIntent.getActivity(
+        this, 0, it,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+      )
+    }
+
+    // Android requires an ongoing notification for any foreground service — this is
+    // an OS constraint, independent of the in-app "notifications" toggle. When the
+    // user has disabled notifications we still show one, but keep it minimal.
+    val body = if (cfg.notificationsEnabled && cfg.mainMs > 0) {
+      val next = TimerMath.nextTick(System.currentTimeMillis(), cfg.mainMs, cfg.phase)
+      "Next gong at ${formatTime(next)}"
+    } else {
+      "Timer running"
+    }
+
+    return NotificationCompat.Builder(this, CHANNEL_ID)
+      .setContentTitle("SlotTimer")
+      .setContentText(body)
+      .setSmallIcon(applicationInfo.icon)
+      .setOngoing(true)
+      .setOnlyAlertOnce(true)
+      .setContentIntent(contentIntent)
+      .setPriority(NotificationCompat.PRIORITY_LOW)
+      .build()
+  }
+
+  private fun updateNotification(cfg: TimerConfig) {
+    val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    manager.notify(NOTIF_ID, buildNotification(cfg))
+  }
+
+  private fun startForegroundNow(cfg: TimerConfig) {
+    val notification = buildNotification(cfg)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      ServiceCompat.startForeground(
+        this,
+        NOTIF_ID,
+        notification,
+        ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK,
+      )
+    } else {
+      startForeground(NOTIF_ID, notification)
+    }
+  }
+
+  private fun formatTime(epochMs: Long): String =
+    SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(epochMs))
+
+  private fun stopSelfCleanly() {
+    handler.removeCallbacks(tickRunnable)
+    handler.removeCallbacks(minuteRunnable)
+    releasePlayers()
+    config = null
+    ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+    stopSelf()
+  }
+}

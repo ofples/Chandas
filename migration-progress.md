@@ -37,31 +37,40 @@ service that also plays audio and updates an ongoing notification.
 
 ```
 ┌─ JS / React Native (UI thread) ──────────────────────────────┐
-│  snapLogic.ts (unchanged) → ring + MM:SS countdown (Reanimated/RAF)
+│  snapLogic.ts (unchanged) → ring + MM:SS countdown (RAF loop)
 │  Config/session/theme  → AsyncStorage
-│  Start/Stop            → calls SlotTimerService (native module)
-│  Receives "tick" events → pulse animation, resync
+│  Start/Update/Stop     → calls SlotTimerService (native module)
 └──────────────────────────────────────────────────────────────┘
-            │ start(config) / stop() / update(config)   ▲ onTick event
-            ▼                                            │
-┌─ SlotTimerService (Kotlin, Expo Modules API) ────────────────┐
+            │ start(config) / update(partial) / stop()
+            ▼
+┌─ SlotTimerFgService (Kotlin, Expo Modules API) ───────────────┐
 │  mediaPlayback foreground service + ongoing notification
-│  snapLogic ported to Kotlin (~30 lines) → schedules next tick
-│  Plays gong/bell (SoundPool/ExoPlayer) at each tick @ volume
-│  Optional looping bg music (ExoPlayer)
+│  TimerMath.kt — snapLogic ported verbatim → schedules next tick
+│  Plays gong/bell (MediaPlayer) at each tick @ in-app volume
+│  Optional looping bg music (MediaPlayer)
 │  Updates notification "Next gong at HH:MM" each minute
-│  Emits onTick to JS
-└──────────────────────────────────────────────────────────────┘
+└────────────────────────────────────────────────────────────────┘
 ```
 
-**Sound ownership:** the native service owns *all* gong/bell playback (foreground and
-background), so there's no visible/hidden double-sound coordination like today. JS only
-renders the ring + countdown and reacts to `onTick`. Full mute = volume 0 → service plays
+**Sound ownership:** the native service owns *all* gong/bell/bg-music playback while a
+session is running (started the moment the user taps Start, not only once backgrounded —
+matching how a real workout-timer foreground service behaves), so there's no
+visible/hidden double-sound coordination like today. Full mute = volume 0 → service plays
 nothing, notification still updates.
 
-`snapLogic` lives in **both** JS (for the per-frame UI countdown/ring) and Kotlin (for the
-service's sound + notification scheduling), each driven by the same `{mainMs, subMs, phase}`
-— mirroring today's split between `App`/`useTimer` and `sw.ts`.
+**No tick-event IPC needed.** `snapLogic`/`TimerMath` live in **both** JS (for the
+per-frame ring/countdown) and Kotlin (for the service's sound + notification scheduling),
+each computed independently from the same `(mainMs, subMs, phase)` and `Date.now()`/
+`System.currentTimeMillis()`. Because the schedule is pure math with no shared mutable
+state, the two sides can never drift and never need to exchange tick events to stay in
+sync — only `start`/`update`/`stop` cross the JS↔native bridge.
+
+**JS-side fallback:** `src/hooks/useTimer.ts` calls the native service via
+`src/native/SlotTimerService.ts` (`requireOptionalNativeModule`) when it's linked. If it
+isn't (mid-development, or a future iOS build), the hook falls back to playing
+gong/bell/bg-music itself via `expo-audio` in the foreground only — accurate while the app
+is open, with no background guarantee. This is what makes Phases 0–2 independently
+testable before Phase 3's native module exists.
 
 ---
 
@@ -97,73 +106,113 @@ double-tap-force-update.
 
 ## Dependencies
 
-- `expo` (SDK 54+), `expo-dev-client`
-- Custom native module **`SlotTimerService`** (Kotlin, Expo Modules API) — the foreground service
-- `expo-audio` — (fallback / or reuse for bg music if we don't do all audio in Kotlin)
-- `expo-notifications` — `POST_NOTIFICATIONS` permission + notification channel
+- `expo` SDK 57, `expo-dev-client` (Expo Go is left behind — required for the custom native module)
+- Local Expo module **`modules/slot-timer-service`** (Kotlin) — `SlotTimerFgService` (the
+  foreground service) + `SlotTimerServiceModule` (the JS bridge); autolinked automatically
+  since it lives under `modules/` — verified via `npx expo-modules-autolinking resolve --platform android`
+  and `npx expo prebuild --platform android` (see Verification below)
+- `expo-audio` — JS-side fallback playback when the native module isn't linked
+- `expo-notifications` — requests `POST_NOTIFICATIONS` before starting the service
 - `react-native-svg` — progress ring
-- `react-native-reanimated` — pulse + smooth ring
+- `react-native-reanimated` — installed for future animation polish (current pulse uses core `Animated`)
 - `@react-native-async-storage/async-storage` — persistence
 - `@react-native-community/slider` — volume sliders
 - `react-native-safe-area-context` — safe-area insets (replaces CSS `env(safe-area-inset-*)`)
-- `expo-font` — JetBrains Mono
-- `expo-keep-awake` — screen-on while running & foreground
+- `@expo-google-fonts/jetbrains-mono` + `expo-font` — JetBrains Mono (300/400)
+- `expo-keep-awake` — screen-on while running
 
 **`app.json` / manifest:** `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK`,
-`POST_NOTIFICATIONS`, `WAKE_LOCK`; foreground-service type `mediaPlayback`; portrait; icons/
-splash from existing PNGs; notification channel for the ongoing status notification.
+`POST_NOTIFICATIONS`, `WAKE_LOCK` (top-level, via `app.json:expo.android.permissions`); the
+module's own `AndroidManifest.xml` declares `<service android:foregroundServiceType="mediaPlayback">`,
+merged into the app manifest by the Android Gradle Plugin at build time; portrait; icons/
+splash from existing PNGs; notification channel (`slottimer-running`, `IMPORTANCE_LOW` —
+silent, since the service plays the gong itself rather than relying on notification sound).
 
 ---
 
 ## Phases (worklist)
 
-### Phase 0 — Scaffold
-- [ ] `create-expo-app` (SDK 54+, TS) into the repo; preserve git history on the branch
-- [ ] Install deps (above)
-- [ ] Copy `src/lib/snapLogic.ts` and `src/types.ts` **unchanged**
-- [ ] Bundle audio assets (gong/bell/bg1-3) for native playback
-- [ ] Bare dev build boots on an Android device/emulator
+### Phase 0 — Scaffold ✅
+- [x] Expo SDK 57 TS app scaffolded at repo root; legacy PWA preserved under `legacy-web/`
+- [x] Install deps (above)
+- [x] Copy `src/lib/snapLogic.ts` and `src/types.ts` **unchanged**
+- [x] Bundle audio assets (gong/bell/bg1-3) under `assets/sounds/` for native playback
+- [ ] Bare dev build boots on an Android device/emulator — **needs a real device/emulator**, see Verification
 
-### Phase 1 — Design system + Config screen
-- [ ] Theme tokens (`App.css:1-30`) → `theme.ts` + `ThemeProvider`; dark/light toggle
-- [ ] `ConfigScreen`, `IntervalPicker`, `SnapConfig`, `CustomMinutePicker` as RN
-      (chips = `Pressable`, toggles, bottom-sheet picker), faithful to current look
-- [ ] Gong/bell volume slider + notifications toggle
-- [ ] Config persisted to AsyncStorage
-- [ ] Verify parity vs. running web config screen
+### Phase 1 — Design system + Config screen ✅
+- [x] Theme tokens (`legacy-web/src/App.css:1-30`) → `src/theme/tokens.ts` + `ThemeContext`; dark/light toggle
+- [x] `ConfigScreen`, `IntervalPicker`, `SnapConfig`, `CustomMinutePicker` as RN
+      (chips = `Pressable`, custom `Toggle`, bottom-sheet `Modal` picker), faithful to current look
+- [x] Gong/bell volume slider + notifications toggle
+- [x] Config persisted to AsyncStorage
+- [ ] Verify parity vs. running web config screen — needs a device/simulator
 
-### Phase 2 — Running screen + foreground UI
-- [ ] `RunningScreen`: SVG ring (`react-native-svg`), pulse (Reanimated), countdown text
-- [ ] Volume / track / bg-volume popovers
-- [ ] `expo-keep-awake` while running & foreground
-- [ ] Session persistence + auto-resume from AsyncStorage
-- [ ] JS timer drives ring/countdown from `snapLogic` (visual only)
-- [ ] Verify parity vs. running web running-screen
+### Phase 2 — Running screen + foreground UI ✅
+- [x] `RunningScreen`: SVG ring (`react-native-svg`), pulse (`Animated`), countdown text (JetBrains Mono)
+- [x] Volume / track / bg-volume popovers
+- [x] `expo-keep-awake` while running
+- [x] Session persistence + auto-resume from AsyncStorage (async bootstrap in `App.tsx`)
+- [x] JS timer drives ring/countdown from `snapLogic` (visual only, always JS-side)
+- [ ] Verify parity vs. running web running-screen — needs a device/simulator
 
-### Phase 3 — `SlotTimerService` foreground service (the payoff)
-- [ ] Kotlin Expo module: start/stop/update a `mediaPlayback` foreground service
-- [ ] Port `snapLogic` tick math to Kotlin
-- [ ] Play gong/bell at ticks via SoundPool/ExoPlayer at the in-app volume
-- [ ] Ongoing notification, updated "Next gong at HH:MM" each minute
-- [ ] Optional looping bg music (track + volume, live-switchable) — **fully mutable**
-- [ ] `onTick` event → JS pulse/resync
-- [ ] Start()/Stop() wired from the UI; `POST_NOTIFICATIONS` permission flow
-- [ ] Verify: screen off, app swiped away, multi-hour session → gong fires on time; mute = silent
+### Phase 3 — `SlotTimerService` foreground service (the payoff) ✅ code complete
+- [x] Local Expo module `modules/slot-timer-service`; Kotlin `SlotTimerFgService`
+      start/update/stop a `mediaPlayback` foreground service
+- [x] `TimerMath.kt` — `snapLogic` tick math ported verbatim
+- [x] Gong/bell playback via `MediaPlayer` at ticks, at the in-app volume; silent when volume is 0
+- [x] Ongoing notification (`NotificationCompat`), updated "Next gong at HH:MM" each minute;
+      falls back to a minimal "Timer running" body when the in-app notifications toggle is off
+      (Android requires *some* ongoing notification for any foreground service — OS constraint,
+      not an app choice)
+- [x] Optional looping bg music (track + volume, live-switchable via `update()`) — **fully mutable**
+- [x] `start()`/`update()`/`stop()` wired from `useTimer.ts`; `POST_NOTIFICATIONS` requested
+      via `expo-notifications` before starting
+- [x] JS/Kotlin need no tick-event IPC — both derive ticks independently from the same phase
+- [x] Verified in this container: `tsc --noEmit` clean, `expo-doctor` 20/20,
+      `expo prebuild --platform android` succeeds, `expo-modules-autolinking resolve` correctly
+      discovers and links the module's Kotlin class
+- [ ] **Not verified here** (no Android SDK/emulator in this container): actual Gradle/Kotlin
+      compilation, on-device behavior (screen off, app swiped away, multi-hour session, mute).
+      See Verification below.
 
 ### Phase 4 — Ship
-- [ ] `expo-font` JetBrains Mono; icons/splash; `app.json` finalized
+- [x] `expo-font` + `@expo-google-fonts/jetbrains-mono`; `app.json` name/permissions/plugins finalized
+- [ ] Icons/splash/adaptive-icon polish (currently the Expo scaffold's placeholder assets — swap
+      in SlotTimer's actual icon before a real release)
+- [ ] `eas.json` build profiles
 - [ ] EAS build (internal / Play internal testing)
 - [ ] EAS Update replaces the SW update banner
 
 ---
+
+## Verification
+
+**What was verified in this cloud container** (no Android SDK, no emulator, no `kotlinc`
+available — see below): `tsc --noEmit` across the whole app (clean), `expo-doctor` (20/20
+checks), and `npx expo prebuild --platform android` (succeeds — generates the native project
+and confirms `expo-modules-autolinking resolve --platform android` discovers
+`modules/slot-timer-service` and correctly resolves its Kotlin module class,
+`expo.modules.slottimerservice.SlotTimerServiceModule`). The generated `android/` project was
+then deleted again since it's CNG-managed (gitignored, regenerated by `prebuild`/`expo run:android`).
+
+**What still needs a real device or emulator** (this container has Java + Gradle but no
+Android SDK/platform tools, so Gradle can't actually compile or run anything Android):
+1. `npx expo run:android` — first real Gradle/Kotlin compile of `SlotTimerFgService.kt` /
+   `SlotTimerServiceModule.kt`. This is genuinely unbuilt code; treat the first build as a
+   normal native-module bring-up (Kotlin API mistakes are the most likely thing to fix).
+2. On-device behavior: screen off, app swiped away, multi-hour session → gong still fires on
+   time via the foreground service; mute (volume 0) → truly silent while the ongoing
+   notification keeps updating; live volume/track/bg-volume changes while running.
+3. Visual parity of `ConfigScreen`/`RunningScreen` against the running legacy web app.
 
 ## Known tradeoffs / risks
 - **Persistent notification while running** — expected & honest for an active timer (like a
   workout/stopwatch), not intrusive.
 - **Battery** — a resident service costs more than idle scheduling; acceptable because the
   work is genuinely ongoing and user-initiated.
-- **Verification** — no Android emulator in the cloud container; code migration happens here,
-  final on-device verification happens on your machine (or an EAS build).
+- **Notification icon** — `SlotTimerFgService` currently uses `applicationInfo.icon` as the
+  small icon; Android wants a dedicated monochrome/transparent notification icon asset for a
+  polished look (Phase 4 item).
 
 ## iOS, later
 iOS forbids foreground services and long-running timers, so the correct iOS path is
