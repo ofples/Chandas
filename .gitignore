@@ -39,6 +39,11 @@ yarn-error.*
 # typescript
 *.tsbuildinfo
 
+# downloaded build artifacts (not source)
+*.apk
+*.aab
+*.ipa
+
 # legacy web app build cache
 legacy-web/.vite/
 legacy-web/dist/
