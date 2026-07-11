@@ -53,17 +53,21 @@ class SlotTimerServiceModule : Module() {
     }
 
     Function("stop") {
-      val context = appContext.reactContext ?: return@Function
-      context.startService(Intent(context, SlotTimerFgService::class.java).apply {
-        action = SlotTimerFgService.ACTION_STOP
-      })
+      val context = appContext.reactContext
+      if (context != null) {
+        context.startService(Intent(context, SlotTimerFgService::class.java).apply {
+          action = SlotTimerFgService.ACTION_STOP
+        })
+      }
     }
 
     Function("stopAlarm") {
-      val context = appContext.reactContext ?: return@Function
-      context.startService(Intent(context, SlotTimerFgService::class.java).apply {
-        action = SlotTimerFgService.ACTION_STOP_ALARM
-      })
+      val context = appContext.reactContext
+      if (context != null) {
+        context.startService(Intent(context, SlotTimerFgService::class.java).apply {
+          action = SlotTimerFgService.ACTION_STOP_ALARM
+        })
+      }
     }
 
     Function("isRinging") {
