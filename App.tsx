@@ -6,10 +6,11 @@ import { useFonts, JetBrainsMono_300Light, JetBrainsMono_400Regular } from '@exp
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext'
 import { TimerConfig, AppState } from './src/types'
 import { useTimer } from './src/hooks/useTimer'
-import { loadConfig, saveConfig, hasTimerSession, DEFAULT_CONFIG } from './src/lib/storage'
+import { clearSession, loadConfig, saveConfig, hasTimerSession, DEFAULT_CONFIG } from './src/lib/storage'
 import { ConfigScreen } from './src/screens/ConfigScreen'
 import { RunningScreen } from './src/screens/RunningScreen'
 import { AlarmRingingScreen } from './src/screens/AlarmRingingScreen'
+import { isNativeServiceAvailable, SlotTimerService } from './src/native/SlotTimerService'
 
 function Root() {
   const { tokens, theme } = useTheme()
@@ -24,11 +25,14 @@ function Root() {
 
   useEffect(() => {
     (async () => {
-      const [loadedConfig, resuming] = await Promise.all([loadConfig(), hasTimerSession()])
+      const [loadedConfig, storedSession] = await Promise.all([loadConfig(), hasTimerSession()])
+      const nativeSession = isNativeServiceAvailable && SlotTimerService.getState().active
+      const resuming = isNativeServiceAvailable ? nativeSession : storedSession
+      if (isNativeServiceAvailable && storedSession && !nativeSession) await clearSession()
       setConfig(loadedConfig)
       if (resuming) {
         setAppState('running')
-        start()
+        start(loadedConfig)
       }
       setReady(true)
       // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -45,6 +49,10 @@ function Root() {
   }
 
   const handleStart = () => {
+    if (isNativeServiceAvailable && !SlotTimerService.canScheduleExactAlarms()) {
+      SlotTimerService.openExactAlarmSettings()
+      return
+    }
     start()
     setAppState('running')
   }
@@ -86,10 +94,6 @@ function Root() {
           onStop={handleStop}
           volume={config.volume}
           onVolumeChange={v => handleConfigChange({ ...config, volume: v })}
-          bgTrack={config.bgTrack}
-          bgVolume={config.bgVolume}
-          onBgTrackChange={t => handleConfigChange({ ...config, bgTrack: t })}
-          onBgVolumeChange={v => handleConfigChange({ ...config, bgVolume: v })}
           snapEnabled={config.snapEnabled}
           onRestartUnsynced={handleRestartUnsynced}
           onSnapToClock={handleSnapToClock}

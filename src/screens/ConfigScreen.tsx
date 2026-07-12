@@ -8,6 +8,7 @@ import { IntervalPicker } from '../components/IntervalPicker'
 import { SnapConfig } from '../components/SnapConfig'
 import { Toggle } from '../components/Toggle'
 import { BellIcon, ThemeIcon, VolumeIcon } from '../components/Icons'
+import { isNativeServiceAvailable, SlotTimerService } from '../native/SlotTimerService'
 
 const APP_VERSION = '0.2.0'
 
@@ -43,8 +44,20 @@ export function ConfigScreen({ config, onChange, onStart }: Props) {
     set('notificationsEnabled', next)
   }
 
+  const handleAlarmToggle = (enabled: boolean) => {
+    if (
+      enabled &&
+      Platform.OS === 'android' &&
+      isNativeServiceAvailable &&
+      !SlotTimerService.canUseFullScreenIntent()
+    ) {
+      SlotTimerService.openFullScreenIntentSettings()
+    }
+    set('alarmModeEnabled', enabled)
+  }
+
   return (
-    <View style={[styles.screen, { backgroundColor: tokens.bg, paddingTop: Math.max(insets.top, 24), paddingBottom: Math.max(insets.bottom, 24) }]}>
+    <View style={[styles.screen, { backgroundColor: tokens.bg, paddingTop: insets.top + 20, paddingBottom: insets.bottom + 20 }]}>
       <View style={styles.inner}>
         <IntervalPicker
           label="Main interval"
@@ -112,7 +125,7 @@ export function ConfigScreen({ config, onChange, onStart }: Props) {
             <Text style={[styles.sectionLabel, { color: tokens.textMuted }]}>Alarm mode</Text>
             <Toggle
               value={config.alarmModeEnabled}
-              onChange={v => set('alarmModeEnabled', v)}
+              onChange={handleAlarmToggle}
               accessibilityLabel="Alarm mode"
             />
           </View>

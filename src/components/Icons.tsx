@@ -73,16 +73,6 @@ export function VolumeIcon({ level, muted, color }: { level?: number; muted?: bo
   )
 }
 
-export function NoteIcon({ color }: { color: string }) {
-  return (
-    <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
-      <Path d="M9 18V5l12-2v13" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-      <Circle cx={6} cy={18} r={3} stroke={color} strokeWidth={2} />
-      <Circle cx={18} cy={16} r={3} stroke={color} strokeWidth={2} />
-    </Svg>
-  )
-}
-
 // Circular-arrow "restart" icon — used when unsyncing from the clock.
 export function RestartIcon({ color }: { color: string }) {
   return (

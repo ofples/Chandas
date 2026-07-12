@@ -1,10 +1,8 @@
 // Typed JS wrapper around the native "SlotTimerService" Expo module
-// (modules/slot-timer-service — Kotlin, Android foreground service).
+// (modules/slot-timer-service — Kotlin, Android exact-alarm scheduler).
 //
-// The service owns tick scheduling, sound (gong/bell/bg music) playback, and the
-// ongoing "Next gong at HH:MM" notification, so it keeps chiming accurately whether
-// the app is foregrounded, backgrounded, or the screen is off — no JS keep-alive
-// needed. When the native module isn't present (mid-development build, or a
+// AlarmManager owns tick scheduling; a foreground service is used only while a
+// continuous alarm is actively ringing. When the native module isn't present, a
 // platform without it), `isAvailable` is false and callers should fall back to
 // the JS-only foreground timer (see useTimer.ts).
 import { Platform } from 'react-native'
@@ -16,14 +14,24 @@ export interface NativeTimerConfig {
   phase: number
   subEnabled: boolean
   volume: number       // 0–1, gong/bell volume
-  bgTrack: 1 | 2 | 3
-  bgVolume: number      // 0–1, 0 = no bg music
   notificationsEnabled: boolean
   alarmModeEnabled: boolean // main gong becomes a continuous, dismissable alarm
 }
 
 interface AlarmStateEvent {
   ringing: boolean
+}
+
+export interface NativeTimerState {
+  active: boolean
+  ringing: boolean
+  mainMs?: number
+  subMs?: number
+  phase?: number
+  subEnabled?: boolean
+  volume?: number
+  notificationsEnabled?: boolean
+  alarmModeEnabled?: boolean
 }
 
 interface EventSubscription {
@@ -36,6 +44,11 @@ interface SlotTimerServiceModule {
   stop(): void
   stopAlarm(): void
   isRinging(): boolean
+  getState(): NativeTimerState
+  canScheduleExactAlarms(): boolean
+  openExactAlarmSettings(): void
+  canUseFullScreenIntent(): boolean
+  openFullScreenIntentSettings(): void
   addListener(eventName: 'onAlarmStateChanged', listener: (event: AlarmStateEvent) => void): EventSubscription
 }
 
@@ -64,6 +77,21 @@ export const SlotTimerService = {
   // (e.g. the app was relaunched from the alarm's full-screen notification).
   isRinging(): boolean {
     return native?.isRinging() ?? false
+  },
+  getState(): NativeTimerState {
+    return native?.getState() ?? { active: false, ringing: false }
+  },
+  canScheduleExactAlarms(): boolean {
+    return native?.canScheduleExactAlarms() ?? true
+  },
+  openExactAlarmSettings() {
+    native?.openExactAlarmSettings()
+  },
+  canUseFullScreenIntent(): boolean {
+    return native?.canUseFullScreenIntent() ?? true
+  },
+  openFullScreenIntentSettings() {
+    native?.openFullScreenIntentSettings()
   },
   // Live updates while the app is open — the counterpart to isRinging() above.
   addAlarmListener(listener: (ringing: boolean) => void): EventSubscription | null {

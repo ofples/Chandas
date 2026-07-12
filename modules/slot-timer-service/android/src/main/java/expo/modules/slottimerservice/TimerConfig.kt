@@ -6,8 +6,15 @@ data class TimerConfig(
   val phase: Long,
   val subEnabled: Boolean,
   val volume: Float,
-  val bgTrack: Int,
-  val bgVolume: Float,
   val notificationsEnabled: Boolean,
   val alarmModeEnabled: Boolean,
 )
+
+enum class TimerEventType(val value: String) {
+  MAIN("main"),
+  SUB("sub");
+
+  companion object {
+    fun fromValue(value: String?): TimerEventType? = entries.firstOrNull { it.value == value }
+  }
+}

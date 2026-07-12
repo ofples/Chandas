@@ -12,8 +12,6 @@ export const DEFAULT_CONFIG: TimerConfig = {
   subEnabled: true,
   notificationsEnabled: true,
   volume: 0.8,
-  bgTrack: 1,
-  bgVolume: 0.5,
   alarmModeEnabled: false,
 }
 

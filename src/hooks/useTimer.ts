@@ -13,11 +13,6 @@ const KEEP_AWAKE_TAG = 'slottimer-running'
 const GONG_SOURCE = require('../../assets/sounds/gong.mp3')
 const BELL_SOURCE = require('../../assets/sounds/bell.mp3')
 const ALARM_SOURCE = require('../../assets/sounds/alarm.wav')
-const BG_SOURCES = {
-  1: require('../../assets/sounds/bg1.mp3'),
-  2: require('../../assets/sounds/bg2.mp3'),
-  3: require('../../assets/sounds/bg3.mp3'),
-} as const
 
 interface TimerState {
   mainCountdown: string
@@ -27,7 +22,7 @@ interface TimerState {
 
 interface UseTimerReturn extends TimerState {
   isRunning: boolean
-  start: () => void
+  start: (overrideConfig?: TimerConfig) => void
   stop: () => void
   resyncPhase: (newPhase: number) => void
   isAlarmRinging: boolean
@@ -43,12 +38,11 @@ async function ensureNotificationPermission(): Promise<boolean> {
 
 // ── Hook ───────────────────────────────────────────────────────
 //
-// The native SlotTimerService (Android foreground service, Phase 3) owns all
-// sound + notification duties when available — it keeps chiming accurately
-// whether the app is foregrounded, backgrounded, or the screen is off. This
+// The native Android scheduler owns exact alarms, one-shot sounds, persistence,
+// and notifications when available. This
 // hook always renders the ring/countdown itself (pure function of Date.now()
 // and the shared phase, so it can never drift from the service), and only
-// falls back to playing gong/bell/bg-music in JS when the native module isn't
+// falls back to playing gong/bell audio in JS when the native module isn't
 // present yet (e.g. mid-development, or a platform without it) — matching the
 // legacy web app's foreground behavior minus the keep-alive hacks.
 export function useTimer(config: TimerConfig): UseTimerReturn {
@@ -70,7 +64,6 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
 
   const gongPlayerRef  = useRef<AudioPlayer | null>(null)
   const bellPlayerRef  = useRef<AudioPlayer | null>(null)
-  const bgPlayerRef    = useRef<AudioPlayer | null>(null)
   const alarmPlayerRef = useRef<AudioPlayer | null>(null)
 
   // ── Display update (RAF loop) — always JS-side, always in sync ─
@@ -151,27 +144,37 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
 
   // ── Start / Stop ─────────────────────────────────────────────
 
-  const start = useCallback(async () => {
+  const start = useCallback(async (overrideConfig?: TimerConfig) => {
+    const startConfig = overrideConfig ?? config
     const now    = Date.now()
-    const mainMs = config.mainInterval * 60_000
-    const subMs  = config.subInterval * 60_000
+    const nativeState = isNativeServiceAvailable ? SlotTimerService.getState() : null
+    const mainMs = nativeState?.active && nativeState.mainMs
+      ? nativeState.mainMs
+      : startConfig.mainInterval * 60_000
+    const subMs = nativeState?.active && nativeState.subMs
+      ? nativeState.subMs
+      : startConfig.subInterval * 60_000
 
     mainMsRef.current     = mainMs
     subMsRef.current      = subMs
-    subEnabledRef.current = config.subEnabled
+    subEnabledRef.current = nativeState?.active
+      ? nativeState.subEnabled ?? startConfig.subEnabled
+      : startConfig.subEnabled
 
     const session = await loadSession()
-    phaseRef.current = (session?.mainMs === mainMs && session?.subMs === subMs)
-      ? session.phase
-      : config.snapEnabled
-        ? config.snapOffset * 60_000
-        : now % mainMs
+    phaseRef.current = nativeState?.active && nativeState.phase !== undefined
+      ? nativeState.phase
+      : (session?.mainMs === mainMs && session?.subMs === subMs)
+        ? session.phase
+        : startConfig.snapEnabled
+          ? startConfig.snapOffset * 60_000
+          : now % mainMs
 
     await saveSession({ phase: phaseRef.current, mainMs, subMs })
 
     isRunningRef.current = true
     setIsRunning(true)
-    setIsAlarmRinging(false)
+    setIsAlarmRinging(nativeState?.ringing ?? false)
     updateDisplay()
     rafRef.current = requestAnimationFrame(rafLoop)
     await activateKeepAwakeAsync(KEEP_AWAKE_TAG)
@@ -182,29 +185,25 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
     const notifGranted = await ensureNotificationPermission()
 
     if (isNativeServiceAvailable) {
-      SlotTimerService.start({
+      const nativeConfig = {
         mainMs,
         subMs,
         phase: phaseRef.current,
-        subEnabled: config.subEnabled,
-        volume: config.volume,
-        bgTrack: config.bgTrack,
-        bgVolume: config.bgVolume,
-        notificationsEnabled: notifGranted && config.notificationsEnabled,
-        alarmModeEnabled: config.alarmModeEnabled,
-      })
+        subEnabled: subEnabledRef.current,
+        volume: startConfig.volume,
+        notificationsEnabled: notifGranted && startConfig.notificationsEnabled,
+        alarmModeEnabled: startConfig.alarmModeEnabled,
+      }
+      if (nativeState?.active) {
+        SlotTimerService.update(nativeConfig)
+      } else {
+        SlotTimerService.start(nativeConfig)
+      }
     } else {
       // JS fallback — foreground-only accuracy, mirrors legacy web behavior.
       await setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: false })
       gongPlayerRef.current = createAudioPlayer(GONG_SOURCE)
       bellPlayerRef.current = createAudioPlayer(BELL_SOURCE)
-      if (config.bgVolume > 0) {
-        const bg = createAudioPlayer(BG_SOURCES[config.bgTrack])
-        bg.loop = true
-        bg.volume = config.bgVolume
-        bg.play()
-        bgPlayerRef.current = bg
-      }
       scheduleFallbackTick()
     }
   }, [config, updateDisplay, rafLoop, scheduleFallbackTick])
@@ -225,11 +224,9 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
     } else {
       gongPlayerRef.current?.remove()
       bellPlayerRef.current?.remove()
-      bgPlayerRef.current?.remove()
       alarmPlayerRef.current?.remove()
       gongPlayerRef.current = null
       bellPlayerRef.current = null
-      bgPlayerRef.current = null
       alarmPlayerRef.current = null
     }
 
@@ -303,29 +300,6 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
       scheduleFallbackTick()
     }
   }, [config.volume, config.alarmModeEnabled, scheduleFallbackTick])
-
-  // Live-update bg track / volume
-  useEffect(() => {
-    if (!isRunningRef.current) return
-    if (isNativeServiceAvailable) {
-      SlotTimerService.update({ bgTrack: config.bgTrack, bgVolume: config.bgVolume })
-      return
-    }
-    if (config.bgVolume <= 0) {
-      bgPlayerRef.current?.remove()
-      bgPlayerRef.current = null
-      return
-    }
-    if (!bgPlayerRef.current) {
-      const bg = createAudioPlayer(BG_SOURCES[config.bgTrack])
-      bg.loop = true
-      bg.volume = config.bgVolume
-      bg.play()
-      bgPlayerRef.current = bg
-    } else {
-      bgPlayerRef.current.volume = config.bgVolume
-    }
-  }, [config.bgTrack, config.bgVolume])
 
   // Re-sync the RAF loop and (fallback) tick scheduler when the app returns
   // to the foreground — timestamps are absolute, so this is just a resync,
