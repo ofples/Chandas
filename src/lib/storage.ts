@@ -13,6 +13,11 @@ export const DEFAULT_CONFIG: TimerConfig = {
   notificationsEnabled: true,
   volume: 0.8,
   alarmModeEnabled: false,
+  activeHoursEnabled: false,
+  activeHoursStart: 8 * 60,
+  activeHoursEnd: 22 * 60,
+  activeHoursDays: 0b1111111,
+  alarmDurationSeconds: 60,
 }
 
 export async function loadConfig(): Promise<TimerConfig> {

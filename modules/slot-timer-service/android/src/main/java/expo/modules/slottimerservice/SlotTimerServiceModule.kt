@@ -20,16 +20,24 @@ class TimerConfigRecord : Record {
   @Field var volume: Float? = null
   @Field var notificationsEnabled: Boolean? = null
   @Field var alarmModeEnabled: Boolean? = null
+  @Field var activeHoursEnabled: Boolean? = null
+  @Field var activeHoursStart: Int? = null
+  @Field var activeHoursEnd: Int? = null
+  @Field var activeHoursDays: Int? = null
+  @Field var alarmDurationSeconds: Int? = null
 }
 
 class SlotTimerServiceModule : Module() {
   private val ringingListener: (Boolean) -> Unit = { ringing ->
     sendEvent("onAlarmStateChanged", bundleOf("ringing" to ringing))
   }
+  private val controlListener: (TimerControlState) -> Unit = { state ->
+    sendEvent("onControlStateChanged", controlBundle(state))
+  }
 
   override fun definition() = ModuleDefinition {
     Name("SlotTimerService")
-    Events("onAlarmStateChanged")
+    Events("onAlarmStateChanged", "onControlStateChanged")
 
     Function("start") { record: TimerConfigRecord ->
       val context = appContext.reactContext ?: return@Function
@@ -52,26 +60,38 @@ class SlotTimerServiceModule : Module() {
     Function("stopAlarm") {
       val context = appContext.reactContext
       if (context != null) {
-        context.startService(Intent(context, SlotTimerAlarmService::class.java).apply {
-          action = SlotTimerAlarmService.ACTION_STOP
-        })
+        if (TimerStateStore.isRinging(context)) {
+          context.startService(Intent(context, SlotTimerAlarmService::class.java).apply {
+            action = SlotTimerAlarmService.ACTION_STOP
+          })
+        } else {
+          TimerStateStore.setAlarmVisible(context, false)
+          AlarmStateRegistry.notify(false)
+        }
       }
     }
 
     Function("isRinging") {
       val context = appContext.reactContext
-      context != null && TimerStateStore.isRinging(context)
+      context != null && TimerStateStore.isAlarmVisible(context)
     }
 
     Function("getState") {
       val context = appContext.reactContext
       val config = context?.let { TimerStateStore.load(it) }
       if (config == null) {
-        bundleOf("active" to false, "ringing" to false)
+        bundleOf(
+          "active" to false,
+          "ringing" to false,
+          "alarmOnceArmed" to false,
+          "mutedUntil" to 0L,
+          "mutedIterationsRemaining" to 0,
+        )
       } else {
+        val controls = TimerStateStore.getControlState(context)
         bundleOf(
           "active" to true,
-          "ringing" to TimerStateStore.isRinging(context),
+          "ringing" to TimerStateStore.isAlarmVisible(context),
           "mainMs" to config.mainMs,
           "subMs" to config.subMs,
           "phase" to config.phase,
@@ -79,8 +99,38 @@ class SlotTimerServiceModule : Module() {
           "volume" to config.volume,
           "notificationsEnabled" to config.notificationsEnabled,
           "alarmModeEnabled" to config.alarmModeEnabled,
+          "activeHoursEnabled" to config.activeHoursEnabled,
+          "activeHoursStart" to config.activeHoursStart,
+          "activeHoursEnd" to config.activeHoursEnd,
+          "activeHoursDays" to config.activeHoursDays,
+          "alarmDurationSeconds" to config.alarmDurationSeconds,
+          "alarmOnceArmed" to controls.alarmOnceArmed,
+          "mutedUntil" to controls.mutedUntil,
+          "mutedIterationsRemaining" to controls.mutedIterationsRemaining,
         )
       }
+    }
+
+    Function("toggleAlarmOnce") {
+      val context = appContext.reactContext
+      if (context != null && TimerStateStore.load(context) != null) {
+        TimerStateStore.toggleAlarmOnce(context)
+      }
+    }
+
+    Function("muteForIterations") { count: Int ->
+      val context = appContext.reactContext ?: return@Function
+      if (TimerStateStore.load(context) != null) TimerStateStore.muteForIterations(context, count)
+    }
+
+    Function("muteForMinutes") { minutes: Int ->
+      val context = appContext.reactContext ?: return@Function
+      if (TimerStateStore.load(context) != null) TimerStateStore.muteForMinutes(context, minutes)
+    }
+
+    Function("clearMute") {
+      val context = appContext.reactContext
+      if (context != null) TimerStateStore.clearMute(context)
     }
 
     Function("canScheduleExactAlarms") {
@@ -130,6 +180,14 @@ class SlotTimerServiceModule : Module() {
     OnStopObserving("onAlarmStateChanged") {
       AlarmStateRegistry.remove(ringingListener)
     }
+
+    OnStartObserving("onControlStateChanged") {
+      TimerControlRegistry.add(controlListener)
+    }
+
+    OnStopObserving("onControlStateChanged") {
+      TimerControlRegistry.remove(controlListener)
+    }
   }
 
   private fun merge(record: TimerConfigRecord, previous: TimerConfig?): TimerConfig? {
@@ -144,6 +202,20 @@ class SlotTimerServiceModule : Module() {
       volume = (record.volume ?: previous?.volume ?: 0.8f).coerceIn(0f, 1f),
       notificationsEnabled = record.notificationsEnabled ?: previous?.notificationsEnabled ?: true,
       alarmModeEnabled = record.alarmModeEnabled ?: previous?.alarmModeEnabled ?: false,
+      activeHoursEnabled = record.activeHoursEnabled ?: previous?.activeHoursEnabled ?: false,
+      activeHoursStart = (record.activeHoursStart ?: previous?.activeHoursStart ?: 480).coerceIn(0, 1_439),
+      activeHoursEnd = (record.activeHoursEnd ?: previous?.activeHoursEnd ?: 1_320).coerceIn(0, 1_439),
+      activeHoursDays = (record.activeHoursDays ?: previous?.activeHoursDays ?: 0x7f)
+        .and(0x7f)
+        .let { if (it == 0) 0x7f else it },
+      alarmDurationSeconds = (record.alarmDurationSeconds ?: previous?.alarmDurationSeconds ?: 60)
+        .coerceIn(5, 3_600),
     )
   }
+
+  private fun controlBundle(state: TimerControlState) = bundleOf(
+    "alarmOnceArmed" to state.alarmOnceArmed,
+    "mutedUntil" to state.mutedUntil,
+    "mutedIterationsRemaining" to state.mutedIterationsRemaining,
+  )
 }

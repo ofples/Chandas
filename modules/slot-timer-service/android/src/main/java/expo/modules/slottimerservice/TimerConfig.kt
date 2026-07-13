@@ -8,11 +8,17 @@ data class TimerConfig(
   val volume: Float,
   val notificationsEnabled: Boolean,
   val alarmModeEnabled: Boolean,
+  val activeHoursEnabled: Boolean,
+  val activeHoursStart: Int,
+  val activeHoursEnd: Int,
+  val activeHoursDays: Int,
+  val alarmDurationSeconds: Int,
 )
 
 enum class TimerEventType(val value: String) {
   MAIN("main"),
-  SUB("sub");
+  SUB("sub"),
+  ACTIVE_START("activeStart");
 
   companion object {
     fun fromValue(value: String?): TimerEventType? = entries.firstOrNull { it.value == value }

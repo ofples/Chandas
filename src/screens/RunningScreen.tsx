@@ -1,15 +1,25 @@
 import { useEffect, useRef, useState } from 'react'
-import { Animated, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import { Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import Svg, { Circle } from 'react-native-svg'
 import Slider from '@react-native-community/slider'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '../theme/ThemeContext'
 import { AlarmIcon, BellIcon, ClockIcon, RestartIcon } from '../components/Icons'
+import { Chip } from '../components/Chip'
+import { CustomMinutePicker } from '../components/CustomMinutePicker'
+import {
+  FlashingTimerCircle,
+  TIMER_CIRCLE_CENTER,
+  TIMER_CIRCLE_RADIUS,
+  TIMER_CIRCLE_VIEW,
+} from '../components/FlashingTimerCircle'
 
 interface Props {
   mainCountdown: string
   subCountdown: string
   progress: number
+  activeHoursPaused: boolean
+  activeHoursResumeAt: number
   onStop: () => void
   volume: number
   onVolumeChange: (v: number) => void
@@ -18,13 +28,16 @@ interface Props {
   onSnapToClock: () => void
   alarmModeEnabled: boolean
   onToggleAlarmMode: () => void
+  alarmOnceArmed: boolean
+  onToggleAlarmOnce: () => void
+  mutedUntil: number
+  mutedIterationsRemaining: number
+  onMuteForIterations: (count: number) => void
+  onMuteForMinutes: (minutes: number) => void
+  onClearTimedMute: () => void
 }
 
-const VIEW = 300
-const CX = VIEW / 2
-const CY = VIEW / 2
-const R = 130
-const CIRC = 2 * Math.PI * R
+const CIRC = 2 * Math.PI * TIMER_CIRCLE_RADIUS
 
 function timeToSecs(s: string): number {
   const [m, sec] = s.split(':').map(Number)
@@ -32,73 +45,160 @@ function timeToSecs(s: string): number {
 }
 
 export function RunningScreen({
-  mainCountdown, subCountdown, progress, onStop,
-  volume, onVolumeChange,
-  snapEnabled, onRestartUnsynced, onSnapToClock,
-  alarmModeEnabled, onToggleAlarmMode,
+  mainCountdown,
+  subCountdown,
+  progress,
+  activeHoursPaused,
+  activeHoursResumeAt,
+  onStop,
+  volume,
+  onVolumeChange,
+  snapEnabled,
+  onRestartUnsynced,
+  onSnapToClock,
+  alarmModeEnabled,
+  onToggleAlarmMode,
+  alarmOnceArmed,
+  onToggleAlarmOnce,
+  mutedUntil,
+  mutedIterationsRemaining,
+  onMuteForIterations,
+  onMuteForMinutes,
+  onClearTimedMute,
 }: Props) {
   const { tokens } = useTheme()
   const insets = useSafeAreaInsets()
-  const [openPanel, setOpenPanel] = useState<'bell' | null>(null)
   const { width } = useWindowDimensions()
-  const prevCountdownRef = useRef(mainCountdown)
-  const pulseAnim = useRef(new Animated.Value(0)).current
-
-  // Remembers the last non-zero level for each channel so the mute button in
-  // its modal can restore it, instead of unmuting to an arbitrary default.
+  const [openPanel, setOpenPanel] = useState<'bell' | null>(null)
+  const [showCustomMute, setShowCustomMute] = useState(false)
+  const previousCountdownsRef = useRef({ main: mainCountdown, sub: subCountdown })
+  const [flashBurst, setFlashBurst] = useState({ trigger: 0, flashes: 1, duration: 650 })
+  const alarmLongPressRef = useRef(false)
   const lastVolumeRef = useRef(volume > 0 ? volume : 0.8)
-  useEffect(() => { if (volume > 0) lastVolumeRef.current = volume }, [volume])
-
-  const toggleMuteVolume = () => onVolumeChange(volume > 0 ? 0 : lastVolumeRef.current)
 
   useEffect(() => {
-    const prev = prevCountdownRef.current
-    prevCountdownRef.current = mainCountdown
-    if (prev === '--:--' || mainCountdown === '--:--') return
-    if (timeToSecs(mainCountdown) > timeToSecs(prev) + 5) {
-      pulseAnim.setValue(1)
-      Animated.timing(pulseAnim, { toValue: 0, duration: 700, useNativeDriver: true }).start()
+    if (volume > 0) lastVolumeRef.current = volume
+  }, [volume])
+
+  useEffect(() => {
+    const previous = previousCountdownsRef.current
+    previousCountdownsRef.current = { main: mainCountdown, sub: subCountdown }
+
+    const mainReset = previous.main !== '--:--' && mainCountdown !== '--:--' &&
+      timeToSecs(mainCountdown) > timeToSecs(previous.main) + 5
+    const subReset = previous.sub !== '--:--' && subCountdown !== '--:--' &&
+      timeToSecs(subCountdown) > timeToSecs(previous.sub) + 1
+
+    if (mainReset) {
+      setFlashBurst(current => ({ trigger: current.trigger + 1, flashes: 3, duration: 260 }))
+    } else if (subReset) {
+      setFlashBurst(current => ({ trigger: current.trigger + 1, flashes: 1, duration: 650 }))
     }
-  }, [mainCountdown, pulseAnim])
+  }, [mainCountdown, subCountdown])
 
+  const ringSize = Math.min(width * 0.78, 320)
   const dashOffset = CIRC * (1 - progress)
+  const timedMuteActive = mutedIterationsRemaining > 0 || mutedUntil > Date.now()
+  const soundMuted = volume === 0 || timedMuteActive
+  const resumeDate = new Date(activeHoursResumeAt)
+  const resumeTime = activeHoursPaused
+    ? `${String(resumeDate.getHours()).padStart(2, '0')}:${String(resumeDate.getMinutes()).padStart(2, '0')}`
+    : ''
 
-  // First tap on a volume button opens its slider; a second tap (while it's
-  // already open) mutes that channel completely and closes the popup —
-  // instead of just toggling the popup open/closed.
+  const unmute = () => {
+    onClearTimedMute()
+    if (volume === 0) onVolumeChange(lastVolumeRef.current)
+  }
+
+  const toggleMuteVolume = () => {
+    if (soundMuted) unmute()
+    else onVolumeChange(0)
+  }
+
   const handleBellPress = () => {
+    if (soundMuted) {
+      unmute()
+      setOpenPanel(null)
+      return
+    }
     if (openPanel === 'bell') {
-      onVolumeChange(0)
+      toggleMuteVolume()
       setOpenPanel(null)
     } else {
       setOpenPanel('bell')
     }
   }
 
-  const ringScale = pulseAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.04] })
-  const ringSize = Math.min(width * 0.78, 320)
+  const handleAlarmPress = () => {
+    if (alarmLongPressRef.current) return
+    if (alarmOnceArmed) onToggleAlarmOnce()
+    onToggleAlarmMode()
+  }
+
+  const handleAlarmLongPress = () => {
+    alarmLongPressRef.current = true
+    if (alarmModeEnabled) onToggleAlarmMode()
+    if (!alarmOnceArmed) onToggleAlarmOnce()
+  }
+
+  const chooseIterationMute = (count: number) => {
+    if (mutedIterationsRemaining === count && mutedUntil === 0) onClearTimedMute()
+    else onMuteForIterations(count)
+  }
+
+  const openCustomMute = () => {
+    setOpenPanel(null)
+    setShowCustomMute(true)
+  }
 
   return (
-    <View style={[
-      styles.screen,
-      {
-        backgroundColor: tokens.bg,
-        paddingTop: insets.top,
-      },
-    ]}>
+    <View style={[styles.screen, { backgroundColor: tokens.bg, paddingTop: insets.top }]}>
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 132 }]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.ringWrap}>
-          <Animated.View style={{ transform: [{ scale: ringScale }] }}>
-            <Svg width={ringSize} height={ringSize} viewBox={`0 0 ${VIEW} ${VIEW}`} style={styles.ringSvg}>
-              <Circle cx={CX} cy={CY} r={R} stroke={tokens.surfaceHi} strokeWidth={3} fill="none" />
+        <Pressable
+          onPress={soundMuted ? unmute : undefined}
+          style={[styles.ringWrap, { width: ringSize, height: ringSize }]}
+          accessibilityRole={soundMuted ? 'button' : undefined}
+          accessibilityLabel={soundMuted ? 'Unmute timer sounds' : undefined}
+        >
+          <View
+            style={[
+              styles.timerVisual,
+              {
+                width: ringSize,
+                height: ringSize,
+                opacity: activeHoursPaused ? 0.35 : soundMuted ? 0.28 : 1,
+              },
+            ]}
+          >
+            <FlashingTimerCircle
+              size={ringSize}
+              color={tokens.accent}
+              trigger={flashBurst.trigger}
+              flashes={flashBurst.flashes}
+              duration={flashBurst.duration}
+            />
+            <Svg
+              width={ringSize}
+              height={ringSize}
+              viewBox={`0 0 ${TIMER_CIRCLE_VIEW} ${TIMER_CIRCLE_VIEW}`}
+              style={styles.ringSvg}
+            >
               <Circle
-                cx={CX}
-                cy={CY}
-                r={R}
+                cx={TIMER_CIRCLE_CENTER}
+                cy={TIMER_CIRCLE_CENTER}
+                r={TIMER_CIRCLE_RADIUS}
+                stroke={tokens.surfaceHi}
+                strokeWidth={3}
+                fill="none"
+              />
+              <Circle
+                cx={TIMER_CIRCLE_CENTER}
+                cy={TIMER_CIRCLE_CENTER}
+                r={TIMER_CIRCLE_RADIUS}
                 stroke={tokens.accent}
                 strokeWidth={3}
                 fill="none"
@@ -107,16 +207,32 @@ export function RunningScreen({
                 strokeDashoffset={dashOffset}
               />
             </Svg>
-          </Animated.View>
 
-          <View style={styles.countdownWrap} pointerEvents="none">
-            <Text style={[styles.countdownMain, { color: tokens.text }]}>{mainCountdown}</Text>
-            <View style={styles.countdownSub}>
-              <Text style={[styles.bellGlyph, { color: tokens.textMuted }]}>♪</Text>
-              <Text style={[styles.subTime, { color: tokens.textMuted }]}>{subCountdown}</Text>
+            <View style={styles.countdownWrap} pointerEvents="none">
+              <Text style={[styles.countdownMain, { color: tokens.text }]}>
+                {activeHoursPaused ? resumeTime : mainCountdown}
+              </Text>
+              {activeHoursPaused ? (
+                <Text style={[styles.pausedLabel, { color: tokens.textMuted }]}>Resumes</Text>
+              ) : (
+                <View style={styles.countdownSub}>
+                <Text style={[styles.bellGlyph, { color: tokens.textMuted }]}>♪</Text>
+                <Text style={[styles.subTime, { color: tokens.textMuted }]}>{subCountdown}</Text>
+                </View>
+              )}
             </View>
           </View>
-        </View>
+
+          {soundMuted && (
+            <View
+              pointerEvents="none"
+              style={[
+                styles.muteSlash,
+                { width: ringSize * 0.72, backgroundColor: tokens.accent },
+              ]}
+            />
+          )}
+        </Pressable>
       </ScrollView>
 
       <View style={[styles.bottom, { backgroundColor: tokens.bg, paddingBottom: insets.bottom + 20 }]}>
@@ -124,43 +240,78 @@ export function RunningScreen({
           <View style={styles.mediaRow}>
             <View style={styles.mediaRowLeft}>
               <Pressable
-                onPress={snapEnabled ? onRestartUnsynced : onSnapToClock}
+                onPress={onRestartUnsynced}
                 style={[
                   styles.mediaBtn,
                   {
-                    borderColor: snapEnabled ? tokens.accent : tokens.border,
-                    backgroundColor: snapEnabled ? 'rgba(124,111,247,0.14)' : 'transparent',
+                    borderColor: tokens.border,
+                    backgroundColor: 'transparent',
                   },
                 ]}
-                accessibilityLabel={snapEnabled ? 'Unsync and restart the timer' : 'Snap the timer to the clock'}
-                accessibilityState={{ selected: snapEnabled }}
+                accessibilityLabel="Reset the timer"
               >
-                {snapEnabled ? <RestartIcon color={tokens.accent} /> : <ClockIcon color={tokens.accent} />}
+                <RestartIcon color={tokens.accent} />
               </Pressable>
 
-            <Pressable
-              onPress={onToggleAlarmMode}
-              style={[
-                styles.mediaBtn,
-                {
-                  borderColor: alarmModeEnabled ? tokens.accent : tokens.border,
-                  backgroundColor: alarmModeEnabled ? 'rgba(124,111,247,0.14)' : 'transparent',
-                },
-              ]}
-              accessibilityLabel={alarmModeEnabled ? 'Disable alarm mode' : 'Enable alarm mode'}
-            >
-              <AlarmIcon color={alarmModeEnabled ? tokens.accent : tokens.textMuted} />
-            </Pressable>
+              {!snapEnabled && (
+                <Pressable
+                  onPress={onSnapToClock}
+                  style={[
+                    styles.mediaBtn,
+                    {
+                      borderColor: tokens.border,
+                      backgroundColor: 'transparent',
+                    },
+                  ]}
+                  accessibilityLabel="Snap the timer to the clock"
+                >
+                  <ClockIcon color={tokens.accent} />
+                </Pressable>
+              )}
+
+              <Pressable
+                onPressIn={() => { alarmLongPressRef.current = false }}
+                onPress={handleAlarmPress}
+                onLongPress={handleAlarmLongPress}
+                onPressOut={() => setTimeout(() => { alarmLongPressRef.current = false }, 0)}
+                delayLongPress={500}
+                style={[
+                  styles.mediaBtn,
+                  {
+                    borderColor: alarmModeEnabled || alarmOnceArmed ? tokens.accent : tokens.border,
+                    backgroundColor: alarmModeEnabled || alarmOnceArmed ? tokens.accentGlow : 'transparent',
+                  },
+                ]}
+                accessibilityLabel={alarmOnceArmed
+                  ? 'Alarm armed for one iteration'
+                  : alarmModeEnabled
+                    ? 'Disable alarm mode'
+                    : 'Enable alarm mode'}
+                accessibilityHint="Long press to arm the next main iteration only"
+              >
+                <AlarmIcon color={alarmModeEnabled || alarmOnceArmed ? tokens.accent : tokens.textMuted} />
+                {alarmOnceArmed && (
+                  <View style={[styles.onceBadge, { backgroundColor: '#4d8fff' }]}>
+                    <Text style={styles.onceBadgeLabel}>1</Text>
+                  </View>
+                )}
+              </Pressable>
             </View>
 
-          <View style={styles.mediaRowRight}>
-            <Pressable
-              onPress={handleBellPress}
-              style={[styles.mediaBtn, { borderColor: openPanel === 'bell' ? tokens.accent : tokens.border }]}
-              accessibilityLabel="Gong & bell volume"
-            >
-              <BellIcon muted={volume === 0} color={openPanel === 'bell' ? tokens.accent : tokens.textMuted} />
-            </Pressable>
+            <View style={styles.mediaRowRight}>
+              <Pressable
+                onPress={handleBellPress}
+                style={[
+                  styles.mediaBtn,
+                  { borderColor: openPanel === 'bell' || soundMuted ? tokens.accent : tokens.border },
+                ]}
+                accessibilityLabel="Gong and bell volume"
+              >
+                <BellIcon
+                  muted={soundMuted}
+                  color={openPanel === 'bell' || soundMuted ? tokens.accent : tokens.textMuted}
+                />
+              </Pressable>
             </View>
           </View>
 
@@ -168,21 +319,17 @@ export function RunningScreen({
             onPress={onStop}
             style={({ pressed }) => [
               styles.stopBtn,
-              { backgroundColor: tokens.surfaceHi, borderColor: tokens.border, transform: [{ scale: pressed ? 0.97 : 1 }] },
+              {
+                backgroundColor: tokens.surfaceHi,
+                borderColor: tokens.border,
+                transform: [{ scale: pressed ? 0.97 : 1 }],
+              },
             ]}
           >
             <Text style={[styles.stopLabel, { color: tokens.textMuted }]}>Stop</Text>
           </Pressable>
         </View>
       </View>
-
-      {/* Popovers render as Modals (their own native overlay layer) rather than
-          absolutely-positioned Views — a position:absolute + manual zIndex popup
-          nested several levels deep turned out to be unreliable for touch
-          delivery on at least one real device (taps didn't reach the Slider at
-          all, even though the same Slider component works fine in normal
-          document flow on ConfigScreen). Modal sidesteps that whole class of
-          bug, and CustomMinutePicker already uses the same pattern reliably. */}
 
       <Modal transparent animationType="fade" visible={openPanel === 'bell'} onRequestClose={() => setOpenPanel(null)}>
         <Pressable style={styles.modalBackdrop} onPress={() => setOpenPanel(null)}>
@@ -191,16 +338,16 @@ export function RunningScreen({
               styles.modalSheet,
               { backgroundColor: tokens.surface, borderColor: tokens.border, paddingBottom: insets.bottom + 32 },
             ]}
-            onPress={e => e.stopPropagation()}
+            onPress={event => event.stopPropagation()}
           >
-            <Text style={[styles.modalTitle, { color: tokens.textMuted }]}>Gong & bell volume</Text>
+            <Text style={[styles.modalTitle, { color: tokens.textMuted }]}>Gong and bell volume</Text>
             <View style={styles.modalVolumeRow}>
               <Pressable
                 onPress={toggleMuteVolume}
-                style={[styles.modalMuteBtn, { borderColor: volume === 0 ? tokens.accent : tokens.border }]}
-                accessibilityLabel={volume === 0 ? 'Unmute' : 'Mute'}
+                style={[styles.modalMuteBtn, { borderColor: soundMuted ? tokens.accent : tokens.border }]}
+                accessibilityLabel={soundMuted ? 'Unmute' : 'Mute'}
               >
-                <BellIcon muted={volume === 0} color={volume === 0 ? tokens.accent : tokens.textMuted} />
+                <BellIcon muted={soundMuted} color={soundMuted ? tokens.accent : tokens.textMuted} />
               </Pressable>
               <Slider
                 style={styles.modalSlider}
@@ -214,10 +361,38 @@ export function RunningScreen({
                 thumbTintColor={tokens.accent}
               />
             </View>
+
+            <View style={styles.mutePresets}>
+              <Text style={[styles.mutePresetsLabel, { color: tokens.textMuted }]}>Mute for</Text>
+              <View style={styles.mutePresetRow}>
+                {[1, 2, 3].map(count => (
+                  <Chip
+                    key={count}
+                    label={`${count}x`}
+                    active={mutedIterationsRemaining === count && mutedUntil === 0}
+                    onPress={() => chooseIterationMute(count)}
+                  />
+                ))}
+                <Chip label="…" active={mutedUntil > Date.now()} onPress={openCustomMute} />
+              </View>
+            </View>
           </Pressable>
         </Pressable>
       </Modal>
 
+      {showCustomMute && (
+        <CustomMinutePicker
+          title="Mute duration"
+          initial={mutedUntil > Date.now() ? Math.ceil((mutedUntil - Date.now()) / 60_000) : 15}
+          min={1}
+          max={1_440}
+          onConfirm={minutes => {
+            onMuteForMinutes(minutes)
+            setShowCustomMute(false)
+          }}
+          onClose={() => setShowCustomMute(false)}
+        />
+      )}
     </View>
   )
 }
@@ -240,6 +415,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  timerVisual: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   ringSvg: {
     transform: [{ rotate: '-90deg' }],
   },
@@ -252,7 +431,7 @@ const styles = StyleSheet.create({
     fontFamily: 'JetBrainsMono-Light',
     fontSize: 64,
     fontWeight: '300',
-    letterSpacing: -1,
+    fontVariant: ['tabular-nums'],
   },
   countdownSub: {
     flexDirection: 'row',
@@ -266,6 +445,19 @@ const styles = StyleSheet.create({
   subTime: {
     fontFamily: 'JetBrainsMono-Regular',
     fontSize: 13,
+    fontVariant: ['tabular-nums'],
+  },
+  pausedLabel: {
+    fontSize: 11,
+    fontWeight: '500',
+    letterSpacing: 1.3,
+    textTransform: 'uppercase',
+  },
+  muteSlash: {
+    position: 'absolute',
+    height: 4,
+    borderRadius: 2,
+    transform: [{ rotate: '-45deg' }],
   },
   bottom: {
     position: 'absolute',
@@ -301,6 +493,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  onceBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    width: 15,
+    height: 15,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  onceBadgeLabel: {
+    color: '#fff',
+    fontSize: 9,
+    fontWeight: '700',
+  },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
@@ -312,7 +519,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderBottomWidth: 0,
     padding: 24,
-    gap: 16,
+    gap: 20,
   },
   modalTitle: {
     fontSize: 13,
@@ -337,6 +544,20 @@ const styles = StyleSheet.create({
   modalSlider: {
     flex: 1,
     height: 40,
+  },
+  mutePresets: {
+    gap: 10,
+  },
+  mutePresetsLabel: {
+    fontSize: 11,
+    fontWeight: '500',
+    letterSpacing: 1.3,
+    textTransform: 'uppercase',
+  },
+  mutePresetRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
   },
   stopBtn: {
     width: '100%',

@@ -16,6 +16,7 @@ object TimerScheduler {
     cancelScheduledEvent(context)
     TimerStateStore.save(context, config)
     TimerStateStore.setRinging(context, false)
+    TimerStateStore.setAlarmVisible(context, false)
     TimerNotifications.ensureChannels(context)
     scheduleNext(context)
   }
@@ -27,8 +28,8 @@ object TimerScheduler {
       context.startService(Intent(context, SlotTimerAlarmService::class.java).apply {
         action = SlotTimerAlarmService.ACTION_UPDATE_VOLUME
         putExtra(SlotTimerAlarmService.EXTRA_VOLUME, config.volume)
+        putExtra(SlotTimerAlarmService.EXTRA_DURATION_SECONDS, config.alarmDurationSeconds)
       })
-      return
     }
     cancelScheduledEvent(context)
     scheduleNext(context)
@@ -45,8 +46,11 @@ object TimerScheduler {
 
   fun restore(context: Context, resetRinging: Boolean) {
     val config = TimerStateStore.load(context) ?: return
-    if (TimerStateStore.isRinging(context) && !resetRinging) return
-    if (resetRinging) TimerStateStore.setRinging(context, false)
+    if (resetRinging) {
+      TimerStateStore.setRinging(context, false)
+      TimerStateStore.setAlarmVisible(context, false)
+      AlarmStateRegistry.notify(false)
+    }
     cancelScheduledEvent(context)
     TimerNotifications.ensureChannels(context)
     scheduleNext(context, config)
@@ -54,7 +58,6 @@ object TimerScheduler {
 
   fun scheduleNext(context: Context, config: TimerConfig? = TimerStateStore.load(context)) {
     val active = config ?: return
-    if (TimerStateStore.isRinging(context)) return
 
     val now = System.currentTimeMillis()
     val nextMain = TimerMath.nextTick(now, active.mainMs, active.phase)
@@ -63,8 +66,12 @@ object TimerScheduler {
     } else {
       Long.MAX_VALUE
     }
-    val triggerAt = min(nextMain, nextSub)
-    val type = if (triggerAt == nextMain) TimerEventType.MAIN else TimerEventType.SUB
+    var triggerAt = min(nextMain, nextSub)
+    var type = if (triggerAt == nextMain) TimerEventType.MAIN else TimerEventType.SUB
+    if (!ActiveHours.isActive(active, now) || !ActiveHours.isActive(active, triggerAt)) {
+      triggerAt = ActiveHours.nextStart(active, now)
+      type = TimerEventType.ACTIVE_START
+    }
 
     val operation = PendingIntent.getBroadcast(
       context,
@@ -111,8 +118,27 @@ object TimerScheduler {
     }
 
     TimerStateStore.clearNext(context)
-    if (type == TimerEventType.MAIN && config.alarmModeEnabled) {
+    if (type == TimerEventType.ACTIVE_START) {
+      scheduleNext(context, config)
+      onFinished()
+      return
+    }
+    val alarmOnce = type == TimerEventType.MAIN && TimerStateStore.consumeAlarmOnce(context)
+    val temporarilyMuted = TimerStateStore.consumeMuteForEvent(context, type, System.currentTimeMillis())
+    val muted = config.volume <= 0f || temporarilyMuted
+
+    TimerNotifications.postEvent(context, config, type)
+    if (muted) {
+      scheduleNext(context, config)
+      onFinished()
+      return
+    }
+
+    if (type == TimerEventType.MAIN && (config.alarmModeEnabled || alarmOnce)) {
+      scheduleNext(context, config)
       TimerStateStore.setRinging(context, true)
+      TimerStateStore.setAlarmVisible(context, true)
+      AlarmStateRegistry.notify(true)
       TimerNotifications.cancelRunning(context)
       ContextCompat.startForegroundService(
         context,
@@ -122,7 +148,6 @@ object TimerScheduler {
       return
     }
 
-    TimerNotifications.postEvent(context, config, type)
     scheduleNext(context, config)
     val sound = if (type == TimerEventType.MAIN) R.raw.gong else R.raw.bell
     TimerSoundPlayer.play(context, sound, config.volume, onFinished)

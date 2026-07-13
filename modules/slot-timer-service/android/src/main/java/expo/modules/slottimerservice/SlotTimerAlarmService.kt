@@ -12,7 +12,9 @@ import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaPlayer
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -23,11 +25,14 @@ class SlotTimerAlarmService : Service() {
     const val ACTION_STOP = "expo.modules.slottimerservice.action.STOP_ALARM"
     const val ACTION_UPDATE_VOLUME = "expo.modules.slottimerservice.action.UPDATE_ALARM_VOLUME"
     const val EXTRA_VOLUME = "volume"
+    const val EXTRA_DURATION_SECONDS = "durationSeconds"
   }
 
   private var player: MediaPlayer? = null
   private var audioFocusRequest: AudioFocusRequest? = null
   private val audioFocusListener = AudioManager.OnAudioFocusChangeListener { }
+  private val handler = Handler(Looper.getMainLooper())
+  private val autoSilence = Runnable { silenceAndResume() }
   private var stopHandled = false
 
   override fun onBind(intent: Intent?): IBinder? = null
@@ -37,10 +42,12 @@ class SlotTimerAlarmService : Service() {
       ACTION_STOP -> dismissAndResume()
       ACTION_UPDATE_VOLUME -> {
         val volume = intent.getFloatExtra(EXTRA_VOLUME, 0.8f).coerceIn(0f, 1f)
+        val duration = intent.getIntExtra(EXTRA_DURATION_SECONDS, 60).coerceIn(5, 3_600)
         if (player == null && TimerStateStore.isRinging(this)) {
           startRinging()
         } else {
           player?.setVolume(volume, volume)
+          scheduleAutoSilence(duration)
         }
       }
       ACTION_START -> startRinging()
@@ -54,10 +61,13 @@ class SlotTimerAlarmService : Service() {
       stopSelf()
       return
     }
+    stopHandled = false
     TimerNotifications.ensureChannels(this)
     promoteForeground(buildNotification())
     TimerStateStore.setRinging(this, true)
+    TimerStateStore.setAlarmVisible(this, true)
     AlarmStateRegistry.notify(true)
+    scheduleAutoSilence(config.alarmDurationSeconds)
 
     try {
       val alarmAttributes = AudioAttributes.Builder()
@@ -77,27 +87,50 @@ class SlotTimerAlarmService : Service() {
         setVolume(volume, volume)
         setOnPreparedListener { it.start() }
         setOnErrorListener { _, _, _ ->
-          dismissAndResume()
+          silenceAndResume()
           true
         }
         prepareAsync()
       }
     } catch (_: Exception) {
-      dismissAndResume()
+      silenceAndResume()
     }
   }
 
   private fun dismissAndResume() {
-    if (stopHandled) return
+    finishAlarm(keepOverlay = false)
+  }
+
+  private fun scheduleAutoSilence(durationSeconds: Int) {
+    handler.removeCallbacks(autoSilence)
+    handler.postDelayed(autoSilence, durationSeconds.coerceIn(5, 3_600) * 1_000L)
+  }
+
+  private fun silenceAndResume() {
+    finishAlarm(keepOverlay = true)
+  }
+
+  private fun finishAlarm(keepOverlay: Boolean) {
+    if (stopHandled) {
+      if (!keepOverlay) {
+        TimerStateStore.setAlarmVisible(this, false)
+        AlarmStateRegistry.notify(false)
+      }
+      return
+    }
     stopHandled = true
+    handler.removeCallbacks(autoSilence)
     player?.release()
     player = null
     abandonAudioFocus()
     TimerStateStore.setRinging(this, false)
-    AlarmStateRegistry.notify(false)
+    if (!keepOverlay) {
+      TimerStateStore.setAlarmVisible(this, false)
+      AlarmStateRegistry.notify(false)
+    }
     TimerNotifications.cancelAlarm(this)
     ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
-    TimerScheduler.scheduleNext(this)
+    TimerStateStore.load(this)?.let { TimerNotifications.postRunning(this, it) }
     stopSelf()
   }
 
@@ -180,13 +213,12 @@ class SlotTimerAlarmService : Service() {
   }
 
   override fun onDestroy() {
+    handler.removeCallbacks(autoSilence)
     player?.release()
     player = null
     abandonAudioFocus()
     if (!stopHandled && TimerStateStore.isRinging(this)) {
       TimerStateStore.setRinging(this, false)
-      AlarmStateRegistry.notify(false)
-      TimerScheduler.scheduleNext(this)
     }
     super.onDestroy()
   }

@@ -1,5 +1,5 @@
 import * as Notifications from 'expo-notifications'
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import Slider from '@react-native-community/slider'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { TimerConfig } from '../types'
@@ -9,6 +9,7 @@ import { SnapConfig } from '../components/SnapConfig'
 import { Toggle } from '../components/Toggle'
 import { BellIcon, ThemeIcon, VolumeIcon } from '../components/Icons'
 import { isNativeServiceAvailable, SlotTimerService } from '../native/SlotTimerService'
+import { ActiveHoursConfig } from '../components/ActiveHoursConfig'
 
 const APP_VERSION = '0.2.0'
 
@@ -57,8 +58,16 @@ export function ConfigScreen({ config, onChange, onStart }: Props) {
   }
 
   return (
-    <View style={[styles.screen, { backgroundColor: tokens.bg, paddingTop: insets.top + 20, paddingBottom: insets.bottom + 20 }]}>
-      <View style={styles.inner}>
+    <View style={[styles.screen, { backgroundColor: tokens.bg }]}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingTop: insets.top + 52, paddingBottom: insets.bottom + 52 },
+        ]}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.inner}>
         <IntervalPicker
           label="Main interval"
           value={config.mainInterval}
@@ -87,6 +96,15 @@ export function ConfigScreen({ config, onChange, onStart }: Props) {
           offset={config.snapOffset}
           onToggle={v => set('snapEnabled', v)}
           onOffsetChange={v => set('snapOffset', v)}
+        />
+
+        <ActiveHoursConfig
+          enabled={config.activeHoursEnabled}
+          startMinutes={config.activeHoursStart}
+          endMinutes={config.activeHoursEnd}
+          onToggle={value => set('activeHoursEnabled', value)}
+          onStartChange={value => set('activeHoursStart', value)}
+          onEndChange={value => set('activeHoursEnd', value)}
         />
 
         <View style={styles.section}>
@@ -129,9 +147,6 @@ export function ConfigScreen({ config, onChange, onStart }: Props) {
               accessibilityLabel="Alarm mode"
             />
           </View>
-          <Text style={[styles.helperText, { color: tokens.textMuted }]}>
-            The main gong rings continuously, full-screen, until dismissed
-          </Text>
         </View>
 
         <Pressable
@@ -143,7 +158,8 @@ export function ConfigScreen({ config, onChange, onStart }: Props) {
         >
           <Text style={styles.startLabel}>Start</Text>
         </Pressable>
-      </View>
+        </View>
+      </ScrollView>
 
       <Pressable
         onPress={toggleTheme}
@@ -163,6 +179,13 @@ export function ConfigScreen({ config, onChange, onStart }: Props) {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
+  },
+  scroll: {
+    flex: 1,
+    width: '100%',
+  },
+  scrollContent: {
+    flexGrow: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 24,

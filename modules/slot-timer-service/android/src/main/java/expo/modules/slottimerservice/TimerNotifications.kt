@@ -58,7 +58,13 @@ object TimerNotifications {
       return
     }
     ensureChannels(context)
-    val nextMain = TimerMath.nextTick(System.currentTimeMillis(), config.mainMs, config.phase)
+    val now = System.currentTimeMillis()
+    val content = if (ActiveHours.isActive(config, now)) {
+      val nextMain = TimerMath.nextTick(now, config.mainMs, config.phase)
+      "Next gong at ${formatTime(nextMain)}"
+    } else {
+      "Resumes at ${formatTime(ActiveHours.nextStart(config, now))}"
+    }
     val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
     val contentIntent = launchIntent?.let {
       PendingIntent.getActivity(
@@ -72,7 +78,7 @@ object TimerNotifications {
       RUNNING_ID,
       NotificationCompat.Builder(context, RUNNING_CHANNEL)
         .setContentTitle("SlotTimer")
-        .setContentText("Next gong at ${formatTime(nextMain)}")
+        .setContentText(content)
         .setSmallIcon(context.applicationInfo.icon)
         .setOngoing(true)
         .setOnlyAlertOnce(true)
@@ -83,6 +89,7 @@ object TimerNotifications {
   }
 
   fun postEvent(context: Context, config: TimerConfig, type: TimerEventType) {
+    if (type == TimerEventType.ACTIVE_START) return
     if (!config.notificationsEnabled) return
     ensureChannels(context)
     val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

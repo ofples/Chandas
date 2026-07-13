@@ -19,8 +19,11 @@ function Root() {
   const [ready, setReady] = useState(false)
 
   const {
-    mainCountdown, subCountdown, progress, start, stop, resyncPhase,
+    mainCountdown, subCountdown, progress, activeHoursPaused, activeHoursResumeAt,
+    start, stop, resyncPhase,
     isAlarmRinging, dismissAlarm,
+    alarmOnceArmed, mutedUntil, mutedIterationsRemaining,
+    toggleAlarmOnce, muteForIterations, muteForMinutes, clearTimedMute,
   } = useTimer(config ?? DEFAULT_CONFIG)
 
   useEffect(() => {
@@ -91,6 +94,8 @@ function Root() {
           mainCountdown={mainCountdown}
           subCountdown={subCountdown}
           progress={progress}
+          activeHoursPaused={activeHoursPaused}
+          activeHoursResumeAt={activeHoursResumeAt}
           onStop={handleStop}
           volume={config.volume}
           onVolumeChange={v => handleConfigChange({ ...config, volume: v })}
@@ -99,6 +104,13 @@ function Root() {
           onSnapToClock={handleSnapToClock}
           alarmModeEnabled={config.alarmModeEnabled}
           onToggleAlarmMode={() => handleConfigChange({ ...config, alarmModeEnabled: !config.alarmModeEnabled })}
+          alarmOnceArmed={alarmOnceArmed}
+          onToggleAlarmOnce={toggleAlarmOnce}
+          mutedUntil={mutedUntil}
+          mutedIterationsRemaining={mutedIterationsRemaining}
+          onMuteForIterations={muteForIterations}
+          onMuteForMinutes={muteForMinutes}
+          onClearTimedMute={clearTimedMute}
         />
       )}
 

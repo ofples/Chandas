@@ -30,7 +30,7 @@ export function CustomMinutePicker({ title, initial, min = 1, max = 59, onConfir
         <Pressable
           style={[
             styles.sheet,
-            { backgroundColor: tokens.surface, borderColor: tokens.border, paddingBottom: Math.max(insets.bottom, 32) },
+            { backgroundColor: tokens.surface, borderColor: tokens.border, paddingBottom: insets.bottom + 32 },
           ]}
           onPress={e => e.stopPropagation()}
         >

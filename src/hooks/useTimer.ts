@@ -7,6 +7,7 @@ import { TimerConfig } from '../types'
 import { nextTick, nextSubTick, mainProgress, formatCountdown } from '../lib/snapLogic'
 import { loadSession, saveSession, clearSession } from '../lib/storage'
 import { isNativeServiceAvailable, SlotTimerService } from '../native/SlotTimerService'
+import { isWithinActiveHours, nextActiveHoursStart, type ActiveHoursSettings } from '../lib/activeHours'
 
 const KEEP_AWAKE_TAG = 'slottimer-running'
 
@@ -18,6 +19,8 @@ interface TimerState {
   mainCountdown: string
   subCountdown: string
   progress: number
+  activeHoursPaused: boolean
+  activeHoursResumeAt: number
 }
 
 interface UseTimerReturn extends TimerState {
@@ -27,6 +30,13 @@ interface UseTimerReturn extends TimerState {
   resyncPhase: (newPhase: number) => void
   isAlarmRinging: boolean
   dismissAlarm: () => void
+  alarmOnceArmed: boolean
+  mutedUntil: number
+  mutedIterationsRemaining: number
+  toggleAlarmOnce: () => void
+  muteForIterations: (count: number) => void
+  muteForMinutes: (minutes: number) => void
+  clearTimedMute: () => void
 }
 
 async function ensureNotificationPermission(): Promise<boolean> {
@@ -48,10 +58,15 @@ async function ensureNotificationPermission(): Promise<boolean> {
 export function useTimer(config: TimerConfig): UseTimerReturn {
   const [isRunning, setIsRunning] = useState(false)
   const [isAlarmRinging, setIsAlarmRinging] = useState(false)
+  const [alarmOnceArmed, setAlarmOnceArmed] = useState(false)
+  const [mutedUntil, setMutedUntil] = useState(0)
+  const [mutedIterationsRemaining, setMutedIterationsRemaining] = useState(0)
   const [state, setState] = useState<TimerState>({
     mainCountdown: '--:--',
     subCountdown: '--:--',
     progress: 0,
+    activeHoursPaused: false,
+    activeHoursResumeAt: 0,
   })
 
   const phaseRef          = useRef(0)
@@ -61,10 +76,33 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
   const isRunningRef      = useRef(false)
   const rafRef            = useRef<number | null>(null)
   const tickTimeoutRef    = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const alarmSilenceRef   = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const alarmOnceRef      = useRef(false)
+  const mutedUntilRef     = useRef(0)
+  const mutedIterationsRef = useRef(0)
+  const activeHoursRef = useRef<ActiveHoursSettings>({
+    activeHoursEnabled: config.activeHoursEnabled,
+    activeHoursStart: config.activeHoursStart,
+    activeHoursEnd: config.activeHoursEnd,
+    activeHoursDays: config.activeHoursDays,
+  })
 
   const gongPlayerRef  = useRef<AudioPlayer | null>(null)
   const bellPlayerRef  = useRef<AudioPlayer | null>(null)
   const alarmPlayerRef = useRef<AudioPlayer | null>(null)
+
+  const applyControlState = useCallback((next: {
+    alarmOnceArmed: boolean
+    mutedUntil: number
+    mutedIterationsRemaining: number
+  }) => {
+    alarmOnceRef.current = next.alarmOnceArmed
+    mutedUntilRef.current = next.mutedUntil
+    mutedIterationsRef.current = next.mutedIterationsRemaining
+    setAlarmOnceArmed(next.alarmOnceArmed)
+    setMutedUntil(next.mutedUntil)
+    setMutedIterationsRemaining(next.mutedIterationsRemaining)
+  }, [])
 
   // ── Display update (RAF loop) — always JS-side, always in sync ─
 
@@ -73,6 +111,17 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
     const mainMs   = mainMsRef.current
     const subMs    = subMsRef.current
     const phase    = phaseRef.current
+    const activeHours = activeHoursRef.current
+    if (!isWithinActiveHours(activeHours, now)) {
+      setState({
+        mainCountdown: '--:--',
+        subCountdown: '--:--',
+        progress: 0,
+        activeHoursPaused: true,
+        activeHoursResumeAt: nextActiveHoursStart(activeHours, now),
+      })
+      return
+    }
     const nextMain = nextTick(now, mainMs, phase)
     const prog     = mainProgress(now, mainMs, phase)
 
@@ -82,6 +131,8 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
         ? formatCountdown(nextSubTick(now, mainMs, subMs, phase) - now)
         : '--:--',
       progress: prog,
+      activeHoursPaused: false,
+      activeHoursResumeAt: 0,
     })
   }, [])
 
@@ -119,28 +170,55 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
     const mainMs = mainMsRef.current
     const subMs  = subMsRef.current
     const phase  = phaseRef.current
+    const activeHours = activeHoursRef.current
 
     const nextMain = nextTick(now, mainMs, phase)
     const nextSub  = subEnabledRef.current ? nextSubTick(now, mainMs, subMs, phase) : Infinity
-    const delay    = Math.max(0, Math.min(nextMain, nextSub) - now)
+    const nextEvent = Math.min(nextMain, nextSub)
+    const resumesActiveHours = !isWithinActiveHours(activeHours, now) ||
+      !isWithinActiveHours(activeHours, nextEvent)
+    const triggerAt = resumesActiveHours ? nextActiveHoursStart(activeHours, now) : nextEvent
+    const delay = Math.max(0, triggerAt - now)
 
     tickTimeoutRef.current = setTimeout(() => {
       if (!isRunningRef.current) return
+      if (resumesActiveHours) {
+        scheduleFallbackTick()
+        return
+      }
       const fireTime  = Date.now()
       const firedMain = Math.abs(fireTime - nextMain) < 1000
       const firedSub  = !firedMain && nextSub !== Infinity && Math.abs(fireTime - nextSub) < 1000
+      const alarmOnce = firedMain && alarmOnceRef.current
+      const temporarilyMuted = mutedUntilRef.current > fireTime || mutedIterationsRef.current > 0
+      const muted = config.volume <= 0 || temporarilyMuted
 
-      if (firedMain && config.alarmModeEnabled) {
-        // Continuous alarm — pause scheduling; dismissAlarm() resumes it.
+      if (alarmOnce) {
+        alarmOnceRef.current = false
+        setAlarmOnceArmed(false)
+      }
+      if (firedMain && mutedIterationsRef.current > 0) {
+        mutedIterationsRef.current -= 1
+        setMutedIterationsRemaining(mutedIterationsRef.current)
+      }
+
+      if (firedMain && !muted && (config.alarmModeEnabled || alarmOnce)) {
         startFallbackAlarm(config.volume)
+        if (alarmSilenceRef.current) clearTimeout(alarmSilenceRef.current)
+        alarmSilenceRef.current = setTimeout(() => {
+          alarmSilenceRef.current = null
+          alarmPlayerRef.current?.remove()
+          alarmPlayerRef.current = null
+        }, Math.max(5, Math.min(3_600, config.alarmDurationSeconds)) * 1_000)
+        scheduleFallbackTick()
         return
       }
-      if (firedMain) playOneShot(gongPlayerRef.current, config.volume)
-      else if (firedSub) playOneShot(bellPlayerRef.current, config.volume)
+      if (!muted && firedMain) playOneShot(gongPlayerRef.current, config.volume)
+      else if (!muted && firedSub) playOneShot(bellPlayerRef.current, config.volume)
 
       scheduleFallbackTick()
     }, delay)
-  }, [config.volume, config.alarmModeEnabled])
+  }, [config.volume, config.alarmModeEnabled, config.alarmDurationSeconds])
 
   // ── Start / Stop ─────────────────────────────────────────────
 
@@ -160,6 +238,12 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
     subEnabledRef.current = nativeState?.active
       ? nativeState.subEnabled ?? startConfig.subEnabled
       : startConfig.subEnabled
+    activeHoursRef.current = {
+      activeHoursEnabled: startConfig.activeHoursEnabled,
+      activeHoursStart: startConfig.activeHoursStart,
+      activeHoursEnd: startConfig.activeHoursEnd,
+      activeHoursDays: startConfig.activeHoursDays,
+    }
 
     const session = await loadSession()
     phaseRef.current = nativeState?.active && nativeState.phase !== undefined
@@ -175,6 +259,11 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
     isRunningRef.current = true
     setIsRunning(true)
     setIsAlarmRinging(nativeState?.ringing ?? false)
+    applyControlState({
+      alarmOnceArmed: nativeState?.alarmOnceArmed ?? false,
+      mutedUntil: nativeState?.mutedUntil ?? 0,
+      mutedIterationsRemaining: nativeState?.mutedIterationsRemaining ?? 0,
+    })
     updateDisplay()
     rafRef.current = requestAnimationFrame(rafLoop)
     await activateKeepAwakeAsync(KEEP_AWAKE_TAG)
@@ -193,6 +282,11 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
         volume: startConfig.volume,
         notificationsEnabled: notifGranted && startConfig.notificationsEnabled,
         alarmModeEnabled: startConfig.alarmModeEnabled,
+        activeHoursEnabled: startConfig.activeHoursEnabled,
+        activeHoursStart: startConfig.activeHoursStart,
+        activeHoursEnd: startConfig.activeHoursEnd,
+        activeHoursDays: startConfig.activeHoursDays,
+        alarmDurationSeconds: startConfig.alarmDurationSeconds,
       }
       if (nativeState?.active) {
         SlotTimerService.update(nativeConfig)
@@ -206,16 +300,18 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
       bellPlayerRef.current = createAudioPlayer(BELL_SOURCE)
       scheduleFallbackTick()
     }
-  }, [config, updateDisplay, rafLoop, scheduleFallbackTick])
+  }, [config, updateDisplay, rafLoop, scheduleFallbackTick, applyControlState])
 
   const stop = useCallback(() => {
     isRunningRef.current = false
     setIsRunning(false)
     setIsAlarmRinging(false)
+    applyControlState({ alarmOnceArmed: false, mutedUntil: 0, mutedIterationsRemaining: 0 })
     clearSession()
 
     if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
     if (tickTimeoutRef.current) { clearTimeout(tickTimeoutRef.current); tickTimeoutRef.current = null }
+    if (alarmSilenceRef.current) { clearTimeout(alarmSilenceRef.current); alarmSilenceRef.current = null }
 
     deactivateKeepAwake(KEEP_AWAKE_TAG)
 
@@ -230,8 +326,14 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
       alarmPlayerRef.current = null
     }
 
-    setState({ mainCountdown: '--:--', subCountdown: '--:--', progress: 0 })
-  }, [])
+    setState({
+      mainCountdown: '--:--',
+      subCountdown: '--:--',
+      progress: 0,
+      activeHoursPaused: false,
+      activeHoursResumeAt: 0,
+    })
+  }, [applyControlState])
 
   // Dismisses an in-progress alarm ring without stopping the whole timer —
   // ticking resumes for the next interval.
@@ -241,10 +343,59 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
       SlotTimerService.stopAlarm()
       return
     }
+    if (alarmSilenceRef.current) {
+      clearTimeout(alarmSilenceRef.current)
+      alarmSilenceRef.current = null
+    }
     alarmPlayerRef.current?.remove()
     alarmPlayerRef.current = null
-    if (isRunningRef.current) scheduleFallbackTick()
-  }, [scheduleFallbackTick])
+  }, [])
+
+  const toggleAlarmOnce = useCallback(() => {
+    if (isNativeServiceAvailable) {
+      SlotTimerService.toggleAlarmOnce()
+      const nativeState = SlotTimerService.getState()
+      applyControlState({
+        alarmOnceArmed: nativeState.alarmOnceArmed ?? false,
+        mutedUntil: nativeState.mutedUntil ?? 0,
+        mutedIterationsRemaining: nativeState.mutedIterationsRemaining ?? 0,
+      })
+      return
+    }
+    applyControlState({
+      alarmOnceArmed: !alarmOnceRef.current,
+      mutedUntil: mutedUntilRef.current,
+      mutedIterationsRemaining: mutedIterationsRef.current,
+    })
+  }, [applyControlState])
+
+  const muteForIterations = useCallback((count: number) => {
+    if (isNativeServiceAvailable) SlotTimerService.muteForIterations(count)
+    applyControlState({
+      alarmOnceArmed: alarmOnceRef.current,
+      mutedUntil: 0,
+      mutedIterationsRemaining: Math.max(1, Math.min(99, count)),
+    })
+  }, [applyControlState])
+
+  const muteForMinutes = useCallback((minutes: number) => {
+    const until = Date.now() + Math.max(1, Math.min(1_440, minutes)) * 60_000
+    if (isNativeServiceAvailable) SlotTimerService.muteForMinutes(minutes)
+    applyControlState({
+      alarmOnceArmed: alarmOnceRef.current,
+      mutedUntil: until,
+      mutedIterationsRemaining: 0,
+    })
+  }, [applyControlState])
+
+  const clearTimedMute = useCallback(() => {
+    if (isNativeServiceAvailable) SlotTimerService.clearMute()
+    applyControlState({
+      alarmOnceArmed: alarmOnceRef.current,
+      mutedUntil: 0,
+      mutedIterationsRemaining: 0,
+    })
+  }, [applyControlState])
 
   // ── Manual re-sync ────────────────────────────────────────────
   //
@@ -279,6 +430,30 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
     updateDisplay()
   }, [config.subEnabled, scheduleFallbackTick, updateDisplay])
 
+  useEffect(() => {
+    activeHoursRef.current = {
+      activeHoursEnabled: config.activeHoursEnabled,
+      activeHoursStart: config.activeHoursStart,
+      activeHoursEnd: config.activeHoursEnd,
+      activeHoursDays: config.activeHoursDays,
+    }
+    if (!isRunningRef.current) return
+    if (isNativeServiceAvailable) {
+      SlotTimerService.update(activeHoursRef.current)
+    } else if (tickTimeoutRef.current) {
+      clearTimeout(tickTimeoutRef.current)
+      scheduleFallbackTick()
+    }
+    updateDisplay()
+  }, [
+    config.activeHoursEnabled,
+    config.activeHoursStart,
+    config.activeHoursEnd,
+    config.activeHoursDays,
+    scheduleFallbackTick,
+    updateDisplay,
+  ])
+
   // Live-update volume / notifications / alarm-mode toggle → native service
   useEffect(() => {
     if (isRunningRef.current && isNativeServiceAvailable) {
@@ -286,9 +461,10 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
         volume: config.volume,
         notificationsEnabled: config.notificationsEnabled,
         alarmModeEnabled: config.alarmModeEnabled,
+        alarmDurationSeconds: config.alarmDurationSeconds,
       })
     }
-  }, [config.volume, config.notificationsEnabled, config.alarmModeEnabled])
+  }, [config.volume, config.notificationsEnabled, config.alarmModeEnabled, config.alarmDurationSeconds])
 
   // Live-update volume/alarm-mode in the JS fallback path — reschedule so the
   // pending timeout (which closed over the previous values) picks up the new
@@ -299,7 +475,7 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
       clearTimeout(tickTimeoutRef.current)
       scheduleFallbackTick()
     }
-  }, [config.volume, config.alarmModeEnabled, scheduleFallbackTick])
+  }, [config.volume, config.alarmModeEnabled, config.alarmDurationSeconds, scheduleFallbackTick])
 
   // Re-sync the RAF loop and (fallback) tick scheduler when the app returns
   // to the foreground — timestamps are absolute, so this is just a resync,
@@ -339,12 +515,47 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
     }
   }, [])
 
+  useEffect(() => {
+    if (!isNativeServiceAvailable) return
+    const listener = SlotTimerService.addControlListener(applyControlState)
+    return () => listener?.remove()
+  }, [applyControlState])
+
+  useEffect(() => {
+    if (mutedUntil <= Date.now()) return
+    const timeout = setTimeout(() => {
+      if (isNativeServiceAvailable) SlotTimerService.clearMute()
+      applyControlState({
+        alarmOnceArmed: alarmOnceRef.current,
+        mutedUntil: 0,
+        mutedIterationsRemaining: 0,
+      })
+    }, mutedUntil - Date.now())
+    return () => clearTimeout(timeout)
+  }, [mutedUntil, applyControlState])
+
   // Cleanup on unmount
   useEffect(() => () => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current)
     if (tickTimeoutRef.current) clearTimeout(tickTimeoutRef.current)
+    if (alarmSilenceRef.current) clearTimeout(alarmSilenceRef.current)
     deactivateKeepAwake(KEEP_AWAKE_TAG)
   }, [])
 
-  return { ...state, isRunning, start, stop, resyncPhase, isAlarmRinging, dismissAlarm }
+  return {
+    ...state,
+    isRunning,
+    start,
+    stop,
+    resyncPhase,
+    isAlarmRinging,
+    dismissAlarm,
+    alarmOnceArmed,
+    mutedUntil,
+    mutedIterationsRemaining,
+    toggleAlarmOnce,
+    muteForIterations,
+    muteForMinutes,
+    clearTimedMute,
+  }
 }

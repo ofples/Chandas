@@ -2,8 +2,8 @@
 // (modules/slot-timer-service — Kotlin, Android exact-alarm scheduler).
 //
 // AlarmManager owns tick scheduling; a foreground service is used only while a
-// continuous alarm is actively ringing. When the native module isn't present, a
-// platform without it), `isAvailable` is false and callers should fall back to
+// continuous alarm is actively ringing. When the native module isn't present,
+// callers fall back to
 // the JS-only foreground timer (see useTimer.ts).
 import { Platform } from 'react-native'
 import { requireOptionalNativeModule } from 'expo-modules-core'
@@ -16,10 +16,21 @@ export interface NativeTimerConfig {
   volume: number       // 0–1, gong/bell volume
   notificationsEnabled: boolean
   alarmModeEnabled: boolean // main gong becomes a continuous, dismissable alarm
+  activeHoursEnabled: boolean
+  activeHoursStart: number
+  activeHoursEnd: number
+  activeHoursDays: number
+  alarmDurationSeconds: number
 }
 
 interface AlarmStateEvent {
   ringing: boolean
+}
+
+export interface NativeControlState {
+  alarmOnceArmed: boolean
+  mutedUntil: number
+  mutedIterationsRemaining: number
 }
 
 export interface NativeTimerState {
@@ -32,6 +43,14 @@ export interface NativeTimerState {
   volume?: number
   notificationsEnabled?: boolean
   alarmModeEnabled?: boolean
+  activeHoursEnabled?: boolean
+  activeHoursStart?: number
+  activeHoursEnd?: number
+  activeHoursDays?: number
+  alarmDurationSeconds?: number
+  alarmOnceArmed?: boolean
+  mutedUntil?: number
+  mutedIterationsRemaining?: number
 }
 
 interface EventSubscription {
@@ -49,7 +68,12 @@ interface SlotTimerServiceModule {
   openExactAlarmSettings(): void
   canUseFullScreenIntent(): boolean
   openFullScreenIntentSettings(): void
+  toggleAlarmOnce(): void
+  muteForIterations(count: number): void
+  muteForMinutes(minutes: number): void
+  clearMute(): void
   addListener(eventName: 'onAlarmStateChanged', listener: (event: AlarmStateEvent) => void): EventSubscription
+  addListener(eventName: 'onControlStateChanged', listener: (event: NativeControlState) => void): EventSubscription
 }
 
 const native = Platform.OS === 'android'
@@ -93,8 +117,23 @@ export const SlotTimerService = {
   openFullScreenIntentSettings() {
     native?.openFullScreenIntentSettings()
   },
+  toggleAlarmOnce() {
+    native?.toggleAlarmOnce()
+  },
+  muteForIterations(count: number) {
+    native?.muteForIterations(count)
+  },
+  muteForMinutes(minutes: number) {
+    native?.muteForMinutes(minutes)
+  },
+  clearMute() {
+    native?.clearMute()
+  },
   // Live updates while the app is open — the counterpart to isRinging() above.
   addAlarmListener(listener: (ringing: boolean) => void): EventSubscription | null {
     return native?.addListener('onAlarmStateChanged', e => listener(e.ringing)) ?? null
+  },
+  addControlListener(listener: (state: NativeControlState) => void): EventSubscription | null {
+    return native?.addListener('onControlStateChanged', listener) ?? null
   },
 }
