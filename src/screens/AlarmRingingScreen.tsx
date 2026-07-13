@@ -1,4 +1,4 @@
-import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native'
+import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '../theme/ThemeContext'
 import { FlashingTimerCircle } from '../components/FlashingTimerCircle'
@@ -14,22 +14,37 @@ export function AlarmRingingScreen({ onDismiss }: Props) {
   const ringSize = Math.min(width * 0.78, 320)
 
   return (
-    <View style={[styles.screen, { backgroundColor: tokens.bg, paddingTop: insets.top }]}>
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 132 }]}
-        showsVerticalScrollIndicator={false}
-      >
-        <Pressable
-          onPress={onDismiss}
-          style={[styles.ringWrap, { width: ringSize, height: ringSize }]}
-          accessibilityRole="button"
-          accessibilityLabel="Dismiss alarm"
-        >
+    <Pressable
+      accessible={false}
+      onPress={onDismiss}
+      style={[styles.screen, { backgroundColor: tokens.bg, paddingTop: insets.top }]}
+    >
+      <View style={[styles.content, { paddingBottom: insets.bottom + 104 }]} pointerEvents="none">
+        <View style={[styles.ringWrap, { width: ringSize, height: ringSize }]}>
           <FlashingTimerCircle size={ringSize} color={tokens.accent} continuous duration={2_400} />
-        </Pressable>
-      </ScrollView>
-    </View>
+        </View>
+      </View>
+
+      <View style={[styles.bottom, { backgroundColor: tokens.bg, paddingBottom: insets.bottom + 20 }]}>
+        <View style={styles.bottomInner}>
+          <Pressable
+            onPress={onDismiss}
+            style={({ pressed }) => [
+              styles.dismissBtn,
+              {
+                backgroundColor: tokens.surfaceHi,
+                borderColor: tokens.border,
+                transform: [{ scale: pressed ? 0.97 : 1 }],
+              },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss alarm"
+          >
+            <Text style={[styles.dismissLabel, { color: tokens.textMuted }]}>Dismiss</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Pressable>
   )
 }
 
@@ -42,11 +57,8 @@ const styles = StyleSheet.create({
     bottom: 0,
     zIndex: 100,
   },
-  scroll: {
+  content: {
     flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 20,
@@ -54,5 +66,30 @@ const styles = StyleSheet.create({
   ringWrap: {
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  bottom: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  bottomInner: {
+    width: '100%',
+    maxWidth: 420,
+  },
+  dismissBtn: {
+    width: '100%',
+    borderWidth: 1.5,
+    borderRadius: 9999,
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  dismissLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
   },
 })

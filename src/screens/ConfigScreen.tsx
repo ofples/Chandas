@@ -73,7 +73,7 @@ export function ConfigScreen({
         style={styles.scroll}
         contentContainerStyle={[
           styles.scrollContent,
-          { paddingTop: insets.top + 52, paddingBottom: insets.bottom + 52 },
+          { paddingTop: insets.top + 52, paddingBottom: insets.bottom + 124 },
         ]}
         showsVerticalScrollIndicator={false}
       >
@@ -184,17 +184,22 @@ export function ConfigScreen({
           </View>
         </View>
 
-        <Pressable
-          onPress={onStart}
-          style={({ pressed }) => [
-            styles.startBtn,
-            { backgroundColor: tokens.accent, transform: [{ scale: pressed ? 0.97 : 1 }] },
-          ]}
-        >
-          <Text style={styles.startLabel}>Start</Text>
-        </Pressable>
         </View>
       </ScrollView>
+
+      <View style={[styles.bottom, { backgroundColor: tokens.bg, paddingBottom: insets.bottom + 20 }]}>
+        <View style={styles.bottomInner}>
+          <Pressable
+            onPress={onStart}
+            style={({ pressed }) => [
+              styles.startBtn,
+              { backgroundColor: tokens.accent, transform: [{ scale: pressed ? 0.97 : 1 }] },
+            ]}
+          >
+            <Text style={styles.startLabel}>Start</Text>
+          </Pressable>
+        </View>
+      </View>
 
       <Pressable
         onPress={toggleTheme}
@@ -204,7 +209,7 @@ export function ConfigScreen({
         <ThemeIcon dark={theme === 'dark'} color={tokens.textMuted} />
       </Pressable>
 
-      <Text style={[styles.version, { color: tokens.textMuted, bottom: Math.max(insets.bottom, 8) }]}>
+      <Text style={[styles.version, { color: tokens.textMuted, bottom: insets.bottom + 90 }]}>
         v{APP_VERSION}
       </Text>
     </View>
@@ -274,6 +279,18 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  bottom: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  bottomInner: {
+    width: '100%',
+    maxWidth: 420,
   },
   startBtn: {
     width: '100%',
