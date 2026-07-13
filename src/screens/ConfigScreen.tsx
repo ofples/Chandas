@@ -1,4 +1,3 @@
-import * as Notifications from 'expo-notifications'
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import Slider from '@react-native-community/slider'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -7,7 +6,7 @@ import { useTheme } from '../theme/ThemeContext'
 import { IntervalPicker } from '../components/IntervalPicker'
 import { SnapConfig } from '../components/SnapConfig'
 import { Toggle } from '../components/Toggle'
-import { BellIcon, ThemeIcon, VolumeIcon } from '../components/Icons'
+import { ChevronIcon, ThemeIcon, VolumeIcon } from '../components/Icons'
 import { isNativeServiceAvailable, SlotTimerService } from '../native/SlotTimerService'
 import { ActiveHoursConfig } from '../components/ActiveHoursConfig'
 
@@ -23,6 +22,8 @@ interface Props {
   focusPolicyAccess: boolean
   onFocusModeChange: (enabled: boolean) => void
   onOpenFocusSettings: () => void
+  advancedSettingsExpanded: boolean
+  onAdvancedSettingsChange: (expanded: boolean) => void
 }
 
 export function ConfigScreen({
@@ -32,6 +33,8 @@ export function ConfigScreen({
   focusPolicyAccess,
   onFocusModeChange,
   onOpenFocusSettings,
+  advancedSettingsExpanded,
+  onAdvancedSettingsChange,
 }: Props) {
   const { tokens, theme, toggleTheme } = useTheme()
   const insets = useSafeAreaInsets()
@@ -44,15 +47,6 @@ export function ConfigScreen({
       ? [...SUB_PRESETS].reverse().find(p => p < v) ?? Math.max(1, v - 1)
       : config.subInterval
     onChange({ ...config, mainInterval: v, subInterval: newSub })
-  }
-
-  const handleNotifToggle = async () => {
-    const next = !config.notificationsEnabled
-    if (next && Platform.OS === 'android') {
-      const { status } = await Notifications.getPermissionsAsync()
-      if (status !== 'granted') await Notifications.requestPermissionsAsync()
-    }
-    set('notificationsEnabled', next)
   }
 
   const handleAlarmToggle = (enabled: boolean) => {
@@ -108,44 +102,26 @@ export function ConfigScreen({
           onOffsetChange={v => set('snapOffset', v)}
         />
 
-        <ActiveHoursConfig
-          enabled={config.activeHoursEnabled}
-          startMinutes={config.activeHoursStart}
-          endMinutes={config.activeHoursEnd}
-          onToggle={value => set('activeHoursEnabled', value)}
-          onStartChange={value => set('activeHoursStart', value)}
-          onEndChange={value => set('activeHoursEnd', value)}
-        />
-
-        {Platform.OS === 'android' && isNativeServiceAvailable && (
-          <View style={styles.section}>
-            <View style={styles.toggleRow}>
-              <Text style={[styles.sectionLabel, { color: tokens.textMuted }]}>Focus session</Text>
-              <Toggle
-                value={config.focusModeEnabled}
-                onChange={onFocusModeChange}
-                accessibilityLabel="Focus session"
-              />
-            </View>
-            {config.focusModeEnabled && !focusPolicyAccess && (
-              <Pressable
-                onPress={onOpenFocusSettings}
-                style={({ pressed }) => [
-                  styles.focusAccess,
-                  { borderColor: tokens.accent, opacity: pressed ? 0.75 : 1 },
-                ]}
-                accessibilityRole="button"
-              >
-                <Text style={[styles.focusAccessLabel, { color: tokens.accent }]}>Grant DND access</Text>
-              </Pressable>
-            )}
-          </View>
-        )}
-
         <View style={styles.section}>
           <Text style={[styles.sectionLabel, { color: tokens.textMuted }]}>Volume</Text>
           <View style={styles.volumeRow}>
-            <VolumeIcon level={config.volume} color={tokens.textMuted} />
+            <Pressable
+              onPress={() => set('volume', 0)}
+              style={({ pressed }) => [
+                styles.volumeBtn,
+                {
+                  borderColor: config.volume === 0 ? tokens.accent : tokens.border,
+                  backgroundColor: config.volume === 0 ? 'rgba(124,111,247,0.1)' : 'transparent',
+                  opacity: pressed ? 0.7 : 1,
+                },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={config.volume === 0 ? 'Timer sounds muted' : 'Mute timer sounds'}
+              accessibilityState={{ disabled: config.volume === 0 }}
+              disabled={config.volume === 0}
+            >
+              <VolumeIcon muted={config.volume === 0} color={config.volume === 0 ? tokens.accent : tokens.textMuted} />
+            </Pressable>
             <Slider
               style={styles.slider}
               minimumValue={0}
@@ -157,32 +133,79 @@ export function ConfigScreen({
               maximumTrackTintColor={tokens.surfaceHi}
               thumbTintColor={tokens.accent}
             />
-            <Pressable
-              onPress={handleNotifToggle}
-              style={[
-                styles.notifBtn,
-                {
-                  borderColor: config.notificationsEnabled ? tokens.accent : tokens.border,
-                  backgroundColor: config.notificationsEnabled ? 'rgba(124,111,247,0.1)' : 'transparent',
-                },
-              ]}
-              accessibilityLabel={config.notificationsEnabled ? 'Disable notifications' : 'Enable notifications'}
-            >
-              <BellIcon on={config.notificationsEnabled} color={config.notificationsEnabled ? tokens.accent : tokens.textDisabled} />
-            </Pressable>
           </View>
         </View>
 
-        <View style={styles.section}>
-          <View style={styles.toggleRow}>
-            <Text style={[styles.sectionLabel, { color: tokens.textMuted }]}>Alarm mode</Text>
-            <Toggle
-              value={config.alarmModeEnabled}
-              onChange={handleAlarmToggle}
-              accessibilityLabel="Alarm mode"
+        {!advancedSettingsExpanded && (
+          <Pressable
+            onPress={() => onAdvancedSettingsChange(true)}
+            style={({ pressed }) => [styles.modeBtn, { opacity: pressed ? 0.65 : 1 }]}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: false }}
+          >
+            <Text style={[styles.modeBtnLabel, { color: tokens.textMuted }]}>Advanced</Text>
+            <ChevronIcon up={false} color={tokens.textMuted} />
+          </Pressable>
+        )}
+
+        {advancedSettingsExpanded && (
+          <View style={styles.advancedSettings}>
+            <ActiveHoursConfig
+              enabled={config.activeHoursEnabled}
+              startMinutes={config.activeHoursStart}
+              endMinutes={config.activeHoursEnd}
+              onToggle={value => set('activeHoursEnabled', value)}
+              onStartChange={value => set('activeHoursStart', value)}
+              onEndChange={value => set('activeHoursEnd', value)}
             />
+
+            {Platform.OS === 'android' && isNativeServiceAvailable && (
+              <View style={styles.section}>
+                <View style={styles.toggleRow}>
+                  <Text style={[styles.sectionLabel, { color: tokens.textMuted }]}>Focus session</Text>
+                  <Toggle
+                    value={config.focusModeEnabled}
+                    onChange={onFocusModeChange}
+                    accessibilityLabel="Focus session"
+                  />
+                </View>
+                {config.focusModeEnabled && !focusPolicyAccess && (
+                  <Pressable
+                    onPress={onOpenFocusSettings}
+                    style={({ pressed }) => [
+                      styles.focusAccess,
+                      { borderColor: tokens.accent, opacity: pressed ? 0.75 : 1 },
+                    ]}
+                    accessibilityRole="button"
+                  >
+                    <Text style={[styles.focusAccessLabel, { color: tokens.accent }]}>Grant DND access</Text>
+                  </Pressable>
+                )}
+              </View>
+            )}
+
+            <View style={styles.section}>
+              <View style={styles.toggleRow}>
+                <Text style={[styles.sectionLabel, { color: tokens.textMuted }]}>Alarm mode</Text>
+                <Toggle
+                  value={config.alarmModeEnabled}
+                  onChange={handleAlarmToggle}
+                  accessibilityLabel="Alarm mode"
+                />
+              </View>
+            </View>
+
+            <Pressable
+              onPress={() => onAdvancedSettingsChange(false)}
+              style={({ pressed }) => [styles.modeBtn, { opacity: pressed ? 0.65 : 1 }]}
+              accessibilityRole="button"
+              accessibilityLabel="Show simplified settings"
+            >
+              <Text style={[styles.modeBtnLabel, { color: tokens.textMuted }]}>Simplified</Text>
+              <ChevronIcon up color={tokens.textMuted} />
+            </Pressable>
           </View>
-        </View>
+        )}
 
         </View>
       </ScrollView>
@@ -272,13 +295,29 @@ const styles = StyleSheet.create({
   slider: {
     flex: 1,
   },
-  notifBtn: {
+  volumeBtn: {
     width: 32,
     height: 32,
     borderRadius: 16,
     borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  modeBtn: {
+    alignSelf: 'center',
+    minHeight: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    paddingHorizontal: 12,
+  },
+  modeBtnLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  advancedSettings: {
+    gap: 28,
   },
   bottom: {
     position: 'absolute',

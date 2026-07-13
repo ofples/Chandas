@@ -1,0 +1,11 @@
+name: Publish Android preview update
+
+jobs:
+  publish_preview_update:
+    name: Publish Android preview update
+    type: update
+    environment: preview
+    params:
+      platform: android
+      branch: preview
+      message: Simplify settings and improve timer controls

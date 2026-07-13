@@ -114,3 +114,17 @@ export function FocusIcon({ color }: { color: string }) {
     </Svg>
   )
 }
+
+export function ChevronIcon({ up, color }: { up: boolean; color: string }) {
+  return (
+    <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+      <Path
+        d={up ? 'm18 15-6-6-6 6' : 'm6 9 6 6 6-6'}
+        stroke={color}
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  )
+}

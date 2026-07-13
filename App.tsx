@@ -6,7 +6,15 @@ import { useFonts, JetBrainsMono_300Light, JetBrainsMono_400Regular } from '@exp
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext'
 import { TimerConfig, AppState } from './src/types'
 import { useTimer } from './src/hooks/useTimer'
-import { clearSession, loadConfig, saveConfig, hasTimerSession, DEFAULT_CONFIG } from './src/lib/storage'
+import {
+  clearSession,
+  loadAdvancedSettingsExpanded,
+  loadConfig,
+  saveAdvancedSettingsExpanded,
+  saveConfig,
+  hasTimerSession,
+  DEFAULT_CONFIG,
+} from './src/lib/storage'
 import { ConfigScreen } from './src/screens/ConfigScreen'
 import { RunningScreen } from './src/screens/RunningScreen'
 import { AlarmRingingScreen } from './src/screens/AlarmRingingScreen'
@@ -19,6 +27,7 @@ function Root() {
   const [ready, setReady] = useState(false)
   const [focusPolicyAccess, setFocusPolicyAccess] = useState(false)
   const [focusModeActive, setFocusModeActive] = useState(false)
+  const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
 
   const {
     mainCountdown, subCountdown, progress, activeHoursPaused, activeHoursResumeAt,
@@ -45,11 +54,16 @@ function Root() {
 
   useEffect(() => {
     (async () => {
-      const [loadedConfig, storedSession] = await Promise.all([loadConfig(), hasTimerSession()])
+      const [loadedConfig, storedSession, storedAdvancedSettingsExpanded] = await Promise.all([
+        loadConfig(),
+        hasTimerSession(),
+        loadAdvancedSettingsExpanded(),
+      ])
       const nativeSession = isNativeServiceAvailable && SlotTimerService.getState().active
       const resuming = isNativeServiceAvailable ? nativeSession : storedSession
       if (isNativeServiceAvailable && storedSession && !nativeSession) await clearSession()
       setConfig(loadedConfig)
+      setAdvancedSettingsExpanded(storedAdvancedSettingsExpanded)
       if (resuming) {
         setAppState('running')
         void start(loadedConfig).then(refreshFocusState)
@@ -66,6 +80,11 @@ function Root() {
   const handleConfigChange = (c: TimerConfig) => {
     setConfig(c)
     saveConfig(c)
+  }
+
+  const handleAdvancedSettingsChange = (expanded: boolean) => {
+    setAdvancedSettingsExpanded(expanded)
+    void saveAdvancedSettingsExpanded(expanded)
   }
 
   const handleFocusModeChange = (enabled: boolean) => {
@@ -121,6 +140,8 @@ function Root() {
           focusPolicyAccess={focusPolicyAccess}
           onFocusModeChange={handleFocusModeChange}
           onOpenFocusSettings={SlotTimerService.openNotificationPolicySettings}
+          advancedSettingsExpanded={advancedSettingsExpanded}
+          onAdvancedSettingsChange={handleAdvancedSettingsChange}
         />
       ) : (
         <RunningScreen

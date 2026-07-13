@@ -3,6 +3,7 @@ import { TimerConfig } from '../types'
 
 const CONFIG_KEY = 'slottimer-config'
 const SESSION_KEY = 'slottimer-session'
+const ADVANCED_SETTINGS_KEY = 'slottimer-advanced-settings-expanded'
 
 export const DEFAULT_CONFIG: TimerConfig = {
   mainInterval: 30,
@@ -25,7 +26,8 @@ export async function loadConfig(): Promise<TimerConfig> {
   try {
     const raw = await AsyncStorage.getItem(CONFIG_KEY)
     if (!raw) return DEFAULT_CONFIG
-    return { ...DEFAULT_CONFIG, ...JSON.parse(raw) }
+    // Notification delivery is now managed by the app and Android settings, not an in-app toggle.
+    return { ...DEFAULT_CONFIG, ...JSON.parse(raw), notificationsEnabled: true }
   } catch {
     return DEFAULT_CONFIG
   }
@@ -34,6 +36,20 @@ export async function loadConfig(): Promise<TimerConfig> {
 export async function saveConfig(config: TimerConfig): Promise<void> {
   try {
     await AsyncStorage.setItem(CONFIG_KEY, JSON.stringify(config))
+  } catch { /* storage unavailable */ }
+}
+
+export async function loadAdvancedSettingsExpanded(): Promise<boolean> {
+  try {
+    return (await AsyncStorage.getItem(ADVANCED_SETTINGS_KEY)) === 'true'
+  } catch {
+    return false
+  }
+}
+
+export async function saveAdvancedSettingsExpanded(expanded: boolean): Promise<void> {
+  try {
+    await AsyncStorage.setItem(ADVANCED_SETTINGS_KEY, String(expanded))
   } catch { /* storage unavailable */ }
 }
 
