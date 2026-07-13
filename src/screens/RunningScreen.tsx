@@ -4,7 +4,7 @@ import Svg, { Circle } from 'react-native-svg'
 import Slider from '@react-native-community/slider'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '../theme/ThemeContext'
-import { AlarmIcon, BellIcon, ClockIcon, RestartIcon } from '../components/Icons'
+import { AlarmIcon, BellIcon, ClockIcon, FocusIcon, RestartIcon } from '../components/Icons'
 import { Chip } from '../components/Chip'
 import { CustomMinutePicker } from '../components/CustomMinutePicker'
 import {
@@ -35,6 +35,10 @@ interface Props {
   onMuteForIterations: (count: number) => void
   onMuteForMinutes: (minutes: number) => void
   onClearTimedMute: () => void
+  focusModeEnabled: boolean
+  focusModeActive: boolean
+  focusPolicyAccess: boolean
+  onToggleFocusMode: () => void
 }
 
 const CIRC = 2 * Math.PI * TIMER_CIRCLE_RADIUS
@@ -65,6 +69,10 @@ export function RunningScreen({
   onMuteForIterations,
   onMuteForMinutes,
   onClearTimedMute,
+  focusModeEnabled,
+  focusModeActive,
+  focusPolicyAccess,
+  onToggleFocusMode,
 }: Props) {
   const { tokens } = useTheme()
   const insets = useSafeAreaInsets()
@@ -296,6 +304,26 @@ export function RunningScreen({
                   </View>
                 )}
               </Pressable>
+
+              <Pressable
+                onPress={onToggleFocusMode}
+                style={[
+                  styles.mediaBtn,
+                  {
+                    borderColor: focusModeEnabled ? tokens.accent : tokens.border,
+                    backgroundColor: focusModeActive ? tokens.accentGlow : 'transparent',
+                  },
+                ]}
+                accessibilityLabel={focusModeEnabled ? 'Disable focus session' : 'Enable focus session'}
+                accessibilityHint={!focusPolicyAccess ? 'Requires Do Not Disturb access' : undefined}
+              >
+                <FocusIcon color={focusModeEnabled ? tokens.accent : tokens.textMuted} />
+                {focusModeEnabled && !focusPolicyAccess && (
+                  <View style={[styles.onceBadge, { backgroundColor: tokens.accent }]}>
+                    <Text style={styles.onceBadgeLabel}>!</Text>
+                  </View>
+                )}
+              </Pressable>
             </View>
 
             <View style={styles.mediaRowRight}>
@@ -393,6 +421,8 @@ export function RunningScreen({
           onClose={() => setShowCustomMute(false)}
         />
       )}
+
+      {focusModeActive && <View pointerEvents="none" style={styles.focusBorder} />}
     </View>
   )
 }
@@ -400,6 +430,16 @@ export function RunningScreen({
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
+  },
+  focusBorder: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    borderWidth: 3,
+    borderColor: '#4d8fff',
+    zIndex: 100,
   },
   scroll: {
     flex: 1,

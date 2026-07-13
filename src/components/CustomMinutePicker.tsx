@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { KeyboardAvoidingView, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '../theme/ThemeContext'
 
@@ -26,40 +26,48 @@ export function CustomMinutePicker({ title, initial, min = 1, max = 59, onConfir
 
   return (
     <Modal transparent animationType="fade" visible onRequestClose={onClose}>
-      <Pressable style={styles.overlay} onPress={onClose}>
-        <Pressable
-          style={[
-            styles.sheet,
-            { backgroundColor: tokens.surface, borderColor: tokens.border, paddingBottom: insets.bottom + 32 },
-          ]}
-          onPress={e => e.stopPropagation()}
-        >
-          <Text style={[styles.title, { color: tokens.textMuted }]}>{title}</Text>
-          <View style={styles.inputRow}>
-            <TextInput
-              style={[styles.input, { backgroundColor: tokens.surfaceHi, borderColor: tokens.border, color: tokens.text }]}
-              value={text}
-              onChangeText={setText}
-              keyboardType="number-pad"
-              autoFocus
-              selectTextOnFocus
-              onSubmitEditing={handleConfirm}
-            />
-            <Text style={[styles.unit, { color: tokens.textMuted }]}>min</Text>
-          </View>
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoider}
+        behavior={process.env.EXPO_OS === 'ios' ? 'padding' : 'height'}
+      >
+        <Pressable style={styles.overlay} onPress={onClose}>
           <Pressable
-            style={[styles.confirm, { backgroundColor: tokens.accent }]}
-            onPress={handleConfirm}
+            style={[
+              styles.sheet,
+              { backgroundColor: tokens.surface, borderColor: tokens.border, paddingBottom: insets.bottom + 32 },
+            ]}
+            onPress={e => e.stopPropagation()}
           >
-            <Text style={styles.confirmLabel}>Set</Text>
+            <Text style={[styles.title, { color: tokens.textMuted }]}>{title}</Text>
+            <View style={styles.inputRow}>
+              <TextInput
+                style={[styles.input, { backgroundColor: tokens.surfaceHi, borderColor: tokens.border, color: tokens.text }]}
+                value={text}
+                onChangeText={setText}
+                keyboardType="number-pad"
+                autoFocus
+                selectTextOnFocus
+                onSubmitEditing={handleConfirm}
+              />
+              <Text style={[styles.unit, { color: tokens.textMuted }]}>min</Text>
+            </View>
+            <Pressable
+              style={[styles.confirm, { backgroundColor: tokens.accent }]}
+              onPress={handleConfirm}
+            >
+              <Text style={styles.confirmLabel}>Set</Text>
+            </Pressable>
           </Pressable>
         </Pressable>
-      </Pressable>
+      </KeyboardAvoidingView>
     </Modal>
   )
 }
 
 const styles = StyleSheet.create({
+  keyboardAvoider: {
+    flex: 1,
+  },
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.6)',

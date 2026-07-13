@@ -9,7 +9,13 @@ import java.util.concurrent.atomic.AtomicBoolean
 object TimerSoundPlayer {
   private val players = mutableSetOf<MediaPlayer>()
 
-  fun play(context: Context, resId: Int, volume: Float, onFinished: () -> Unit) {
+  fun play(
+    context: Context,
+    resId: Int,
+    volume: Float,
+    useAlarmUsage: Boolean,
+    onFinished: () -> Unit,
+  ) {
     if (volume <= 0f) {
       onFinished()
       return
@@ -29,7 +35,7 @@ object TimerSoundPlayer {
     try {
       player.setAudioAttributes(
         AudioAttributes.Builder()
-          .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
+          .setUsage(if (useAlarmUsage) AudioAttributes.USAGE_ALARM else AudioAttributes.USAGE_NOTIFICATION_EVENT)
           .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
           .build(),
       )

@@ -11,6 +11,7 @@ export const DEFAULT_CONFIG: TimerConfig = {
   snapOffset: 0,
   subEnabled: true,
   notificationsEnabled: true,
+  focusModeEnabled: false,
   volume: 0.8,
   alarmModeEnabled: false,
   activeHoursEnabled: false,

@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { KeyboardAvoidingView, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '../theme/ThemeContext'
 
@@ -27,51 +27,57 @@ export function TimeOfDayPicker({ title, initial, onConfirm, onClose }: Props) {
 
   return (
     <Modal transparent animationType="fade" visible onRequestClose={onClose}>
-      <Pressable style={styles.overlay} onPress={onClose}>
-        <Pressable
-          style={[
-            styles.sheet,
-            { backgroundColor: tokens.surface, borderColor: tokens.border, paddingBottom: insets.bottom + 32 },
-          ]}
-          onPress={event => event.stopPropagation()}
-        >
-          <Text style={[styles.title, { color: tokens.textMuted }]}>{title}</Text>
-          <View style={styles.timeRow}>
-            <TextInput
-              style={[styles.input, { backgroundColor: tokens.surfaceHi, borderColor: tokens.border, color: tokens.text }]}
-              value={hour}
-              onChangeText={setHour}
-              keyboardType="number-pad"
-              maxLength={2}
-              autoFocus
-              selectTextOnFocus
-              returnKeyType="next"
-              onSubmitEditing={() => minuteInput.current?.focus()}
-              accessibilityLabel="Hour"
-            />
-            <Text style={[styles.separator, { color: tokens.textMuted }]}>:</Text>
-            <TextInput
-              ref={minuteInput}
-              style={[styles.input, { backgroundColor: tokens.surfaceHi, borderColor: tokens.border, color: tokens.text }]}
-              value={minute}
-              onChangeText={setMinute}
-              keyboardType="number-pad"
-              maxLength={2}
-              selectTextOnFocus
-              onSubmitEditing={confirm}
-              accessibilityLabel="Minute"
-            />
-          </View>
-          <Pressable style={[styles.confirm, { backgroundColor: tokens.accent }]} onPress={confirm}>
-            <Text style={styles.confirmLabel}>Set</Text>
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoider}
+        behavior={process.env.EXPO_OS === 'ios' ? 'padding' : 'height'}
+      >
+        <Pressable style={styles.overlay} onPress={onClose}>
+          <Pressable
+            style={[
+              styles.sheet,
+              { backgroundColor: tokens.surface, borderColor: tokens.border, paddingBottom: insets.bottom + 32 },
+            ]}
+            onPress={event => event.stopPropagation()}
+          >
+            <Text style={[styles.title, { color: tokens.textMuted }]}>{title}</Text>
+            <View style={styles.timeRow}>
+              <TextInput
+                style={[styles.input, { backgroundColor: tokens.surfaceHi, borderColor: tokens.border, color: tokens.text }]}
+                value={hour}
+                onChangeText={setHour}
+                keyboardType="number-pad"
+                maxLength={2}
+                autoFocus
+                selectTextOnFocus
+                returnKeyType="next"
+                onSubmitEditing={() => minuteInput.current?.focus()}
+                accessibilityLabel="Hour"
+              />
+              <Text style={[styles.separator, { color: tokens.textMuted }]}>:</Text>
+              <TextInput
+                ref={minuteInput}
+                style={[styles.input, { backgroundColor: tokens.surfaceHi, borderColor: tokens.border, color: tokens.text }]}
+                value={minute}
+                onChangeText={setMinute}
+                keyboardType="number-pad"
+                maxLength={2}
+                selectTextOnFocus
+                onSubmitEditing={confirm}
+                accessibilityLabel="Minute"
+              />
+            </View>
+            <Pressable style={[styles.confirm, { backgroundColor: tokens.accent }]} onPress={confirm}>
+              <Text style={styles.confirmLabel}>Set</Text>
+            </Pressable>
           </Pressable>
         </Pressable>
-      </Pressable>
+      </KeyboardAvoidingView>
     </Modal>
   )
 }
 
 const styles = StyleSheet.create({
+  keyboardAvoider: { flex: 1 },
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
   sheet: {
     borderTopLeftRadius: 16,

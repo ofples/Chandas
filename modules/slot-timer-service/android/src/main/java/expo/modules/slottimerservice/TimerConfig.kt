@@ -7,6 +7,7 @@ data class TimerConfig(
   val subEnabled: Boolean,
   val volume: Float,
   val notificationsEnabled: Boolean,
+  val focusModeEnabled: Boolean,
   val alarmModeEnabled: Boolean,
   val activeHoursEnabled: Boolean,
   val activeHoursStart: Int,

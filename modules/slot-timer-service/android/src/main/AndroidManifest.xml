@@ -1,11 +1,21 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
   <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
   <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+  <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
   <application>
     <service
       android:name=".SlotTimerAlarmService"
       android:foregroundServiceType="mediaPlayback"
       android:exported="false" />
+    <service
+      android:name=".FocusConditionProviderService"
+      android:label="SlotTimer Focus"
+      android:permission="android.permission.BIND_CONDITION_PROVIDER_SERVICE"
+      android:exported="true">
+      <intent-filter>
+        <action android:name="android.service.notification.ConditionProviderService" />
+      </intent-filter>
+    </service>
     <receiver
       android:name=".TimerEventReceiver"
       android:exported="false" />
@@ -18,6 +28,7 @@
         <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
         <action android:name="android.intent.action.TIME_SET" />
         <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+        <action android:name="android.app.action.NOTIFICATION_POLICY_ACCESS_GRANTED_CHANGED" />
       </intent-filter>
     </receiver>
   </application>

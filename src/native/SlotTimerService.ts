@@ -15,6 +15,7 @@ export interface NativeTimerConfig {
   subEnabled: boolean
   volume: number       // 0–1, gong/bell volume
   notificationsEnabled: boolean
+  focusModeEnabled: boolean
   alarmModeEnabled: boolean // main gong becomes a continuous, dismissable alarm
   activeHoursEnabled: boolean
   activeHoursStart: number
@@ -42,6 +43,7 @@ export interface NativeTimerState {
   subEnabled?: boolean
   volume?: number
   notificationsEnabled?: boolean
+  focusModeEnabled?: boolean
   alarmModeEnabled?: boolean
   activeHoursEnabled?: boolean
   activeHoursStart?: number
@@ -68,6 +70,11 @@ interface SlotTimerServiceModule {
   openExactAlarmSettings(): void
   canUseFullScreenIntent(): boolean
   openFullScreenIntentSettings(): void
+  hasNotificationPolicyAccess(): boolean
+  isFocusModeActive(): boolean
+  openNotificationPolicySettings(): void
+  refreshFocusMode(): void
+  setFocusModeEnabled(enabled: boolean): void
   toggleAlarmOnce(): void
   muteForIterations(count: number): void
   muteForMinutes(minutes: number): void
@@ -116,6 +123,21 @@ export const SlotTimerService = {
   },
   openFullScreenIntentSettings() {
     native?.openFullScreenIntentSettings()
+  },
+  hasNotificationPolicyAccess(): boolean {
+    return native?.hasNotificationPolicyAccess() ?? false
+  },
+  isFocusModeActive(): boolean {
+    return native?.isFocusModeActive() ?? false
+  },
+  openNotificationPolicySettings() {
+    native?.openNotificationPolicySettings()
+  },
+  refreshFocusMode() {
+    native?.refreshFocusMode()
+  },
+  setFocusModeEnabled(enabled: boolean) {
+    native?.setFocusModeEnabled(enabled)
   },
   toggleAlarmOnce() {
     native?.toggleAlarmOnce()

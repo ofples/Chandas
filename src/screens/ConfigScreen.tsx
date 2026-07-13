@@ -20,9 +20,19 @@ interface Props {
   config: TimerConfig
   onChange: (c: TimerConfig) => void
   onStart: () => void
+  focusPolicyAccess: boolean
+  onFocusModeChange: (enabled: boolean) => void
+  onOpenFocusSettings: () => void
 }
 
-export function ConfigScreen({ config, onChange, onStart }: Props) {
+export function ConfigScreen({
+  config,
+  onChange,
+  onStart,
+  focusPolicyAccess,
+  onFocusModeChange,
+  onOpenFocusSettings,
+}: Props) {
   const { tokens, theme, toggleTheme } = useTheme()
   const insets = useSafeAreaInsets()
 
@@ -106,6 +116,31 @@ export function ConfigScreen({ config, onChange, onStart }: Props) {
           onStartChange={value => set('activeHoursStart', value)}
           onEndChange={value => set('activeHoursEnd', value)}
         />
+
+        {Platform.OS === 'android' && isNativeServiceAvailable && (
+          <View style={styles.section}>
+            <View style={styles.toggleRow}>
+              <Text style={[styles.sectionLabel, { color: tokens.textMuted }]}>Focus session</Text>
+              <Toggle
+                value={config.focusModeEnabled}
+                onChange={onFocusModeChange}
+                accessibilityLabel="Focus session"
+              />
+            </View>
+            {config.focusModeEnabled && !focusPolicyAccess && (
+              <Pressable
+                onPress={onOpenFocusSettings}
+                style={({ pressed }) => [
+                  styles.focusAccess,
+                  { borderColor: tokens.accent, opacity: pressed ? 0.75 : 1 },
+                ]}
+                accessibilityRole="button"
+              >
+                <Text style={[styles.focusAccessLabel, { color: tokens.accent }]}>Grant DND access</Text>
+              </Pressable>
+            )}
+          </View>
+        )}
 
         <View style={styles.section}>
           <Text style={[styles.sectionLabel, { color: tokens.textMuted }]}>Volume</Text>
@@ -212,6 +247,17 @@ const styles = StyleSheet.create({
   helperText: {
     fontSize: 12,
     opacity: 0.8,
+  },
+  focusAccess: {
+    alignSelf: 'flex-start',
+    borderWidth: 1.5,
+    borderRadius: 9999,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+  },
+  focusAccessLabel: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   volumeRow: {
     flexDirection: 'row',

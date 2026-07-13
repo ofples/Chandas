@@ -8,6 +8,7 @@ class TimerEventReceiver : BroadcastReceiver() {
   companion object {
     const val ACTION_FIRE = "expo.modules.slottimerservice.action.FIRE"
     const val ACTION_STOP = "expo.modules.slottimerservice.action.STOP"
+    const val ACTION_FOCUS_END = "expo.modules.slottimerservice.action.FOCUS_END"
     const val EXTRA_TRIGGER_AT = "triggerAt"
     const val EXTRA_EVENT_TYPE = "eventType"
   }
@@ -15,6 +16,7 @@ class TimerEventReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
     when (intent.action) {
       ACTION_STOP -> TimerScheduler.stop(context)
+      ACTION_FOCUS_END -> FocusModeController.sync(context)
       ACTION_FIRE -> {
         val type = TimerEventType.fromValue(intent.getStringExtra(EXTRA_EVENT_TYPE)) ?: return
         val triggerAt = intent.getLongExtra(EXTRA_TRIGGER_AT, -1L)

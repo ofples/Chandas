@@ -19,6 +19,7 @@ class TimerConfigRecord : Record {
   @Field var subEnabled: Boolean? = null
   @Field var volume: Float? = null
   @Field var notificationsEnabled: Boolean? = null
+  @Field var focusModeEnabled: Boolean? = null
   @Field var alarmModeEnabled: Boolean? = null
   @Field var activeHoursEnabled: Boolean? = null
   @Field var activeHoursStart: Int? = null
@@ -98,6 +99,7 @@ class SlotTimerServiceModule : Module() {
           "subEnabled" to config.subEnabled,
           "volume" to config.volume,
           "notificationsEnabled" to config.notificationsEnabled,
+          "focusModeEnabled" to config.focusModeEnabled,
           "alarmModeEnabled" to config.alarmModeEnabled,
           "activeHoursEnabled" to config.activeHoursEnabled,
           "activeHoursStart" to config.activeHoursStart,
@@ -173,6 +175,34 @@ class SlotTimerServiceModule : Module() {
       }
     }
 
+    Function("hasNotificationPolicyAccess") {
+      val context = appContext.reactContext
+      context != null && FocusModeController.hasPolicyAccess(context)
+    }
+
+    Function("isFocusModeActive") {
+      val context = appContext.reactContext
+      context != null && FocusModeController.isActive(context)
+    }
+
+    Function("openNotificationPolicySettings") {
+      val context = appContext.reactContext
+      if (context != null) FocusModeController.openPolicySettings(context)
+    }
+
+    Function("refreshFocusMode") {
+      val context = appContext.reactContext
+      if (context != null) FocusModeController.sync(context)
+    }
+
+    Function("setFocusModeEnabled") { enabled: Boolean ->
+      val context = appContext.reactContext ?: return@Function
+      val previous = TimerStateStore.load(context) ?: return@Function
+      val config = previous.copy(focusModeEnabled = enabled)
+      TimerStateStore.save(context, config)
+      FocusModeController.sync(context, config)
+    }
+
     OnStartObserving("onAlarmStateChanged") {
       AlarmStateRegistry.add(ringingListener)
     }
@@ -201,6 +231,7 @@ class SlotTimerServiceModule : Module() {
       subEnabled = record.subEnabled ?: previous?.subEnabled ?: true,
       volume = (record.volume ?: previous?.volume ?: 0.8f).coerceIn(0f, 1f),
       notificationsEnabled = record.notificationsEnabled ?: previous?.notificationsEnabled ?: true,
+      focusModeEnabled = record.focusModeEnabled ?: previous?.focusModeEnabled ?: false,
       alarmModeEnabled = record.alarmModeEnabled ?: previous?.alarmModeEnabled ?: false,
       activeHoursEnabled = record.activeHoursEnabled ?: previous?.activeHoursEnabled ?: false,
       activeHoursStart = (record.activeHoursStart ?: previous?.activeHoursStart ?: 480).coerceIn(0, 1_439),

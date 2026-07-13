@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { StatusBar } from 'expo-status-bar'
-import { View } from 'react-native'
+import { AppState as NativeAppState, Platform, View } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { useFonts, JetBrainsMono_300Light, JetBrainsMono_400Regular } from '@expo-google-fonts/jetbrains-mono'
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext'
@@ -17,6 +17,8 @@ function Root() {
   const [config, setConfig] = useState<TimerConfig | null>(null)
   const [appState, setAppState] = useState<AppState>('config')
   const [ready, setReady] = useState(false)
+  const [focusPolicyAccess, setFocusPolicyAccess] = useState(false)
+  const [focusModeActive, setFocusModeActive] = useState(false)
 
   const {
     mainCountdown, subCountdown, progress, activeHoursPaused, activeHoursResumeAt,
@@ -25,6 +27,21 @@ function Root() {
     alarmOnceArmed, mutedUntil, mutedIterationsRemaining,
     toggleAlarmOnce, muteForIterations, muteForMinutes, clearTimedMute,
   } = useTimer(config ?? DEFAULT_CONFIG)
+
+  const refreshFocusState = useCallback(() => {
+    if (Platform.OS !== 'android' || !isNativeServiceAvailable) return
+    SlotTimerService.refreshFocusMode()
+    setFocusPolicyAccess(SlotTimerService.hasNotificationPolicyAccess())
+    setFocusModeActive(SlotTimerService.isFocusModeActive())
+  }, [])
+
+  useEffect(() => {
+    refreshFocusState()
+    const subscription = NativeAppState.addEventListener('change', state => {
+      if (state === 'active') refreshFocusState()
+    })
+    return () => subscription.remove()
+  }, [refreshFocusState])
 
   useEffect(() => {
     (async () => {
@@ -35,7 +52,7 @@ function Root() {
       setConfig(loadedConfig)
       if (resuming) {
         setAppState('running')
-        start(loadedConfig)
+        void start(loadedConfig).then(refreshFocusState)
       }
       setReady(true)
       // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -51,13 +68,26 @@ function Root() {
     saveConfig(c)
   }
 
+  const handleFocusModeChange = (enabled: boolean) => {
+    if (!config) return
+    handleConfigChange({ ...config, focusModeEnabled: enabled })
+    if (appState === 'running' && isNativeServiceAvailable) {
+      SlotTimerService.setFocusModeEnabled(enabled)
+    }
+    if (enabled && Platform.OS === 'android' && isNativeServiceAvailable && !focusPolicyAccess) {
+      SlotTimerService.openNotificationPolicySettings()
+    }
+    setFocusModeActive(enabled && focusPolicyAccess && appState === 'running')
+    setTimeout(refreshFocusState, 100)
+  }
+
   const handleStart = () => {
     if (isNativeServiceAvailable && !SlotTimerService.canScheduleExactAlarms()) {
       SlotTimerService.openExactAlarmSettings()
       return
     }
-    start()
     setAppState('running')
+    void start().then(refreshFocusState)
   }
 
   const handleStop = () => {
@@ -88,6 +118,9 @@ function Root() {
           config={config}
           onChange={handleConfigChange}
           onStart={handleStart}
+          focusPolicyAccess={focusPolicyAccess}
+          onFocusModeChange={handleFocusModeChange}
+          onOpenFocusSettings={SlotTimerService.openNotificationPolicySettings}
         />
       ) : (
         <RunningScreen
@@ -111,6 +144,10 @@ function Root() {
           onMuteForIterations={muteForIterations}
           onMuteForMinutes={muteForMinutes}
           onClearTimedMute={clearTimedMute}
+          focusModeEnabled={config.focusModeEnabled}
+          focusModeActive={focusModeActive && !activeHoursPaused}
+          focusPolicyAccess={focusPolicyAccess}
+          onToggleFocusMode={() => handleFocusModeChange(!config.focusModeEnabled)}
         />
       )}
 

@@ -25,7 +25,7 @@ interface TimerState {
 
 interface UseTimerReturn extends TimerState {
   isRunning: boolean
-  start: (overrideConfig?: TimerConfig) => void
+  start: (overrideConfig?: TimerConfig) => Promise<void>
   stop: () => void
   resyncPhase: (newPhase: number) => void
   isAlarmRinging: boolean
@@ -281,6 +281,7 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
         subEnabled: subEnabledRef.current,
         volume: startConfig.volume,
         notificationsEnabled: notifGranted && startConfig.notificationsEnabled,
+        focusModeEnabled: startConfig.focusModeEnabled,
         alarmModeEnabled: startConfig.alarmModeEnabled,
         activeHoursEnabled: startConfig.activeHoursEnabled,
         activeHoursStart: startConfig.activeHoursStart,
@@ -464,7 +465,12 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
         alarmDurationSeconds: config.alarmDurationSeconds,
       })
     }
-  }, [config.volume, config.notificationsEnabled, config.alarmModeEnabled, config.alarmDurationSeconds])
+  }, [
+    config.volume,
+    config.notificationsEnabled,
+    config.alarmModeEnabled,
+    config.alarmDurationSeconds,
+  ])
 
   // Live-update volume/alarm-mode in the JS fallback path — reschedule so the
   // pending timeout (which closed over the previous values) picks up the new

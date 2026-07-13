@@ -22,6 +22,7 @@ object TimerStateStore {
       .putBoolean("subEnabled", config.subEnabled)
       .putFloat("volume", config.volume)
       .putBoolean("notificationsEnabled", config.notificationsEnabled)
+      .putBoolean("focusModeEnabled", config.focusModeEnabled)
       .putBoolean("alarmModeEnabled", config.alarmModeEnabled)
       .putBoolean("activeHoursEnabled", config.activeHoursEnabled)
       .putInt("activeHoursStart", config.activeHoursStart)
@@ -44,6 +45,7 @@ object TimerStateStore {
       subEnabled = prefs.getBoolean("subEnabled", true),
       volume = prefs.getFloat("volume", 0.8f).coerceIn(0f, 1f),
       notificationsEnabled = prefs.getBoolean("notificationsEnabled", true),
+      focusModeEnabled = prefs.getBoolean("focusModeEnabled", false),
       alarmModeEnabled = prefs.getBoolean("alarmModeEnabled", false),
       activeHoursEnabled = prefs.getBoolean("activeHoursEnabled", false),
       activeHoursStart = prefs.getInt("activeHoursStart", 480).coerceIn(0, 1_439),

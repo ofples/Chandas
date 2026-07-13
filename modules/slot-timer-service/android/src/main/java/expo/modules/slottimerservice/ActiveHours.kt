@@ -44,4 +44,30 @@ object ActiveHours {
     }
     return candidate.timeInMillis
   }
+
+  fun currentWindowEnd(config: TimerConfig, timestamp: Long = System.currentTimeMillis()): Long? {
+    if (!config.activeHoursEnabled || !isActive(config, timestamp)) return null
+    val start = config.activeHoursStart.coerceIn(0, 1_439)
+    val end = config.activeHoursEnd.coerceIn(0, 1_439)
+    if (start == end) {
+      return Calendar.getInstance().apply {
+        timeInMillis = timestamp
+        add(Calendar.DAY_OF_MONTH, 1)
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+      }.timeInMillis
+    }
+
+    val endTime = Calendar.getInstance().apply {
+      timeInMillis = timestamp
+      set(Calendar.HOUR_OF_DAY, end / 60)
+      set(Calendar.MINUTE, end % 60)
+      set(Calendar.SECOND, 0)
+      set(Calendar.MILLISECOND, 0)
+    }
+    if (endTime.timeInMillis <= timestamp) endTime.add(Calendar.DAY_OF_MONTH, 1)
+    return endTime.timeInMillis
+  }
 }
