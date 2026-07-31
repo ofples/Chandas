@@ -18,7 +18,7 @@ import {
 import { ConfigScreen } from './src/screens/ConfigScreen'
 import { RunningScreen } from './src/screens/RunningScreen'
 import { AlarmRingingScreen } from './src/screens/AlarmRingingScreen'
-import { isNativeServiceAvailable, SlotTimerService } from './src/native/SlotTimerService'
+import { ChandasTimerService, isNativeServiceAvailable } from './src/native/ChandasTimerService'
 
 function Root() {
   const { tokens, theme } = useTheme()
@@ -39,9 +39,9 @@ function Root() {
 
   const refreshFocusState = useCallback(() => {
     if (Platform.OS !== 'android' || !isNativeServiceAvailable) return
-    SlotTimerService.refreshFocusMode()
-    setFocusPolicyAccess(SlotTimerService.hasNotificationPolicyAccess())
-    setFocusModeActive(SlotTimerService.isFocusModeActive())
+    ChandasTimerService.refreshFocusMode()
+    setFocusPolicyAccess(ChandasTimerService.hasNotificationPolicyAccess())
+    setFocusModeActive(ChandasTimerService.isFocusModeActive())
   }, [])
 
   useEffect(() => {
@@ -59,7 +59,7 @@ function Root() {
         hasTimerSession(),
         loadAdvancedSettingsExpanded(),
       ])
-      const nativeSession = isNativeServiceAvailable && SlotTimerService.getState().active
+      const nativeSession = isNativeServiceAvailable && ChandasTimerService.getState().active
       const resuming = isNativeServiceAvailable ? nativeSession : storedSession
       if (isNativeServiceAvailable && storedSession && !nativeSession) await clearSession()
       setConfig(loadedConfig)
@@ -91,18 +91,18 @@ function Root() {
     if (!config) return
     handleConfigChange({ ...config, focusModeEnabled: enabled })
     if (appState === 'running' && isNativeServiceAvailable) {
-      SlotTimerService.setFocusModeEnabled(enabled)
+      ChandasTimerService.setFocusModeEnabled(enabled)
     }
     if (enabled && Platform.OS === 'android' && isNativeServiceAvailable && !focusPolicyAccess) {
-      SlotTimerService.openNotificationPolicySettings()
+      ChandasTimerService.openNotificationPolicySettings()
     }
     setFocusModeActive(enabled && focusPolicyAccess && appState === 'running')
     setTimeout(refreshFocusState, 100)
   }
 
   const handleStart = () => {
-    if (isNativeServiceAvailable && !SlotTimerService.canScheduleExactAlarms()) {
-      SlotTimerService.openExactAlarmSettings()
+    if (isNativeServiceAvailable && !ChandasTimerService.canScheduleExactAlarms()) {
+      ChandasTimerService.openExactAlarmSettings()
       return
     }
     setAppState('running')
@@ -139,7 +139,7 @@ function Root() {
           onStart={handleStart}
           focusPolicyAccess={focusPolicyAccess}
           onFocusModeChange={handleFocusModeChange}
-          onOpenFocusSettings={SlotTimerService.openNotificationPolicySettings}
+          onOpenFocusSettings={ChandasTimerService.openNotificationPolicySettings}
           advancedSettingsExpanded={advancedSettingsExpanded}
           onAdvancedSettingsChange={handleAdvancedSettingsChange}
         />

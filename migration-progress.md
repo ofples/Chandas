@@ -1,4 +1,4 @@
-# SlotTimer — PWA → Expo (React Native) migration
+# Chandas — PWA → Expo (React Native) migration
 
 **Goal:** Turn the current Vite PWA into a native Expo/React Native **Android** app that
 stays alive in the background via a **proper foreground service** — no more silent
@@ -39,11 +39,11 @@ service that also plays audio and updates an ongoing notification.
 ┌─ JS / React Native (UI thread) ──────────────────────────────┐
 │  snapLogic.ts (unchanged) → ring + MM:SS countdown (RAF loop)
 │  Config/session/theme  → AsyncStorage
-│  Start/Update/Stop     → calls SlotTimerService (native module)
+│  Start/Update/Stop     → calls ChandasTimerService (native module)
 └──────────────────────────────────────────────────────────────┘
             │ start(config) / update(partial) / stop()
             ▼
-┌─ SlotTimerFgService (Kotlin, Expo Modules API) ───────────────┐
+┌─ ChandasTimerService (Kotlin, Expo Modules API) ──────────────┐
 │  mediaPlayback foreground service + ongoing notification
 │  TimerMath.kt — snapLogic ported verbatim → schedules next tick
 │  Plays gong/bell (MediaPlayer) at each tick @ in-app volume
@@ -66,7 +66,7 @@ state, the two sides can never drift and never need to exchange tick events to s
 sync — only `start`/`update`/`stop` cross the JS↔native bridge.
 
 **JS-side fallback:** `src/hooks/useTimer.ts` calls the native service via
-`src/native/SlotTimerService.ts` (`requireOptionalNativeModule`) when it's linked. If it
+`src/native/ChandasTimerService.ts` (`requireOptionalNativeModule`) when it's linked. If it
 isn't (mid-development, or a future iOS build), the hook falls back to playing
 gong/bell/bg-music itself via `expo-audio` in the foreground only — accurate while the app
 is open, with no background guarantee. This is what makes Phases 0–2 independently
@@ -118,8 +118,8 @@ double-tap-force-update.
 ## Dependencies
 
 - `expo` SDK 57, `expo-dev-client` (Expo Go is left behind — required for the custom native module)
-- Local Expo module **`modules/slot-timer-service`** (Kotlin) — `SlotTimerFgService` (the
-  foreground service) + `SlotTimerServiceModule` (the JS bridge); autolinked automatically
+- Local Expo module **`modules/chandas-timer-service`** (Kotlin) — `ChandasTimerService` (the
+  foreground service) + `ChandasTimerServiceModule` (the JS bridge); autolinked automatically
   since it lives under `modules/` — verified via `npx expo-modules-autolinking resolve --platform android`
   and `npx expo prebuild --platform android` (see Verification below)
 - `expo-audio` — JS-side fallback playback when the native module isn't linked
@@ -136,7 +136,7 @@ double-tap-force-update.
 `POST_NOTIFICATIONS`, `WAKE_LOCK` (top-level, via `app.json:expo.android.permissions`); the
 module's own `AndroidManifest.xml` declares `<service android:foregroundServiceType="mediaPlayback">`,
 merged into the app manifest by the Android Gradle Plugin at build time; portrait; icons/
-splash from existing PNGs; notification channel (`slottimer-running`, `IMPORTANCE_LOW` —
+splash from existing PNGs; notification channel (`chandas-running`, `IMPORTANCE_LOW` —
 silent, since the service plays the gong itself rather than relying on notification sound).
 
 ---
@@ -166,8 +166,8 @@ silent, since the service plays the gong itself rather than relying on notificat
 - [x] JS timer drives ring/countdown from `snapLogic` (visual only, always JS-side)
 - [ ] Verify parity vs. running web running-screen — needs a device/simulator
 
-### Phase 3 — `SlotTimerService` foreground service (the payoff) ✅ code complete
-- [x] Local Expo module `modules/slot-timer-service`; Kotlin `SlotTimerFgService`
+### Phase 3 — `ChandasTimerService` foreground service (the payoff) ✅ code complete
+- [x] Local Expo module `modules/chandas-timer-service`; Kotlin `ChandasTimerService`
       start/update/stop a `mediaPlayback` foreground service
 - [x] `TimerMath.kt` — `snapLogic` tick math ported verbatim
 - [x] Gong/bell playback via `MediaPlayer` at ticks, at the in-app volume; silent when volume is 0
@@ -188,7 +188,7 @@ silent, since the service plays the gong itself rather than relying on notificat
 
 ### Phase 4 — Ship
 - [x] `expo-font` + `@expo-google-fonts/jetbrains-mono`; `app.json` name/permissions/plugins finalized
-- [x] Icons/splash/adaptive-icon regenerated from SlotTimer's actual mark (`legacy-web/public/icon-512.png`
+- [x] Icons/splash/adaptive-icon regenerated from Chandas's actual mark (`legacy-web/public/icon-512.png`
       → `assets/icon.png`, `android-icon-foreground.png`, `android-icon-monochrome.png`, `splash-icon.png`,
       `favicon.png`); adaptive icon background uses the flat `#0b0c10` brand color (no image needed)
 - [x] `expo-splash-screen` installed and configured (dark `#0b0c10` background + the mark)
@@ -209,24 +209,24 @@ screen, rings until dismissed. Two decisions made with the user before building 
 notification) rather than a notification-only v1.
 
 - [x] `TimerConfig.alarmModeEnabled` (persisted), toggle in `ConfigScreen` and `RunningScreen`
-- [x] Placeholder alarm sound: **synthesized**, not sourced — `assets/sounds/alarm.wav`, a
+- [x] Placeholder alarm sound: **synthesized**, not sourced — `assets/sounds/alarm.mp3`, a
       plain three-beep pattern generated with Python's stdlib `wave` module (no licensed audio
       available in this environment). **Swap this for a real alarm sound before shipping** —
       it's a functional stand-in, not final audio.
-- [x] `SlotTimerFgService`: on the main tick, alarm mode starts a **looping** `MediaPlayer`
+- [x] `ChandasTimerService`: on the main tick, alarm mode starts a **looping** `MediaPlayer`
       (`USAGE_ALARM`/`CONTENT_TYPE_SONIFICATION`) and *pauses* normal tick scheduling — no
       ticks are missed, they simply resume from `stopAlarmRinging()` since `TimerMath.nextTick`
       always computes the next tick from current wall-clock time regardless of how long the
       alarm rang
-- [x] Escalated `slottimer-alarm` notification channel (`IMPORTANCE_HIGH`, distinct from the
-      ordinary silent `slottimer-running` channel): "Stop alarm" action button, full-screen
+- [x] Escalated `chandas-alarm` notification channel (`IMPORTANCE_HIGH`, distinct from the
+      ordinary silent `chandas-running` channel): "Stop alarm" action button, full-screen
       intent, `CATEGORY_ALARM`/`PRIORITY_MAX`. Guarded by `NotificationManager
       .canUseFullScreenIntent()` on API 34+ — if not granted, the notification still rings and
       is dismissable, it just won't force the screen on (graceful degradation, not a crash)
 - [x] `AlarmWindowHelper.kt` (plain Kotlin object) calls `Activity.setShowWhenLocked`/
       `setTurnScreenOn` (or the pre-API-27 window-flag equivalent) + `requestDismissKeyguard`
       when MainActivity is launched/resumed with the alarm-ringing intent extra
-- [x] **Config plugin** (`modules/slot-timer-service/app.plugin.js`, referenced in `app.json`
+- [x] **Config plugin** (`modules/chandas-timer-service/app.plugin.js`, referenced in `app.json`
       by relative path since this is a local, not installed, module) injects two calls to
       `AlarmWindowHelper` into the generated `MainActivity.kt` — once in `onCreate` (cold
       launch) and once in a newly-added `onNewIntent` override (already-running app brought to
@@ -257,16 +257,16 @@ merge all confirmed).
 
 **Real build — done, on the user's machine, via EAS** (2026-07-11): local Android SDK/emulators
 were already installed (JDK 17, SDK platforms through API 36, two AVDs). `eas init` linked the
-project (`@ofples/slottimer`), and `eas build --profile development --platform android` gave
+project (`@ofples/chandas`), and `eas build --profile development --platform android` gave
 the actual first Gradle/Kotlin compile.
-- **Attempt 1** (`308acda8`) — **failed**: `SlotTimerServiceModule.kt:56,63` —
+- **Attempt 1** (`308acda8`) — **failed**: `ChandasTimerServiceModule.kt:56,63` —
   `Return type mismatch: expected 'Any?', actual 'Unit'`. Cause: `appContext.reactContext ?:
   return@Function` inside the `Function("stop")`/`Function("stopAlarm")` DSL lambdas made
   Kotlin's return-type inference ambiguous (early non-local return vs. the trailing
   Unit-typed statement). Fixed by rewriting both as plain `if (context != null) { ... }`
   blocks — no other `return@Function`/`return@AsyncFunction` sites existed in the module.
 - **Attempt 2** (`650873a7`) — **FINISHED**, clean build. Every other piece of native code
-  written sight-unseen in the cloud session — `SlotTimerFgService`, `TimerMath`,
+  written sight-unseen in the cloud session — `ChandasTimerService`, `TimerMath`,
   `AlarmWindowHelper`, the `MainActivity.kt` config-plugin injection — compiled with no
   further errors. APK: `https://expo.dev/artifacts/eas/qf9_bQ6Ge9Fu5LegONyYV1Uclu4Z6GJdhk9Ju_3ExBE.apk`
 
@@ -287,7 +287,7 @@ the actual first Gradle/Kotlin compile.
   workout/stopwatch), not intrusive.
 - **Battery** — a resident service costs more than idle scheduling; acceptable because the
   work is genuinely ongoing and user-initiated.
-- **Notification icon** — `SlotTimerFgService` currently uses `applicationInfo.icon` as the
+- **Notification icon** — `ChandasTimerService` currently uses `applicationInfo.icon` as the
   small icon; Android wants a dedicated monochrome/transparent notification icon asset for a
   polished look (Phase 4 item).
 

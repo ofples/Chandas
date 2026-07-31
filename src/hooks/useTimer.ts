@@ -6,14 +6,14 @@ import * as Notifications from 'expo-notifications'
 import { TimerConfig } from '../types'
 import { nextTick, nextSubTick, mainProgress, formatCountdown } from '../lib/snapLogic'
 import { loadSession, saveSession, clearSession } from '../lib/storage'
-import { isNativeServiceAvailable, SlotTimerService } from '../native/SlotTimerService'
+import { ChandasTimerService, isNativeServiceAvailable } from '../native/ChandasTimerService'
 import { isWithinActiveHours, nextActiveHoursStart, type ActiveHoursSettings } from '../lib/activeHours'
 
-const KEEP_AWAKE_TAG = 'slottimer-running'
+const KEEP_AWAKE_TAG = 'chandas-running'
 
 const GONG_SOURCE = require('../../assets/sounds/gong.mp3')
 const BELL_SOURCE = require('../../assets/sounds/bell.mp3')
-const ALARM_SOURCE = require('../../assets/sounds/alarm.wav')
+const ALARM_SOURCE = require('../../assets/sounds/alarm.mp3')
 
 interface TimerState {
   mainCountdown: string
@@ -225,7 +225,7 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
   const start = useCallback(async (overrideConfig?: TimerConfig) => {
     const startConfig = overrideConfig ?? config
     const now    = Date.now()
-    const nativeState = isNativeServiceAvailable ? SlotTimerService.getState() : null
+    const nativeState = isNativeServiceAvailable ? ChandasTimerService.getState() : null
     const mainMs = nativeState?.active && nativeState.mainMs
       ? nativeState.mainMs
       : startConfig.mainInterval * 60_000
@@ -290,9 +290,9 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
         alarmDurationSeconds: startConfig.alarmDurationSeconds,
       }
       if (nativeState?.active) {
-        SlotTimerService.update(nativeConfig)
+        ChandasTimerService.update(nativeConfig)
       } else {
-        SlotTimerService.start(nativeConfig)
+        ChandasTimerService.start(nativeConfig)
       }
     } else {
       // JS fallback — foreground-only accuracy, mirrors legacy web behavior.
@@ -317,7 +317,7 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
     deactivateKeepAwake(KEEP_AWAKE_TAG)
 
     if (isNativeServiceAvailable) {
-      SlotTimerService.stop()
+      ChandasTimerService.stop()
     } else {
       gongPlayerRef.current?.remove()
       bellPlayerRef.current?.remove()
@@ -341,7 +341,7 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
   const dismissAlarm = useCallback(() => {
     setIsAlarmRinging(false)
     if (isNativeServiceAvailable) {
-      SlotTimerService.stopAlarm()
+      ChandasTimerService.stopAlarm()
       return
     }
     if (alarmSilenceRef.current) {
@@ -354,8 +354,8 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
 
   const toggleAlarmOnce = useCallback(() => {
     if (isNativeServiceAvailable) {
-      SlotTimerService.toggleAlarmOnce()
-      const nativeState = SlotTimerService.getState()
+      ChandasTimerService.toggleAlarmOnce()
+      const nativeState = ChandasTimerService.getState()
       applyControlState({
         alarmOnceArmed: nativeState.alarmOnceArmed ?? false,
         mutedUntil: nativeState.mutedUntil ?? 0,
@@ -371,7 +371,7 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
   }, [applyControlState])
 
   const muteForIterations = useCallback((count: number) => {
-    if (isNativeServiceAvailable) SlotTimerService.muteForIterations(count)
+    if (isNativeServiceAvailable) ChandasTimerService.muteForIterations(count)
     applyControlState({
       alarmOnceArmed: alarmOnceRef.current,
       mutedUntil: 0,
@@ -381,7 +381,7 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
 
   const muteForMinutes = useCallback((minutes: number) => {
     const until = Date.now() + Math.max(1, Math.min(1_440, minutes)) * 60_000
-    if (isNativeServiceAvailable) SlotTimerService.muteForMinutes(minutes)
+    if (isNativeServiceAvailable) ChandasTimerService.muteForMinutes(minutes)
     applyControlState({
       alarmOnceArmed: alarmOnceRef.current,
       mutedUntil: until,
@@ -390,7 +390,7 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
   }, [applyControlState])
 
   const clearTimedMute = useCallback(() => {
-    if (isNativeServiceAvailable) SlotTimerService.clearMute()
+    if (isNativeServiceAvailable) ChandasTimerService.clearMute()
     applyControlState({
       alarmOnceArmed: alarmOnceRef.current,
       mutedUntil: 0,
@@ -411,7 +411,7 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
     saveSession({ phase: newPhase, mainMs: mainMsRef.current, subMs: subMsRef.current })
     updateDisplay()
     if (isNativeServiceAvailable) {
-      SlotTimerService.update({ phase: newPhase })
+      ChandasTimerService.update({ phase: newPhase })
     } else if (tickTimeoutRef.current) {
       clearTimeout(tickTimeoutRef.current)
       scheduleFallbackTick()
@@ -423,7 +423,7 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
     subEnabledRef.current = config.subEnabled
     if (!isRunningRef.current) return
     if (isNativeServiceAvailable) {
-      SlotTimerService.update({ subEnabled: config.subEnabled })
+      ChandasTimerService.update({ subEnabled: config.subEnabled })
     } else if (tickTimeoutRef.current) {
       clearTimeout(tickTimeoutRef.current)
       scheduleFallbackTick()
@@ -440,7 +440,7 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
     }
     if (!isRunningRef.current) return
     if (isNativeServiceAvailable) {
-      SlotTimerService.update(activeHoursRef.current)
+      ChandasTimerService.update(activeHoursRef.current)
     } else if (tickTimeoutRef.current) {
       clearTimeout(tickTimeoutRef.current)
       scheduleFallbackTick()
@@ -458,7 +458,7 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
   // Live-update volume / notifications / alarm-mode toggle → native service
   useEffect(() => {
     if (isRunningRef.current && isNativeServiceAvailable) {
-      SlotTimerService.update({
+      ChandasTimerService.update({
         volume: config.volume,
         notificationsEnabled: config.notificationsEnabled,
         alarmModeEnabled: config.alarmModeEnabled,
@@ -509,11 +509,11 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
   // foreground, plus subscribes to live updates while mounted.
   useEffect(() => {
     if (!isNativeServiceAvailable) return
-    setIsAlarmRinging(SlotTimerService.isRinging())
+    setIsAlarmRinging(ChandasTimerService.isRinging())
 
-    const listener = SlotTimerService.addAlarmListener(setIsAlarmRinging)
+    const listener = ChandasTimerService.addAlarmListener(setIsAlarmRinging)
     const sub = AppState.addEventListener('change', next => {
-      if (next === 'active') setIsAlarmRinging(SlotTimerService.isRinging())
+      if (next === 'active') setIsAlarmRinging(ChandasTimerService.isRinging())
     })
     return () => {
       listener?.remove()
@@ -523,14 +523,14 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
 
   useEffect(() => {
     if (!isNativeServiceAvailable) return
-    const listener = SlotTimerService.addControlListener(applyControlState)
+    const listener = ChandasTimerService.addControlListener(applyControlState)
     return () => listener?.remove()
   }, [applyControlState])
 
   useEffect(() => {
     if (mutedUntil <= Date.now()) return
     const timeout = setTimeout(() => {
-      if (isNativeServiceAvailable) SlotTimerService.clearMute()
+      if (isNativeServiceAvailable) ChandasTimerService.clearMute()
       applyControlState({
         alarmOnceArmed: alarmOnceRef.current,
         mutedUntil: 0,

@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { darkTheme, lightTheme, ThemeName, ThemeTokens } from './tokens'
 
-const THEME_KEY = 'slottimer-theme'
+const THEME_KEY = 'chandas-theme'
 
 interface ThemeContextValue {
   theme: ThemeName

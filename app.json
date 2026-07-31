@@ -1,18 +1,18 @@
 {
   "expo": {
-    "name": "SlotTimer",
-    "slug": "slottimer",
+    "name": "Chandas",
+    "slug": "chandas",
     "version": "0.2.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
-    "scheme": "slottimer",
+    "scheme": "chandas",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.slottimer.app"
+      "bundleIdentifier": "com.yukti.chandas"
     },
     "android": {
-      "package": "com.slottimer.app",
+      "package": "com.yukti.chandas",
       "adaptiveIcon": {
         "backgroundColor": "#0b0c10",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -28,15 +28,23 @@
         "USE_EXACT_ALARM",
         "RECEIVE_BOOT_COMPLETED",
         "ACCESS_NOTIFICATION_POLICY",
-        "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS"
+      ],
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-audio",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
       "expo-font",
       [
         "expo-notifications",
@@ -57,22 +65,22 @@
           }
         }
       ],
-      "./modules/slot-timer-service/app.plugin.js"
+      "./modules/chandas-timer-service/app.plugin.js"
     ],
-    "extra": {
-      "eas": {
-        "projectId": "d905367d-c81b-4ab0-8b5a-e89740e9aab8"
-      }
-    },
     "owner": "ofples",
     "runtimeVersion": {
       "policy": "fingerprint"
     },
     "updates": {
-      "url": "https://u.expo.dev/d905367d-c81b-4ab0-8b5a-e89740e9aab8",
+      "url": "https://u.expo.dev/0a58141c-12a1-4e21-acb5-f4153b629fd7",
       "enabled": true,
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 0
+    },
+    "extra": {
+      "eas": {
+        "projectId": "0a58141c-12a1-4e21-acb5-f4153b629fd7"
+      }
     }
   }
 }

@@ -6,7 +6,7 @@ import { nextTick, nextSubTick, mainProgress, formatCountdown } from '../lib/sna
 // Saves enough state to resume the timer after a page refresh.
 // The phase is the only value that can't be recomputed from config.
 
-const SESSION_KEY = 'slottimer-session'
+const SESSION_KEY = 'chandas-session'
 
 interface TimerSession {
   phase: number
@@ -96,7 +96,7 @@ function startBgAudio(
     audio.play().catch(() => { /* blocked — caller should retry via resumeBgAudio */ })
     ref.current  = audio
   } catch (e) {
-    console.warn('[SlotTimer] bg audio setup failed:', e)
+    console.warn('[Chandas] bg audio setup failed:', e)
   }
 }
 
@@ -270,7 +270,7 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
           })
         }
         // Resume bg audio when returning to the app — clear any yielded state first
-        // so that even if we yielded to a music app, coming back to SlotTimer reclaims audio.
+        // so that even if we yielded to a music app, coming back to Chandas reclaims audio.
         userPausedRef.current = false
         const bgAudio = silentAudioRef.current
         if (bgAudio?.paused) bgAudio.play().catch(() => {})
@@ -342,7 +342,7 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
     // MediaSession — lock screen / notification shade controls
     if ('mediaSession' in navigator) {
       navigator.mediaSession.metadata = new MediaMetadata({
-        title:   'SlotTimer',
+        title:   'Chandas',
         artist:  `Every ${config.mainInterval} min`,
         artwork: [
           { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },

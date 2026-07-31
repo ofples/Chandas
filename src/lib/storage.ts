@@ -1,9 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { TimerConfig } from '../types'
 
-const CONFIG_KEY = 'slottimer-config'
-const SESSION_KEY = 'slottimer-session'
-const ADVANCED_SETTINGS_KEY = 'slottimer-advanced-settings-expanded'
+const CONFIG_KEY = 'chandas-config'
+const SESSION_KEY = 'chandas-session'
+const ADVANCED_SETTINGS_KEY = 'chandas-advanced-settings-expanded'
 
 export const DEFAULT_CONFIG: TimerConfig = {
   mainInterval: 30,

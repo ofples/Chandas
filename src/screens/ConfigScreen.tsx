@@ -1,4 +1,4 @@
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import Slider from '@react-native-community/slider'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { TimerConfig } from '../types'
@@ -7,10 +7,12 @@ import { IntervalPicker } from '../components/IntervalPicker'
 import { SnapConfig } from '../components/SnapConfig'
 import { Toggle } from '../components/Toggle'
 import { ChevronIcon, ThemeIcon, VolumeIcon } from '../components/Icons'
-import { isNativeServiceAvailable, SlotTimerService } from '../native/SlotTimerService'
+import { ChandasTimerService, isNativeServiceAvailable } from '../native/ChandasTimerService'
 import { ActiveHoursConfig } from '../components/ActiveHoursConfig'
 
 const APP_VERSION = '0.2.0'
+const PRIVACY_POLICY_URL = 'https://ofples.github.io/StaticPages/chandas_privacy_policy.html'
+const TERMS_URL = 'https://ofples.github.io/StaticPages/chandas_terms_and_conditions.html'
 
 const MAIN_PRESETS = [10, 15, 30]
 const SUB_PRESETS = [5, 10, 15]
@@ -54,9 +56,9 @@ export function ConfigScreen({
       enabled &&
       Platform.OS === 'android' &&
       isNativeServiceAvailable &&
-      !SlotTimerService.canUseFullScreenIntent()
+      !ChandasTimerService.canUseFullScreenIntent()
     ) {
-      SlotTimerService.openFullScreenIntentSettings()
+      ChandasTimerService.openFullScreenIntentSettings()
     }
     set('alarmModeEnabled', enabled)
   }
@@ -232,9 +234,27 @@ export function ConfigScreen({
         <ThemeIcon dark={theme === 'dark'} color={tokens.textMuted} />
       </Pressable>
 
-      <Text style={[styles.version, { color: tokens.textMuted, bottom: insets.bottom + 90 }]}>
-        v{APP_VERSION}
-      </Text>
+      <View style={[styles.meta, { bottom: insets.bottom + 90 }]}>
+        <Text style={[styles.metaText, { color: tokens.textMuted }]}>v{APP_VERSION}</Text>
+        <Text style={[styles.metaText, { color: tokens.textMuted }]}>/</Text>
+        <Pressable
+          onPress={() => Linking.openURL(PRIVACY_POLICY_URL)}
+          accessibilityRole="link"
+          accessibilityLabel="Open privacy policy"
+          hitSlop={8}
+        >
+          <Text style={[styles.metaText, { color: tokens.textMuted }]}>Privacy</Text>
+        </Pressable>
+        <Text style={[styles.metaText, { color: tokens.textMuted }]}>/</Text>
+        <Pressable
+          onPress={() => Linking.openURL(TERMS_URL)}
+          accessibilityRole="link"
+          accessibilityLabel="Open terms and conditions"
+          hitSlop={8}
+        >
+          <Text style={[styles.metaText, { color: tokens.textMuted }]}>Terms</Text>
+        </Pressable>
+      </View>
     </View>
   )
 }
@@ -354,10 +374,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  version: {
+  meta: {
     position: 'absolute',
     left: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    opacity: 0.5,
+  },
+  metaText: {
     fontSize: 10,
-    opacity: 0.4,
   },
 })
