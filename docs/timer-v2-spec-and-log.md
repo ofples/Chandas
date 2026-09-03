@@ -1297,6 +1297,37 @@ This section is append-only. Every implementation session should record scope, m
 
 **Known gaps:** Browser QA validates the HTML flow only. React Native row reordering/haptics, nested-ring runtime progress, scheduling, Android audio/DND behavior, persistence, and native picker flows still require implementation and device-level verification.
 
+### 2026-09-03 — V2 domain, timeline, and migration foundation
+
+**Status:** Complete.
+
+**Scope:** Establish the versioned Timer v2 program model, deterministic TypeScript timeline engine, and safe AsyncStorage migration path from the existing flat timer configuration.
+
+**Decisions referenced:** D-007 (superseded), D-008, D-009–D-013, D-028–D-031.
+
+**Files changed:**
+
+- `src/types.ts`
+- `src/lib/timerV2.ts`
+- `src/lib/timeline.ts`
+- `src/lib/storage.ts`
+
+**Behavior implemented:**
+
+- Added V2 Pattern/Sequence, cue/sound, preset, working-program, and global-settings types.
+- Added defensive normalization, bounds validation, UUID-shaped IDs, default programs, and one-way legacy migration.
+- Added a pure timeline engine which retains all collision candidates and selects the highest ordered enabled Pattern track as its winner.
+- Added Sequence boundary calculation, deterministic logical event IDs, progress snapshots, and V2 split-record persistence.
+- Preserved every legacy storage key; migration writes the V2 records before recording completion.
+- Recorded D-031 automatic call-aware audio suppression for the upcoming Android/runtime slice.
+
+**Verification:**
+
+- `npx tsc --noEmit` completed successfully.
+- Compiled pure-domain check verified migration offsets/volume, top-track overlap priority, and Sequence next-step resolution.
+
+**Known gaps:** The app still renders and runs against the legacy flat configuration. Runtime playback, native Kotlin parity, and V2 UI wiring are subsequent slices.
+
 ### Implementation-entry template
 
 ```md
