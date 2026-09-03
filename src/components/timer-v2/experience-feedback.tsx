@@ -38,7 +38,7 @@ export function FeedbackBanner({ notice, onDismiss }: FeedbackBannerProps) {
   const markerColor = notice.tone === 'success' ? tokens.positive : notice.tone === 'attention' ? tokens.warm : tokens.accent
 
   return (
-    <View pointerEvents="box-none" style={[styles.bannerLayer, { paddingTop: insets.top + 10 }]}>
+    <View style={[styles.bannerLayer, { paddingTop: insets.top + 10, pointerEvents: 'box-none' }]}>
       <Animated.View
         key={notice.id}
         entering={reducedMotion ? FadeIn.duration(120) : FadeInDown.duration(220)}
@@ -56,7 +56,7 @@ export function FeedbackBanner({ notice, onDismiss }: FeedbackBannerProps) {
         </View>
         {notice.actionLabel && notice.onAction ? (
           <Pressable
-            onPress={() => { notice.onAction?.(); onDismiss() }}
+            onPress={() => { onDismiss(); notice.onAction?.() }}
             accessibilityRole="button"
             style={({ pressed }) => [styles.bannerAction, { borderColor: tokens.accent, opacity: pressed ? 0.68 : 1 }]}
           >

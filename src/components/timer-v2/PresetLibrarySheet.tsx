@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import * as Haptics from 'expo-haptics'
 import Animated, { FadeIn, FadeInDown, FadeOut, LinearTransition, useReducedMotion } from 'react-native-reanimated'
@@ -32,14 +32,23 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedba
   const [name, setName] = useState('')
   const [filter, setFilter] = useState<'all' | TimerMode>('all')
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [savedName, setSavedName] = useState<string | null>(null)
   const presets = useMemo(() => state.presets.filter(preset => filter === 'all' || preset.program.mode === filter), [filter, state.presets])
   const selected = state.presets.find(preset => preset.id === selectedId) ?? null
   const canSave = name.trim().length > 0
 
+  useEffect(() => {
+    if (!visible) {
+      setSavedName(null)
+      setSelectedId(null)
+    }
+  }, [visible])
+
   const save = () => {
     if (!canSave) return
-    onChange(saveProgramPreset(state, name))
-    onFeedback({ title: 'Configuration saved', message: `“${name.trim()}” is now available as an unchanged snapshot.`, tone: 'success' })
+    const cleanName = name.trim()
+    onChange(saveProgramPreset(state, cleanName))
+    setSavedName(cleanName)
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined)
     setName('')
   }
@@ -55,7 +64,7 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedba
       <View style={styles.saveRow}>
         <TextInput
           value={name}
-          onChangeText={value => setName([...value].slice(0, 80).join(''))}
+          onChangeText={value => { setName([...value].slice(0, 80).join('')); setSavedName(null) }}
           onSubmitEditing={save}
           placeholder="Name this configuration"
           placeholderTextColor={tokens.textMuted}
@@ -65,6 +74,7 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedba
         />
         <Pressable disabled={!canSave} onPress={save} style={[styles.save, { backgroundColor: tokens.accent, opacity: canSave ? 1 : 0.35 }]} accessibilityRole="button"><Text style={styles.saveText}>Save new</Text></Pressable>
       </View>
+      {savedName ? <GentleNotice title="Configuration saved" message={`“${savedName}” is now available as an unchanged snapshot.`} tone="success" /> : null}
       <View style={styles.filters} accessibilityRole="tablist">{([['all', 'All'], ['pattern', 'Main + sub'], ['sequence', 'Sequence']] as const).map(([value, label]) => <Pressable key={value} onPress={() => setFilter(value)} style={[styles.filter, { borderColor: filter === value ? tokens.accent : tokens.border, backgroundColor: filter === value ? tokens.accentGlow : 'transparent' }]} accessibilityRole="tab" accessibilityState={{ selected: filter === value }}><Text style={[styles.filterText, { color: filter === value ? tokens.accent : tokens.textMuted }]}>{label}</Text></Pressable>)}</View>
       {selected ? <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 130)} style={[styles.inspector, { borderColor: tokens.accent, backgroundColor: tokens.accentGlow }]}>
         <View style={styles.copy}><Text style={[styles.miniLabel, { color: tokens.accent }]}>READY TO LOAD</Text><Text style={[styles.presetTitle, { color: tokens.text }]}>{selected.name}</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{selected.program.mode === 'pattern' ? `Main + sub-bells · ${summary(selected)}` : `Sequence / sets · ${summary(selected)}`}</Text><Text style={[styles.date, { color: tokens.textMuted }]}>Saved {new Date(selected.createdAt).toLocaleString()}</Text><PresetDetails preset={selected} /><Text style={[styles.helper, { color: tokens.textMuted }]}>This replaces the {selected.program.mode} working copy only. It does not start the timer.</Text></View>

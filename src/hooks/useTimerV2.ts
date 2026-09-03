@@ -343,17 +343,20 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     const next = { mutedUntil: 0, iteration: iterationMuteFor(programRef.current, anchorRef.current, Date.now(), count) }
     updateRuntimeState(next, alarmBehaviorRef.current)
     if (isNativeServiceAvailable && runningRef.current) ChandasTimerService.muteForIterations(count)
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined)
   }, [updateRuntimeState])
 
   const muteForMinutes = useCallback((minutes: number) => {
     const next = { mutedUntil: Date.now() + Math.max(1, Math.min(1_440, Math.round(minutes))) * 60_000 }
     updateRuntimeState(next, alarmBehaviorRef.current)
     if (isNativeServiceAvailable && runningRef.current) ChandasTimerService.muteForMinutes(minutes)
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined)
   }, [updateRuntimeState])
 
   const clearMute = useCallback(() => {
     updateRuntimeState(emptyRuntimeMute(), alarmBehaviorRef.current)
     if (isNativeServiceAvailable && runningRef.current) ChandasTimerService.clearMute()
+    void Haptics.selectionAsync().catch(() => undefined)
   }, [updateRuntimeState])
 
   /** Restarts the live timeline without stopping the session or losing runtime controls. */

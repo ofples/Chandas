@@ -79,6 +79,11 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
   const addStep = () => { void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined); onChange(addSequenceStep(state)) }
   const validToStart = !settings.activeHoursEnabled || settings.activeHoursDays !== 0
   const exactTimingNeedsSetup = Platform.OS === 'android' && !androidAccess.checking && !androidAccess.exactAlarms
+  const selectMode = (mode: 'pattern' | 'sequence') => {
+    if (state.workingPrograms.selectedMode === mode) return
+    void Haptics.selectionAsync().catch(() => undefined)
+    onChange(chooseProgramMode(state, mode))
+  }
 
   return (
     <View style={[styles.screen, { backgroundColor: tokens.bg }]}>
@@ -89,10 +94,10 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
         </View>
 
         <View style={[styles.modeTabs, { borderColor: tokens.border }]} accessibilityRole="tablist">
-          {([['pattern', 'Main + sub-bells'], ['sequence', 'Sequence / sets']] as const).map(([mode, label]) => <Pressable key={mode} onPress={() => onChange(chooseProgramMode(state, mode))} accessibilityRole="tab" accessibilityState={{ selected: state.workingPrograms.selectedMode === mode }} style={[styles.modeTab, state.workingPrograms.selectedMode === mode && { backgroundColor: tokens.accent }]}><Text style={[styles.modeTabText, { color: state.workingPrograms.selectedMode === mode ? '#fff' : tokens.textMuted }]}>{label}</Text></Pressable>)}
+          {([['pattern', 'Main + sub-bells'], ['sequence', 'Sequence / sets']] as const).map(([mode, label]) => <Pressable key={mode} onPress={() => selectMode(mode)} accessibilityRole="tab" accessibilityState={{ selected: state.workingPrograms.selectedMode === mode }} style={({ pressed }) => [styles.modeTab, state.workingPrograms.selectedMode === mode && { backgroundColor: tokens.accent }, { opacity: pressed ? 0.78 : 1, transform: [{ scale: pressed && !reducedMotion ? 0.985 : 1 }] }]}><Text style={[styles.modeTabText, { color: state.workingPrograms.selectedMode === mode ? '#fff' : tokens.textMuted }]}>{label}</Text></Pressable>)}
         </View>
 
-        <Pressable onPress={() => setPresetsOpen(true)} style={[styles.summaryBar, { backgroundColor: tokens.surface, borderColor: tokens.border }]} accessibilityRole="button" accessibilityLabel="Save or load configurations">
+        <Pressable onPress={() => setPresetsOpen(true)} style={({ pressed }) => [styles.summaryBar, { backgroundColor: tokens.surface, borderColor: tokens.border, opacity: pressed ? 0.78 : 1, transform: [{ scale: pressed && !reducedMotion ? 0.99 : 1 }] }]} accessibilityRole="button" accessibilityLabel="Save or load configurations">
           <View style={styles.flex}><Text style={[styles.eyebrow, { color: tokens.textMuted }]}>CONFIGURATION</Text><Text style={[styles.summaryTitle, { color: tokens.text }]}>{state.workingPrograms.sourcePreset?.deleted ? 'Working copy · source deleted' : state.workingPrograms.sourcePreset ? `Loaded from ${state.workingPrograms.sourcePreset.name}` : 'Working copy'}</Text></View>
           <Text style={[styles.link, { color: tokens.accent }]}>Save / load</Text>
         </Pressable>
@@ -101,7 +106,7 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
           {program.mode === 'pattern' ? <PatternEditor state={state} onChange={onChange} onEditCue={setCueTarget} onEditTrack={setTrackId} onAdd={addTrack} onCustomSnap={() => setCustomSnapOpen(true)} /> : <SequenceEditor state={state} onChange={onChange} onEditCue={setCueTarget} onAdd={addStep} />}
         </Reanimated.View>
 
-        <Pressable onPress={() => setMixerOpen(true)} style={[styles.summaryBar, { backgroundColor: tokens.surface, borderColor: tokens.border }]} accessibilityRole="button" accessibilityLabel="Open mixer">
+        <Pressable onPress={() => setMixerOpen(true)} style={({ pressed }) => [styles.summaryBar, { backgroundColor: tokens.surface, borderColor: tokens.border, opacity: pressed ? 0.78 : 1, transform: [{ scale: pressed && !reducedMotion ? 0.99 : 1 }] }]} accessibilityRole="button" accessibilityLabel="Open mixer">
           <View style={styles.flex}><Text style={[styles.eyebrow, { color: tokens.textMuted }]}>MIXER</Text><Text style={[styles.summaryTitle, { color: tokens.text }]}>Master {Math.round(settings.masterVolume * 100)}%</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>Fine-tune every cue in one place</Text></View>
           <Text style={[styles.link, { color: tokens.accent }]}>Mix</Text>
         </Pressable>
@@ -157,6 +162,7 @@ function PatternEditor({ state, onChange, onEditCue, onEditTrack, onAdd, onCusto
     <View style={styles.section}>
       <View><Text style={[styles.eyebrow, { color: tokens.textMuted }]}>SUB-BELLS</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{program.tracks.length} of 5 tracks · highest row wins an overlap</Text></View>
       {program.tracks.length > 0 ? <PatternTimelinePreview tracks={program.tracks} mainMinutes={program.mainMinutes} /> : <Reanimated.View entering={FadeInDown.duration(180)} exiting={FadeOut.duration(120)} style={[styles.empty, { borderColor: tokens.border, backgroundColor: tokens.surface }]}><View style={[styles.emptyMark, { borderColor: tokens.border }]}><Text style={[styles.emptyMarkText, { color: tokens.accent }]}>+</Text></View><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Keep it simple—or add a sub-bell</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>The main gong already repeats on its own. Sub-bells can add smaller moments within it.</Text></View></Reanimated.View>}
+      {program.tracks.length > 0 && !program.tracks.some(track => track.enabled && track.selectedOffsetsMinutes.length > 0) ? <GentleNotice title="No sub-bell cues are active" message="The main gong will still play. Turn on a track and select cue positions whenever you want more detail." /> : null}
       {program.tracks.map((track, index) => <PatternTrackRow key={track.id} state={state} track={track} index={index} onChange={onChange} onEdit={() => onEditTrack(track.id)} />)}
       <Pressable disabled={program.tracks.length >= 5} onPress={onAdd} style={[styles.add, { borderColor: program.tracks.length >= 5 ? tokens.border : tokens.accent, opacity: program.tracks.length >= 5 ? 0.45 : 1 }]} accessibilityRole="button"><Text style={[styles.addText, { color: program.tracks.length >= 5 ? tokens.textMuted : tokens.accent }]}>{program.tracks.length >= 5 ? '5 track limit reached' : '+ Add sub-bell'}</Text></Pressable>
     </View>
@@ -263,8 +269,9 @@ function FocusCard({ state, enabled, onChange, onResume, onOpenAccessSettings, o
 
 function CueRow({ title, detail, sound, onPress, compact = false }: { title: string; detail: string; sound?: SoundRef; onPress: () => void; compact?: boolean }) {
   const { tokens } = useTheme()
+  const reducedMotion = useReducedMotion()
   const available = useSoundAvailability(sound ?? { kind: 'builtin', id: 'clear-bell' })
-  return <Pressable onPress={onPress} style={[styles.cueRow, compact && styles.cueCompact, { borderColor: available ? tokens.border : tokens.accent, backgroundColor: tokens.surface }]} accessibilityRole="button"><View style={styles.flex}><Text numberOfLines={1} style={[styles.rowTitle, { color: tokens.text }]}>{title}</Text><Text numberOfLines={1} style={[styles.helper, { color: available ? tokens.textMuted : tokens.accent }]}>{detail}{available ? '' : ' · Unavailable'}</Text></View><Text style={[styles.link, { color: tokens.accent }]}>{available ? 'Edit' : 'Replace'}</Text></Pressable>
+  return <Pressable onPress={onPress} style={({ pressed }) => [styles.cueRow, compact && styles.cueCompact, { borderColor: available ? tokens.border : tokens.accent, backgroundColor: tokens.surface, opacity: pressed ? 0.78 : 1, transform: [{ scale: pressed && !reducedMotion ? 0.99 : 1 }] }]} accessibilityRole="button"><View style={styles.flex}><Text numberOfLines={1} style={[styles.rowTitle, { color: tokens.text }]}>{title}</Text><Text numberOfLines={1} style={[styles.helper, { color: available ? tokens.textMuted : tokens.accent }]}>{detail}{available ? '' : ' · Unavailable'}</Text></View><Text style={[styles.link, { color: tokens.accent }]}>{available ? 'Edit' : 'Replace'}</Text></Pressable>
 }
 
 function cueForTarget(state: TimerV2State, target: CueTarget): CueSettings | null {
@@ -357,7 +364,7 @@ const styles = StyleSheet.create({
   trackSummary: { minHeight: 74, borderWidth: 1.5, borderRadius: 14, padding: 11, flexDirection: 'row', alignItems: 'center', gap: 10 }, titleInline: { flexDirection: 'row', alignItems: 'center', gap: 8 }, priority: { fontFamily: 'JetBrainsMono-Regular', fontSize: 11 },
   empty: { padding: 15, borderWidth: 1.5, borderStyle: 'dashed', borderRadius: 13, gap: 11, flexDirection: 'row', alignItems: 'center' }, emptyMark: { width: 34, height: 34, borderWidth: 1.5, borderRadius: 17, alignItems: 'center', justifyContent: 'center' }, emptyMarkText: { fontSize: 20, fontWeight: '400' }, add: { minHeight: 52, borderWidth: 1.5, borderStyle: 'dashed', borderRadius: 13, alignItems: 'center', justifyContent: 'center' }, addText: { fontSize: 13, fontWeight: '700' },
   sequenceCard: { borderWidth: 1.5, borderRadius: 15, padding: 13, gap: 11 }, sequenceHead: { flexDirection: 'row', alignItems: 'center', gap: 9 }, stepInput: { flex: 1, minWidth: 0, borderBottomWidth: 1, fontSize: 15, fontWeight: '700', paddingVertical: 5 }, remove: { fontSize: 11, textDecorationLine: 'underline' },
-  dragging: { zIndex: 20, elevation: 5, shadowColor: '#000', shadowOpacity: 0.24, shadowRadius: 7, shadowOffset: { width: 0, height: 3 } },
+  dragging: { zIndex: 20, boxShadow: '0 5px 16px rgba(0,0,0,0.24)' },
   gridHeading: { gap: 10 }, inlineActions: { flexDirection: 'row', alignItems: 'center', gap: 14 }, destructive: { fontSize: 12, fontWeight: '700', textAlign: 'center', paddingVertical: 8 },
   timeline: { height: 48, borderWidth: 1, borderRadius: 11, position: 'relative', overflow: 'hidden', paddingHorizontal: 8 }, timelineLine: { position: 'absolute', left: 8, right: 8, top: 20, height: 1 }, timelineBoundary: { position: 'absolute', top: 14, width: 2, height: 13 }, timelineCue: { position: 'absolute', width: 5, height: 5, marginLeft: -2.5, borderRadius: 3 }, timelineStart: { position: 'absolute', left: 7, bottom: 4, fontSize: 8 }, timelineEnd: { position: 'absolute', right: 7, bottom: 4, fontSize: 8 },
   mixerRow: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 9 }, mixerLabel: { width: 118, gap: 2 }, mixerSlider: { flex: 1, height: 34 }, volumeValue: { width: 28, fontFamily: 'JetBrainsMono-Regular', fontSize: 11, textAlign: 'right' }, divider: { height: 1 },

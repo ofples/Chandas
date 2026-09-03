@@ -4,6 +4,7 @@ import { AppState as NativeAppState, Linking, PermissionsAndroid, Platform, View
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { useFonts, JetBrainsMono_300Light, JetBrainsMono_400Regular } from '@expo-google-fonts/jetbrains-mono'
 import Reanimated, { FadeIn, FadeOut, useReducedMotion } from 'react-native-reanimated'
+import * as Haptics from 'expo-haptics'
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext'
 import type { AppState, AppTimerSettings, TimerV2State } from './src/types'
 import { useTimerV2 } from './src/hooks/useTimerV2'
@@ -73,6 +74,21 @@ function Root() {
     noticeSequence.current += 1
     setNotice({ ...next, id: `notice-${noticeSequence.current}` })
   }, [])
+  const dismissNotice = useCallback(() => setNotice(null), [])
+  const safelyOpenSystemSetting = useCallback((open: () => void | Promise<void>) => {
+    try {
+      const result = open()
+      if (result && typeof result.then === 'function') void result.catch(() => showNotice({ title: 'Android settings did not open', message: 'Nothing changed. Please try again from System access in a moment.', tone: 'attention' }))
+    } catch {
+      showNotice({ title: 'Android settings did not open', message: 'Nothing changed. Please try again from System access in a moment.', tone: 'attention' })
+    }
+  }, [showNotice])
+  const openExactAlarmSettings = useCallback(() => safelyOpenSystemSetting(ChandasTimerService.openExactAlarmSettings), [safelyOpenSystemSetting])
+  const openNotificationPolicySettings = useCallback(() => safelyOpenSystemSetting(ChandasTimerService.openNotificationPolicySettings), [safelyOpenSystemSetting])
+  const openFocusRuleSettings = useCallback(() => safelyOpenSystemSetting(ChandasTimerService.openFocusRuleSettings), [safelyOpenSystemSetting])
+  const openNotificationSettings = useCallback(() => safelyOpenSystemSetting(ChandasTimerService.openNotificationSettings), [safelyOpenSystemSetting])
+  const openFullScreenIntentSettings = useCallback(() => safelyOpenSystemSetting(ChandasTimerService.openFullScreenIntentSettings), [safelyOpenSystemSetting])
+  const openAppSettings = useCallback(() => safelyOpenSystemSetting(() => Linking.openSettings()), [safelyOpenSystemSetting])
 
   const refreshFocusState = useCallback(() => {
     if (Platform.OS !== 'android' || !isNativeServiceAvailable) return
@@ -131,10 +147,10 @@ function Root() {
       if (state !== 'active' || !isNativeServiceAvailable || ChandasTimerService.canScheduleExactAlarms()) return
       timer.stop()
       setAppState('config')
-      showNotice({ title: 'Timer paused safely', message: 'Android’s exact-timing access changed, so Chandas stopped instead of letting bells drift.', tone: 'attention', actionLabel: 'Open settings', onAction: ChandasTimerService.openExactAlarmSettings, persistent: true })
+      showNotice({ title: 'Timer paused safely', message: 'Android’s exact-timing access changed, so Chandas stopped instead of letting bells drift.', tone: 'attention', actionLabel: 'Open settings', onAction: openExactAlarmSettings, persistent: true })
     })
     return () => subscription.remove()
-  }, [appState, showNotice, timer.stop])
+  }, [appState, openExactAlarmSettings, showNotice, timer.stop])
 
   useEffect(() => {
     void (async () => {
@@ -229,8 +245,8 @@ function Root() {
     if (timer.runtimeInterruption !== 'exact-alarm-access') return
     timer.clearRuntimeInterruption()
     setAppState('config')
-    showNotice({ title: 'Timer paused safely', message: 'Exact timing is no longer available. Your configuration is still here.', tone: 'attention', actionLabel: 'Open settings', onAction: ChandasTimerService.openExactAlarmSettings, persistent: true })
-  }, [showNotice, timer.runtimeInterruption, timer.clearRuntimeInterruption])
+    showNotice({ title: 'Timer paused safely', message: 'Exact timing is no longer available. Your configuration is still here.', tone: 'attention', actionLabel: 'Open settings', onAction: openExactAlarmSettings, persistent: true })
+  }, [openExactAlarmSettings, showNotice, timer.runtimeInterruption, timer.clearRuntimeInterruption])
 
   const changeTimerState = (next: TimerV2State) => {
     setTimerState(next)
@@ -249,7 +265,7 @@ function Root() {
     if (!timerState) return
     changeTimerState({ ...timerState, settings: { ...timerState.settings, focusAutomationEnabled: enabled } })
     if (enabled && Platform.OS === 'android' && isNativeServiceAvailable && !focusState.policyAccess) {
-      showNotice({ title: 'One Android setting is needed', message: 'Allow Do Not Disturb access, then return here. Chandas only manages its own Focus rule.', actionLabel: 'Open settings', onAction: ChandasTimerService.openNotificationPolicySettings, persistent: true })
+      showNotice({ title: 'One Android setting is needed', message: 'Allow Do Not Disturb access, then return here. Chandas only manages its own Focus rule.', actionLabel: 'Open settings', onAction: openNotificationPolicySettings, persistent: true })
     }
     try {
       if (isNativeServiceAvailable) ChandasTimerService.setFocusModeEnabled(enabled)
@@ -274,7 +290,7 @@ function Root() {
         buttonPositive: 'Allow', buttonNegative: 'Not now',
       })
       if (result === PermissionsAndroid.RESULTS.GRANTED) showNotice({ title: 'Call auto-mute is ready', message: 'Scheduled bells will stay quiet while a call is active.', tone: 'success' })
-      else if (result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) showNotice({ title: 'Call auto-mute remains off', message: 'You can allow it later in Android app settings. The timer works normally without it.', actionLabel: 'Open settings', onAction: () => void Linking.openSettings(), persistent: true })
+      else if (result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) showNotice({ title: 'Call auto-mute remains off', message: 'You can allow it later in Android app settings. The timer works normally without it.', actionLabel: 'Open settings', onAction: openAppSettings, persistent: true })
       else showNotice({ title: 'Call auto-mute remains off', message: 'No problem—the timer works normally, but it cannot detect calls.', tone: 'info' })
     } catch {
       showNotice({ title: 'Permission request did not open', message: 'Nothing changed. You can try again whenever it suits you.', tone: 'attention' })
@@ -289,7 +305,7 @@ function Root() {
     setAndroidAccess(current => ({ ...current, pending: 'notifications' }))
     try {
       if (Platform.Version < 33) {
-        ChandasTimerService.openNotificationSettings()
+        openNotificationSettings()
         showNotice({ title: 'Notification settings opened', message: 'Enable Chandas notifications to keep timer status and dismiss controls easy to reach.', tone: 'info' })
         return
       }
@@ -299,7 +315,7 @@ function Root() {
         buttonPositive: 'Allow', buttonNegative: 'Not now',
       })
       if (result === PermissionsAndroid.RESULTS.GRANTED) showNotice({ title: 'Timer notifications are ready', message: 'Running status and alarm controls can now appear outside the app.', tone: 'success' })
-      else if (result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) showNotice({ title: 'Notifications remain off', message: 'The timer still works. Android settings can enable its status and controls later.', actionLabel: 'Open settings', onAction: ChandasTimerService.openNotificationSettings, persistent: true })
+      else if (result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) showNotice({ title: 'Notifications remain off', message: 'The timer still works. Android settings can enable its status and controls later.', actionLabel: 'Open settings', onAction: openNotificationSettings, persistent: true })
       else showNotice({ title: 'Notifications remain off', message: 'The timer still works while Chandas is open. You can enable notifications later.', tone: 'info' })
     } catch {
       showNotice({ title: 'Permission request did not open', message: 'Nothing changed. You can try again whenever it suits you.', tone: 'attention' })
@@ -322,7 +338,7 @@ function Root() {
         showNotice({ title: 'Timer is running', message: program?.mode === 'sequence' ? 'Your sequence will repeat until you stop it.' : 'Your pattern is anchored and ready.', tone: 'success' })
         return
       }
-      showNotice({ title: 'Exact timing needs one setting', message: 'Allow Alarms & reminders so bells stay precise when the screen is off.', tone: 'attention', actionLabel: 'Open settings', onAction: ChandasTimerService.openExactAlarmSettings, persistent: true })
+      showNotice({ title: 'Exact timing needs one setting', message: 'Allow Alarms & reminders so bells stay precise when the screen is off.', tone: 'attention', actionLabel: 'Open settings', onAction: openExactAlarmSettings, persistent: true })
     }).catch(() => showNotice({ title: 'The timer did not start yet', message: 'Your setup is safe. Please check Android access or try once more.', tone: 'attention', actionLabel: 'Try again', onAction: start }))
       .finally(() => {
         startingRef.current = false
@@ -340,7 +356,7 @@ function Root() {
     const nextProgram = selectedProgram(nextState)
     void timer.reanchor(nextProgram, alignToClock).then(started => {
       if (started) changeTimerState(nextState)
-      else showNotice({ title: 'Alignment stayed unchanged', message: 'Exact timing is needed before Chandas can move this live pattern.', tone: 'attention', actionLabel: 'Open settings', onAction: ChandasTimerService.openExactAlarmSettings })
+      else showNotice({ title: 'Alignment stayed unchanged', message: 'Exact timing is needed before Chandas can move this live pattern.', tone: 'attention', actionLabel: 'Open settings', onAction: openExactAlarmSettings })
       if (started) showNotice({ title: alignToClock ? `Aligned to :${String(offsetMinutes).padStart(2, '0')}` : 'Restarted from now', message: 'The next bell schedule has been updated.', tone: 'success' })
     }).catch(() => showNotice({ title: 'Alignment stayed unchanged', message: 'The timer is still running on its previous schedule. You can try again.', tone: 'attention' }))
       .finally(() => setRealigning(false))
@@ -363,7 +379,7 @@ function Root() {
       setTimeout(() => {
         const native = ChandasTimerService.getState()
         if (!native.alarmModeEnabled && !native.alarmOnceArmed) return
-        showNotice({ title: 'Alarm sound is armed', message: 'To also show its dismiss screen over the lock screen, allow full-screen alarms.', actionLabel: 'Open settings', onAction: ChandasTimerService.openFullScreenIntentSettings })
+        showNotice({ title: 'Alarm sound is armed', message: 'To also show its dismiss screen over the lock screen, allow full-screen alarms.', actionLabel: 'Open settings', onAction: openFullScreenIntentSettings })
       }, 550)
     }
   }
@@ -372,6 +388,8 @@ function Root() {
     timer.stop()
     setAppState('config')
     refreshFocusState()
+    showNotice({ title: 'Timer stopped', message: 'Your configuration is ready whenever you want to begin again.', tone: 'info' })
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined)
   }
 
   if (!ready || !timerState || !program) return <AppLoadingScreen backgroundColor={tokens.bg} accentColor={tokens.accent} textColor={tokens.text} />
@@ -379,17 +397,16 @@ function Root() {
   return <View style={{ flex: 1, backgroundColor: tokens.bg }}>
     <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
     <View
-      style={{ flex: 1 }}
-      pointerEvents={timer.isAlarmRinging ? 'none' : 'auto'}
+      style={{ flex: 1, pointerEvents: timer.isAlarmRinging ? 'none' : 'auto' }}
       importantForAccessibility={timer.isAlarmRinging ? 'no-hide-descendants' : 'auto'}
       accessibilityElementsHidden={timer.isAlarmRinging}
     >
       <Reanimated.View key={appState} style={{ flex: 1 }} entering={FadeIn.duration(reducedMotion ? 80 : 220)} exiting={FadeOut.duration(reducedMotion ? 70 : 150)}>
-        {appState === 'config' ? <TimerV2ConfigScreen state={timerState} onChange={changeTimerState} onStart={start} starting={starting} focusState={focusState} onFocusAutomationChange={setFocusAutomation} onOpenFocusSettings={ChandasTimerService.openNotificationPolicySettings} onOpenFocusRuleSettings={ChandasTimerService.openFocusRuleSettings} androidAccess={androidAccess} onOpenExactAlarmSettings={ChandasTimerService.openExactAlarmSettings} onRequestCallMuteAccess={() => void requestCallMuteAccess()} onRequestNotificationAccess={() => void requestNotificationAccess()} onFeedback={showNotice} /> : <TimerV2RunningScreen program={program} mainCountdown={timer.mainCountdown} nextCueCountdown={timer.nextCueCountdown} nextCueLabel={timer.nextCueLabel} progress={timer.progress} position={timer.position} eventPulse={timer.eventPulse} activeHoursPaused={timer.activeHoursPaused} activeHoursResumeAt={timer.activeHoursResumeAt} mute={timer.mute} alarmBehavior={timer.alarmBehavior} realigning={realigning} onStop={stop} onRestartUnsynced={() => reanchor(false)} onSnapToClock={offset => reanchor(true, offset)} onPressAlarm={pressAlarm} onMuteForIterations={timer.muteForIterations} onMuteForMinutes={timer.muteForMinutes} onClearMute={timer.clearMute} masterVolume={timerState.settings.masterVolume} onMasterVolumeChange={masterVolume => changeTimerState({ ...timerState, settings: { ...timerState.settings, masterVolume } })} onCueVolumeChange={changeCueVolume} focusEnabled={timerState.settings.focusAutomationEnabled} focusActive={focusState.actual === 'active' && !timer.activeHoursPaused} focusPolicyAccess={focusState.policyAccess} focusReason={focusState.reason} onToggleFocus={focusState.reason === 'paused-by-android' ? resumeFocusAutomation : () => setFocusAutomation(!timerState.settings.focusAutomationEnabled)} onOpenFocusSettings={focusState.reason === 'rule-disabled' ? ChandasTimerService.openFocusRuleSettings : ChandasTimerService.openNotificationPolicySettings} />}
+        {appState === 'config' ? <TimerV2ConfigScreen state={timerState} onChange={changeTimerState} onStart={start} starting={starting} focusState={focusState} onFocusAutomationChange={setFocusAutomation} onOpenFocusSettings={openNotificationPolicySettings} onOpenFocusRuleSettings={openFocusRuleSettings} androidAccess={androidAccess} onOpenExactAlarmSettings={openExactAlarmSettings} onRequestCallMuteAccess={() => void requestCallMuteAccess()} onRequestNotificationAccess={() => void requestNotificationAccess()} onFeedback={showNotice} /> : <TimerV2RunningScreen program={program} mainCountdown={timer.mainCountdown} nextCueCountdown={timer.nextCueCountdown} nextCueLabel={timer.nextCueLabel} progress={timer.progress} position={timer.position} eventPulse={timer.eventPulse} activeHoursPaused={timer.activeHoursPaused} activeHoursResumeAt={timer.activeHoursResumeAt} mute={timer.mute} alarmBehavior={timer.alarmBehavior} realigning={realigning} onStop={stop} onRestartUnsynced={() => reanchor(false)} onSnapToClock={offset => reanchor(true, offset)} onPressAlarm={pressAlarm} onMuteForIterations={timer.muteForIterations} onMuteForMinutes={timer.muteForMinutes} onClearMute={timer.clearMute} masterVolume={timerState.settings.masterVolume} onMasterVolumeChange={masterVolume => changeTimerState({ ...timerState, settings: { ...timerState.settings, masterVolume } })} onCueVolumeChange={changeCueVolume} focusEnabled={timerState.settings.focusAutomationEnabled} focusActive={focusState.actual === 'active' && !timer.activeHoursPaused} focusPolicyAccess={focusState.policyAccess} focusReason={focusState.reason} onToggleFocus={focusState.reason === 'paused-by-android' ? resumeFocusAutomation : () => setFocusAutomation(!timerState.settings.focusAutomationEnabled)} onOpenFocusSettings={focusState.reason === 'rule-disabled' ? openFocusRuleSettings : openNotificationPolicySettings} />}
       </Reanimated.View>
     </View>
     {timer.isAlarmRinging && <AlarmRingingScreen onDismiss={timer.dismissAlarm} />}
-    {!timer.isAlarmRinging ? <FeedbackBanner notice={notice} onDismiss={() => setNotice(null)} /> : null}
+    {!timer.isAlarmRinging ? <FeedbackBanner notice={notice} onDismiss={dismissNotice} /> : null}
   </View>
 }
 

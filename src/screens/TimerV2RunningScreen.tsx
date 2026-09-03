@@ -99,13 +99,13 @@ export function TimerV2RunningScreen(props: Props) {
       <Animated.View entering={reducedMotion ? FadeIn.duration(100) : ZoomIn.duration(260)}>
       <Pressable onPress={runtimeMuted ? props.onClearMute : undefined} style={({ pressed }) => [styles.ringWrap, { width: size, height: size, transform: [{ scale: pressed && runtimeMuted && !reducedMotion ? 0.985 : 1 }] }]} accessibilityRole={runtimeMuted ? 'button' : undefined} accessibilityLabel={runtimeMuted ? 'Clear timer mute' : undefined}>
         <TimerRings size={size} progress={props.progress} position={props.position} program={props.program} muted={muted} eventPulse={props.eventPulse} />
-        <View pointerEvents="none" style={styles.center}>
+        <View style={[styles.center, { pointerEvents: 'none' }]}>
           <Text style={[styles.mainTime, { color: tokens.text }]} adjustsFontSizeToFit numberOfLines={1}>{mainLabel}</Text>
           <Text style={[styles.mainCaption, { color: tokens.textMuted }]}>{props.activeHoursPaused ? 'Resumes' : props.program.mode === 'pattern' ? 'until main gong' : `step ${sequenceIndex + 1} of ${props.program.steps.length}`}</Text>
           {!props.activeHoursPaused && props.program.mode === 'pattern' && props.position?.nextEvent.boundary !== 'pattern-main' ? <Animated.View key={props.nextCueLabel} entering={FadeIn.duration(reducedMotion ? 80 : 180)} style={styles.nextCue}><Text numberOfLines={1} style={[styles.nextCueName, { color: tokens.accent }]}>{props.nextCueLabel}</Text><Text style={[styles.nextCueTime, { color: tokens.textMuted }]}>{props.nextCueCountdown}</Text></Animated.View> : null}
           {!props.activeHoursPaused && props.program.mode === 'sequence' && nextStep ? <Animated.View key={nextStep.id} entering={FadeIn.duration(reducedMotion ? 80 : 180)} style={styles.nextCue}><Text style={[styles.nextLabel, { color: tokens.textMuted }]}>NEXT</Text><Text numberOfLines={1} style={[styles.nextCueName, { color: tokens.accent }]}>{nextStep.label} · {nextStep.durationMinutes}m</Text></Animated.View> : null}
         </View>
-        {muted ? <View pointerEvents="none" style={[styles.slash, { width: size * 0.72, backgroundColor: tokens.accent }]} /> : null}
+        {muted ? <View style={[styles.slash, { width: size * 0.72, backgroundColor: tokens.accent, pointerEvents: 'none' }]} /> : null}
       </Pressable>
       </Animated.View>
       {props.mute.iteration ? <Animated.Text entering={FadeIn.duration(150)} exiting={FadeOut.duration(120)} style={[styles.muteStatus, { color: tokens.textMuted }]}>Muted until the final selected {props.program.mode === 'pattern' ? 'main gong' : 'cycle boundary'} · tap the rings to clear</Animated.Text> : props.mute.mutedUntil > Date.now() ? <Animated.Text entering={FadeIn.duration(150)} exiting={FadeOut.duration(120)} style={[styles.muteStatus, { color: tokens.textMuted }]}>Muted until {new Date(props.mute.mutedUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · tap the rings to clear</Animated.Text> : props.masterVolume <= 0 ? <Animated.Text entering={FadeIn.duration(150)} exiting={FadeOut.duration(120)} style={[styles.muteStatus, { color: tokens.textMuted }]}>Master is at 0% · open Mixer to restore sound</Animated.Text> : null}
@@ -128,7 +128,7 @@ export function TimerV2RunningScreen(props: Props) {
     {customMute ? <CustomMinutePicker title="Mute duration" initial={15} min={1} max={1440} onConfirm={minutes => { props.onMuteForMinutes(minutes); setCustomMute(false) }} onClose={() => setCustomMute(false)} /> : null}
     {customSnap ? <CustomMinutePicker title="Clock offset" initial={0} min={0} max={59} onConfirm={offset => { props.onSnapToClock(offset); setCustomSnap(false) }} onClose={() => setCustomSnap(false)} /> : null}
     <TimerHelpSheet visible={helpOpen} onClose={() => setHelpOpen(false)} onOpenFocusSettings={props.onOpenFocusSettings} />
-    {tooltip ? <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 160)} exiting={FadeOut.duration(reducedMotion ? 70 : 130)} pointerEvents="none" style={[styles.tooltip, { backgroundColor: tokens.surfaceHi, borderColor: tokens.border }]}><Text style={[styles.tooltipText, { color: tokens.text }]}>{tooltip}</Text></Animated.View> : null}
+    {tooltip ? <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 160)} exiting={FadeOut.duration(reducedMotion ? 70 : 130)} style={[styles.tooltip, { backgroundColor: tokens.surfaceHi, borderColor: tokens.border, pointerEvents: 'none' }]}><Text style={[styles.tooltipText, { color: tokens.text }]}>{tooltip}</Text></Animated.View> : null}
   </View>
 }
 
@@ -149,7 +149,7 @@ function TimerRings({ size, progress, position, program, muted, eventPulse }: { 
   }, [position?.stepProgress, program, progress])
   const center = 100
   return <View style={StyleSheet.absoluteFill}>
-    <RNAnimated.View pointerEvents="none" style={[styles.flash, { width: size, height: size, borderRadius: size / 2, backgroundColor: tokens.accent, opacity: flash }]} />
+    <RNAnimated.View style={[styles.flash, { width: size, height: size, borderRadius: size / 2, backgroundColor: tokens.accent, opacity: flash, pointerEvents: 'none' }]} />
     <Svg width={size} height={size} viewBox="0 0 200 200" style={styles.svg}>
       {ringProgress.map((value, index) => {
         const radius = 83 - index * 10.5

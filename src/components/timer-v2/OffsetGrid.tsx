@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { LayoutChangeEvent, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native'
 import * as Haptics from 'expo-haptics'
+import { useReducedMotion } from 'react-native-reanimated'
 import { useTheme } from '../../theme/ThemeContext'
 
 const GAP = 8
@@ -16,6 +17,7 @@ interface Props {
 /** Tap or paint over a deterministic minute grid; the initial cell decides select vs clear. */
 export function OffsetGrid({ offsets, selected, onChange, conflicts = new Map() }: Props) {
   const { tokens } = useTheme()
+  const reducedMotion = useReducedMotion()
   const [width, setWidth] = useState(0)
   const selectionRef = useRef(new Set(selected))
   const offsetsRef = useRef(offsets)
@@ -87,7 +89,7 @@ export function OffsetGrid({ offsets, selected, onChange, conflicts = new Map() 
         return (
           <Pressable
             key={offset}
-            style={[styles.cell, { width: cellWidth, height: cellHeight, borderColor: active ? tokens.accent : tokens.border, backgroundColor: active && (!conflict || conflict.isWinner) ? tokens.accentGlow : 'transparent' }]}
+            style={({ pressed }) => [styles.cell, { width: cellWidth, height: cellHeight, borderColor: active ? tokens.accent : tokens.border, backgroundColor: active && (!conflict || conflict.isWinner) ? tokens.accentGlow : 'transparent', opacity: pressed ? 0.78 : 1, transform: [{ scale: pressed && !reducedMotion ? 0.96 : 1 }] }]}
             accessible
             accessibilityRole="button"
             accessibilityLabel={`${offset} minutes after start${conflict ? `, overlap, ${conflict.isWinner ? 'wins' : `loses to ${conflict.winner}`}` : ''}`}

@@ -225,8 +225,11 @@ export async function loadTimerV2StateResult(): Promise<TimerV2StateLoadResult> 
     ])
     const workingPrograms = normalizeWorkingPrograms(parseJson<WorkingProgramState>(workingRaw[1]))
     const settings = normalizeSettings(parseJson<AppTimerSettings>(settingsRaw[1]))
+    const parsedPresets = parseJson<unknown>(presetsRaw[1])
+    const presets = normalizePresets(parsedPresets)
     if (workingPrograms && settings) {
-      return { state: { schemaVersion: 2, workingPrograms, settings, presets: normalizePresets(parseJson<unknown>(presetsRaw[1])) }, recovered: false }
+      const presetsRecovered = presetsRaw[1] !== null && (!Array.isArray(parsedPresets) || presets.length !== parsedPresets.length)
+      return { state: { schemaVersion: 2, workingPrograms, settings, presets }, recovered: presetsRecovered, reason: presetsRecovered ? 'invalid-records' : undefined }
     }
 
     const legacy = parseJson<Partial<TimerConfig>>(await AsyncStorage.getItem(CONFIG_KEY)) ?? {}

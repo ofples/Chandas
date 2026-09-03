@@ -22,7 +22,7 @@ export class AppErrorBoundary extends Component<Props, State> {
       <View style={styles.screen} accessibilityRole="alert">
         <View style={styles.mark}><Text style={styles.markText}>○</Text></View>
         <Text selectable style={styles.title}>Let’s try that again</Text>
-        <Text selectable style={styles.message}>The timer service is safe. This screen had trouble drawing, so Chandas paused the controls here.</Text>
+        <Text selectable style={styles.message}>This screen had trouble drawing. Your saved configuration is untouched; if a timer was running, check its status after returning.</Text>
         <Pressable onPress={() => this.setState({ failed: false })} accessibilityRole="button" style={({ pressed }) => [styles.button, { opacity: pressed ? 0.72 : 1 }]}>
           <Text style={styles.buttonText}>Return to Chandas</Text>
         </Pressable>
