@@ -1449,7 +1449,7 @@ This section is append-only. Every implementation session should record scope, m
 - `npx tsc --noEmit` completed successfully after the bridge/hook changes.
 - Native compilation was deliberately not run: repository policy forbids local native builds.
 
-**Known gaps:** The Android system picker for user-owned notification/alarm/document sounds and a continuous drag reorder gesture remain to be added. V2 Android code needs a remote/device test pass before release.
+**Known gaps:** A continuous drag reorder gesture and final distinct bundled audio assets remain to be added. V2 Android code needs a remote/device test pass before release.
 
 ### 2026-09-03 — Android device sound picker
 
@@ -1471,6 +1471,27 @@ This section is append-only. Every implementation session should record scope, m
 
 - `npx tsc --noEmit` completed successfully.
 - The native picker/playback path is static-reviewed only; local native builds are prohibited by repository policy.
+
+### 2026-09-03 — Android Focus/DND reconciliation
+
+**Status:** Implemented; requires device/native-build verification.
+
+**Files changed:**
+
+- `FocusModeController.kt`
+- `ChandasTimerServiceModule.kt`
+- `App.tsx`
+
+**Behavior implemented:**
+
+- If the user disables Chandas’ automatic Focus rule in Android settings, the next native reconciliation records that external decision, stops publishing the rule, and mirrors the disabled setting back to app state.
+- Re-enabling Focus from Chandas explicitly clears the external-disable marker and reactivates the existing rule when Android policy access permits it.
+- Chandas continues to use an automatic rule with Android’s alarm interruption filter; Android does not expose an API for cloning every exclusion from the currently active user DND profile, so the app never claims to copy those exclusions.
+
+**Verification:**
+
+- `npx tsc --noEmit` completed successfully.
+- Native compilation/device DND transitions remain unverified locally by repository policy.
 
 ### Implementation-entry template
 

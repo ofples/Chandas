@@ -35,6 +35,14 @@ function Root() {
     ChandasTimerService.refreshFocusMode()
     setFocusPolicyAccess(ChandasTimerService.hasNotificationPolicyAccess())
     setFocusModeActive(ChandasTimerService.isFocusModeActive())
+    if (ChandasTimerService.getState().focusModeEnabled === false) {
+      setTimerState(current => {
+        if (!current?.settings.focusAutomationEnabled) return current
+        const next = { ...current, settings: { ...current.settings, focusAutomationEnabled: false } }
+        void saveTimerV2State(next)
+        return next
+      })
+    }
   }, [])
 
   useEffect(() => {

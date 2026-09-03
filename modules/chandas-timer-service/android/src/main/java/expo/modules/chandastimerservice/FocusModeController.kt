@@ -16,6 +16,7 @@ object FocusModeController {
   private const val PREFS = "chandas-focus-mode"
   private const val RULE_ID = "ruleId"
   private const val REQUESTED_ACTIVE = "requestedActive"
+  private const val EXTERNALLY_DISABLED = "externallyDisabled"
   private const val FOCUS_END_REQUEST = 8401
 
   fun conditionId(context: Context): Uri = Uri.Builder()
@@ -40,12 +41,22 @@ object FocusModeController {
   }
 
   fun sync(context: Context, config: TimerConfig? = TimerStateStore.load(context)) {
-    val shouldBeActive = config?.focusModeEnabled == true && ActiveHours.isActive(config)
+    val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    val storedRule = storedRuleId(context)?.let { ruleId -> runCatching { manager.getAutomaticZenRule(ruleId) }.getOrNull() }
+    // If Android's UI disables our rule, do not immediately re-enable it on
+    // foreground. Persist the external decision so app and system cannot drift.
+    if (config?.focusModeEnabled == true && isRequestedActive(context) && storedRule != null && !storedRule.isEnabled) {
+      setExternallyDisabled(context, true)
+      setRequestedActive(context, false)
+      TimerStateStore.save(context, config.copy(focusModeEnabled = false))
+    }
+    val effectiveConfig = TimerStateStore.load(context) ?: config
+    val shouldBeActive = effectiveConfig?.focusModeEnabled == true && !isExternallyDisabled(context) && ActiveHours.isActive(effectiveConfig)
     setRequestedActive(context, shouldBeActive)
     cancelActiveHoursEnd(context)
 
     if (shouldBeActive) {
-      ActiveHours.currentWindowEnd(config)?.let { scheduleActiveHoursEnd(context, it) }
+      effectiveConfig?.let { activeConfig -> ActiveHours.currentWindowEnd(activeConfig)?.let { scheduleActiveHoursEnd(context, it) } }
     }
     publish(context, shouldBeActive)
   }
@@ -55,6 +66,8 @@ object FocusModeController {
     cancelActiveHoursEnd(context)
     publish(context, false)
   }
+
+  fun enableFromApp(context: Context) = setExternallyDisabled(context, false)
 
   fun isActive(context: Context): Boolean {
     if (!hasPolicyAccess(context) || !isRequestedActive(context)) return false
@@ -149,6 +162,13 @@ object FocusModeController {
 
   private fun isRequestedActive(context: Context): Boolean =
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(REQUESTED_ACTIVE, false)
+
+  private fun isExternallyDisabled(context: Context): Boolean =
+    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(EXTERNALLY_DISABLED, false)
+
+  private fun setExternallyDisabled(context: Context, value: Boolean) {
+    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(EXTERNALLY_DISABLED, value).apply()
+  }
 
   private fun scheduleActiveHoursEnd(context: Context, triggerAt: Long) {
     val operation = PendingIntent.getBroadcast(

@@ -229,6 +229,7 @@ class ChandasTimerServiceModule : Module() {
       val previous = TimerStateStore.load(context) ?: return@Function
       val config = previous.copy(focusModeEnabled = enabled)
       TimerStateStore.save(context, config)
+      if (enabled) FocusModeController.enableFromApp(context)
       FocusModeController.sync(context, config)
     }
 
