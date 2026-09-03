@@ -4,11 +4,11 @@
 
 | Field | Value |
 | --- | --- |
-| Document status | Approved direction; implementation not started |
+| Document status | Implemented in source; static/web verified; remote native build and device validation pending |
 | Product | Chandas Android interval timer |
 | Scope | Timer v2 program model, advanced scheduling, audio, Focus/DND, presets, runtime controls, and help |
 | Primary platform | Android |
-| Specification version | 1.0 |
+| Specification version | 1.1 |
 | Created | 2026-09-02 |
 | Implementation rule | Deliver as one cohesive refactor; intermediate builds do not have to be usable |
 | Build rule | Never run a local native build, Gradle task, Expo native run, prebuild, or export. Remote EAS only when explicitly requested. |
@@ -129,6 +129,9 @@ Timer v2 replaces these assumptions rather than layering special cases over them
 | D-029 | Existing quick-select chips and cycle/minute mute are baseline functionality and must remain available in Timer v2. Main duration keeps `10`, `15`, `30`, and custom; snap keeps `:00`, `:10`, `:15`, and custom. Mute keeps `1×`, `2×`, `3×`, and custom minutes. |
 | D-030 | Pattern running uses an outer main-progress ring with inner sub-track progress rings. The center names the main countdown and only the next sub-bell. Collision-resolution explanations do not appear on the running screen. |
 | D-031 | Chandas automatically suppresses its own audible cues during an active phone call. This is a transient runtime gate: it does not change Master/cue volume, consume timed mute, change alarm behavior, or replay missed cues after the call. The next eligible future cue resumes normally. |
+| D-032 | Exact-alarm access is a hard Android runtime requirement. Start is blocked without it; loss stops and clears the native running session instead of silently degrading to inexact delivery. |
+| D-033 | Equal active-hours start/end values mean the selected civil day is active for all 24 hours, with midnight as the next window boundary. |
+| D-034 | Alarm audio usage routes Chandas through the phone Alarm stream but cannot override an unrelated DND mode that disallows alarms. Chandas Focus permits alarms and never claims to clone or modify other DND profiles. |
 
 ---
 
@@ -590,7 +593,7 @@ Validation:
 
 - Minutes are positive integers.
 - Main and step durations remain within 1–240 minutes unless a future decision changes the existing bound.
-- Pattern cadence is 1 to `mainMinutes - 1`.
+- Pattern cadence is 1–240 minutes. A cadence may exceed the current main duration; its selectable offset lattice is then empty until the main duration grows again.
 - Track count is 0–5.
 - Sequence step count is 1–20.
 - Offsets are unique within a track and satisfy `offset % cadence === 0` and `0 < offset < mainMinutes`.
@@ -1220,6 +1223,9 @@ Do not edit old entries to reflect new conclusions. Add a superseding entry and 
 | 2026-09-02 | D-029 | Accepted | Preserve legacy quick duration/snap choices and running cycle/minute mute; Timer v2 must not regress existing controls. |
 | 2026-09-02 | D-030 | Accepted | Replace running collision copy with nested main/sub progress rings and show text only for the main countdown and next sub-bell. |
 | 2026-09-03 | D-031 | Accepted | Automatically suppress Chandas cue playback during active calls without modifying user volume/mute state or replaying missed cues. |
+| 2026-09-03 | D-032 | Accepted | Treat exact timing as an invariant: do not leave an apparently running session after exact-alarm access disappears. |
+| 2026-09-03 | D-033 | Accepted | Define equal active-hours endpoints as a full selected civil day rather than an empty or ambiguous window. |
+| 2026-09-03 | D-034 | Accepted | State the Android DND limit accurately: alarm routing follows the Alarm stream and active DND alarm policy; Chandas Focus allows alarms without cloning other modes. |
 
 ### Decision-entry template
 
@@ -1600,6 +1606,63 @@ This section is append-only. Every implementation session should record scope, m
 
 **Native/on-device verification still required:** Kotlin compilation/tests and the Android/API/OEM matrix in section 19.4 remain intentionally unexecuted until the user requests a remote EAS development build.
 
+### 2026-09-03 — Platform and exact-timing hardening
+
+**Status:** Implemented by static review; native device verification remains mandatory.
+
+**Decisions referenced:** D-012, D-018–D-022, D-032–D-034.
+
+**Behavior implemented:**
+
+- Added Android 12/12L `SCHEDULE_EXACT_ALARM` coverage while retaining `USE_EXACT_ALARM` for Android 13+ timer use.
+- Made exact permission loss and scheduling `SecurityException` fail closed, clearing schedule, audio, Focus, notifications, service, and persisted active state.
+- Added overflow/bounds validation before native scheduling and rejected malformed update payloads without replacing a valid schedule.
+- Migrated Android sound/document picking to Expo registered activity-result contracts on the main queue.
+- Added the Android 15 rule-specific Chandas Focus settings path and preserved user-managed rule policy.
+- Defined equal active-hours endpoints as full selected civil days and corrected running notification resume copy.
+- Restored web dependencies and web-session authority for browser verification.
+
+**Verification run:** `npx tsc --noEmit`; `npm test`; Expo config resolution; Expo Android autolinking resolution.
+
+**Results:** All permitted checks passed.
+
+### 2026-09-03 — Alarm, gesture, and accessibility polish
+
+**Status:** Complete in React Native source; native alarm behavior still requires device validation.
+
+**Behavior implemented:**
+
+- Made the alarm overlay an explicit-dismiss modal and hid/inerted the running controls beneath it.
+- Replaced the web-incompatible animated SVG alarm fill with an equivalent animated native View.
+- Fixed trigger-grid stale render/callback state across Clear all, Select all, cadence changes, and drag paint.
+- Clamped row drag travel to valid list bounds and ignored rather than queued an accidental second Android picker launch.
+- Added recoverable sound-picker error copy.
+
+**Verification run:** live desktop/mobile browser inspection; trigger-grid Clear all/Select all exercise; `npx tsc --noEmit`; `npm test`; `git diff --check`.
+
+**Results:** All checks passed.
+
+### 2026-09-03 — Delivery freshness and final recovery audit
+
+**Status:** Source implementation complete; remote native build and on-device matrix pending.
+
+**Decisions referenced:** D-017, D-026, D-032.
+
+**Behavior implemented:**
+
+- Added a native delivery timestamp and surfaced flashes only for fresh, unsuppressed events received while the UI is active.
+- Prevented a background-throttled web timer from replaying an old cue on foreground.
+- Added an exactly-once `goAsync` receiver completion guard and safe schedule restoration after unexpected receiver exceptions.
+- Guarded Start against rapid double activation and exposed a clear busy state.
+- Completed reduced-motion drag cancellation and removed false accessibility grouping from modal containers.
+- Re-ran a final spec/mockup/native audit and recorded every finding and residual device-only risk in `timer-v2-implementation-review.md`.
+
+**Verification run:** `npx tsc --noEmit`; `npm test`; `git diff --check`; Expo public config; Expo Android module search; React Native Web desktop/mobile walkthrough.
+
+**Results:** Type checking passed, all 37 focused tests passed, whitespace validation passed, and the local native module resolves without duplicates. Six additional Kotlin fixtures are staged for the remote native run.
+
+**Native/on-device verification still required:** Kotlin compilation/tests, manifest merge, and the Android API/OEM scenarios in section 19.4. Local native builds remain prohibited by repository policy.
+
 ### Implementation-entry template
 
 ```md
@@ -1633,3 +1696,4 @@ This section is append-only. Every implementation session should record scope, m
 | Specification version | Date | Summary |
 | --- | --- | --- |
 | 1.0 | 2026-09-02 | Initial detailed specification, implementation architecture, acceptance criteria, and append-only log structure. |
+| 1.1 | 2026-09-03 | Recorded the completed source implementation, exact-alarm/full-day/DND decisions, final audit remediation, and remaining remote/device release gate. |

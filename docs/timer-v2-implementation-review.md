@@ -1,395 +1,332 @@
-# Timer v2 implementation review and completion brief
+# Timer v2 implementation review and completion report
 
-Status: implementation incomplete; remediation required before release testing  
-Reviewed: 2026-09-03  
-Scope: specification, HTML mockup, React Native application, Android native module, persistence, scheduling, audio, Focus/DND, accessibility, and permitted static verification
+Status: source implementation complete; remote Android build and on-device validation required before release
+
+Reviewed and remediated: 2026-09-03
+Scope: product specification, approved HTML mockup, React Native application, Android native module, persistence, scheduling, audio, Focus/DND, accessibility, and permitted verification
 
 ## 1. Executive assessment
 
-Timer v2 has a useful domain foundation: its TypeScript timeline model, track-order collision rule, active-hours gate, iteration-mute semantics, immutable preset working-copy model, and one-event-at-a-time native scheduling are directionally sound. The current implementation is nevertheless not complete against `docs/timer-v2-spec-and-log.md` or the approved HTML mockup.
+Timer v2 is now implemented as the cohesive program-based timer described in `timer-v2-spec-and-log.md`. The original review found fifteen substantive gaps. Each has been addressed in source, and the later completion audit found and fixed additional recovery and interaction defects.
 
-The largest risks are behavioral rather than cosmetic:
+No known P0 or P1 source-level defect remains after this review. The strongest parts of the result are:
 
-1. Ordinary timer cues do not consistently use Android alarm audio usage, so DND can silence them.
-2. A Sequence cycle boundary can incorrectly start the continuous alarm.
-3. Native and React runtime state can diverge after process death, missed events, or external Android changes.
-4. Focus uses an alarm-only rule rather than the specified priority policy, and it does not reliably reflect manual Android activation, snoozing, disabling, or deletion.
-5. Exact-alarm failure silently degrades to inexact delivery even though the UI promises precise timing.
-6. Alarm Once is consumed without ringing in the JavaScript fallback.
-7. The sound editor applies patches against stale state and can undo a preceding sound or volume change.
+- One deterministic Pattern/Sequence program model with validation on both sides of the native bridge.
+- Android-owned exact scheduling with one future event, a session generation, and a logical event identity.
+- Explicit Pattern-main versus Sequence-cycle semantics.
+- Alarm-stream routing for all timer audio, independently of Focus.
+- A Chandas-owned priority DND rule whose read path does not mutate Android state.
+- Immutable presets, a working-copy editor, multi-track Pattern grids, ordered Sequence steps, Mixer, mute, Help, and the approved running visualization.
+- Recovery paths for process recreation, reboot, package replacement, manual time changes, timezone changes, daylight-saving transitions, URI loss, permission loss, and stale PendingIntents.
 
-The UI adopts the mockup's visual vocabulary, but many approved flows are still placeholders or simplified versions: the dedicated trigger editor, drag-paint selection, true drag reordering, per-channel mixer, complete sound library, structured Focus states, progressive rings, complete preset browser, Help, long-press tooltips, custom quick choices, and accessibility behavior.
+This is not yet an assertion that the Android binary is release-ready. Repository policy prohibits local Gradle/native builds, so the Kotlin source and manifest integration have been reviewed statically but not compiled in this pass. A remote EAS development build followed by the device matrix in section 10 remains the release gate.
 
-## 2. Review method and verification
+## 2. Review method
 
-The review covered:
+The audit covered:
 
-- All specification decisions and definition-of-done clauses.
-- All ten HTML mockup screens at desktop and mobile viewport sizes.
-- React state, persistence, timeline, runtime gating, configuration, and running screens.
-- The Expo module bridge, Android manifest and config plugin, alarm scheduler, persistence, receivers, audio players, continuous-alarm service, call-state logic, Focus condition provider, and Focus rule controller.
-- Current Android documentation for exact alarms, audio attributes/focus, automatic DND rules, Android 15 user-managed modes, call-state APIs, full-screen intents, persisted document URIs, and timezone-offset broadcasts.
-- Current Expo documentation for module functions/events/lifecycle, activity-result contracts, autolinking, and Continuous Native Generation.
+- Every locked product decision D-001 through D-034.
+- The ten HTML mockup surfaces and their desktop/mobile behavior.
+- All Timer v2 TypeScript domain, persistence, runtime, editor, sheet, and running-screen code.
+- The complete local Expo Android module: bridge, exact scheduler, timeline mirror, state store, receivers, notifications, audio player, alarm foreground service, call-state gate, active hours, DND condition provider, and Focus controller.
+- App configuration, local-module autolinking, and the config plugin.
+- Current Android and Expo documentation for exact alarms, alarm audio usage, audio focus, DND automatic rules, Android 15 user-managed rules, full-screen alarms, persisted document access, phone-call state, broadcasts, and Expo activity-result contracts.
 
-Permitted checks completed successfully:
+Permitted verification completed:
 
 - `npx tsc --noEmit`
-- Expo prebuild configuration resolution
-- Expo local-module autolinking resolution
-- Installed dependency-tree inspection
+- `npm test` — 37 focused tests passing
+- `git diff --check`
+- Expo public configuration resolution
+- Expo Android local-module autolinking resolution, with no duplicate module
+- Live React Native Web walkthrough at desktop and `390 × 844`
+- Direct browser checks of Pattern, Sequence, trigger-grid, bulk selection, presets, sounds, Mixer, running controls, Help, and responsive layout
 
-No Gradle, native compile, local Expo export, Android Studio build, or local EAS build was run, per repository policy. `expo-doctor` could not be fetched in the restricted offline command environment. There is currently no lint or unit-test script in `package.json`.
+Not run:
 
-## 3. Release blockers
+- Gradle compilation or Kotlin tests
+- Android Studio or emulator builds
+- `expo run:android`, Expo export, prebuild, or local EAS
 
-### R-01 — Alarm audio routing violates D-012
+Those omissions are deliberate requirements of `AGENTS.md`, not skipped verification.
 
-**Evidence**
+## 3. Findings and remediation status
 
-- `FocusModeController.shouldUseAlarmAudio` returns true only when Chandas Focus is enabled and active.
-- `TimerScheduler` passes that conditional result to both legacy and v2 one-shot playback.
+| ID | Original finding | Resolution | Evidence |
+| --- | --- | --- | --- |
+| R-01 | Ordinary cues were not always routed as alarm audio. | Every native one-shot and continuous alarm now uses `USAGE_ALARM` and sonification content type. Focus no longer controls routing. | `0286d2b` |
+| R-02 | A Sequence cycle boundary could start the continuous alarm. | Pattern-main and Sequence-cycle are distinct boundaries. Only Pattern main events consult Alarm Once/Locked; Sequence has no Alarm control. | `160ed81`, `50f070e` |
+| R-03 | React and native runtime state could diverge after recovery or an external change. | Android runtime state is authoritative; startup and foreground paths query/reconcile it, and native emits schedule, alarm, control, cue, and Focus events. | `50f070e`, `d3921a7`, `06c84f6` |
+| R-04 | Focus policy and refresh could overwrite or misreport Android state. | Focus uses a priority rule with only alarm allowance set. Read-only query is separate from reconciliation. Disable, removal, activation, deactivation, manual snooze, missing access, and Android 15 user management are modeled. | `0f3e8f2`, `d3921a7`, `06c84f6` |
+| R-05 | Exact timing silently degraded to an inexact alarm. | Start requires exact access; scheduling uses `setExactAndAllowWhileIdle`; loss or `SecurityException` fails closed and clears the authoritative session instead of leaving a limbo timer. Android 12/12L permission coverage was added. | `50f070e`, `06c84f6` |
+| R-06 | JavaScript fallback consumed Alarm Once before choosing continuous playback. | Runtime gating returns playback disposition and next control state separately; the complete alarm gesture/gate table is tested. | `160ed81` |
+| R-07 | Sound-sheet changes could apply against stale cue data. | Cue edits resolve current state by identity and sheet state follows the current cue; sound and volume changes no longer undo each other. | `78f6eed` |
+| R-08 | PendingIntents lacked complete logical identity. | Every scheduled event persists and carries timestamp, event type, logical ID, and session generation. A receiver rejects any mismatch. | `50f070e` |
+| R-09 | Native program JSON was insufficiently validated. | Kotlin validates schema version, size, mode, counts, duration bounds, IDs, labels, offsets, cue volume, sound kind, URI/title length, cycle duration, and anchor arithmetic before scheduling. | `d3921a7`, `06c84f6` |
+| R-10 | Clock snapping did not fully cover DST offset transitions. | Local-clock schedules compare their civil lattice at delivery and scheduling, use an exact timezone-transition sentinel on API 24+, and listen for time/timezone/date/offset changes. Elapsed schedules shift across manual wall-clock edits. | `396413d`, `d3921a7` |
+| R-11 | Call auto-mute could fail opaquely. | Call access is an explicit optional setup state. Native uses aggregate `TelecomManager.isInCall` with a compatible telephony fallback. Normal cues are suppressed without consuming mute or Alarm Once and are never replayed. | `396413d`, `d3921a7` |
+| R-12 | Continuous alarm focus and cue fidelity were incomplete. | The service requests transient alarm focus, reacts to gain/loss, loops the selected main cue at master × cue level, updates live volume, and cleans up foreground/audio state idempotently. | `0286d2b`, `d3921a7` |
+| R-13 | Device sounds, documents, preview, and fallback were incomplete. | Modern registered activity-result contracts open Android ringtone and document pickers. Document permission is persisted when granted. One resolver handles preview/playback and falls back to a built-in cue without breaking scheduling. | `0286d2b`, `06c84f6`, `311755f` |
+| R-14 | Rapid persistence writes could finish out of order. | Configuration and session writes use independent serialized queues; stopping cannot be overtaken by an older session save. | `0837fb1` |
+| R-15 | Preset provenance could become stale. | Mode changes clear unrelated provenance. Deleting a loaded source marks it deleted while retaining the independent working copy. | `78f6eed`, `0837fb1` |
+| R-16 | Foregrounding could still surface a queued background cue animation. | Native events now carry actual delivery time. UI flashes require a fresh, unsuppressed signal while the app is active; delayed web timers skip catch-up playback. | `5248e14` |
+| R-17 | Trigger-grid bulk updates and drag painting could render or apply stale selection state. | Rendering follows props while stable refs serve only the in-flight gesture. Clear/Select and drag updates use the latest offsets/callback. | `311755f` |
+| R-18 | A quick double Start could create two native sessions; a receiver exception could retain `goAsync`. | Start is guarded and exposes a busy/disabled state. Receiver completion is exactly-once and attempts safe schedule restoration after an unexpected exception. | `5248e14` |
+| R-19 | The alarm overlay allowed accidental whole-screen dismissal and exposed the timer controls to accessibility. | Dismissal is an explicit action; the underlying screen is inert and hidden from accessibility while the modal alarm is visible. | `311755f` |
+| R-20 | Animated SVG fill produced a React Native Web failure in the ringing surface. | The flash fill is now an equivalent centered animated native View while the progress rings remain SVG. | `311755f` |
 
-**Impact**
+## 4. Architecture assessment
 
-Normal timer sounds can be routed as notification events and silenced by DND. This defeats the decision that bells should always use the phone's Alarm stream and that Focus is optional automation rather than a prerequisite for reliable sound.
+### 4.1 Domain and validation
 
-**Required result**
+The TypeScript domain is the editor/configuration source of truth. It normalizes corrupt storage into safe values, retains stable cue IDs, caps Pattern tracks at five and Sequence steps at twenty, and enforces the 1–240 minute duration/cadence bounds.
 
-- Every one-shot timer cue uses `AudioAttributes.USAGE_ALARM` and sonification content type.
-- Continuous alarms use alarm usage as well.
-- Chandas never changes the system Alarm volume.
-- Focus controls only the Chandas-owned DND rule and has no bearing on audio routing.
+The Kotlin runtime deliberately does not trust the bridge. It validates the serialized version-2 program independently before saving, updating, restoring, or scheduling it. Pattern overlap candidates remain observable but exactly one winner is selected by current array order. Main boundaries are not valid sub-track offsets, so the main gong never competes with a sub-bell.
 
-### R-02 — Sequence final steps can invoke continuous Alarm
+A shared JSON fixture corpus is consumed by TypeScript tests and staged Kotlin tests to reduce timeline drift. The Kotlin tests still need a remote/native test run.
 
-**Evidence**
+### 4.2 Native runtime authority
 
-- `TimerV2Timeline.nextSequence` marks the last step as `mainBoundary`.
-- `TimerScheduler.handleV2Triggered` treats every `mainBoundary` as eligible for Once or Locked alarm behavior.
-- The running Sequence UI displays the Alarm control.
+Android stores the complete recoverable program, anchor, relevant settings, mute boundary, Alarm Once/Locked state, next event identity, session generation, ringing state, and wall/monotonic clock samples.
 
-**Impact**
+Only one timer event is scheduled at a time. On delivery:
 
-Sequence mode can loop the continuous alarm at every completed set and consume Alarm Once, directly contradicting D-024.
+1. The receiver validates generation, logical ID, event type, and epoch.
+2. Native reconciles a local-clock phase if needed.
+3. Active hours and call gating are evaluated at delivery time.
+4. Mute and Alarm Once are consumed only when their exact semantic conditions are satisfied.
+5. The next event is scheduled before potentially long audio playback.
+6. Native emits a typed event and starts one-shot or continuous alarm audio.
 
-**Required result**
+This ordering prevents duplicate delivery, stale PendingIntent playback, and a long media preparation from blocking the next schedule.
 
-- Model `patternMainBoundary` and `sequenceCycleBoundary` as different event facts.
-- Alarm Once/Locked is evaluated only for a Pattern main event.
-- Sequence always plays the final step's selected one-shot cue.
-- Sequence UI never displays an Alarm control.
+### 4.3 Exact alarms
 
-### R-03 — Native and React runtime state can enter limbo
+Precise timer delivery is a hard invariant rather than an optimistic preference:
 
-**Evidence**
+- Android 12/12L declare `SCHEDULE_EXACT_ALARM` only through API 32.
+- Android 13+ declare `USE_EXACT_ALARM`.
+- The scheduler checks `canScheduleExactAlarms()` before Start and before every next-event schedule.
+- It uses `setExactAndAllowWhileIdle`, not an inexact fallback.
+- If access is unavailable or a scheduling call throws `SecurityException`, native cancels pending work, audio, Focus, notifications, alarm service, and persisted active state, then publishes one authoritative inactive state.
 
-- App restoration trusts the AsyncStorage session without reconciling native `getState()`.
-- Native state can remain active when the JavaScript session is missing; the reverse is also possible.
-- `useTimerV2` subscribes only to alarm-state changes.
-- Native mute and Alarm Once consumption are not reflected back into React state.
-- Alarm visibility is not queried synchronously on v2 mount/foreground.
-- Unexpected alarm-service destruction clears `ringing` but can leave `alarmVisible` stale and emits no state event.
+Android does not broadcast exact-alarm revocation. Therefore a background process cannot detect revocation at the instant it happens. Chandas closes the unavoidable gap on the next foreground/reconciliation and never continues to claim a viable timer afterward.
 
-**Impact**
+### 4.4 Civil time, active hours, and DST
 
-The UI can show stopped while alarms continue, show stale mute/alarm controls, fail to show a ringing alarm after cold start, or claim Focus/timer state that Android no longer has.
+Pattern clock alignment is expressed as a local minute offset, not a fixed UTC phase. After timezone, DST, date, or manual-time changes, the scheduler selects a strictly future event on the current civil lattice. A timezone-transition sentinel provides pre-API-37 DST coverage.
 
-**Required result**
+Elapsed Pattern and Sequence schedules retain elapsed cadence across manual clock changes using paired wall and monotonic samples. Active hours gate audio and Focus while phase advances silently. Skipped cues are never replayed. Cross-midnight windows are attributed to their starting day. Equal endpoints mean the selected civil day is active for the full day, with midnight as its boundary.
 
-- Native state is authoritative for a running Android timer.
-- One versioned `NativeTimerState` contains the program, anchor, next logical event, alarm state, complete mute state, Focus state, and sound availability needed for restoration.
-- Startup/foreground subscribes first, queries immediately, reconciles UI/session, and queries again if necessary to close listener races.
-- Native emits `onTimerEventFired`, `onAlarmStateChanged`, `onControlStateChanged`, and `onFocusStateChanged` with typed, validated payloads.
-- Alarm-service cleanup leaves persisted state and notifications internally consistent.
+### 4.5 Audio and alarms
 
-### R-04 — Focus/DND policy and reconciliation violate D-020–D-022
+All timer sounds are application-level `MediaPlayer` playback with alarm audio attributes. Notification channels are intentionally soundless, preventing a second notification sound from competing with the selected cue.
 
-**Evidence**
+Effective level is:
 
-- The owned rule uses `INTERRUPTION_FILTER_ALARMS`, which applies a fixed alarm-only policy, rather than `INTERRUPTION_FILTER_PRIORITY` with an alarm allowance.
-- Existing rules are overwritten during routine activation.
-- Read-only refresh currently performs state publication/reconciliation.
-- Android automatic-rule status broadcasts are not handled.
-- Pre-Android-15 `isActive` can report active based only on requested/enabled state.
-- Android 15 user-managed-rule behavior and manual snooze state are not modeled.
+`app master × cue level × phone Alarm stream volume`
 
-**Impact**
+Chandas never writes the phone's Alarm volume. User mute is stored separately from both app levels.
 
-Chandas may erase user policy choices, fight or misreport a manual Android override, fail to mirror activation/deactivation, or display Focus Active when it is not actually active.
+Alarm Once and Locked are Pattern-main-only. The continuous service promotes itself before requesting audio focus, honors focus results and losses, uses the selected main cue, loops until explicit dismissal, and can be dismissed from either the app overlay or native notification action. Alarm visibility remains available even if Android denies audio focus, so the user can understand and dismiss the alarm state.
 
-**Required result**
+Alarm audio usage is not an absolute bypass around every Android mode. An unrelated user DND mode that disallows alarms can still silence the Alarm stream. Chandas Focus explicitly allows alarms, but Chandas neither displays nor rewrites unrelated DND modes.
 
-- Keep automation preference, requested condition, and actual Android rule state separate.
-- Build a priority rule that explicitly allows alarms and leaves unrelated policy/effects unset.
-- Never rewrite a user-modified policy during routine refresh or activation.
-- Implement a genuinely read-only Focus query.
-- Handle activated, deactivated/snoozed, enabled, disabled, removed, missing, and policy-access states.
-- Respect Android 15 user-managed rules and the false-then-true transition required after manual snoozing.
-- Present only Chandas Focus, never unrelated DND modes.
+### 4.6 Focus/DND
 
-### R-05 — Exact timing silently degrades
+The implementation separates:
 
-**Evidence**
+- Automation preference.
+- Whether the running timer currently requests Focus.
+- The actual/observable Android state.
 
-- The scheduler uses `setAlarmClock` for every cue.
-- When exact access is unavailable or throws, it silently uses `setAndAllowWhileIdle`.
-- Start does not validate and surface exact-alarm capability before entering the running UI.
+Read-only queries never publish a condition. Reconciliation is limited to real preference, timer, active-hours, or permission transitions. The owned rule uses priority interruption with `allowAlarms(true)` and does not request changes to other interruption categories or visual effects. Android and the user remain authoritative for those unspecified fields; Chandas does not claim to copy or inherit every property of another DND rule.
 
-**Impact**
+Chandas does not claim it can clone the active DND profile. Android has no supported API that safely copies every exclusion and OEM-specific policy into a new automatic rule.
 
-Android may deliver a cue many minutes late while Chandas continues to promise an exact interval. Frequent `setAlarmClock` use also gives every sub-bell highly visible alarm-clock semantics and unnecessary battery priority.
+On Android 15, user-managed rule state is read directly and the rule-specific settings page is opened. On older releases where actual rule activation is not exposed, the UI reports Ready/Unknown rather than falsely claiming Active.
 
-**Required result**
+### 4.7 Sound selection
 
-- Check exact-alarm capability before accepting Start.
-- Block Start with a calm, actionable settings explanation when exact timing is unavailable.
-- Use `setExactAndAllowWhileIdle` for precise timer events.
-- Use `setAlarmClock` only if a genuine user-facing alarm-clock event specifically warrants it.
-- Validate `USE_EXACT_ALARM` eligibility and Play policy during release preparation.
+Five stable built-in identities exist now; placeholder assets intentionally share the current bell/gong recordings until a production sound pack is supplied. Android ringtone and notification choices retain their content URI. Device files use `ACTION_OPEN_DOCUMENT` and persist read access when the provider grants it.
 
-### R-06 — JavaScript fallback breaks Alarm Once
+Availability is checked without mutating the configured sound. Missing sources are labeled Unavailable, offer Replace, and fall back at playback. Media descriptors and players are closed on completion, failure, replacement, backgrounding, sheet close, and module teardown.
 
-**Evidence**
+### 4.8 React/native bridge
 
-`useTimerV2.playEvent` asks the gate to consume runtime state and then decides whether to start a continuous alarm from the post-consumption alarm value. Once becomes Off before the decision is made.
+The Expo bridge uses declared typed events and modern `RegisterActivityContracts` launchers. Picker calls run on the main queue and use a non-queuing mutex, so an accidental double tap cannot open a second picker after the first closes. Cancellation is rethrown; other launcher failures become a calm recoverable UI message.
 
-**Impact**
+The module is discoverable through Expo autolinking with no duplicates. Full-screen alarm window flags are applied by the config plugin to both cold-launch and single-task `onNewIntent` paths.
 
-Alarm Once silently becomes a one-shot gong in web/JS fallback while still disarming itself.
+The repository uses Expo continuous native generation as its tracked delivery model: `app.json`, the config plugin, and `modules/chandas-timer-service` are the source artifacts. The local generated `android/` directory is ignored and is not evidence of what a remote build will compile; it must be regenerated by the supported build pipeline rather than treated as hand-maintained source.
 
-**Required result**
+## 5. UX and mockup alignment
 
-The runtime gate returns an explicit playback disposition, including whether to start the continuous alarm, while independently returning next persisted control state.
+### Pattern configuration
 
-### R-07 — Sound-sheet edits are applied against stale data
+- Exact main quick choices `10m`, `15m`, `30m`, and Custom are restored.
+- Clock alignment uses `:00`, `:10`, `:15`, and Custom.
+- Up to five sub-bell tracks are summarized on the main screen.
+- Detailed cue positions live in a dedicated sheet with cadence choices, tap/drag paint, Clear all, Select all, overlap markers, and explicit top-row priority.
+- Reordering the visible list is the sole overlap-priority control.
+- Disabled tracks retain their configured selections.
 
-**Evidence**
+### Sequence configuration
 
-The sheet captures the cue object when opened. Every sound or volume patch spreads that original object instead of the latest draft.
-
-**Impact**
-
-Changing sound and then volume can restore the previous sound, and the sheet can display stale selection and percentage values.
-
-**Required result**
-
-Use a sheet-local draft or identify the cue and resolve its current state on every update. Preview and commit must always use the latest draft.
-
-## 4. High-priority correctness and resilience gaps
-
-### R-08 — PendingIntent validation lacks logical identity
-
-Only timestamp and broad event type are persisted and checked. Persist and include program generation plus logical event ID in every PendingIntent. Reject any broadcast that does not match generation, logical ID, type, and timestamp.
-
-### R-09 — Native JSON is not a validated versioned boundary
-
-Native parsing switches on `mode` but does not reject future schema versions or comprehensively validate program limits, duration arithmetic, selected offsets, cue references, or malformed fields. JavaScript sound normalization similarly accepts any object with a `kind` property.
-
-Add shared invariants and mirrored validators. Unsupported/corrupt native sessions should clear only the invalid running session and retain presets.
-
-### R-10 — Clock-snapped DST realignment is incomplete
-
-The manifest handles manual time and timezone changes but not seasonal offset changes. API 37 provides `ACTION_TIMEZONE_OFFSET_CHANGED`; older versions need a transition-aware fallback. Schedule a silent realignment sentinel at the next timezone-rule transition where necessary, then choose the first strictly future valid civil-time occurrence and deduplicate logical events.
-
-### R-11 — Call auto-mute fails open without a clear state
-
-The event-time call gate correctly preserves mute and Alarm Once state, but it uses deprecated `TelephonyManager.callState`, requests permission in the timing-critical Start path, and silently disables call awareness if permission is denied.
-
-Use the current aggregate call API where available, keep a compatible fallback, expose availability clearly, and request permission through a deliberate setup/education flow before Start. Starting the timer must not visually succeed before permission and native scheduling settle.
-
-### R-12 — Continuous-alarm audio focus and cue fidelity need correction
-
-The alarm service ignores the audio-focus request result and all focus-loss events. It uses exclusive transient focus even though Android identifies ordinary transient focus as the typical alarm choice. It also loops a fixed raw sound at master volume instead of the selected Pattern main sound at `master × cue` volume.
-
-Honor the focus grant result and loss callbacks, select the appropriate transient focus mode, and pass a resolved main cue plus effective volume into the service.
-
-### R-13 — Sound sources and fallbacks are incomplete
-
-There is no persisted audio-document picker, preview API, availability marker, or Replace flow. Implement `ACTION_OPEN_DOCUMENT` with persisted URI permission, a single native sound resolver, preview cancellation, descriptor cleanup, fallback metadata, and a non-failing built-in fallback.
-
-### R-14 — Settings persistence can race
-
-UI changes trigger fire-and-forget multi-key AsyncStorage writes. Rapid slider/key changes can finish out of order and leave mixed records. Use one serialized/debounced writer with a monotonic revision or one atomic versioned state record. Keep runtime native state separate from immutable preset/configuration storage.
-
-### R-15 — Preset provenance is stale after deletion or mode changes
-
-Deleting the loaded source preset does not update the working copy's provenance. Changing modes can retain an unrelated source label. Preserve the working program but mark the source as deleted, or clear provenance when it no longer describes the active working copy.
-
-## 5. Mockup and interaction completion gaps
-
-### Pattern editor
-
-- Restore exact baseline quick choices: main `10`, `15`, `30`, Custom; snap `:00`, `:10`, `:15`, Custom.
-- Support up to five sub tracks.
-- Move detailed offset editing behind the dedicated trigger editor.
-- Support tap and drag-paint selection, Clear all, Select all, collision markers, and winner explanations.
-- Reordering is the sole overlap priority control.
-- Give every track independent sound and relative volume.
-
-### Sequence editor
-
-- Support 1–20 steps with clear current total duration.
-- Use true drag-and-drop with a visible lifted row, stable handles, short motion, and haptic boundary feedback.
-- Provide accessible Move up/Move down actions.
-- Give each step independent duration, sound, volume, and preview.
+- One to twenty steps repeat as a cycle.
+- Each step has label, duration, sound, volume, duplicate, and conditional removal.
+- Drag handles lift the whole row, clamp travel to valid positions, provide boundary/drop haptics, and expose accessibility increment/decrement actions.
+- Sequence running deliberately has no Alarm control.
 
 ### Running timer
 
-- Pattern: outer main-progress ring plus independently progressing inner sub-track rings.
-- Center: main countdown plus only the next sub-bell; no overlap explanation or redundant legend.
-- Sequence: current step name/index, next step, and cycle progress; no Alarm control.
-- Restore restart, snap, Focus, Alarm, mixer/mute, Help, and required baseline controls without clutter.
-- Drive flashes only from a fresh native timer-event signal while the UI is active.
-- Use exclusive single/double recognition for Alarm and reserve long press for its tooltip.
+- Pattern shows an outer main ring and one inner progress ring per enabled track with selected cues.
+- Center text shows the main countdown and only the next sub-bell.
+- Sequence shows current step/index and the next step.
+- Restart, clock alignment, Alarm, Focus, Mixer/mute, Help, and Stop are present only where applicable.
+- Alarm uses exclusive single/double recognition: one tap arms the next main gong, a quick second tap locks every main gong, and an active alarm setting can be turned off.
+- Long press produces a tooltip without activating the control.
+- No overlap explanation, `Main boundary at…` label, or unwired overflow dots remain on the running page.
 
-### Mixer and mute
+### Mixer, mute, presets, sounds, and help
 
-- Show Master and every cue channel with preview and percentage.
-- Explain effective volume as Master × cue × system Alarm volume.
-- Preserve cycle mute `1×`, `2×`, `3×`, plus custom minutes.
-- Keep mute state independent of all volume values.
-- Clearly show active mute and allow one-action clearing.
+- Mixer exposes Master and every cue channel, preview, percentage, and the effective-volume explanation.
+- Cycle mute retains `1×`, `2×`, `3×`, and custom minutes; the selected final main/cycle boundary remains audible.
+- Presets are immutable, mode-filterable snapshots. Load creates a working copy; Save always creates another item; Delete never destroys the working copy.
+- Sound selection is progressively divided into Built-in, Android, and Device sources.
+- Help covers every running control, alarm gesture, Focus/DND, active hours, collision order, volume, and mute.
 
-### Presets
+### Accessibility and motion
 
-- Group/filter by mode and show name, mode, creation time, and concise structure.
-- Load creates a working copy; Save As always creates a new snapshot.
-- Confirm destructive deletion without making routine loading cumbersome.
-- Keep long lists scrollable and preserve duplicate names.
+- Icon controls have roles, labels, state, and hints.
+- Cue cells announce minute, selection, overlap, and winner.
+- Sliders announce cue and percentage.
+- Reorder controls have 44-point targets and adjustable actions.
+- Alarm content is modal; underlying controls are unavailable while ringing.
+- Modal container pressables are not exposed as false accessibility controls.
+- Reduced-motion preference disables row layout/lift animation and immediate-cancels a terminated drag.
 
-### Sounds
+## 6. Verification results
 
-- Present Built in, Android, and Device sources progressively.
-- Provide five stable built-in IDs even while assets are placeholders.
-- Preview without committing, stop preview on sheet close/change, and fall back safely.
-- Mark unavailable sources and offer Replace.
+| Check | Result |
+| --- | --- |
+| TypeScript | Pass |
+| Focused Vitest suite | Pass — 37/37 |
+| Whitespace/diff validation | Pass |
+| Expo config resolution | Pass |
+| Expo local-module discovery | Pass; one `chandas-timer-service`, no duplicates |
+| React Native Web desktop walkthrough | Pass |
+| React Native Web mobile `390 × 844` walkthrough | Pass |
+| Trigger Clear all / Select all state | Pass in live browser |
+| Pattern/Sequence mode-specific controls | Pass in live browser |
+| Native compilation | Not run; prohibited locally |
+| Kotlin unit tests | Not run; require allowed remote/native environment |
+| Physical Android behavior | Pending device matrix |
 
-### Focus and help
+The web preview produced one benign browser `AbortError` when a playing HTML audio element was immediately stopped during QA/HMR. This comes from browser media interruption and was not an application crash. Native timer playback does not use that web media path.
 
-- Present Active, Ready, Paused in Android, Rule disabled, and DND access required states in plain language.
-- Provide Edit in Android/access-settings actions only when useful.
-- Add a Help button on the running screen and complete, scrollable Help content.
-- Add long-press tooltips to every running control without changing the control action.
+The package manager also reports 20 dependency advisories (12 moderate, 8 high) in the current dependency tree. They were not auto-fixed because broad dependency upgrades are outside this timer change and can introduce breaking Expo/React Native version drift. They should be triaged as a separate dependency-maintenance task before a production release.
 
-## 6. Accessibility and polish requirements
+## 7. Remaining limitations and recommendations
 
-- Maintain at least 44×44 logical-point hit targets.
-- Give every icon a role, state, label, and hint.
-- Announce trigger offset, selection, collision, and winner.
-- Give reorder rows adjustable/move accessibility actions.
-- Label every mixer slider by cue and percentage.
-- Trap modal focus where supported and return focus to the invoking control.
-- Never rely only on color for Focus, mute, alarm, or collision state.
-- Respect reduced-motion settings.
-- Use Reanimated for short transform/opacity/layout transitions; avoid decorative delay.
-- Use intentional haptics for selection, alarm state, and reorder boundaries.
-- Keep advanced controls behind clear disclosure so the default Pattern setup remains quiet and obvious.
+### Required before release
 
-## 7. Target architecture
+1. Request a remote EAS development build so Kotlin and manifest merging compile in the supported environment.
+2. Run the Kotlin fixture tests in that environment.
+3. Install the development build on representative Android devices and complete section 10.
+4. Complete the Google Play `USE_EXACT_ALARM` declaration. Chandas is a timer app, which is an eligible core use case, but store review still requires the declaration.
+5. Confirm the full-screen-intent declaration and user-facing behavior for Android 14+.
+6. Triage dependency advisories without using a blanket forced upgrade.
 
-### Domain layer
+### Product follow-ups, not v2 blockers
 
-Use pure, platform-independent modules for:
+- Replace the five placeholder sound identities with five distinct mastered recordings while retaining their stable IDs.
+- Add component-level automated gesture/accessibility tests when the project adopts a React Native component-test harness.
+- Consider a small diagnostics/export screen for support if real-world OEM scheduling behavior proves difficult to reproduce.
 
-- Versioned program and runtime types.
-- Normalization and validation.
-- Timeline position and next-event calculation.
-- Collision resolution.
-- Active-hours and civil-time alignment.
-- Runtime gating and control-state transitions.
-- Preset working-copy operations.
+## 8. Why no complete DND-profile cloning exists
 
-Both JavaScript and Kotlin implementations must share fixtures that prove equivalent outputs for the same serialized inputs.
+Android lets an app create and manage its own automatic DND rule, and newer releases let the user modify that rule. It does not expose a dependable API for reading an arbitrary currently active profile and cloning all contacts, applications, conversations, schedules, display effects, and OEM-specific exclusions into another rule.
 
-### Android runtime authority
+The safe implementation is therefore:
 
-Use one cohesive native runtime comprising:
+- Create only Chandas Focus.
+- Explicitly permit alarms.
+- Leave all unrelated policy fields unspecified.
+- Never rewrite a user-modified policy during routine refresh.
+- Show only the state of the Chandas-owned rule.
+- Let Android settings remain the authoritative editor.
 
-- A versioned, lossless running-session store.
-- An exact one-event scheduler with generation/logical-ID validation.
-- A receiver that validates, advances controls, schedules next, emits event, then plays.
-- A single sound resolver/player.
-- A continuous-alarm foreground service with correct focus and cleanup.
-- A Focus repository/controller separating query from reconcile.
-- Broadcast/lifecycle reconciliation for boot, package replacement, time, timezone, offset, exact-alarm access, policy access, and automatic-rule status.
+That is what the implementation now does.
 
-### Typed Expo bridge
+## 9. Authoritative references
 
-Expose complete asynchronous mutations and synchronous/read-only snapshots where appropriate. Declare all events and remove listeners on module destruction. Use modern registered activity-result contracts for Android sound and document picking. Validate structured data on both sides of the bridge.
+- [AlarmManager API](https://developer.android.com/reference/android/app/AlarmManager)
+- [Schedule exact alarms](https://developer.android.com/develop/background-work/services/alarms)
+- [NotificationManager and automatic DND rules](https://developer.android.com/reference/android/app/NotificationManager)
+- [ZenPolicy](https://developer.android.com/reference/android/service/notification/ZenPolicy)
+- [ZenPolicy.Builder](https://developer.android.com/reference/android/service/notification/ZenPolicy.Builder)
+- [Android Settings actions](https://developer.android.com/reference/android/provider/Settings)
+- [AudioAttributes](https://developer.android.com/reference/android/media/AudioAttributes)
+- [AudioFocusRequest](https://developer.android.com/reference/android/media/AudioFocusRequest)
+- [Manage audio focus](https://developer.android.com/media/optimize/audio-focus)
+- [Android Do Not Disturb behavior](https://support.google.com/android/answer/9069335?hl=en)
+- [Google Play exact-alarm policy](https://support.google.com/googleplay/android-developer/answer/16558241?hl=en)
+- [Expo Modules API](https://docs.expo.dev/modules/module-api/)
 
-### React application state
+## 10. On-device validation matrix
 
-- Treat saved working programs/settings/presets as configuration state.
-- Treat native state as authoritative runtime state on Android.
-- Derive the running UI from one reconciled runtime snapshot and native events.
-- Serialize persistence writes and report recoverable failures without disrupting timer use.
-- Keep sheets/editors in local draft state and commit intentional changes only.
+### API coverage
 
-### UI component boundaries
+- API 24: pre-modern activity/result and exact-alarm compatibility.
+- API 29: ZenPolicy and `setAutomaticZenRuleState`.
+- API 31/32: user-granted `SCHEDULE_EXACT_ALARM`.
+- API 33: `USE_EXACT_ALARM`, notification runtime permission.
+- API 34: full-screen intent access.
+- API 35+: user-managed automatic DND rules and actual rule-state query.
+- API 37 when available: timezone-offset broadcast in addition to the transition sentinel.
 
-Prefer small, explicit components for program summary, trigger editor, reorderable list, cue editor, sound library, mixer, Focus status, timer visualization, runtime controls, Help, and tooltips. Components should accept domain values and callbacks rather than reaching into native or persistence services directly.
+### Timer/recovery scenarios
 
-## 8. Required automated coverage
+- Screen on, screen off, Doze, app background, task removed, process killed.
+- Reboot and package replacement during Pattern and Sequence.
+- Exact-alarm access removed, then app foregrounded.
+- Stale PendingIntent injected after restart/reanchor.
+- Main duration, cue volume, and Master updated rapidly.
 
-### Pure TypeScript tests
+### Civil-time scenarios
 
-- Pattern and Sequence event generation.
-- Track-order collision changes after every reorder.
-- Local-clock/elapsed anchoring.
-- DST gap and overlap fixtures.
-- Active-hours day and cross-midnight behavior.
-- Alarm Off/Once/Locked transition table.
-- Pattern and Sequence iteration mute boundaries.
-- Call and master-volume gates preserving unrelated controls.
-- Normalization, future schemas, corruption, and sound fallbacks.
-- Immutable preset save/load/delete/provenance behavior.
+- Clock-snapped Pattern over a spring DST gap.
+- Clock-snapped Pattern over an autumn DST fold.
+- A non-hour timezone change.
+- Manual wall-clock jump forward and backward.
+- Elapsed Pattern and Sequence across the same changes.
+- Same start/end active-hours window.
+- Cross-midnight window with only the starting weekday selected.
 
-### Kotlin tests
+### Audio/alarm scenarios
 
-- The same timeline fixture corpus as TypeScript.
-- PendingIntent generation/logical-ID rejection.
-- Persistence round trips and corrupt/future schema handling.
-- Event delivery order.
-- Audio disposition for Pattern/Sequence and mute/alarm combinations.
-- Focus state reducer for every Android status.
-- Alarm-service cleanup paths.
+- Every built-in ID, Android alarm tone, notification tone, and document URI.
+- URI permission retained after process death/reboot.
+- URI removed or provider unavailable, confirming fallback and Replace.
+- Master/cue/system Alarm volume multiplication.
+- External DND allowing alarms and external DND blocking alarms.
+- Alarm Once and Locked while unlocked, locked, notification-denied, and full-screen-intent-denied.
+- Incoming/active call for normal cues and a user-armed continuous alarm.
+- Audio-focus denial, transient loss/gain, and permanent loss.
 
-### Component/interaction tests
+### Focus scenarios
 
-- Sound-sheet draft changes do not overwrite one another.
-- Trigger tap and drag painting.
-- Reorder plus accessibility alternatives.
-- Alarm single/double/long-press exclusivity.
-- Mode-specific running controls.
-- Mixer channel updates and mute preservation.
-- Preset scrolling, duplicate names, load/save/delete.
-- Native foreground reconciliation without false flashes.
+- Access absent, granted, and removed.
+- Rule active, manually snoozed, resumed, disabled, re-enabled, removed, and explicitly recreated.
+- Active-hours exit/re-entry.
+- Android 15 user-managed editing.
+- Another unrelated DND mode active, confirming Chandas does not display or mutate it.
 
-## 9. Device verification matrix
+### Interaction/accessibility scenarios
 
-After static and unit checks pass, use an explicitly requested EAS development build and test on physical Android devices/API levels covering at least Android 12, 13, 14, 15, and the current target. Exercise:
-
-- Screen on/off, app foreground/background/killed, reboot, package update.
-- Doze and battery saver.
-- DND off/on and different existing user policies.
-- Focus manual activation, snooze, disable, deletion, and access revocation.
-- Exact-alarm and full-screen-intent access states.
-- Incoming, ringing, active, held, and ended calls, including a non-cellular managed call where possible.
-- Alarm/notification/document sounds, revoked URI access, moved/deleted files, and long audio.
-- Timezone changes, manual clock changes, DST gap/overlap, and active-hours crossings.
-- TalkBack, large text, reduced motion, small screens, and landscape where supported.
-
-## 10. Completion gate
-
-The work is complete only when every definition-of-done item in the specification is demonstrably satisfied, all new tests pass, TypeScript and Expo static checks pass, the mockup flows are represented faithfully at phone and larger widths, no known P0/P1 review findings remain, and every item that still needs an EAS/device confirmation is listed explicitly in the handoff.
-
-## 11. Authoritative Android references used for validation
-
-- [AlarmManager](https://developer.android.com/reference/android/app/AlarmManager): exact-alarm access, exact idle delivery, and permission behavior.
-- [Intent time broadcasts](https://developer.android.com/reference/android/content/Intent): manual time, timezone ID, date, and API 37 seasonal offset-change signals.
-- [`android.icu.util.TimeZone`](https://developer.android.com/reference/android/icu/util/TimeZone): transition lookup available from API 24 for pre-API 37 DST handling.
-- [TelecomManager](https://developer.android.com/reference/android/telecom/TelecomManager): aggregate `isInCall()` semantics and the `READ_PHONE_STATE` requirement.
-- [NotificationManager](https://developer.android.com/reference/android/app/NotificationManager): automatic Zen rule ownership, state/status broadcasts, manual deactivation, and Android 15 user-managed rule constraints.
-- [ZenPolicy.Builder](https://developer.android.com/reference/android/service/notification/ZenPolicy.Builder): unset policy fields preserve surrounding policy behavior; Chandas sets only alarm allowance.
-- [AutomaticZenRule](https://developer.android.com/reference/android/app/AutomaticZenRule): API-level constructor and owner/condition requirements.
-- [Foreground service types](https://developer.android.com/develop/background-work/services/fgs/service-types): `mediaPlayback` declaration and permission requirements for continuous alarm playback.
+- TalkBack traversal of every sheet and alarm overlay.
+- Drag-paint across cells and scroll-vs-paint distinction.
+- Reorder across multiple rows plus adjustable accessibility actions.
+- Rapid Start, Alarm double tap, sound-picker double tap, Stop, and slider changes.
+- Reduced motion, large font, compact handset, and tablet/desktop width.
