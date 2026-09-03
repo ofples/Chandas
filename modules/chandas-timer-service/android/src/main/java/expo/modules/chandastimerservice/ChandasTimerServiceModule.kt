@@ -44,6 +44,11 @@ class TimerConfigRecord : Record {
 class ChandasTimerServiceModule : Module() {
   private var soundPickerPromise: Promise? = null
   private val ringingListener: (Boolean) -> Unit = { ringing ->
+    if (!ringing) {
+      appContext.activityProvider?.currentActivity?.let { activity ->
+        activity.runOnUiThread { AlarmWindowHelper.clearAlarmWindowFlags(activity) }
+      }
+    }
     sendEvent("onAlarmStateChanged", bundleOf("ringing" to ringing))
   }
   private val controlListener: (TimerControlState) -> Unit = { state ->
@@ -208,11 +213,16 @@ class ChandasTimerServiceModule : Module() {
         "notification" -> RingtoneManager.TYPE_NOTIFICATION
         else -> RingtoneManager.TYPE_ALL
       }
-      activity.startActivityForResult(Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
-        putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, type)
-        putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, false)
-        putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
-      }, DEVICE_SOUND_PICKER_REQUEST)
+      runCatching {
+        activity.startActivityForResult(Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+          putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, type)
+          putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, false)
+          putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
+        }, DEVICE_SOUND_PICKER_REQUEST)
+      }.onFailure {
+        soundPickerPromise = null
+        promise.resolve(null)
+      }
     }.runOnQueue(Queues.MAIN)
 
     AsyncFunction("pickAudioDocument") { promise: Promise ->
@@ -223,11 +233,16 @@ class ChandasTimerServiceModule : Module() {
       }
       soundPickerPromise?.resolve(null)
       soundPickerPromise = promise
-      activity.startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-        addCategory(Intent.CATEGORY_OPENABLE)
-        type = "audio/*"
-        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
-      }, AUDIO_DOCUMENT_PICKER_REQUEST)
+      runCatching {
+        activity.startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+          addCategory(Intent.CATEGORY_OPENABLE)
+          type = "audio/*"
+          addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+        }, AUDIO_DOCUMENT_PICKER_REQUEST)
+      }.onFailure {
+        soundPickerPromise = null
+        promise.resolve(null)
+      }
     }.runOnQueue(Queues.MAIN)
 
     AsyncFunction("previewSound") { soundId: String, fallbackSoundId: String, volume: Float ->
@@ -385,7 +400,7 @@ class ChandasTimerServiceModule : Module() {
           return@OnActivityResult
         }
         val context = appContext.reactContext
-        val title = context?.let { RingtoneManager.getRingtone(it, uri)?.getTitle(it) } ?: "Device sound"
+        val title = context?.let { runCatching { RingtoneManager.getRingtone(it, uri)?.getTitle(it) }.getOrNull() } ?: "Device sound"
         promise.resolve(bundleOf("uri" to uri.toString(), "title" to title))
         return@OnActivityResult
       }
@@ -405,7 +420,8 @@ class ChandasTimerServiceModule : Module() {
           if (cursor.moveToFirst()) cursor.getString(0) else null
         }
       }.getOrNull() ?: "Audio file"
-      promise.resolve(bundleOf("uri" to uri.toString(), "title" to title, "mimeType" to context.contentResolver.getType(uri)))
+      val mimeType = runCatching { context.contentResolver.getType(uri) }.getOrNull()
+      promise.resolve(bundleOf("uri" to uri.toString(), "title" to title, "mimeType" to mimeType))
     }
 
     OnDestroy {

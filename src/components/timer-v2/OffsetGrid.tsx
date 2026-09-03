@@ -85,7 +85,6 @@ export function OffsetGrid({ offsets, selected, onChange, conflicts = new Map() 
             accessibilityLabel={`${offset} minutes after start${conflict ? `, overlap, ${conflict.isWinner ? 'wins' : `loses to ${conflict.winner}`}` : ''}`}
             accessibilityState={{ selected: active }}
             onPress={() => { toggleAccessible(offset); void Haptics.selectionAsync().catch(() => undefined) }}
-            onAccessibilityTap={() => toggleAccessible(offset)}
           >
             <Text style={[styles.minute, { color: active ? tokens.text : tokens.textMuted }]}>{offset}m</Text>
             <Text style={[styles.status, { color: conflict ? tokens.accent : tokens.textDisabled }]}>{conflict ? conflict.isWinner ? 'wins' : 'overlap' : active ? 'on' : 'off'}</Text>

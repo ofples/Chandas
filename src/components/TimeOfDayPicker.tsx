@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { KeyboardAvoidingView, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '../theme/ThemeContext'
 
@@ -29,15 +29,16 @@ export function TimeOfDayPicker({ title, initial, onConfirm, onClose }: Props) {
     <Modal transparent animationType="fade" visible onRequestClose={onClose}>
       <KeyboardAvoidingView
         style={styles.keyboardAvoider}
-        behavior={process.env.EXPO_OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <Pressable style={styles.overlay} onPress={onClose}>
+        <Pressable style={styles.overlay} onPress={onClose} accessible={false}>
           <Pressable
             style={[
               styles.sheet,
               { backgroundColor: tokens.surface, borderColor: tokens.border, paddingBottom: insets.bottom + 32 },
             ]}
             onPress={event => event.stopPropagation()}
+            accessibilityViewIsModal
           >
             <Text style={[styles.title, { color: tokens.textMuted }]}>{title}</Text>
             <View style={styles.timeRow}>
@@ -66,7 +67,7 @@ export function TimeOfDayPicker({ title, initial, onConfirm, onClose }: Props) {
                 accessibilityLabel="Minute"
               />
             </View>
-            <Pressable style={[styles.confirm, { backgroundColor: tokens.accent }]} onPress={confirm}>
+            <Pressable style={[styles.confirm, { backgroundColor: tokens.accent }]} onPress={confirm} accessibilityRole="button" accessibilityLabel={`Set ${title}`}>
               <Text style={styles.confirmLabel}>Set</Text>
             </Pressable>
           </Pressable>

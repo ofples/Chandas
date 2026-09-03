@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { KeyboardAvoidingView, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '../theme/ThemeContext'
 
@@ -28,7 +28,7 @@ export function CustomMinutePicker({ title, initial, min = 1, max = 59, onConfir
     <Modal transparent animationType="fade" visible onRequestClose={onClose}>
       <KeyboardAvoidingView
         style={styles.keyboardAvoider}
-        behavior={process.env.EXPO_OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <Pressable style={styles.overlay} onPress={onClose} accessible={false}>
           <Pressable
@@ -49,12 +49,15 @@ export function CustomMinutePicker({ title, initial, min = 1, max = 59, onConfir
                 autoFocus
                 selectTextOnFocus
                 onSubmitEditing={handleConfirm}
+                accessibilityLabel={title}
               />
               <Text style={[styles.unit, { color: tokens.textMuted }]}>min</Text>
             </View>
             <Pressable
               style={[styles.confirm, { backgroundColor: tokens.accent }]}
               onPress={handleConfirm}
+              accessibilityRole="button"
+              accessibilityLabel={`Set ${title}`}
             >
               <Text style={styles.confirmLabel}>Set</Text>
             </Pressable>

@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { PatternProgram, SequenceProgram } from '../../types'
-import { chooseProgramMode, deleteProgramPreset, loadProgramPreset, patchSequenceStep, saveProgramPreset, updatePatternMainMinutes } from '../programActions'
+import { chooseProgramMode, deleteProgramPreset, loadProgramPreset, patchSequenceStep, reorderPatternTracks, saveProgramPreset, updatePatternMainMinutes } from '../programActions'
 import { alarmBehaviorAfterGesture, gateProgramAudio, iterationMuteFor, muteAfterScheduleChange } from '../runtimeV2'
-import { defaultTimerV2State, normalizePatternProgram, normalizeSequenceProgram, normalizeSoundRef, parseTimerProgram } from '../timerV2'
-import { nextPatternEvent, nextSequenceEvent } from '../timeline'
+import { defaultTimerV2State, migrateLegacyConfig, normalizePatternProgram, normalizeSequenceProgram, normalizeSoundRef, parseTimerProgram, validOffsets } from '../timerV2'
+import { nextPatternEvent, nextSequenceEvent, timelinePosition } from '../timeline'
+import { isWithinActiveHours, nextActiveHoursStart } from '../activeHours'
 import timelineFixtures from '../../../fixtures/timer-v2-timeline.json'
 
 const minute = 60_000
@@ -55,6 +56,39 @@ describe('timer v2 timeline contracts', () => {
     expect(event.candidates.map(candidate => candidate.cueId)).toEqual(['top', 'bottom'])
     expect(event.winner.cueId).toBe('top')
     expect(event.boundary).toBe('pattern-offset')
+  })
+
+  it('changes the overlap winner when the user reorders tracks', () => {
+    const initial = defaultTimerV2State()
+    const configured = { ...initial, workingPrograms: { ...initial.workingPrograms, pattern: pattern() } }
+    const reordered = reorderPatternTracks(configured, 1, 0).workingPrograms.pattern
+    expect(nextPatternEvent(reordered, 0, 9 * minute).winner.cueId).toBe('bottom')
+  })
+
+  it('ignores disabled tracks and keeps main boundaries independent', () => {
+    const program = pattern()
+    program.tracks[0].enabled = false
+    program.tracks[1].enabled = false
+    const event = nextPatternEvent(program, 0, 0)
+    expect(event.at).toBe(30 * minute)
+    expect(event.boundary).toBe('pattern-main')
+    expect(event.collision).toBe(false)
+    expect(event.candidates.map(candidate => candidate.cueId)).toEqual(['main'])
+  })
+
+  it('always returns an event strictly after an exact boundary', () => {
+    const program = pattern()
+    expect(nextPatternEvent(program, 0, 10 * minute).at).toBe(30 * minute)
+    expect(nextPatternEvent(program, 0, 30 * minute).at).toBe(40 * minute)
+    expect(nextSequenceEvent(sequence(), 0, 5 * minute).at).toBe(7 * minute)
+  })
+
+  it('derives restored Sequence step and progress from the immutable anchor', () => {
+    const position = timelinePosition(sequence(), 1_000, 1_000 + 6 * minute)
+    expect(position.currentStepIndex).toBe(1)
+    expect(position.stepProgress).toBeCloseTo(0.5)
+    expect(position.cycleIndex).toBe(0)
+    expect(position.nextEvent.at).toBe(1_000 + 7 * minute)
   })
 
   it('distinguishes a Sequence cycle boundary from a Pattern main boundary', () => {
@@ -123,6 +157,74 @@ describe('timer v2 audio gate', () => {
     expect(event.logicalId).toBe(mute.endsAtLogicalId)
     expect(result.disposition).toBe('one-shot')
     expect(result.nextMute).toEqual({ mutedUntil: 0 })
+  })
+
+  it('keeps every interior cue muted across three Pattern iterations', () => {
+    const program = pattern()
+    const mute = iterationMuteFor(program, 0, minute, 3)
+    expect(mute).toEqual({ endsAtLogicalId: 'pattern:0:2:main', endsAt: 90 * minute, iterations: 3 })
+    const interior = nextPatternEvent(program, 0, 69 * minute)
+    const interiorResult = gateProgramAudio({ event: interior, now: interior.at, masterVolume: 1, mute: { mutedUntil: 0, iteration: mute }, alarmBehavior: 'off', callActive: false })
+    expect(interiorResult.reason).toBe('iteration-mute')
+    const ending = nextPatternEvent(program, 0, 89 * minute)
+    const endingResult = gateProgramAudio({ event: ending, now: ending.at, masterVolume: 1, mute: interiorResult.nextMute, alarmBehavior: 'off', callActive: false })
+    expect(ending.logicalId).toBe(mute.endsAtLogicalId)
+    expect(endingResult.shouldPlay).toBe(true)
+    expect(endingResult.nextMute).toEqual({ mutedUntil: 0 })
+  })
+
+  it('uses a Sequence cycle boundary as the audible end of cycle mute', () => {
+    const program = sequence()
+    const mute = iterationMuteFor(program, 0, minute, 1)
+    const ending = nextSequenceEvent(program, 0, 5 * minute)
+    const result = gateProgramAudio({ event: ending, now: ending.at, masterVolume: 1, mute: { mutedUntil: 0, iteration: mute }, alarmBehavior: 'off', callActive: false })
+    expect(ending.logicalId).toBe(mute.endsAtLogicalId)
+    expect(result.shouldPlay).toBe(true)
+    expect(result.nextMute).toEqual({ mutedUntil: 0 })
+  })
+
+  it('plays an event exactly at minute-mute expiry without losing volume settings', () => {
+    const event = nextPatternEvent(pattern(), 0, 9 * minute)
+    const result = gateProgramAudio({ event, now: event.at, masterVolume: 0.25, mute: { mutedUntil: event.at }, alarmBehavior: 'off', callActive: false })
+    expect(result.shouldPlay).toBe(true)
+    expect(result.nextMute).toEqual({ mutedUntil: 0 })
+  })
+
+  it('does not consume Alarm Once while master volume is zero', () => {
+    const event = nextPatternEvent(pattern(), 0, 29 * minute)
+    const result = gateProgramAudio({ event, now: event.at, masterVolume: 0, mute: { mutedUntil: 0 }, alarmBehavior: 'once', callActive: false })
+    expect(result.reason).toBe('master-muted')
+    expect(result.nextAlarmBehavior).toBe('once')
+    expect(result.consumeAlarmOnce).toBe(false)
+  })
+})
+
+describe('active hours civil-time semantics', () => {
+  const base = { activeHoursEnabled: true, activeHoursStart: 8 * 60, activeHoursEnd: 17 * 60, activeHoursDays: 0b1111111 }
+  const local = (year: number, month: number, day: number, hour: number, minutes = 0) => new Date(year, month, day, hour, minutes, 0, 0).getTime()
+
+  it('treats the end minute as exclusive', () => {
+    expect(isWithinActiveHours(base, local(2026, 8, 4, 16, 59))).toBe(true)
+    expect(isWithinActiveHours(base, local(2026, 8, 4, 17))).toBe(false)
+  })
+
+  it('attributes the after-midnight half of a cross-midnight window to its start day', () => {
+    const fridayOnly = { ...base, activeHoursStart: 22 * 60, activeHoursEnd: 2 * 60, activeHoursDays: 1 << 5 }
+    expect(isWithinActiveHours(fridayOnly, local(2026, 8, 4, 23))).toBe(true)
+    expect(isWithinActiveHours(fridayOnly, local(2026, 8, 5, 1))).toBe(true)
+    expect(isWithinActiveHours(fridayOnly, local(2026, 8, 5, 3))).toBe(false)
+  })
+
+  it('never silently converts an empty day selection to every day', () => {
+    const noDays = { ...base, activeHoursDays: 0 }
+    expect(isWithinActiveHours(noDays, local(2026, 8, 4, 10))).toBe(false)
+  })
+
+  it('finds the next selected local-day start strictly in the future', () => {
+    const sundayOnly = { ...base, activeHoursDays: 1 }
+    const fromFriday = local(2026, 8, 4, 18)
+    expect(new Date(nextActiveHoursStart(sundayOnly, fromFriday)).getDay()).toBe(0)
+    expect(new Date(nextActiveHoursStart(sundayOnly, fromFriday)).getHours()).toBe(8)
   })
 })
 
@@ -196,5 +298,35 @@ describe('timer v2 validation and presets', () => {
     const shortened = updatePatternMainMinutes(configured, 10)
     expect(shortened.workingPrograms.pattern.tracks[0].cadenceMinutes).toBe(15)
     expect(shortened.workingPrograms.pattern.tracks[0].selectedOffsetsMinutes).toEqual([])
+  })
+
+  it('allows a cadence longer than the main interval as an empty selectable lattice', () => {
+    expect(validOffsets(10, 15)).toEqual([])
+    const normalized = normalizePatternProgram({ ...pattern(), mainMinutes: 10, tracks: [{ ...pattern().tracks[0], cadenceMinutes: 15, selectedOffsetsMinutes: [] }] })
+    expect(normalized.tracks[0].cadenceMinutes).toBe(15)
+    expect(normalized.tracks[0].selectedOffsetsMinutes).toEqual([])
+  })
+
+  it('migrates legacy timing, disabled sub-bells, settings, and snap without deletion semantics', () => {
+    const migrated = migrateLegacyConfig({ mainInterval: 45, subInterval: 9, subEnabled: false, snapEnabled: true, snapOffset: 17, volume: 0.35, activeHoursEnabled: true, activeHoursDays: 0b0101010, focusModeEnabled: true })
+    expect(migrated.workingPrograms.pattern).toMatchObject({ mainMinutes: 45, alignment: { kind: 'local-clock', offsetMinutes: 17 } })
+    expect(migrated.workingPrograms.pattern.tracks[0]).toMatchObject({ enabled: false, cadenceMinutes: 9, selectedOffsetsMinutes: [9, 18, 27, 36] })
+    expect(migrated.settings).toMatchObject({ masterVolume: 0.35, activeHoursEnabled: true, activeHoursDays: 0b0101010, focusAutomationEnabled: true })
+  })
+
+  it('repairs corrupt duration, volume, labels, offsets, and overlong arrays', () => {
+    const malformed = normalizePatternProgram({
+      ...pattern(), mainMinutes: Number.POSITIVE_INFINITY,
+      mainCue: { ...pattern().mainCue, volume: -4 },
+      tracks: Array.from({ length: 9 }, (_, index) => ({ ...pattern().tracks[0], id: `id-${index}`, cadenceMinutes: 3, selectedOffsetsMinutes: [-1, 3, 3, 31, 4], volume: 9 })),
+    })
+    expect(malformed.mainMinutes).toBe(30)
+    expect(malformed.mainCue.volume).toBe(0)
+    expect(malformed.tracks).toHaveLength(5)
+    expect(malformed.tracks[0].selectedOffsetsMinutes).toEqual([3])
+    expect(malformed.tracks[0].volume).toBe(1)
+
+    const malformedSequence = normalizeSequenceProgram({ ...sequence(), steps: [{ ...sequence().steps[0], label: '   ', durationMinutes: -2, volume: Number.NaN }] })
+    expect(malformedSequence.steps[0]).toMatchObject({ label: 'Step 1', durationMinutes: 1, volume: 1 })
   })
 })

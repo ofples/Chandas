@@ -57,6 +57,7 @@ export function ActiveHoursConfig({
             onPress={() => setEditing('start')}
             style={({ pressed }) => [styles.time, { borderColor: tokens.border, opacity: pressed ? 0.75 : 1 }]}
             accessibilityLabel={`Active hours start ${formatTimeOfDay(startMinutes)}`}
+            accessibilityRole="button"
             >
               <Text style={[styles.timeLabel, { color: tokens.text }]}>{formatTimeOfDay(startMinutes)}</Text>
             </Pressable>
@@ -65,6 +66,7 @@ export function ActiveHoursConfig({
             onPress={() => setEditing('end')}
             style={({ pressed }) => [styles.time, { borderColor: tokens.border, opacity: pressed ? 0.75 : 1 }]}
             accessibilityLabel={`Active hours end ${formatTimeOfDay(endMinutes)}`}
+            accessibilityRole="button"
             >
               <Text style={[styles.timeLabel, { color: tokens.text }]}>{formatTimeOfDay(endMinutes)}</Text>
             </Pressable>
@@ -108,12 +110,13 @@ const styles = StyleSheet.create({
   label: { fontSize: 11, fontWeight: '500', letterSpacing: 1.3, textTransform: 'uppercase' },
   range: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingTop: 4 },
   details: { gap: 12 },
-  days: { flexDirection: 'row', gap: 7 },
-  day: { flex: 1, aspectRatio: 1, maxWidth: 42, borderWidth: 1.5, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
+  days: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+  day: { width: 44, height: 44, borderWidth: 1.5, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
   dayText: { fontSize: 11, fontWeight: '700' },
   warning: { fontSize: 11, fontWeight: '600' },
   time: {
     minWidth: 84,
+    minHeight: 44,
     paddingVertical: 8,
     paddingHorizontal: 16,
     borderRadius: 9999,

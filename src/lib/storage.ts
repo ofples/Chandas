@@ -120,7 +120,7 @@ export async function saveTimerV2Session(session: TimerV2Session): Promise<void>
 export async function loadTimerV2Session(): Promise<TimerV2Session | null> {
   try {
     const value = parseJson<Partial<TimerV2Session>>(await AsyncStorage.getItem(TIMER_V2_SESSION_KEY))
-    if (!value || value.schemaVersion !== 2 || typeof value.anchor !== 'number' || !Number.isFinite(value.anchor) || !value.program) return null
+    if (!value || value.schemaVersion !== 2 || typeof value.anchor !== 'number' || !Number.isFinite(value.anchor) || value.anchor <= 0 || !value.program) return null
     const program = value.program.mode === 'pattern'
       ? normalizePatternProgram(value.program)
       : value.program.mode === 'sequence'
