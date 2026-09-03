@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react'
 import { Animated, StyleSheet } from 'react-native'
-import Svg, { Circle } from 'react-native-svg'
 
 export const TIMER_CIRCLE_VIEW = 300
 export const TIMER_CIRCLE_CENTER = TIMER_CIRCLE_VIEW / 2
@@ -14,8 +13,6 @@ interface Props {
   flashes?: number
   duration?: number
 }
-
-const AnimatedCircle = Animated.createAnimatedComponent(Circle)
 
 export function FlashingTimerCircle({
   size,
@@ -71,23 +68,22 @@ export function FlashingTimerCircle({
     inputRange: continuous ? [0, 0.33, 0.66, 1] : [0, 0.01, 0.33, 0.66, 0.99, 1],
     outputRange: continuous ? [0.5, 1, 1, 0.5] : [0, 0.5, 1, 1, 0.5, 0],
   })
+  const diameter = size * (TIMER_CIRCLE_RADIUS * 2 / TIMER_CIRCLE_VIEW)
+  const inset = (size - diameter) / 2
 
   return (
-    <Svg
+    <Animated.View
       pointerEvents="none"
-      width={size}
-      height={size}
-      viewBox={`0 0 ${TIMER_CIRCLE_VIEW} ${TIMER_CIRCLE_VIEW}`}
-      style={styles.circle}
-    >
-      <AnimatedCircle
-        cx={TIMER_CIRCLE_CENTER}
-        cy={TIMER_CIRCLE_CENTER}
-        r={TIMER_CIRCLE_RADIUS}
-        fill={fill}
-        opacity={opacity}
-      />
-    </Svg>
+      style={[styles.circle, {
+        top: inset,
+        left: inset,
+        width: diameter,
+        height: diameter,
+        borderRadius: diameter / 2,
+        backgroundColor: fill,
+        opacity,
+      }]}
+    />
   )
 }
 

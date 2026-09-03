@@ -49,6 +49,8 @@ export function SoundPickerSheet({ visible, title, cue, masterVolume, onChange, 
     try {
       const result = await ChandasTimerService.pickDeviceSound(ringtoneType)
       if (result) chooseSound({ kind: 'android', ringtoneType, ...result })
+    } catch {
+      Alert.alert('Could not open Android sounds', 'The system sound picker was unavailable. You can try again or choose a built-in sound.')
     } finally { setPicking(false) }
   }
   const pickDocument = async () => {
@@ -56,6 +58,8 @@ export function SoundPickerSheet({ visible, title, cue, masterVolume, onChange, 
     try {
       const result = await ChandasTimerService.pickAudioDocument()
       if (result) chooseSound({ kind: 'document', ...result })
+    } catch {
+      Alert.alert('Could not open device audio', 'The system file picker was unavailable. You can try again or choose a built-in sound.')
     } finally { setPicking(false) }
   }
 

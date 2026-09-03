@@ -14,14 +14,17 @@ export function AlarmRingingScreen({ onDismiss }: Props) {
   const ringSize = Math.min(width * 0.78, 320)
 
   return (
-    <Pressable
-      accessible={false}
-      onPress={onDismiss}
+    <View
       style={[styles.screen, { backgroundColor: tokens.bg, paddingTop: insets.top }]}
+      accessibilityViewIsModal
     >
       <View style={[styles.content, { paddingBottom: insets.bottom + 104 }]} pointerEvents="none">
         <View style={[styles.ringWrap, { width: ringSize, height: ringSize }]}>
           <FlashingTimerCircle size={ringSize} color={tokens.accent} continuous duration={2_400} />
+          <View style={styles.copy}>
+            <Text style={[styles.eyebrow, { color: tokens.textMuted }]}>ALARM</Text>
+            <Text accessibilityRole="header" accessibilityLiveRegion="assertive" style={[styles.title, { color: tokens.text }]}>Main interval complete</Text>
+          </View>
         </View>
       </View>
 
@@ -44,7 +47,7 @@ export function AlarmRingingScreen({ onDismiss }: Props) {
           </Pressable>
         </View>
       </View>
-    </Pressable>
+    </View>
   )
 }
 
@@ -67,6 +70,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  copy: { alignItems: 'center', gap: 7, zIndex: 1, paddingHorizontal: 28 },
+  eyebrow: { fontSize: 11, fontWeight: '800', letterSpacing: 1.5 },
+  title: { fontSize: 23, lineHeight: 29, fontWeight: '700', textAlign: 'center' },
   bottom: {
     position: 'absolute',
     bottom: 0,

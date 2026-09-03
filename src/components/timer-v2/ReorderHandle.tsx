@@ -32,8 +32,11 @@ export function ReorderHandle({ index, itemCount, rowHeight = 72, onMove, label,
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => undefined)
     },
     onPanResponderMove: (_, gesture) => {
-      translation.setValue(gesture.dy)
-      const target = Math.max(0, Math.min(itemCount - 1, originRef.current + Math.round(gesture.dy / rowHeight)))
+      const minimum = -originRef.current * rowHeight
+      const maximum = (itemCount - 1 - originRef.current) * rowHeight
+      const boundedDy = Math.max(minimum, Math.min(maximum, gesture.dy))
+      translation.setValue(boundedDy)
+      const target = Math.max(0, Math.min(itemCount - 1, originRef.current + Math.round(boundedDy / rowHeight)))
       if (target !== latestTargetRef.current) {
         latestTargetRef.current = target
         void Haptics.selectionAsync().catch(() => undefined)

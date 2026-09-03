@@ -18,12 +18,18 @@ export function OffsetGrid({ offsets, selected, onChange, conflicts = new Map() 
   const { tokens } = useTheme()
   const [width, setWidth] = useState(0)
   const selectionRef = useRef(new Set(selected))
+  const offsetsRef = useRef(offsets)
+  const onChangeRef = useRef(onChange)
   const paintRef = useRef<{ selecting?: boolean; last?: number } | null>(null)
+  offsetsRef.current = offsets
+  onChangeRef.current = onChange
   useEffect(() => { selectionRef.current = new Set(selected) }, [selected])
+  const renderedSelection = useMemo(() => new Set(selected), [selected])
 
   const columns = Math.max(1, Math.floor((width + GAP) / (MIN_CELL + GAP)))
   const cellWidth = width > 0 ? (width - GAP * (columns - 1)) / columns : MIN_CELL
   const cellHeight = 48
+  const offsetsKey = offsets.join(',')
 
   const offsetAt = (x: number, y: number): number | undefined => {
     if (x < 0 || y < 0 || width <= 0) return undefined
@@ -42,7 +48,7 @@ export function OffsetGrid({ offsets, selected, onChange, conflicts = new Map() 
     if (paintState.selecting) next.add(offset)
     else next.delete(offset)
     selectionRef.current = next
-    onChange(offsets.filter(value => next.has(value)))
+    onChangeRef.current(offsetsRef.current.filter(value => next.has(value)))
     void Haptics.selectionAsync().catch(() => undefined)
   }
 
@@ -61,20 +67,22 @@ export function OffsetGrid({ offsets, selected, onChange, conflicts = new Map() 
     onPanResponderTerminate: () => { paintRef.current = null },
   // Geometry deliberately rebuilds the responder map after layout changes.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [cellWidth, columns, offsets, width])
+  }), [cellWidth, columns, offsetsKey, width])
 
   const onLayout = (event: LayoutChangeEvent) => setWidth(event.nativeEvent.layout.width)
   const toggleAccessible = (offset: number) => {
     const next = new Set(selectionRef.current)
     if (next.has(offset)) next.delete(offset); else next.add(offset)
     selectionRef.current = next
-    onChange(offsets.filter(value => next.has(value)))
+    onChangeRef.current(offsetsRef.current.filter(value => next.has(value)))
   }
 
   return (
     <View onLayout={onLayout} {...responder.panHandlers} style={styles.grid} accessible={false}>
       {offsets.map(offset => {
-        const active = selectionRef.current.has(offset)
+        // Render from props so external Clear all / Select all / cadence changes
+        // are visible immediately; the ref exists only for an in-flight paint.
+        const active = renderedSelection.has(offset)
         const conflict = conflicts.get(offset)
         return (
           <Pressable

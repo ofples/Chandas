@@ -21,8 +21,8 @@ import expo.modules.kotlin.modules.ModuleDefinition
 import expo.modules.kotlin.records.Field
 import expo.modules.kotlin.records.Record
 import java.io.Serializable
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 
 class TimerConfigRecord : Record {
   @Field var mainMs: Long? = null
@@ -212,36 +212,16 @@ class ChandasTimerServiceModule : Module() {
     }
 
     AsyncFunction("pickDeviceSound") Coroutine { kind: String ->
-      if (!::soundPickerLauncher.isInitialized || appContext.activityProvider?.currentActivity == null) {
-        return@Coroutine null
-      }
       val type = when (kind) {
         "alarm" -> RingtoneManager.TYPE_ALARM
         "notification" -> RingtoneManager.TYPE_NOTIFICATION
         else -> RingtoneManager.TYPE_ALL
       }
-      val result = soundPickerMutex.withLock {
-        try {
-          soundPickerLauncher.launch(SoundPickerRequest(SOUND_SOURCE_RINGTONE, type))
-        } catch (_: Exception) {
-          null
-        }
-      }
-      result?.let(::resolvePickedSound)
+      launchSoundPicker(SoundPickerRequest(SOUND_SOURCE_RINGTONE, type))?.let(::resolvePickedSound)
     }.runOnQueue(Queues.MAIN)
 
     AsyncFunction("pickAudioDocument") Coroutine { ->
-      if (!::soundPickerLauncher.isInitialized || appContext.activityProvider?.currentActivity == null) {
-        return@Coroutine null
-      }
-      val result = soundPickerMutex.withLock {
-        try {
-          soundPickerLauncher.launch(SoundPickerRequest(SOUND_SOURCE_DOCUMENT))
-        } catch (_: Exception) {
-          null
-        }
-      }
-      result?.let(::resolvePickedSound)
+      launchSoundPicker(SoundPickerRequest(SOUND_SOURCE_DOCUMENT))?.let(::resolvePickedSound)
     }.runOnQueue(Queues.MAIN)
 
     AsyncFunction("previewSound") { soundId: String, fallbackSoundId: String, volume: Float ->
@@ -391,6 +371,21 @@ class ChandasTimerServiceModule : Module() {
 
     OnDestroy {
       TimerSoundPlayer.stopPreview()
+    }
+  }
+
+  private suspend fun launchSoundPicker(request: SoundPickerRequest): SoundPickerResult? {
+    if (!::soundPickerLauncher.isInitialized || appContext.activityProvider?.currentActivity == null) return null
+    // Ignore an accidental second tap instead of queuing a picker that appears
+    // unexpectedly after the first one closes.
+    if (!soundPickerMutex.tryLock()) return null
+    return try {
+      soundPickerLauncher.launch(request)
+    } catch (error: Exception) {
+      if (error is CancellationException) throw error
+      null
+    } finally {
+      soundPickerMutex.unlock()
     }
   }
 
