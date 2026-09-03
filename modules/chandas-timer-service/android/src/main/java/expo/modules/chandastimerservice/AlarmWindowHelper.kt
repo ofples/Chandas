@@ -18,7 +18,10 @@ object AlarmWindowHelper {
 
   fun applyAlarmWindowFlags(activity: Activity, intent: Intent?) {
     val ringing = intent?.getBooleanExtra(EXTRA_ALARM_RINGING, false) == true
-    if (!ringing) return
+    if (!ringing) {
+      clearAlarmWindowFlags(activity)
+      return
+    }
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
       activity.setShowWhenLocked(true)
@@ -34,5 +37,18 @@ object AlarmWindowHelper {
 
     val keyguardManager = activity.getSystemService(Activity.KEYGUARD_SERVICE) as? KeyguardManager
     keyguardManager?.requestDismissKeyguard(activity, null)
+  }
+
+  fun clearAlarmWindowFlags(activity: Activity) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+      activity.setShowWhenLocked(false)
+      activity.setTurnScreenOn(false)
+    }
+    @Suppress("DEPRECATION")
+    activity.window.clearFlags(
+      WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+        WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+        WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+    )
   }
 }

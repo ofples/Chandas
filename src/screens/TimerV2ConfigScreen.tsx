@@ -282,7 +282,7 @@ function StepLabelInput({ value, onCommit, style, accessibilityLabel }: { value:
   const [draft, setDraft] = useState(value)
   useEffect(() => setDraft(value), [value])
   const commit = () => onCommit(draft)
-  return <TextInput value={draft} maxLength={120} selectTextOnFocus onChangeText={setDraft} onBlur={commit} onSubmitEditing={commit} returnKeyType="done" style={style} accessibilityLabel={accessibilityLabel} />
+  return <TextInput value={draft} selectTextOnFocus onChangeText={text => setDraft([...text].slice(0, 60).join(''))} onBlur={commit} onSubmitEditing={commit} returnKeyType="done" style={style} accessibilityLabel={accessibilityLabel} />
 }
 
 function PatternTimelinePreview({ tracks, mainMinutes }: { tracks: PatternTrack[]; mainMinutes: number }) {

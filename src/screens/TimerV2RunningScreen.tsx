@@ -60,7 +60,8 @@ export function TimerV2RunningScreen(props: Props) {
   const tooltipTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const helpLongPressed = useRef(false)
   const size = Math.min(width * 0.79, 342)
-  const muted = props.masterVolume <= 0 || props.mute.mutedUntil > Date.now() || Boolean(props.mute.iteration)
+  const runtimeMuted = props.mute.mutedUntil > Date.now() || Boolean(props.mute.iteration)
+  const muted = props.masterVolume <= 0 || runtimeMuted
   const resumeDate = new Date(props.activeHoursResumeAt)
   const mainLabel = props.activeHoursPaused ? `${String(resumeDate.getHours()).padStart(2, '0')}:${String(resumeDate.getMinutes()).padStart(2, '0')}` : props.mainCountdown
   const sequenceIndex = props.program.mode === 'sequence' ? props.position?.currentStepIndex ?? 0 : 0
@@ -91,7 +92,7 @@ export function TimerV2RunningScreen(props: Props) {
         <View style={styles.topRight}>{props.focusActive || focusPaused ? <Text style={[styles.focusStatus, { color: tokens.accent }]}>{focusPaused ? 'FOCUS PAUSED' : 'FOCUS ON'}</Text> : null}<Pressable hitSlop={7} onPressIn={() => { helpLongPressed.current = false }} onLongPress={() => { helpLongPressed.current = true; showTooltip('Open Timer help') }} onPressOut={() => setTimeout(() => { helpLongPressed.current = false }, 0)} onPress={() => { if (!helpLongPressed.current) setHelpOpen(true) }} style={[styles.helpButton, { borderColor: tokens.border }]} accessibilityLabel="Timer help"><Text style={[styles.helpGlyph, { color: tokens.accent }]}>?</Text></Pressable></View>
       </View>
 
-      <Pressable onPress={muted ? props.onClearMute : undefined} style={[styles.ringWrap, { width: size, height: size }]} accessibilityRole={muted ? 'button' : undefined} accessibilityLabel={muted ? 'Clear timer mute' : undefined}>
+      <Pressable onPress={runtimeMuted ? props.onClearMute : undefined} style={[styles.ringWrap, { width: size, height: size }]} accessibilityRole={runtimeMuted ? 'button' : undefined} accessibilityLabel={runtimeMuted ? 'Clear timer mute' : undefined}>
         <TimerRings size={size} progress={props.progress} position={props.position} program={props.program} muted={muted} eventPulse={props.eventPulse} />
         <View pointerEvents="none" style={styles.center}>
           <Text style={[styles.mainTime, { color: tokens.text }]} adjustsFontSizeToFit numberOfLines={1}>{mainLabel}</Text>
@@ -101,7 +102,7 @@ export function TimerV2RunningScreen(props: Props) {
         </View>
         {muted ? <View pointerEvents="none" style={[styles.slash, { width: size * 0.72, backgroundColor: tokens.accent }]} /> : null}
       </Pressable>
-      {props.mute.iteration ? <Text style={[styles.muteStatus, { color: tokens.textMuted }]}>Muted until the final selected {props.program.mode === 'pattern' ? 'main gong' : 'cycle boundary'} · tap the rings to clear</Text> : props.mute.mutedUntil > Date.now() ? <Text style={[styles.muteStatus, { color: tokens.textMuted }]}>Muted until {new Date(props.mute.mutedUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · tap the rings to clear</Text> : null}
+      {props.mute.iteration ? <Text style={[styles.muteStatus, { color: tokens.textMuted }]}>Muted until the final selected {props.program.mode === 'pattern' ? 'main gong' : 'cycle boundary'} · tap the rings to clear</Text> : props.mute.mutedUntil > Date.now() ? <Text style={[styles.muteStatus, { color: tokens.textMuted }]}>Muted until {new Date(props.mute.mutedUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · tap the rings to clear</Text> : props.masterVolume <= 0 ? <Text style={[styles.muteStatus, { color: tokens.textMuted }]}>Master is at 0% · open Mixer to restore sound</Text> : null}
     </ScrollView>
 
     <View style={[styles.bottom, { backgroundColor: tokens.bg, paddingBottom: insets.bottom + 17 }]}>
@@ -164,7 +165,7 @@ function trackProgress(offsets: number[], mainMinutes: number, elapsed: number):
 function ControlButton({ children, label, tooltip, active = false, badge, onPress, onTooltip }: { children: ReactNode; label: string; tooltip: string; active?: boolean; badge?: string; onPress: () => void; onTooltip: (message: string) => void }) {
   const { tokens } = useTheme()
   const longPressed = useRef(false)
-  return <Pressable onPressIn={() => { longPressed.current = false }} onLongPress={() => { longPressed.current = true; onTooltip(tooltip) }} delayLongPress={450} onPressOut={() => setTimeout(() => { longPressed.current = false }, 0)} onPress={() => { if (!longPressed.current) onPress() }} accessibilityRole="button" accessibilityLabel={label} accessibilityHint={tooltip} style={({ pressed }) => [styles.iconButton, { borderColor: active ? tokens.accent : tokens.border, backgroundColor: active ? tokens.accentGlow : 'transparent', opacity: pressed ? 0.72 : 1 }]}>{children}{badge ? <View style={[styles.badge, { backgroundColor: tokens.accent }]}><Text style={styles.badgeText}>{badge}</Text></View> : null}</Pressable>
+  return <Pressable hitSlop={2} onPressIn={() => { longPressed.current = false }} onLongPress={() => { longPressed.current = true; onTooltip(tooltip) }} delayLongPress={450} onPressOut={() => setTimeout(() => { longPressed.current = false }, 0)} onPress={() => { if (!longPressed.current) onPress() }} accessibilityRole="button" accessibilityLabel={label} accessibilityHint={tooltip} accessibilityState={{ selected: active }} style={({ pressed }) => [styles.iconButton, { borderColor: active ? tokens.accent : tokens.border, backgroundColor: active ? tokens.accentGlow : 'transparent', opacity: pressed ? 0.72 : 1 }]}>{children}{badge ? <View style={[styles.badge, { backgroundColor: tokens.accent }]}><Text style={styles.badgeText}>{badge}</Text></View> : null}</Pressable>
 }
 
 function RunningMixerSheet({ visible, onClose, program, masterVolume, onMasterVolumeChange, onCueVolumeChange, mute, onMuteIterations, onClearMute, onCustom }: { visible: boolean; onClose: () => void; program: TimerProgram; masterVolume: number; onMasterVolumeChange: (value: number) => void; onCueVolumeChange: (cueId: string, value: number) => void; mute: RuntimeMuteState; onMuteIterations: (count: number) => void; onClearMute: () => void; onCustom: () => void }) {

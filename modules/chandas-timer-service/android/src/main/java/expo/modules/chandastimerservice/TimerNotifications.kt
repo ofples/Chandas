@@ -81,7 +81,13 @@ object TimerNotifications {
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
       )
     }
-    manager.notify(
+    val stopIntent = PendingIntent.getBroadcast(
+      context,
+      8102,
+      Intent(context, TimerEventReceiver::class.java).setAction(TimerEventReceiver.ACTION_STOP),
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+    runCatching { manager.notify(
       RUNNING_ID,
       NotificationCompat.Builder(context, RUNNING_CHANNEL)
         .setContentTitle("Chandas")
@@ -90,9 +96,10 @@ object TimerNotifications {
         .setOngoing(true)
         .setOnlyAlertOnce(true)
         .setContentIntent(contentIntent)
+        .addAction(0, "Stop timer", stopIntent)
         .setPriority(NotificationCompat.PRIORITY_LOW)
         .build(),
-    )
+    ) }
   }
 
   fun postEvent(context: Context, config: TimerConfig, type: TimerEventType) {
@@ -110,7 +117,7 @@ object TimerNotifications {
       )
     }
     val label = if (type == TimerEventType.MAIN) "Gong" else if (type == TimerEventType.V2) "Cue" else "Bell"
-    manager.notify(
+    runCatching { manager.notify(
       EVENT_ID,
       NotificationCompat.Builder(context, EVENT_CHANNEL)
         .setContentTitle("Chandas $label")
@@ -121,7 +128,7 @@ object TimerNotifications {
         .setContentIntent(contentIntent)
         .setPriority(NotificationCompat.PRIORITY_DEFAULT)
         .build(),
-    )
+    ) }
   }
 
   fun cancelRunning(context: Context) {

@@ -6,10 +6,12 @@ import android.media.MediaPlayer
 import android.net.Uri
 import android.os.PowerManager
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /** Single alarm-routed one-shot and preview player with safe URI fallback. */
 object TimerSoundPlayer {
   private val players = mutableSetOf<MediaPlayer>()
+  private val cancellationGeneration = AtomicLong(0L)
   private var stopPreviewPlayback: (() -> Unit)? = null
 
   fun play(
@@ -17,24 +19,31 @@ object TimerSoundPlayer {
     soundId: String,
     fallbackResId: Int,
     volume: Float,
-    onFinished: () -> Unit,
+    onLaunched: () -> Unit,
   ): () -> Unit {
     if (volume <= 0f) {
-      onFinished()
+      onLaunched()
       return {}
     }
 
+    val launched = AtomicBoolean(false)
     val finished = AtomicBoolean(false)
+    val generation = cancellationGeneration.get()
     var current: MediaPlayer? = null
 
+    fun signalLaunched() {
+      if (launched.compareAndSet(false, true)) onLaunched()
+    }
+
     fun finish() {
+      if (!finished.compareAndSet(false, true)) return
       val player = current
       current = null
       if (player != null) {
         synchronized(players) { players.remove(player) }
         runCatching { player.release() }
       }
-      if (finished.compareAndSet(false, true)) onFinished()
+      signalLaunched()
     }
 
     fun start(source: String, mayFallback: Boolean) {
@@ -47,7 +56,7 @@ object TimerSoundPlayer {
         synchronized(players) { players.remove(player) }
         runCatching { player.release() }
         if (current === player) current = null
-        if (mayFallback) start("builtin:$fallbackResId", false) else finish()
+        if (mayFallback && cancellationGeneration.get() == generation) start("builtin:$fallbackResId", false) else finish()
       }
 
       try {
@@ -60,6 +69,10 @@ object TimerSoundPlayer {
         player.setOnErrorListener { _, _, _ -> fail(); true }
         player.setOnPreparedListener { it.start() }
         player.prepareAsync()
+        // BroadcastReceiver.goAsync must finish promptly even when the chosen
+        // document is long or its provider prepares slowly. MediaPlayer's own
+        // wake lock and listeners now own the rest of playback lifecycle.
+        signalLaunched()
       } catch (_: Exception) {
         fail()
       }
@@ -72,15 +85,20 @@ object TimerSoundPlayer {
   @Synchronized
   fun preview(context: Context, soundId: String, fallbackResId: Int, volume: Float) {
     stopPreviewPlayback?.invoke()
-    stopPreviewPlayback = play(context, soundId, fallbackResId, volume) {
-      synchronized(this) { stopPreviewPlayback = null }
-    }
+    stopPreviewPlayback = play(context, soundId, fallbackResId, volume) {}
   }
 
   @Synchronized
   fun stopPreview() {
     stopPreviewPlayback?.invoke()
     stopPreviewPlayback = null
+  }
+
+  fun stopAll() {
+    cancellationGeneration.incrementAndGet()
+    stopPreview()
+    val snapshot = synchronized(players) { players.toList().also { players.clear() } }
+    snapshot.forEach { player -> runCatching { player.release() } }
   }
 
   fun canOpen(context: Context, soundId: String): Boolean = runCatching {

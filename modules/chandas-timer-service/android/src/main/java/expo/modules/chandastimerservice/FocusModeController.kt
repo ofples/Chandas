@@ -48,7 +48,7 @@ object FocusModeController {
   fun query(context: Context): NativeFocusState = queryInternal(context).also(FocusStateRegistry::notify)
 
   /** Applies a real timer, active-hours, or preference transition. */
-  fun reconcile(context: Context, config: TimerConfig? = TimerStateStore.load(context)) {
+  fun reconcile(context: Context, config: TimerConfig? = TimerStateStore.load(context), forceApply: Boolean = false) {
     if (config != null) setAutomationEnabled(context, config.focusModeEnabled)
     val desired = config != null && automationEnabled(context) && ActiveHours.isActive(config)
     val previous = requestedActive(context)
@@ -67,6 +67,14 @@ object FocusModeController {
         setPausedByAndroid(context, false)
         publishCondition(context, true, createIfMissing = true)
       }
+    } else if (desired && forceApply && !pausedByAndroid(context)) {
+      // Policy-access grant is a real external transition. Re-assert only our
+      // condition; routine reads/updates never take this path.
+      publishCondition(context, true, createIfMissing = true)
+    } else if (desired && !pausedByAndroid(context) && hasPolicyAccess(context) && storedRuleId(context) == null && !ruleWasRemoved(context)) {
+      // The timer may have begun before DND access existed. Once access is
+      // available, create the first owned rule without requiring a restart.
+      publishCondition(context, true, createIfMissing = true)
     }
     query(context)
   }
@@ -81,12 +89,19 @@ object FocusModeController {
   }
 
   fun setAutomationFromApp(context: Context, enabled: Boolean) {
-    setAutomationEnabled(context, enabled)
     if (enabled) {
+      // Clear a stale ID before treating this explicit user action as consent
+      // to create a replacement rule.
+      val id = storedRuleId(context)
+      if (id != null && hasPolicyAccess(context)) {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (runCatching { manager.getAutomaticZenRule(id) }.getOrNull() == null) clearStoredRule(context)
+      }
       setRuleWasRemoved(context, false)
       setPausedByAndroid(context, false)
       enableOwnedRule(context)
     }
+    setAutomationEnabled(context, enabled)
     TimerStateStore.load(context)?.let { TimerStateStore.save(context, it.copy(focusModeEnabled = enabled)) }
     reconcile(context)
   }
@@ -162,11 +177,11 @@ object FocusModeController {
       exists && !enabled -> "rule-disabled"
       !automation -> "off"
       !exists && config == null -> "timer-stopped"
-      !exists -> "unknown"
       pausedByAndroid(context) -> "paused-by-android"
       actual == "active" -> "active"
       config == null -> "timer-stopped"
       !ActiveHours.isActive(config) -> "outside-active-hours"
+      !exists -> "unknown"
       else -> "unknown"
     }
     return NativeFocusState(access, automation, exists, enabled, actual, reason)

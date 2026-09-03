@@ -96,14 +96,23 @@ describe('timer v2 audio gate', () => {
     expect(result.nextAlarmBehavior).toBe('locked')
   })
 
-  it('does not consume alarm or mute state during a call', () => {
-    const event = nextPatternEvent(pattern(), 0, 29 * minute)
+  it('suppresses an ordinary cue during a call without consuming runtime state', () => {
+    const event = nextSequenceEvent(sequence(), 0, 0)
     const mute = { mutedUntil: event.at + minute }
     const result = gateProgramAudio({ event, now: event.at, masterVolume: 1, mute, alarmBehavior: 'once', callActive: true })
     expect(result.disposition).toBe('suppressed')
     expect(result.reason).toBe('call-active')
     expect(result.nextMute).toEqual(mute)
     expect(result.nextAlarmBehavior).toBe('once')
+  })
+
+  it('leaves a user-armed Pattern alarm to Android alarm and call policy', () => {
+    const event = nextPatternEvent(pattern(), 0, 29 * minute)
+    const result = gateProgramAudio({ event, now: event.at, masterVolume: 1, mute: { mutedUntil: 0 }, alarmBehavior: 'once', callActive: true })
+    expect(result.disposition).toBe('continuous-alarm')
+    expect(result.reason).toBe('none')
+    expect(result.consumeAlarmOnce).toBe(true)
+    expect(result.nextAlarmBehavior).toBe('off')
   })
 
   it('clears iteration mute and plays its ending boundary', () => {

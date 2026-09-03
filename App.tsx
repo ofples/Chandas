@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { StatusBar } from 'expo-status-bar'
-import { Alert, AppState as NativeAppState, PermissionsAndroid, Platform, View } from 'react-native'
+import { Alert, AppState as NativeAppState, Linking, PermissionsAndroid, Platform, View } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { useFonts, JetBrainsMono_300Light, JetBrainsMono_400Regular } from '@expo-google-fonts/jetbrains-mono'
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext'
@@ -73,11 +73,11 @@ function Root() {
 
   const refreshAndroidAccess = useCallback(async () => {
     if (Platform.OS !== 'android') return
-    const [callMute, notifications] = await Promise.all([
+    const [callMute, notificationPermission] = await Promise.all([
       PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE),
       Platform.Version >= 33 ? PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS) : Promise.resolve(true),
     ])
-    setAndroidAccess({ exactAlarms: !isNativeServiceAvailable || ChandasTimerService.canScheduleExactAlarms(), callMute, notifications })
+    setAndroidAccess({ exactAlarms: !isNativeServiceAvailable || ChandasTimerService.canScheduleExactAlarms(), callMute, notifications: notificationPermission && ChandasTimerService.areNotificationsEnabled() })
   }, [])
 
   useEffect(() => {
@@ -173,6 +173,16 @@ function Root() {
     if (ready && appState === 'running' && !restoreSession && !timer.isRunning) setAppState('config')
   }, [appState, ready, restoreSession, timer.isRunning])
 
+  useEffect(() => {
+    if (timer.runtimeInterruption !== 'exact-alarm-access') return
+    timer.clearRuntimeInterruption()
+    setAppState('config')
+    Alert.alert('Timer stopped', 'Android removed exact-alarm access, so Chandas stopped instead of continuing with unreliable timing.', [
+      { text: 'Later', style: 'cancel' },
+      { text: 'Open settings', onPress: ChandasTimerService.openExactAlarmSettings },
+    ])
+  }, [timer.runtimeInterruption, timer.clearRuntimeInterruption])
+
   const changeTimerState = (next: TimerV2State) => {
     setTimerState(next)
     void saveTimerV2State(next)
@@ -193,21 +203,27 @@ function Root() {
 
   const requestCallMuteAccess = async () => {
     if (Platform.OS !== 'android') return
-    await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE, {
+    const result = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE, {
       title: 'Mute bells during calls',
       message: 'Allow phone-state access so Chandas can stay quiet during calls. Chandas never reads phone numbers or call history.',
       buttonPositive: 'Allow', buttonNegative: 'Not now',
     })
+    if (result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) await Linking.openSettings()
     await refreshAndroidAccess()
   }
 
   const requestNotificationAccess = async () => {
-    if (Platform.OS !== 'android' || Platform.Version < 33) return
-    await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS, {
+    if (Platform.OS !== 'android') return
+    if (Platform.Version < 33) {
+      ChandasTimerService.openNotificationSettings()
+      return
+    }
+    const result = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS, {
       title: 'Show timer notifications',
       message: 'Allow notifications so Android can show the running timer and alarm controls.',
       buttonPositive: 'Allow', buttonNegative: 'Not now',
     })
+    if (result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) ChandasTimerService.openNotificationSettings()
     await refreshAndroidAccess()
   }
 

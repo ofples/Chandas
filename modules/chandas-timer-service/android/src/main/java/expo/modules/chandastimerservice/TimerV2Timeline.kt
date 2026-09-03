@@ -38,9 +38,13 @@ object TimerV2Timeline {
   private const val MAX_TRACKS = 5
   private const val MAX_STEPS = 20
   private const val MAX_DURATION_MINUTES = 240
+  private const val MAX_PROGRAM_CHARACTERS = 262_144
+  private const val MAX_ID_CHARACTERS = 200
+  private const val MAX_URI_CHARACTERS = 8_192
   private val builtInSoundIds = setOf("temple-gong", "clear-bell", "soft-bowl", "wood-block", "bright-chime")
 
   fun isValid(serialized: String): Boolean = runCatching {
+    if (serialized.length > MAX_PROGRAM_CHARACTERS) return@runCatching false
     val root = JSONObject(serialized)
     if (root.optInt("schemaVersion", -1) != SCHEMA_VERSION) return@runCatching false
     when (root.optString("mode")) {
@@ -217,10 +221,11 @@ object TimerV2Timeline {
     for (index in 0 until tracks.length()) {
       val track = tracks.optJSONObject(index) ?: return false
       val trackId = track.optString("id")
-      if (trackId.isBlank() || !trackIds.add(trackId) || !validCue(track)) return false
+      if (trackId.isBlank() || trackId.length > MAX_ID_CHARACTERS || !trackIds.add(trackId) || !validCue(track)) return false
       val cadence = track.optInt("cadenceMinutes", -1)
       if (cadence !in 1..MAX_DURATION_MINUTES) return false
       val offsets = track.optJSONArray("selectedOffsetsMinutes") ?: return false
+      if (offsets.length() > MAX_DURATION_MINUTES - 1) return false
       val seenOffsets = mutableSetOf<Int>()
       for (offsetIndex in 0 until offsets.length()) {
         val offset = offsets.optInt(offsetIndex, -1)
@@ -243,7 +248,7 @@ object TimerV2Timeline {
       val step = steps.optJSONObject(index) ?: return false
       val id = step.optString("id")
       val label = step.optString("label")
-      if (id.isBlank() || !stepIds.add(id) || label.isBlank() || label.codePointCount(0, label.length) > 60 || step.optInt("durationMinutes", -1) !in 1..MAX_DURATION_MINUTES || !validCue(step)) return false
+      if (id.isBlank() || id.length > MAX_ID_CHARACTERS || !stepIds.add(id) || label.isBlank() || label.codePointCount(0, label.length) > 60 || step.optInt("durationMinutes", -1) !in 1..MAX_DURATION_MINUTES || !validCue(step)) return false
     }
     return true
   }
@@ -255,7 +260,11 @@ object TimerV2Timeline {
     val sound = cue.optJSONObject("sound") ?: return false
     return when (sound.optString("kind")) {
       "builtin" -> sound.optString("id") in builtInSoundIds
-      "android", "document" -> sound.optString("uri").isNotBlank() && sound.optString("title").isNotBlank()
+      "android", "document" -> {
+        val uri = sound.optString("uri")
+        val title = sound.optString("title")
+        uri.isNotBlank() && uri.length <= MAX_URI_CHARACTERS && title.isNotBlank() && title.codePointCount(0, title.length) <= 60
+      }
       else -> false
     }
   }

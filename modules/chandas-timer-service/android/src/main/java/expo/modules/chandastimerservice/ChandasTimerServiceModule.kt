@@ -10,6 +10,7 @@ import android.os.Build
 import android.provider.Settings
 import android.provider.OpenableColumns
 import androidx.core.os.bundleOf
+import androidx.core.app.NotificationManagerCompat
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import expo.modules.kotlin.Promise
@@ -62,10 +63,19 @@ class ChandasTimerServiceModule : Module() {
   private val focusListener: (NativeFocusState) -> Unit = { state ->
     sendEvent("onFocusStateChanged", focusBundle(state))
   }
+  private val stateListener: (TimerScheduleState) -> Unit = { state ->
+    sendEvent("onTimerStateChanged", bundleOf(
+      "active" to state.active,
+      "timerV2Anchor" to state.timerV2Anchor,
+      "nextEventAt" to state.nextEventAt,
+      "nextLogicalId" to state.nextLogicalId,
+      "exactTimingAvailable" to state.exactTimingAvailable,
+    ))
+  }
 
   override fun definition() = ModuleDefinition {
     Name("ChandasTimerService")
-    Events("onAlarmStateChanged", "onControlStateChanged", "onTimerEventFired", "onFocusStateChanged")
+    Events("onAlarmStateChanged", "onControlStateChanged", "onTimerEventFired", "onFocusStateChanged", "onTimerStateChanged")
 
     Function("start") { record: TimerConfigRecord ->
       val context = appContext.reactContext ?: return@Function false
@@ -94,6 +104,7 @@ class ChandasTimerServiceModule : Module() {
     Function("stop") {
       val context = appContext.reactContext
       if (context != null) TimerScheduler.stop(context)
+      appContext.activityProvider?.currentActivity?.let(AlarmWindowHelper::clearAlarmWindowFlags)
     }
 
     Function("stopAlarm") {
@@ -108,6 +119,7 @@ class ChandasTimerServiceModule : Module() {
           AlarmStateRegistry.notify(false)
         }
       }
+      appContext.activityProvider?.currentActivity?.let(AlarmWindowHelper::clearAlarmWindowFlags)
     }
 
     Function("isRinging") {
@@ -247,10 +259,10 @@ class ChandasTimerServiceModule : Module() {
     Function("openExactAlarmSettings") {
       val context = appContext.reactContext
       if (context != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        context.startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+        runCatching { context.startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
           data = Uri.parse("package:${context.packageName}")
           addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        })
+        }) }
       }
     }
 
@@ -264,14 +276,27 @@ class ChandasTimerServiceModule : Module() {
       }
     }
 
+    Function("areNotificationsEnabled") {
+      val context = appContext.reactContext
+      context != null && NotificationManagerCompat.from(context).areNotificationsEnabled()
+    }
+
     Function("openFullScreenIntentSettings") {
       val context = appContext.reactContext
       if (context != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-        context.startActivity(Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT).apply {
+        runCatching { context.startActivity(Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT).apply {
           data = Uri.parse("package:${context.packageName}")
           addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        })
+        }) }
       }
+    }
+
+    Function("openNotificationSettings") {
+      val context = appContext.reactContext ?: return@Function
+      runCatching { context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+        putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      }) }
     }
 
     Function("hasNotificationPolicyAccess") {
@@ -331,6 +356,14 @@ class ChandasTimerServiceModule : Module() {
 
     OnStartObserving("onFocusStateChanged") {
       FocusStateRegistry.add(focusListener)
+    }
+
+    OnStartObserving("onTimerStateChanged") {
+      TimerStateRegistry.add(stateListener)
+    }
+
+    OnStopObserving("onTimerStateChanged") {
+      TimerStateRegistry.remove(stateListener)
     }
 
     OnStopObserving("onFocusStateChanged") {
@@ -399,8 +432,7 @@ class ChandasTimerServiceModule : Module() {
       activeHoursStart = (record.activeHoursStart ?: previous?.activeHoursStart ?: 480).coerceIn(0, 1_439),
       activeHoursEnd = (record.activeHoursEnd ?: previous?.activeHoursEnd ?: 1_320).coerceIn(0, 1_439),
       activeHoursDays = (record.activeHoursDays ?: previous?.activeHoursDays ?: 0x7f)
-        .and(0x7f)
-        .let { if (it == 0) 0x7f else it },
+        .and(0x7f),
       alarmDurationSeconds = (record.alarmDurationSeconds ?: previous?.alarmDurationSeconds ?: 60)
         .coerceIn(5, 3_600),
       timerV2Program = record.timerV2Program ?: previous?.timerV2Program,

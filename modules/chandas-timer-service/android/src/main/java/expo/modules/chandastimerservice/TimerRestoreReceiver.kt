@@ -8,7 +8,7 @@ import android.content.Intent
 class TimerRestoreReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
     if (intent.action == NotificationManager.ACTION_NOTIFICATION_POLICY_ACCESS_GRANTED_CHANGED) {
-      FocusModeController.reconcile(context)
+      FocusModeController.reconcile(context, forceApply = true)
       return
     }
     if (intent.action == NotificationManager.ACTION_AUTOMATIC_ZEN_RULE_STATUS_CHANGED) {

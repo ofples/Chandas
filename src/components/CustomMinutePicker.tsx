@@ -30,13 +30,14 @@ export function CustomMinutePicker({ title, initial, min = 1, max = 59, onConfir
         style={styles.keyboardAvoider}
         behavior={process.env.EXPO_OS === 'ios' ? 'padding' : 'height'}
       >
-        <Pressable style={styles.overlay} onPress={onClose}>
+        <Pressable style={styles.overlay} onPress={onClose} accessible={false}>
           <Pressable
             style={[
               styles.sheet,
               { backgroundColor: tokens.surface, borderColor: tokens.border, paddingBottom: insets.bottom + 32 },
             ]}
             onPress={e => e.stopPropagation()}
+            accessibilityViewIsModal
           >
             <Text style={[styles.title, { color: tokens.textMuted }]}>{title}</Text>
             <View style={styles.inputRow}>

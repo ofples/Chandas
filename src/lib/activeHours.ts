@@ -11,8 +11,7 @@ function minuteOfDay(timestamp: number): number {
 }
 
 function normalizedDays(settings: ActiveHoursSettings): number {
-  const days = settings.activeHoursDays & 0b1111111
-  return days === 0 ? 0b1111111 : days
+  return settings.activeHoursDays & 0b1111111
 }
 
 function isDayEnabled(settings: ActiveHoursSettings, day: number): boolean {

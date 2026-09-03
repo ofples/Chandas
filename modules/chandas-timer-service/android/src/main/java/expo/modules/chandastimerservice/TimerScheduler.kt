@@ -19,7 +19,8 @@ object TimerScheduler {
 
   fun start(context: Context, config: TimerConfig): Boolean {
     if (!canScheduleExactAlarms(context)) return false
-    if (config.timerV2Program != null && !TimerV2Timeline.isValid(config.timerV2Program)) return false
+    if (!isValidConfig(config)) return false
+    TimerSoundPlayer.stopAll()
     cancelScheduledEvent(context)
     TimerStateStore.save(context, config)
     TimerStateStore.beginSession(context)
@@ -55,17 +56,19 @@ object TimerScheduler {
 
   fun stop(context: Context) {
     cancelScheduledEvent(context)
+    TimerSoundPlayer.stopAll()
     FocusModeController.deactivate(context)
     TimerStateStore.clear(context)
     TimerNotifications.cancelRunning(context)
     TimerNotifications.cancelAlarm(context)
     context.stopService(Intent(context, ChandasAlarmService::class.java))
     AlarmStateRegistry.notify(false)
+    TimerStateRegistry.notify(TimerScheduleState(false, 0L, 0L, null, canScheduleExactAlarms(context)))
   }
 
   fun restore(context: Context, resetRinging: Boolean, wallClockChanged: Boolean = false) {
     var stored = TimerStateStore.load(context) ?: return
-    if (stored.timerV2Program != null && !TimerV2Timeline.isValid(stored.timerV2Program)) {
+    if (!isValidConfig(stored)) {
       stop(context)
       return
     }
@@ -89,16 +92,13 @@ object TimerScheduler {
 
   fun scheduleNext(context: Context, config: TimerConfig? = TimerStateStore.load(context)): Boolean {
     val initial = config ?: return false
-    if (initial.timerV2Program != null && !TimerV2Timeline.isValid(initial.timerV2Program)) return false
+    if (!isValidConfig(initial)) return false
     if (!canScheduleExactAlarms(context)) {
-      TimerStateStore.clearNext(context)
+      suspendForExactAccess(context)
       return false
     }
 
     val now = System.currentTimeMillis()
-    val isPatternMain = event.boundary == TimerV2Boundary.PATTERN_MAIN
-    val controls = TimerStateStore.getControlState(context, now)
-    val continuousAlarmRequested = isPatternMain && (config.alarmModeEnabled || controls.alarmOnceArmed)
     val active = reconcileLocalClock(context, initial, now).config
     val v2Event = active.timerV2Program?.let { TimerV2Timeline.next(it, active.timerV2Anchor, now) }
     val nextMain = TimerMath.nextTick(now, active.mainMs, active.phase)
@@ -143,10 +143,11 @@ object TimerScheduler {
         alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAt, operation)
       }
     } catch (_: SecurityException) {
-      TimerStateStore.clearNext(context)
+      suspendForExactAccess(context)
       return false
     }
     TimerNotifications.postRunning(context, active)
+    TimerStateRegistry.notify(TimerScheduleState(true, active.timerV2Anchor, triggerAt, logicalId, true))
     return true
   }
 
@@ -172,6 +173,12 @@ object TimerScheduler {
       return
     }
     val config = realignment.config
+    val now = System.currentTimeMillis()
+    if (!ActiveHours.isActive(config, now)) {
+      scheduleNext(context, config)
+      onFinished()
+      return
+    }
     if (type == TimerEventType.ACTIVE_START) {
       FocusModeController.reconcile(context, config)
       scheduleNext(context, config)
@@ -182,6 +189,9 @@ object TimerScheduler {
       handleV2Triggered(context, config, triggerAt, onFinished)
       return
     }
+    val controls = TimerStateStore.getControlState(context, now)
+    val continuousAlarmRequested = type == TimerEventType.MAIN &&
+      (config.alarmModeEnabled || controls.alarmOnceArmed)
     // A user-armed continuous alarm still follows Android alarm/audio-focus
     // policy; it is not downgraded into an ordinary call-muted chime.
     if (CallState.isActive(context) && !continuousAlarmRequested) {
@@ -189,7 +199,7 @@ object TimerScheduler {
       onFinished()
       return
     }
-    val temporarilyMuted = TimerStateStore.consumeMuteForEvent(context, type, System.currentTimeMillis())
+    val temporarilyMuted = TimerStateStore.consumeMuteForEvent(context, type, now)
     val muted = config.volume <= 0f || temporarilyMuted
 
     TimerNotifications.postEvent(context, config, type)
@@ -234,9 +244,13 @@ object TimerScheduler {
       return
     }
     val now = System.currentTimeMillis()
+    val isPatternMain = event.boundary == TimerV2Boundary.PATTERN_MAIN
+    val controls = TimerStateStore.getControlState(context, now)
+    val continuousAlarmRequested = isPatternMain &&
+      (config.alarmModeEnabled || controls.alarmOnceArmed)
     // Phone calls are an external, transient mute gate. They do not consume
     // one-shot alarm or timed/cycle mute state, and no missed cue is replayed.
-    if (CallState.isActive(context)) {
+    if (CallState.isActive(context) && !continuousAlarmRequested) {
       scheduleNext(context, config)
       emitV2Event(event, suppressed = true, reason = "call-active")
       onFinished()
@@ -320,6 +334,20 @@ object TimerScheduler {
   private fun resourceForV2Sound(soundId: String): Int = when (soundId) {
     "temple-gong" -> R.raw.gong
     else -> R.raw.bell
+  }
+
+  private fun isValidConfig(config: TimerConfig): Boolean {
+    if (config.activeHoursEnabled && config.activeHoursDays.and(0x7f) == 0) return false
+    val program = config.timerV2Program ?: return true
+    return config.timerV2Anchor > 0L && TimerV2Timeline.isValid(program)
+  }
+
+  private fun suspendForExactAccess(context: Context) {
+    TimerStateStore.clearNext(context)
+    FocusModeController.deactivate(context)
+    TimerNotifications.cancelRunning(context)
+    val stored = TimerStateStore.load(context)
+    TimerStateRegistry.notify(TimerScheduleState(stored != null, stored?.timerV2Anchor ?: 0L, 0L, null, false))
   }
 
   fun cancelScheduledEvent(context: Context) {

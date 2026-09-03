@@ -3,8 +3,7 @@ package expo.modules.chandastimerservice
 import java.util.Calendar
 
 object ActiveHours {
-  private fun activeDays(config: TimerConfig): Int =
-    config.activeHoursDays.and(0x7f).let { if (it == 0) 0x7f else it }
+  private fun activeDays(config: TimerConfig): Int = config.activeHoursDays.and(0x7f)
 
   private fun isDayEnabled(config: TimerConfig, calendarDay: Int): Boolean =
     activeDays(config).and(1 shl (calendarDay - Calendar.SUNDAY)) != 0

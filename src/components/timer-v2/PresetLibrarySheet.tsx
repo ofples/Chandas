@@ -3,6 +3,7 @@ import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-nativ
 import * as Haptics from 'expo-haptics'
 import type { ProgramPreset, TimerMode, TimerV2State } from '../../types'
 import { deleteProgramPreset, loadProgramPreset, saveProgramPreset } from '../../lib/programActions'
+import { soundTitle } from '../../lib/soundLibrary'
 import { useTheme } from '../../theme/ThemeContext'
 import { BottomSheet } from './BottomSheet'
 
@@ -48,11 +49,10 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose }: Props)
       <View style={styles.saveRow}>
         <TextInput
           value={name}
-          onChangeText={setName}
+          onChangeText={value => setName([...value].slice(0, 80).join(''))}
           onSubmitEditing={save}
           placeholder="Name this configuration"
           placeholderTextColor={tokens.textMuted}
-          maxLength={80}
           returnKeyType="done"
           style={[styles.input, { color: tokens.text, borderColor: tokens.border, backgroundColor: tokens.surfaceHi }]}
           accessibilityLabel="New configuration name"
@@ -61,7 +61,7 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose }: Props)
       </View>
       <View style={styles.filters}>{([['all', 'All'], ['pattern', 'Main + sub'], ['sequence', 'Sequence']] as const).map(([value, label]) => <Pressable key={value} onPress={() => setFilter(value)} style={[styles.filter, { borderColor: filter === value ? tokens.accent : tokens.border, backgroundColor: filter === value ? tokens.accentGlow : 'transparent' }]}><Text style={[styles.filterText, { color: filter === value ? tokens.accent : tokens.textMuted }]}>{label}</Text></Pressable>)}</View>
       {selected ? <View style={[styles.inspector, { borderColor: tokens.accent, backgroundColor: tokens.accentGlow }]}>
-        <View style={styles.copy}><Text style={[styles.miniLabel, { color: tokens.accent }]}>READY TO LOAD</Text><Text style={[styles.presetTitle, { color: tokens.text }]}>{selected.name}</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{selected.program.mode === 'pattern' ? `Main + sub-bells · ${summary(selected)}` : `Sequence / sets · ${summary(selected)}`}</Text><Text style={[styles.date, { color: tokens.textMuted }]}>Saved {new Date(selected.createdAt).toLocaleString()}</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>This replaces the {selected.program.mode} working copy only. It does not start the timer.</Text></View>
+        <View style={styles.copy}><Text style={[styles.miniLabel, { color: tokens.accent }]}>READY TO LOAD</Text><Text style={[styles.presetTitle, { color: tokens.text }]}>{selected.name}</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{selected.program.mode === 'pattern' ? `Main + sub-bells · ${summary(selected)}` : `Sequence / sets · ${summary(selected)}`}</Text><Text style={[styles.date, { color: tokens.textMuted }]}>Saved {new Date(selected.createdAt).toLocaleString()}</Text><PresetDetails preset={selected} /><Text style={[styles.helper, { color: tokens.textMuted }]}>This replaces the {selected.program.mode} working copy only. It does not start the timer.</Text></View>
         <View style={styles.inspectorActions}><Pressable onPress={() => setSelectedId(null)}><Text style={[styles.action, { color: tokens.textMuted }]}>Cancel</Text></Pressable><Pressable onPress={() => { onChange(loadProgramPreset(state, selected.id)); setSelectedId(null); onClose() }} style={[styles.loadButton, { backgroundColor: tokens.accent }]}><Text style={styles.loadText}>Load copy</Text></Pressable></View>
       </View> : null}
       <View style={styles.list}>
@@ -79,6 +79,17 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose }: Props)
       </View>
     </BottomSheet>
   )
+}
+
+function PresetDetails({ preset }: { preset: ProgramPreset }) {
+  const { tokens } = useTheme()
+  const program = preset.program
+  if (program.mode === 'sequence') return <View style={[styles.details, { borderColor: tokens.border }]}>{program.steps.map((step, index) => <Text key={step.id} style={[styles.detailLine, { color: tokens.textMuted }]}>{index + 1}. {step.label} · {step.durationMinutes}m · {soundTitle(step.sound)} · {Math.round(step.volume * 100)}%</Text>)}</View>
+  return <View style={[styles.details, { borderColor: tokens.border }]}>
+    <Text style={[styles.detailLine, { color: tokens.textMuted }]}>Main · {program.mainMinutes}m · {soundTitle(program.mainCue.sound)} · {Math.round(program.mainCue.volume * 100)}%</Text>
+    <Text style={[styles.detailLine, { color: tokens.textMuted }]}>Timing · {program.alignment.kind === 'elapsed' ? 'starts when timer starts' : `aligned to :${String(program.alignment.offsetMinutes).padStart(2, '0')} local time`}</Text>
+    {program.tracks.map((track, index) => <Text key={track.id} style={[styles.detailLine, { color: tokens.textMuted }]}>{index + 1}. {track.enabled ? `${track.cadenceMinutes}m · ${track.selectedOffsetsMinutes.join(', ') || 'no cues'}` : 'Off'} · {soundTitle(track.sound)} · {Math.round(track.volume * 100)}%</Text>)}
+  </View>
 }
 
 const styles = StyleSheet.create({
@@ -105,6 +116,8 @@ const styles = StyleSheet.create({
   action: { fontSize: 12, fontWeight: '700' },
   delete: { fontSize: 11, textDecorationLine: 'underline' },
   inspector: { borderWidth: 1.5, borderRadius: 14, padding: 14, gap: 12 },
+  details: { borderTopWidth: 1, borderBottomWidth: 1, paddingVertical: 9, gap: 5 },
+  detailLine: { fontSize: 11, lineHeight: 16 },
   inspectorActions: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 16 },
   loadButton: { paddingHorizontal: 15, paddingVertical: 10, borderRadius: 10 },
   loadText: { color: '#fff', fontSize: 12, fontWeight: '800' },

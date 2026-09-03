@@ -26,10 +26,11 @@ export function BottomSheet({ visible, title, eyebrow, onClose, children, scroll
   return (
     <Modal visible={visible} transparent animationType={reducedMotion ? 'fade' : 'slide'} onRequestClose={onClose} statusBarTranslucent>
       <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <Pressable style={styles.backdrop} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close">
+        <Pressable style={styles.backdrop} onPress={onClose} accessible={false}>
           <Pressable
             style={[styles.sheet, { backgroundColor: tokens.surface, borderColor: tokens.border, paddingBottom: Math.max(insets.bottom, 16) }]}
             onPress={event => event.stopPropagation()}
+            accessibilityViewIsModal
           >
             <View style={[styles.grabber, { backgroundColor: tokens.textDisabled }]} />
             <View style={styles.header}>

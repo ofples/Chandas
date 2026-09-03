@@ -86,6 +86,14 @@ export interface NativeTimerEvent {
   suppressionReason: 'none' | 'call-active' | 'master-muted' | 'user-mute'
 }
 
+export interface NativeScheduleState {
+  active: boolean
+  timerV2Anchor: number
+  nextEventAt: number
+  nextLogicalId?: string
+  exactTimingAvailable: boolean
+}
+
 export interface NativeFocusState {
   policyAccess: boolean
   automationEnabled: boolean
@@ -109,6 +117,8 @@ interface ChandasTimerServiceModule {
   canScheduleExactAlarms(): boolean
   openExactAlarmSettings(): void
   canUseFullScreenIntent(): boolean
+  areNotificationsEnabled(): boolean
+  openNotificationSettings(): void
   openFullScreenIntentSettings(): void
   hasNotificationPolicyAccess(): boolean
   isFocusModeActive(): boolean
@@ -129,6 +139,7 @@ interface ChandasTimerServiceModule {
   addListener(eventName: 'onControlStateChanged', listener: (event: NativeControlState) => void): EventSubscription
   addListener(eventName: 'onTimerEventFired', listener: (event: NativeTimerEvent) => void): EventSubscription
   addListener(eventName: 'onFocusStateChanged', listener: (event: NativeFocusState) => void): EventSubscription
+  addListener(eventName: 'onTimerStateChanged', listener: (event: NativeScheduleState) => void): EventSubscription
 }
 
 const native = Platform.OS === 'android'
@@ -175,6 +186,12 @@ export const ChandasTimerService = {
   },
   canUseFullScreenIntent(): boolean {
     return native?.canUseFullScreenIntent() ?? true
+  },
+  areNotificationsEnabled(): boolean {
+    return native?.areNotificationsEnabled() ?? true
+  },
+  openNotificationSettings() {
+    native?.openNotificationSettings()
   },
   openFullScreenIntentSettings() {
     native?.openFullScreenIntentSettings()
@@ -249,5 +266,8 @@ export const ChandasTimerService = {
   },
   addFocusListener(listener: (state: NativeFocusState) => void): EventSubscription | null {
     return native?.addListener('onFocusStateChanged', listener) ?? null
+  },
+  addTimerStateListener(listener: (state: NativeScheduleState) => void): EventSubscription | null {
+    return native?.addListener('onTimerStateChanged', listener) ?? null
   },
 }

@@ -145,7 +145,7 @@ export function duplicateSequenceStep(state: TimerV2State, stepId: string): Time
     const index = program.steps.findIndex(step => step.id === stepId)
     if (index < 0) return program
     const source = program.steps[index]
-    const duplicate: SequenceStep = { ...source, id: createProgramId(), label: `${source.label} copy`.slice(0, 60) }
+    const duplicate: SequenceStep = { ...source, id: createProgramId(), label: normalizeLabel(`${source.label} copy`, source.label) }
     const steps = [...program.steps]
     steps.splice(index + 1, 0, duplicate)
     return { ...program, steps }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AppState, PermissionsAndroid, Platform } from 'react-native'
+import { AppState } from 'react-native'
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake'
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio'
 import * as Haptics from 'expo-haptics'
@@ -39,6 +39,8 @@ export interface UseTimerV2Return extends TimerV2Display {
   muteForMinutes: (minutes: number) => void
   clearMute: () => void
   eventPulse: number
+  runtimeInterruption: 'exact-alarm-access' | null
+  clearRuntimeInterruption: () => void
   reanchor: (nextProgram: TimerProgram, alignToClock: boolean) => Promise<boolean>
 }
 
@@ -112,6 +114,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
   const [alarmBehavior, setAlarmBehavior] = useState<AlarmBehavior>('off')
   const [mute, setMute] = useState<RuntimeMuteState>(emptyRuntimeMute())
   const [eventPulse, setEventPulse] = useState(0)
+  const [runtimeInterruption, setRuntimeInterruption] = useState<'exact-alarm-access' | null>(null)
   const [display, setDisplay] = useState<TimerV2Display>({
     mainCountdown: '--:--', nextCueCountdown: '--:--', nextCueLabel: '', progress: 0,
     position: null, activeHoursPaused: false, activeHoursResumeAt: 0,
@@ -120,16 +123,16 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
   const runningRef = useRef(false)
   const anchorRef = useRef(0)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const rafRef = useRef<number | null>(null)
+  const refreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const playerRef = useRef<AudioPlayer | null>(null)
   const alarmPlayerRef = useRef<AudioPlayer | null>(null)
-  const alarmStopRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const nativeUpdateRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const programRef = useRef(program)
   const settingsRef = useRef(settings)
   const muteRef = useRef(mute)
   const alarmBehaviorRef = useRef<AlarmBehavior>('off')
   const alarmTapTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const clearRuntimeInterruption = useCallback(() => setRuntimeInterruption(null), [])
 
   useEffect(() => { programRef.current = program }, [program])
   useEffect(() => { settingsRef.current = settings }, [settings])
@@ -140,12 +143,6 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     if (!runningRef.current) return
     setDisplay(displayFor(programRef.current, settingsRef.current, anchorRef.current, Date.now()))
   }, [])
-
-  const rafLoop = useCallback(() => {
-    if (!runningRef.current) return
-    refreshDisplay()
-    rafRef.current = requestAnimationFrame(rafLoop)
-  }, [refreshDisplay])
 
   const persistSession = useCallback((nextMute: RuntimeMuteState, nextAlarm: AlarmBehavior) => {
     if (!runningRef.current) return
@@ -168,8 +165,6 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
 
   const dismissAlarm = useCallback(() => {
     if (isNativeServiceAvailable) ChandasTimerService.stopAlarm()
-    if (alarmStopRef.current) clearTimeout(alarmStopRef.current)
-    alarmStopRef.current = null
     alarmPlayerRef.current?.remove()
     alarmPlayerRef.current = null
     setIsAlarmRinging(false)
@@ -202,7 +197,6 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
       player.play()
       alarmPlayerRef.current = player
       setIsAlarmRinging(true)
-      alarmStopRef.current = setTimeout(dismissAlarm, activeSettings.alarmDurationSeconds * 1000)
       return
     }
     const source = sourceForSound(event.winner.sound)
@@ -236,31 +230,11 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
   }, [playEvent, refreshDisplay])
 
   const start = useCallback(async (restore?: number | { anchor: number; mute: RuntimeMuteState; alarmBehavior: AlarmBehavior }) => {
+    setRuntimeInterruption(null)
     const restored = typeof restore === 'number' ? undefined : restore
     const anchor = typeof restore === 'number' ? restore : restored?.anchor ?? alignedAnchorForStart(programRef.current, Date.now())
+    if (settingsRef.current.activeHoursEnabled && (settingsRef.current.activeHoursDays & 0b1111111) === 0) return false
     if (isNativeServiceAvailable && !ChandasTimerService.canScheduleExactAlarms()) return false
-    if (Platform.OS === 'android') {
-      // The permission is only used to suppress Chandas sounds during a live
-      // phone call. Refusal leaves the timer functional without call awareness.
-      const phonePermission = PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE
-      if (!(await PermissionsAndroid.check(phonePermission))) {
-        await PermissionsAndroid.request(phonePermission, {
-          title: 'Mute bells during calls',
-          message: 'Allow phone-state access so Chandas can stay quiet while a call is active. Chandas never reads phone numbers or call history.',
-          buttonPositive: 'Allow', buttonNegative: 'Not now',
-        }).catch(() => undefined)
-      }
-      if (Platform.Version >= 33 && settingsRef.current.notificationsEnabled) {
-        const notificationPermission = PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS
-        if (!(await PermissionsAndroid.check(notificationPermission))) {
-          await PermissionsAndroid.request(notificationPermission, {
-            title: 'Show the running timer',
-            message: 'Allow notifications so Android can show the active timer and continuous alarm controls.',
-            buttonPositive: 'Allow', buttonNegative: 'Not now',
-          }).catch(() => undefined)
-        }
-      }
-    }
     await setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: false })
     await activateKeepAwakeAsync(KEEP_AWAKE_TAG)
     const nativeConfig = nativeConfigFor(programRef.current, settingsRef.current, anchor, restored?.alarmBehavior === 'locked' || (!restored && alarmBehaviorRef.current === 'locked'))
@@ -280,11 +254,12 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     runningRef.current = true
     setIsRunning(true)
     refreshDisplay()
-    rafRef.current = requestAnimationFrame(rafLoop)
+    if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current)
+    refreshIntervalRef.current = setInterval(refreshDisplay, 250)
     persistSession(restored?.mute ?? muteRef.current, restored?.alarmBehavior ?? alarmBehaviorRef.current)
     if (!isNativeServiceAvailable) scheduleNext()
     return true
-  }, [persistSession, rafLoop, refreshDisplay, scheduleNext, updateRuntimeState])
+  }, [persistSession, refreshDisplay, scheduleNext, updateRuntimeState])
 
   const attachNativeSession = useCallback(async (restore: { anchor: number; mute: RuntimeMuteState; alarmBehavior: AlarmBehavior }) => {
     anchorRef.current = restore.anchor
@@ -295,19 +270,20 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     await setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: false })
     await activateKeepAwakeAsync(KEEP_AWAKE_TAG)
     refreshDisplay()
-    rafRef.current = requestAnimationFrame(rafLoop)
-  }, [rafLoop, refreshDisplay, updateRuntimeState])
+    if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current)
+    refreshIntervalRef.current = setInterval(refreshDisplay, 250)
+  }, [refreshDisplay, updateRuntimeState])
 
   const stop = useCallback(() => {
     runningRef.current = false
     setIsRunning(false)
     if (timeoutRef.current) clearTimeout(timeoutRef.current)
-    if (rafRef.current) cancelAnimationFrame(rafRef.current)
+    if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current)
     if (nativeUpdateRef.current) clearTimeout(nativeUpdateRef.current)
     if (alarmTapTimeoutRef.current) clearTimeout(alarmTapTimeoutRef.current)
     alarmTapTimeoutRef.current = null
     timeoutRef.current = null
-    rafRef.current = null
+    refreshIntervalRef.current = null
     dismissAlarm()
     playerRef.current?.remove()
     playerRef.current = null
@@ -422,6 +398,28 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
 
   useEffect(() => {
     if (!isNativeServiceAvailable) return
+    const listener = ChandasTimerService.addTimerStateListener(state => {
+      if (!runningRef.current) return
+      if (!state.exactTimingAvailable) {
+        setRuntimeInterruption('exact-alarm-access')
+        stop()
+        return
+      }
+      if (!state.active) {
+        stop()
+        return
+      }
+      if (state.timerV2Anchor > 0 && state.timerV2Anchor !== anchorRef.current) {
+        anchorRef.current = state.timerV2Anchor
+        persistSession(muteRef.current, alarmBehaviorRef.current)
+        refreshDisplay()
+      }
+    })
+    return () => listener?.remove()
+  }, [persistSession, refreshDisplay, stop])
+
+  useEffect(() => {
+    if (!isNativeServiceAvailable) return
     const listener = ChandasTimerService.addControlListener(state => {
       const nextMute: RuntimeMuteState = state.mutedIterationEndId && state.mutedIterationEndAt
         ? { mutedUntil: state.mutedUntil, iteration: { endsAtLogicalId: state.mutedIterationEndId, endsAt: state.mutedIterationEndAt, iterations: Math.max(1, state.mutedIterationsRemaining) } }
@@ -455,7 +453,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
 
   useEffect(() => () => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current)
-    if (rafRef.current) cancelAnimationFrame(rafRef.current)
+    if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current)
     if (nativeUpdateRef.current) clearTimeout(nativeUpdateRef.current)
     if (alarmTapTimeoutRef.current) clearTimeout(alarmTapTimeoutRef.current)
     playerRef.current?.remove()
@@ -477,6 +475,8 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     muteForMinutes,
     clearMute,
     eventPulse,
+    runtimeInterruption,
+    clearRuntimeInterruption,
     reanchor,
   }
 }

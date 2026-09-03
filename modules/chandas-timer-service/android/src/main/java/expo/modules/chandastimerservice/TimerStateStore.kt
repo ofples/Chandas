@@ -61,7 +61,7 @@ object TimerStateStore {
       activeHoursEnabled = prefs.getBoolean("activeHoursEnabled", false),
       activeHoursStart = prefs.getInt("activeHoursStart", 480).coerceIn(0, 1_439),
       activeHoursEnd = prefs.getInt("activeHoursEnd", 1_320).coerceIn(0, 1_439),
-      activeHoursDays = prefs.getInt("activeHoursDays", 0x7f).and(0x7f).let { if (it == 0) 0x7f else it },
+      activeHoursDays = prefs.getInt("activeHoursDays", 0x7f).and(0x7f),
       alarmDurationSeconds = prefs.getInt("alarmDurationSeconds", 60).coerceIn(5, 3_600),
       timerV2Program = prefs.getString("timerV2Program", null),
       timerV2Anchor = prefs.getLong("timerV2Anchor", 0L),

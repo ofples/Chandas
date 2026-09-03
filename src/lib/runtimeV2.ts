@@ -84,12 +84,13 @@ export function gateProgramAudio(options: {
     ? { mutedUntil: 0, iteration: mute.iteration }
     : mute
   const isMain = event.boundary === 'pattern-main'
+  const continuousAlarmRequested = isMain && alarmBehavior !== 'off'
   const consumesOnce = isMain && alarmBehavior === 'once'
   const consumedAlarmBehavior: AlarmBehavior = consumesOnce ? 'off' : alarmBehavior
 
   // A call is a temporary external gate. It must not consume or clear the
   // user's timed mute or alarm state, and the missed event is never replayed.
-  if (callActive) {
+  if (callActive && !continuousAlarmRequested) {
     return { shouldPlay: false, disposition: 'suppressed', reason: 'call-active', nextMute: normalizedMute, nextAlarmBehavior: alarmBehavior, consumeAlarmOnce: false }
   }
   if (masterVolume <= 0) {

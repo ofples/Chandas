@@ -78,7 +78,7 @@ class ChandasAlarmService : Service() {
         } else {
           val effective = (volume * cueVolume).coerceIn(0f, 1f)
           player?.setVolume(effective, effective)
-          scheduleAutoSilence(duration)
+          if (TimerStateStore.load(this)?.timerV2Program == null) scheduleAutoSilence(duration)
         }
       }
       ACTION_START -> {
@@ -102,7 +102,9 @@ class ChandasAlarmService : Service() {
     TimerStateStore.setRinging(this, true)
     TimerStateStore.setAlarmVisible(this, true)
     AlarmStateRegistry.notify(true)
-    scheduleAutoSilence(config.alarmDurationSeconds)
+    // V2 Alarm Once/Locked is repeat-until-dismissed. Keep the configurable
+    // timeout only for the legacy timer where that duration is user-facing.
+    if (config.timerV2Program == null) scheduleAutoSilence(config.alarmDurationSeconds)
 
     try {
       val alarmAttributes = AudioAttributes.Builder()

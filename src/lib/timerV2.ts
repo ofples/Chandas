@@ -24,6 +24,8 @@ export const MAX_DURATION_MINUTES = 240
 const builtIn = (id: BuiltInSoundId): SoundRef => ({ kind: 'builtin', id })
 const defaultCue = (id: BuiltInSoundId): CueSettings => ({ sound: builtIn(id), volume: 1 })
 const BUILT_IN_SOUND_IDS = new Set<BuiltInSoundId>(['temple-gong', 'clear-bell', 'soft-bowl', 'wood-block', 'bright-chime'])
+const MAX_ID_CHARACTERS = 200
+const MAX_URI_CHARACTERS = 8_192
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
 const whole = (value: unknown, fallback: number) => {
@@ -130,11 +132,11 @@ export function normalizeSoundRef(value: unknown, fallback: SoundRef): SoundRef 
   if (candidate.kind === 'builtin' && typeof candidate.id === 'string' && BUILT_IN_SOUND_IDS.has(candidate.id as BuiltInSoundId)) {
     return { kind: 'builtin', id: candidate.id as BuiltInSoundId }
   }
-  if (candidate.kind === 'android' && typeof candidate.uri === 'string' && candidate.uri.length > 0 && typeof candidate.title === 'string') {
+  if (candidate.kind === 'android' && typeof candidate.uri === 'string' && candidate.uri.length > 0 && candidate.uri.length <= MAX_URI_CHARACTERS && typeof candidate.title === 'string') {
     const ringtoneType = candidate.ringtoneType === 'alarm' || candidate.ringtoneType === 'notification' ? candidate.ringtoneType : 'unknown'
     return { kind: 'android', uri: candidate.uri, title: normalizeLabel(candidate.title, 'Android sound'), ringtoneType }
   }
-  if (candidate.kind === 'document' && typeof candidate.uri === 'string' && candidate.uri.length > 0 && typeof candidate.title === 'string') {
+  if (candidate.kind === 'document' && typeof candidate.uri === 'string' && candidate.uri.length > 0 && candidate.uri.length <= MAX_URI_CHARACTERS && typeof candidate.title === 'string') {
     return {
       kind: 'document',
       uri: candidate.uri,
@@ -148,13 +150,13 @@ export function normalizeSoundRef(value: unknown, fallback: SoundRef): SoundRef 
 export function normalizeTrack(track: Partial<PatternTrack>, mainMinutes: number): PatternTrack {
   const main = clampDuration(mainMinutes, 30)
   const cadence = clampDuration(track.cadenceMinutes, 1)
-  const selected = Array.isArray(track.selectedOffsetsMinutes) ? track.selectedOffsetsMinutes : []
+  const selected = Array.isArray(track.selectedOffsetsMinutes) ? track.selectedOffsetsMinutes.slice(0, MAX_DURATION_MINUTES - 1) : []
   const selectedOffsetsMinutes = [...new Set(selected
     .map(value => whole(value, -1))
     .filter(value => value > 0 && value < main && value % cadence === 0))]
     .sort((a, b) => a - b)
   return {
-    id: typeof track.id === 'string' && track.id.length > 0 ? track.id : createProgramId(),
+    id: typeof track.id === 'string' && track.id.length > 0 && track.id.length <= MAX_ID_CHARACTERS ? track.id : createProgramId(),
     enabled: track.enabled !== false,
     cadenceMinutes: cadence,
     selectedOffsetsMinutes,
@@ -187,7 +189,7 @@ export function normalizeSequenceProgram(value: Partial<SequenceProgram> | undef
   const rawSteps = Array.isArray(value?.steps) ? value.steps : []
   const stepIds = new Set<string>()
   const steps = rawSteps.slice(0, MAX_SEQUENCE_STEPS).map((step, index): SequenceStep => {
-    let id = typeof step.id === 'string' && step.id.length > 0 ? step.id : createProgramId()
+    let id = typeof step.id === 'string' && step.id.length > 0 && step.id.length <= MAX_ID_CHARACTERS ? step.id : createProgramId()
     if (stepIds.has(id)) id = createProgramId()
     stepIds.add(id)
     return { id, durationMinutes: clampDuration(step.durationMinutes, 5), label: normalizeLabel(step.label, `Step ${index + 1}`), ...normalizeCue(step, defaultCue('clear-bell')) }

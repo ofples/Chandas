@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { LayoutChangeEvent, StyleSheet, Text, View } from 'react-native'
+import { LayoutChangeEvent, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native'
 import * as Haptics from 'expo-haptics'
 import { useTheme } from '../../theme/ThemeContext'
 
@@ -18,7 +18,7 @@ export function OffsetGrid({ offsets, selected, onChange, conflicts = new Map() 
   const { tokens } = useTheme()
   const [width, setWidth] = useState(0)
   const selectionRef = useRef(new Set(selected))
-  const paintRef = useRef<{ selecting: boolean; last?: number } | null>(null)
+  const paintRef = useRef<{ selecting?: boolean; last?: number } | null>(null)
   useEffect(() => { selectionRef.current = new Set(selected) }, [selected])
 
   const columns = Math.max(1, Math.floor((width + GAP) / (MIN_CELL + GAP)))
@@ -37,6 +37,7 @@ export function OffsetGrid({ offsets, selected, onChange, conflicts = new Map() 
     const paintState = paintRef.current
     if (offset === undefined || !paintState || paintState.last === offset) return
     paintState.last = offset
+    if (paintState.selecting === undefined) paintState.selecting = !selectionRef.current.has(offset)
     const next = new Set(selectionRef.current)
     if (paintState.selecting) next.add(offset)
     else next.delete(offset)
@@ -45,18 +46,19 @@ export function OffsetGrid({ offsets, selected, onChange, conflicts = new Map() 
     void Haptics.selectionAsync().catch(() => undefined)
   }
 
-  const handlers = useMemo(() => ({
-    onStartShouldSetResponder: () => true,
-    onMoveShouldSetResponder: () => true,
-    onResponderGrant: (event: { nativeEvent: { locationX: number; locationY: number } }) => {
+  const responder = useMemo(() => PanResponder.create({
+    // Vertical swipes remain available to the sheet for long (up to 239-cell)
+    // grids. Deliberate horizontal/diagonal movement enters paint mode.
+    onStartShouldSetPanResponder: () => false,
+    onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dx) > 5 && Math.abs(gesture.dx) >= Math.abs(gesture.dy) * 0.65,
+    onPanResponderGrant: (event: { nativeEvent: { locationX: number; locationY: number } }) => {
       const offset = offsetAt(event.nativeEvent.locationX, event.nativeEvent.locationY)
-      paintRef.current = { selecting: offset === undefined ? true : !selectionRef.current.has(offset) }
+      paintRef.current = {}
       paint(offset)
     },
-    onResponderMove: (event: { nativeEvent: { locationX: number; locationY: number } }) => paint(offsetAt(event.nativeEvent.locationX, event.nativeEvent.locationY)),
-    onResponderRelease: () => { paintRef.current = null },
-    onResponderTerminate: () => { paintRef.current = null },
-    onResponderTerminationRequest: () => false,
+    onPanResponderMove: (event: { nativeEvent: { locationX: number; locationY: number } }) => paint(offsetAt(event.nativeEvent.locationX, event.nativeEvent.locationY)),
+    onPanResponderRelease: () => { paintRef.current = null },
+    onPanResponderTerminate: () => { paintRef.current = null },
   // Geometry deliberately rebuilds the responder map after layout changes.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [cellWidth, columns, offsets, width])
@@ -70,23 +72,24 @@ export function OffsetGrid({ offsets, selected, onChange, conflicts = new Map() 
   }
 
   return (
-    <View onLayout={onLayout} {...handlers} style={styles.grid} accessibilityLabel="Cue positions. Tap or drag to select.">
+    <View onLayout={onLayout} {...responder.panHandlers} style={styles.grid} accessible={false}>
       {offsets.map(offset => {
         const active = selectionRef.current.has(offset)
         const conflict = conflicts.get(offset)
         return (
-          <View
+          <Pressable
             key={offset}
             style={[styles.cell, { width: cellWidth, height: cellHeight, borderColor: active ? tokens.accent : tokens.border, backgroundColor: active && (!conflict || conflict.isWinner) ? tokens.accentGlow : 'transparent' }]}
             accessible
             accessibilityRole="button"
             accessibilityLabel={`${offset} minutes after start${conflict ? `, overlap, ${conflict.isWinner ? 'wins' : `loses to ${conflict.winner}`}` : ''}`}
             accessibilityState={{ selected: active }}
+            onPress={() => { toggleAccessible(offset); void Haptics.selectionAsync().catch(() => undefined) }}
             onAccessibilityTap={() => toggleAccessible(offset)}
           >
             <Text style={[styles.minute, { color: active ? tokens.text : tokens.textMuted }]}>{offset}m</Text>
             <Text style={[styles.status, { color: conflict ? tokens.accent : tokens.textDisabled }]}>{conflict ? conflict.isWinner ? 'wins' : 'overlap' : active ? 'on' : 'off'}</Text>
-          </View>
+          </Pressable>
         )
       })}
     </View>
