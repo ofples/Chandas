@@ -16,3 +16,89 @@ export interface TimerConfig {
 }
 
 export type AppState = 'config' | 'running'
+
+// Timer v2 keeps program structure separate from the app-wide settings below.
+// TimerConfig remains during migration so existing installations can be read
+// without losing their v1 data before v2 records are safely persisted.
+export type TimerMode = 'pattern' | 'sequence'
+
+export type BuiltInSoundId =
+  | 'temple-gong'
+  | 'clear-bell'
+  | 'soft-bowl'
+  | 'wood-block'
+  | 'bright-chime'
+
+export type SoundRef =
+  | { kind: 'builtin'; id: BuiltInSoundId }
+  | { kind: 'android'; uri: string; title: string; ringtoneType: 'alarm' | 'notification' | 'unknown' }
+  | { kind: 'document'; uri: string; title: string; mimeType?: string }
+
+export interface CueSettings {
+  sound: SoundRef
+  volume: number
+}
+
+export interface PatternTrack extends CueSettings {
+  id: string
+  enabled: boolean
+  cadenceMinutes: number
+  selectedOffsetsMinutes: number[]
+}
+
+export interface PatternProgram {
+  schemaVersion: 2
+  mode: 'pattern'
+  mainMinutes: number
+  mainCue: CueSettings
+  tracks: PatternTrack[]
+  alignment: { kind: 'elapsed' } | { kind: 'local-clock'; offsetMinutes: number }
+}
+
+export interface SequenceStep extends CueSettings {
+  id: string
+  durationMinutes: number
+  label: string
+}
+
+export interface SequenceProgram {
+  schemaVersion: 2
+  mode: 'sequence'
+  steps: SequenceStep[]
+}
+
+export type TimerProgram = PatternProgram | SequenceProgram
+
+export interface ProgramPreset {
+  id: string
+  name: string
+  createdAt: number
+  program: TimerProgram
+}
+
+export interface WorkingProgramState {
+  pattern: PatternProgram
+  sequence: SequenceProgram
+  selectedMode: TimerMode
+  sourcePreset?: { id: string; name: string; createdAt: number; deleted?: boolean }
+}
+
+export interface AppTimerSettings {
+  masterVolume: number
+  notificationsEnabled: boolean
+  activeHoursEnabled: boolean
+  activeHoursStart: number
+  activeHoursEnd: number
+  activeHoursDays: number
+  focusAutomationEnabled: boolean
+  alarmDurationSeconds: number
+}
+
+export type AlarmBehavior = 'off' | 'once' | 'locked'
+
+export interface TimerV2State {
+  schemaVersion: 2
+  workingPrograms: WorkingProgramState
+  settings: AppTimerSettings
+  presets: ProgramPreset[]
+}
