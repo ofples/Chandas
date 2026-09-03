@@ -107,12 +107,25 @@ export function hasAvailableTime(settings: AvailabilitySettings, timestamp = Dat
 }
 
 export function windowsOverlap(left: WeeklyAvailabilityWindow, right: WeeklyAvailabilityWindow): boolean {
-  // Probe one representative week minute-by-minute. This editor-only helper
-  // deliberately shares the runtime's cross-midnight/start-day semantics.
-  const base = new Date(2026, 0, 4, 0, 0, 0, 0).getTime() // Sunday
-  for (let minute = 0; minute < 7 * 1_440; minute += 1) {
-    const timestamp = base + minute * 60_000
-    if (isWithinWindow(left, timestamp) && isWithinWindow(right, timestamp)) return true
+  if (!left.enabled || !right.enabled) return false
+  const segments = (window: WeeklyAvailabilityWindow): Array<[number, number]> => {
+    const result: Array<[number, number]> = []
+    const start = normalizeMinute(window.startMinutes)
+    const end = normalizeMinute(window.endMinutes)
+    for (let day = 0; day < 7; day += 1) {
+      if (!isDayEnabled(window, day)) continue
+      const dayStart = day * 1_440
+      const rawEnd = start === end ? dayStart + 1_440 : start < end ? dayStart + end : dayStart + 1_440 + end
+      const rawStart = start === end ? dayStart : dayStart + start
+      if (rawEnd <= 7 * 1_440) result.push([rawStart, rawEnd])
+      else {
+        result.push([rawStart, 7 * 1_440])
+        result.push([0, rawEnd - 7 * 1_440])
+      }
+    }
+    return result
   }
-  return false
+  const leftSegments = segments(left)
+  const rightSegments = segments(right)
+  return leftSegments.some(([leftStart, leftEnd]) => rightSegments.some(([rightStart, rightEnd]) => leftStart < rightEnd && rightStart < leftEnd))
 }

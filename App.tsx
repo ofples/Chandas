@@ -43,6 +43,12 @@ function settingsFromNative(current: AppTimerSettings, native: ReturnType<typeof
   let availability = current.availability
   if (native.availabilityPolicy) {
     try { availability = normalizeAvailabilityPolicy(JSON.parse(native.availabilityPolicy) as AppTimerSettings['availability']) } catch { /* retain the safely loaded app policy */ }
+  } else if (native.activeHoursEnabled !== undefined) {
+    availability = normalizeAvailabilityPolicy({
+      enabled: native.activeHoursEnabled,
+      weeklyWindows: [{ id: 'native-legacy-active-hours', enabled: true, startMinutes: native.activeHoursStart ?? 480, endMinutes: native.activeHoursEnd ?? 1_320, days: native.activeHoursDays ?? 0x7f }],
+      overrides: [],
+    })
   }
   return {
     masterVolume: native.volume ?? current.masterVolume,
@@ -69,6 +75,7 @@ function Root() {
   const noticeSequence = useRef(0)
   const storageWarningShown = useRef(false)
   const fullScreenGuidanceShown = useRef(false)
+  const handledCompletionPulse = useRef(0)
   const program = timerState ? selectedProgram(timerState) : null
   const timer = useTimerV2(program ?? FALLBACK_PROGRAM, timerState?.settings ?? FALLBACK_SETTINGS)
 
@@ -173,6 +180,7 @@ function Root() {
             schemaVersion: 2,
             anchor: native.timerV2Anchor,
             startedAt: native.timerV2StartedAt ?? native.timerV2Anchor,
+            ...(native.timerV2EndsAt && native.timerV2EndsAt > 0 ? { endsAt: native.timerV2EndsAt } : {}),
             program: nativeProgram,
             mute: native.mutedIterationEndId && native.mutedIterationEndAt
               ? { mutedUntil: native.mutedUntil ?? 0, iteration: { endsAtLogicalId: native.mutedIterationEndId, endsAt: native.mutedIterationEndAt, iterations: Math.max(1, native.mutedIterationsRemaining ?? 1) } }
@@ -243,6 +251,14 @@ function Root() {
   useEffect(() => {
     if (ready && appState === 'running' && !restoreSession && !timer.isRunning) setAppState('config')
   }, [appState, ready, restoreSession, timer.isRunning])
+
+  useEffect(() => {
+    if (timer.completionPulse <= handledCompletionPulse.current) return
+    handledCompletionPulse.current = timer.completionPulse
+    setAppState('config')
+    showNotice({ title: 'Session complete', message: 'Your timer finished exactly where you asked. The setup is ready whenever you want another round.', tone: 'success' })
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined)
+  }, [showNotice, timer.completionPulse])
 
   useEffect(() => {
     if (timer.runtimeInterruption !== 'exact-alarm-access') return

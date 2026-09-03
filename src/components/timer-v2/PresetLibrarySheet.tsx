@@ -8,6 +8,7 @@ import { soundTitle } from '../../lib/soundLibrary'
 import { useTheme } from '../../theme/ThemeContext'
 import { BottomSheet } from './BottomSheet'
 import { GentleNotice, type AppNotice } from './experience-feedback'
+import { formatDuration } from './run-length-config'
 
 interface Props {
   visible: boolean
@@ -18,12 +19,17 @@ interface Props {
 }
 
 function summary(preset: ProgramPreset): string {
+  const run = preset.program.runPolicy.kind === 'continuous'
+    ? 'continuous'
+    : preset.program.runPolicy.kind === 'cycles'
+      ? `${preset.program.runPolicy.cycleCount} ${preset.program.mode === 'sequence' ? (preset.program.runPolicy.cycleCount === 1 ? 'round' : 'rounds') : (preset.program.runPolicy.cycleCount === 1 ? 'main cycle' : 'main cycles')}`
+      : formatDuration(preset.program.runPolicy.durationSeconds)
   if (preset.program.mode === 'sequence') {
     const total = preset.program.steps.reduce((sum, step) => sum + step.durationMinutes, 0)
-    return `${preset.program.steps.length} steps · ${total} min cycle`
+    return `${preset.program.steps.length} steps · ${total} min cycle · ${run}`
   }
   const cueCount = preset.program.tracks.reduce((count, track) => count + (track.enabled ? track.selectedOffsetsMinutes.length : 0), 0)
-  return `${preset.program.mainMinutes} min main · ${preset.program.tracks.length} sub-bell${preset.program.tracks.length === 1 ? '' : 's'} · ${cueCount} cues`
+  return `${preset.program.mainMinutes} min main · ${preset.program.tracks.length} sub-bell${preset.program.tracks.length === 1 ? '' : 's'} · ${cueCount} cues · ${run}`
 }
 
 export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedback }: Props) {
@@ -100,8 +106,14 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedba
 function PresetDetails({ preset }: { preset: ProgramPreset }) {
   const { tokens } = useTheme()
   const program = preset.program
-  if (program.mode === 'sequence') return <View style={[styles.details, { borderColor: tokens.border }]}>{program.steps.map((step, index) => <Text key={step.id} style={[styles.detailLine, { color: tokens.textMuted }]}>{index + 1}. {step.label} · {step.durationMinutes}m · {soundTitle(step.sound)} · {Math.round(step.volume * 100)}%</Text>)}</View>
+  const run = program.runPolicy.kind === 'continuous'
+    ? 'Continuous'
+    : program.runPolicy.kind === 'cycles'
+      ? `${program.runPolicy.cycleCount} ${program.mode === 'sequence' ? (program.runPolicy.cycleCount === 1 ? 'round' : 'rounds') : (program.runPolicy.cycleCount === 1 ? 'main cycle' : 'main cycles')}`
+      : formatDuration(program.runPolicy.durationSeconds)
+  if (program.mode === 'sequence') return <View style={[styles.details, { borderColor: tokens.border }]}><Text style={[styles.detailLine, { color: tokens.textMuted }]}>Run · {run}</Text>{program.steps.map((step, index) => <Text key={step.id} style={[styles.detailLine, { color: tokens.textMuted }]}>{index + 1}. {step.label} · {step.durationMinutes}m · {soundTitle(step.sound)} · {Math.round(step.volume * 100)}%</Text>)}</View>
   return <View style={[styles.details, { borderColor: tokens.border }]}>
+    <Text style={[styles.detailLine, { color: tokens.textMuted }]}>Run · {run}</Text>
     <Text style={[styles.detailLine, { color: tokens.textMuted }]}>Main · {program.mainMinutes}m · {soundTitle(program.mainCue.sound)} · {Math.round(program.mainCue.volume * 100)}%</Text>
     <Text style={[styles.detailLine, { color: tokens.textMuted }]}>Timing · {program.alignment.kind === 'elapsed' ? 'starts when timer starts' : `aligned to :${String(program.alignment.offsetMinutes).padStart(2, '0')} local time`}</Text>
     {program.tracks.map((track, index) => <Text key={track.id} style={[styles.detailLine, { color: tokens.textMuted }]}>{index + 1}. {track.enabled ? `${track.cadenceMinutes}m · ${track.selectedOffsetsMinutes.join(', ') || 'no cues'}` : 'Off'} · {soundTitle(track.sound)} · {Math.round(track.volume * 100)}%</Text>)}

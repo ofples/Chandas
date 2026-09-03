@@ -29,6 +29,7 @@ export function ScheduleConfig({ value, onChange }: Props) {
   const reducedMotion = useReducedMotion()
   const [editingId, setEditingId] = useState<string | null>(null)
   const [timePicker, setTimePicker] = useState<{ id: string; edge: 'start' | 'end' } | null>(null)
+  const activeCount = value.weeklyWindows.filter(window => window.enabled && (window.days & 0b1111111) !== 0).length
   const patchWindow = (id: string, patch: Partial<WeeklyAvailabilityWindow>) => onChange({ ...value, weeklyWindows: value.weeklyWindows.map(window => window.id === id ? { ...window, ...patch } : window) })
   const removeWindow = (window: WeeklyAvailabilityWindow) => Alert.alert('Remove time range?', `${windowSummary(window)} will be removed.`, [{ text: 'Cancel', style: 'cancel' }, { text: 'Remove', style: 'destructive', onPress: () => { onChange({ ...value, weeklyWindows: value.weeklyWindows.filter(item => item.id !== window.id) }); setEditingId(current => current === window.id ? null : current) } }])
   const addWindow = () => {
@@ -41,7 +42,7 @@ export function ScheduleConfig({ value, onChange }: Props) {
   }
 
   return <View style={styles.section}>
-    <View style={styles.toggleRow}><View style={styles.flex}><Text style={[styles.eyebrow, { color: tokens.textMuted }]}>SCHEDULE</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{value.enabled ? `${value.weeklyWindows.filter(window => window.enabled).length} active time ${value.weeklyWindows.filter(window => window.enabled).length === 1 ? 'range' : 'ranges'}` : 'Available at any time'}</Text></View><Toggle value={value.enabled} onChange={enabled => onChange({ ...value, enabled })} accessibilityLabel="Timer schedule" /></View>
+    <View style={styles.toggleRow}><View style={styles.flex}><Text style={[styles.eyebrow, { color: tokens.textMuted }]}>SCHEDULE</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{value.enabled ? `${activeCount} active time ${activeCount === 1 ? 'range' : 'ranges'}` : 'Available at any time'}</Text></View><Toggle value={value.enabled} onChange={enabled => onChange({ ...value, enabled })} accessibilityLabel="Timer schedule" /></View>
     {value.enabled ? <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 120)} layout={reducedMotion ? undefined : LinearTransition.duration(150)} style={styles.windowList}>
       {value.weeklyWindows.length === 0 ? <View style={[styles.empty, { borderColor: tokens.border, backgroundColor: tokens.surface }]}><Text style={[styles.rowTitle, { color: tokens.text }]}>No active times yet</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>Add a time range, or switch Schedule off to run at any time.</Text></View> : null}
       {value.weeklyWindows.map((window, index) => {

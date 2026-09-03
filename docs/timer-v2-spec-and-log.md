@@ -324,7 +324,8 @@ Run length is configured independently for Pattern and Sequence and is included 
 Bound semantics:
 
 - The run epoch begins when Start is accepted. A snapped Pattern may use an earlier lattice anchor for cue phase, so the session separately persists `startedAt`; duration bounds are always measured from `startedAt`, not from the phase anchor.
-- A cycle bound ends on the first matching natural cycle boundary at or after Start. It includes exactly the requested number of newly completed Pattern main intervals or Sequence rounds.
+- Start derives and persists a fixed `endsAt`. Timezone/DST realignment may move a snapped Pattern's cue phase but never silently lengthens or shortens the promised session; if a former cycle terminal no longer coincides with a realigned main boundary, it becomes the same one-shot synthetic completion event used by a duration bound.
+- A cycle bound ends after the requested number of natural cycle boundaries strictly following Start. It includes exactly the requested number of newly completed Pattern main intervals or Sequence rounds; a snapped boundary coincident with the Start tap is not counted retroactively.
 - A duration bound ends at `startedAt + durationSeconds × 1000`.
 - Schedule windows, Focus state, calls, and user mute gate sound but never extend the deadline.
 - At an exact collision between the deadline and a normal event, the event is marked `completesRun` and is delivered once.
@@ -1792,6 +1793,35 @@ This section is append-only. Every implementation session should record scope, m
 
 **Native/on-device verification still required:** Permission-dialog appearance and return paths, system-settings launch failures, reduced-motion behavior, TalkBack announcements, haptic intensity, and animation performance on representative low/mid/high-tier Android devices.
 
+### 2026-09-03 — Bounded runs and multi-window availability
+
+**Status:** Source implementation complete; native compilation and device verification remain pending.
+
+**Scope:** Continuous/cycle/duration run policies, exact hours/minutes/seconds bounds, weekly schedule unions, calendar-ready absolute overrides, persistence, native scheduling, completion feedback, and preset support.
+
+**Decisions referenced:** D-035–D-039.
+
+**Behavior implemented:**
+
+- Added a calm Run length control to Pattern and Sequence with Continuous, 1–999 cycles/rounds, and 1 second–359:59:59 elapsed-duration choices. Values are preserved when switching choices and saved inside immutable presets.
+- Persisted a distinct session `startedAt` and fixed `endsAt`, allowing clock-snapped cue phase to realign across timezone/DST changes without changing the promised run length.
+- Added exactly-once terminal events. Natural final cues are reused at exact collisions; between-cue deadlines use the Pattern main cue or Sequence final-step cue as a one-shot and never become a looping alarm.
+- Made terminal timing independent of schedules, call auto-mute, Focus, and user mute. Those gates may quiet the completion sound, but cannot delay or extend the run—even when the next active schedule window begins after the deadline.
+- Added multiple weekly active ranges with enable switches, overnight/full-day semantics, overlap-as-union behavior, empty/invalid guidance, and a 16-range native-safe limit.
+- Added normalized absolute `active`/`mute` override records as the future calendar boundary. Android receives resolved records only and has no calendar dependency or permission in this release.
+- Mirrored the policy and terminal timestamps through the Expo bridge and durable Android state; native recovery clears expired bounded sessions instead of replaying stale completion cues.
+- Added bounded-run remaining copy to the running view, completion feedback and return-to-setup behavior, Help content, and run-policy details in Save/load summaries.
+
+**Migration impact:** Existing Pattern/Sequence records without a run policy normalize to Continuous. Existing single active-hours settings migrate to one weekly window. Existing continuous native sessions interpret a missing or zero `endsAt` as unbounded.
+
+**Verification run:** `npx tsc --noEmit`; `npm test -- --run`; `git diff --check`; live React Native Web review at mobile and desktop sizes.
+
+**Results:** Type checking passed, all 46 focused tests passed, whitespace validation passed, bounded controls and multi-range editing rendered correctly, and a short duration run returned to setup automatically.
+
+**Native/on-device verification still required:** Kotlin compilation/tests, exact-alarm delivery at second-level deadlines, process death/reboot recovery, schedule-gated completion, call-active completion, timezone/DST changes during bounded runs, notification copy, and representative Android API/OEM behavior. Local native builds remain prohibited by repository policy.
+
+**Risks or follow-ups:** Calendar selection/sync and permission UX are intentionally deferred; the override contract is present so they can be added without changing timer scheduling. Remote native verification should be completed before release.
+
 ### Implementation-entry template
 
 ```md
@@ -1827,3 +1857,4 @@ This section is append-only. Every implementation session should record scope, m
 | 1.0 | 2026-09-02 | Initial detailed specification, implementation architecture, acceptance criteria, and append-only log structure. |
 | 1.1 | 2026-09-03 | Recorded the completed source implementation, exact-alarm/full-day/DND decisions, final audit remediation, and remaining remote/device release gate. |
 | 1.2 | 2026-09-03 | Added the calm interaction-refinement pass covering motion, loading, empty states, permissions, recoverable feedback, and storage/UI failure handling. |
+| 1.3 | 2026-09-03 | Added bounded cycle/duration runs, exact terminal semantics, multi-window schedules, and the calendar-ready availability override contract. |

@@ -139,8 +139,8 @@ function completionCandidate(program: TimerProgram): TimelineCueCandidate {
 }
 
 /** Returns null once a bounded run has reached or passed its terminal instant. */
-export function nextProgramEvent(program: TimerProgram, anchor: number, now = Date.now(), startedAt = anchor): ScheduledProgramEvent | null {
-  const endAt = runEndAt(program, anchor, startedAt)
+export function nextProgramEvent(program: TimerProgram, anchor: number, now = Date.now(), startedAt = anchor, terminalAt = runEndAt(program, anchor, startedAt)): ScheduledProgramEvent | null {
+  const endAt = terminalAt
   if (endAt !== null && now >= endAt) return null
   const next = program.mode === 'pattern' ? nextPatternEvent(program, anchor, now) : nextSequenceEvent(program, anchor, now)
   if (endAt === null || next.at < endAt) return next
@@ -158,8 +158,8 @@ export function nextProgramEvent(program: TimerProgram, anchor: number, now = Da
   }
 }
 
-export function timelinePosition(program: TimerProgram, anchor: number, now = Date.now(), startedAt = anchor): TimelinePosition {
-  const nextEvent = nextProgramEvent(program, anchor, now, startedAt)
+export function timelinePosition(program: TimerProgram, anchor: number, now = Date.now(), startedAt = anchor, terminalAt = runEndAt(program, anchor, startedAt)): TimelinePosition {
+  const nextEvent = nextProgramEvent(program, anchor, now, startedAt, terminalAt)
   if (program.mode === 'pattern') {
     const duration = program.mainMinutes * MINUTE_MS
     const cycleIndex = cycleIndexAt(now, anchor, duration)

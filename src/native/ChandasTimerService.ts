@@ -33,6 +33,7 @@ export interface NativeTimerConfig {
   timerV2Anchor?: number
   /** Accepted Start time, distinct from a snapped Pattern's phase anchor. */
   timerV2StartedAt?: number
+  timerV2EndsAt?: number
   alarmOnceArmed?: boolean
   mutedUntil?: number
   mutedIterationEndId?: string
@@ -72,6 +73,7 @@ export interface NativeTimerState {
   timerV2Program?: string
   timerV2Anchor?: number
   timerV2StartedAt?: number
+  timerV2EndsAt?: number
   alarmOnceArmed?: boolean
   mutedUntil?: number
   mutedIterationsRemaining?: number
@@ -91,7 +93,7 @@ export interface NativeTimerEvent {
   collision: boolean
   suppressed: boolean
   completesRun?: boolean
-  suppressionReason: 'none' | 'call-active' | 'master-muted' | 'user-mute'
+  suppressionReason: 'none' | 'call-active' | 'master-muted' | 'user-mute' | 'outside-active-hours'
 }
 
 export interface NativeScheduleState {

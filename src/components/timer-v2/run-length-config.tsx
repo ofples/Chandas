@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import Animated, { FadeInDown, FadeOut, LinearTransition, useReducedMotion } from 'react-native-reanimated'
 import type { RunPolicy, TimerMode } from '../../types'
-import { MAX_RUN_CYCLES, MAX_RUN_DURATION_SECONDS, normalizeRunPolicy } from '../../lib/timerV2'
+import { MAX_RUN_CYCLES, MAX_RUN_DURATION_SECONDS } from '../../lib/timerV2'
 import { useTheme } from '../../theme/ThemeContext'
 
 interface Props {
@@ -53,15 +53,15 @@ function DurationFields({ seconds, onChange }: { seconds: number; onChange: (sec
     onChange(total)
   }
   return <View style={styles.durationRow}>
-    <NumberField label="Hours" value={hours} max={359} pad onCommit={value => update(value, minutes, rest)} />
+    <NumberField label="Hours" value={hours} max={359} onCommit={value => update(value, minutes, rest)} />
     <Text style={styles.colon}>:</Text>
-    <NumberField label="Minutes" value={minutes} max={59} pad onCommit={value => update(hours, value, rest)} />
+    <NumberField label="Minutes" value={minutes} max={59} onCommit={value => update(hours, value, rest)} />
     <Text style={styles.colon}>:</Text>
-    <NumberField label="Seconds" value={rest} max={59} pad onCommit={value => update(hours, minutes, value)} />
+    <NumberField label="Seconds" value={rest} max={59} onCommit={value => update(hours, minutes, value)} />
   </View>
 }
 
-function NumberField({ label, value, max, pad = false, onCommit }: { label: string; value: number; max: number; pad?: boolean; onCommit: (value: number) => void }) {
+function NumberField({ label, value, max, onCommit }: { label: string; value: number; max: number; onCommit: (value: number) => void }) {
   const { tokens } = useTheme()
   const [draft, setDraft] = useState(String(value))
   useEffect(() => setDraft(String(value)), [value])
@@ -71,7 +71,7 @@ function NumberField({ label, value, max, pad = false, onCommit }: { label: stri
     onCommit(next)
     setDraft(String(next))
   }
-  return <View style={styles.fieldWrap}><TextInput value={draft} onChangeText={text => setDraft(text.replace(/\D/g, '').slice(0, 3))} onBlur={commit} onSubmitEditing={commit} keyboardType="number-pad" selectTextOnFocus accessibilityLabel={label} style={[styles.field, { color: tokens.text, borderColor: tokens.border, backgroundColor: tokens.surface }]}>{pad ? String(value).padStart(2, '0') : undefined}</TextInput><Text style={[styles.fieldLabel, { color: tokens.textMuted }]}>{label}</Text></View>
+  return <View style={styles.fieldWrap}><TextInput value={draft} onChangeText={text => setDraft(text.replace(/\D/g, '').slice(0, 3))} onBlur={commit} onSubmitEditing={commit} keyboardType="number-pad" selectTextOnFocus accessibilityLabel={label} style={[styles.field, { color: tokens.text, borderColor: tokens.border, backgroundColor: tokens.surface }]} /><Text style={[styles.fieldLabel, { color: tokens.textMuted }]}>{label}</Text></View>
 }
 
 function StepButton({ label, glyph, disabled, onPress }: { label: string; glyph: string; disabled: boolean; onPress: () => void }) {
@@ -85,10 +85,6 @@ export function formatDuration(seconds: number): string {
   const minutes = Math.floor(normalized % 3_600 / 60)
   const rest = normalized % 60
   return hours > 0 ? `${hours}:${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}` : `${minutes}:${String(rest).padStart(2, '0')}`
-}
-
-export function patchRunPolicy(value: RunPolicy, patch: Partial<RunPolicy>): RunPolicy {
-  return normalizeRunPolicy({ ...value, ...patch })
 }
 
 const styles = StyleSheet.create({

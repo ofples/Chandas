@@ -17,8 +17,8 @@ import { ReorderHandle } from '../components/timer-v2/ReorderHandle'
 import { SoundPickerSheet } from '../components/timer-v2/SoundPickerSheet'
 import { TimerHelpSheet } from '../components/timer-v2/TimerHelpSheet'
 import { SoundName } from '../components/timer-v2/SoundName'
-import { RunLengthConfig } from '../components/timer-v2/RunLengthConfig'
-import { ScheduleConfig } from '../components/timer-v2/ScheduleConfig'
+import { RunLengthConfig } from '../components/timer-v2/run-length-config'
+import { ScheduleConfig } from '../components/timer-v2/schedule-config'
 import {
   addPatternTrack, addSequenceStep, chooseProgramMode, duplicateSequenceStep, patchPatternTrack, patchSequenceStep,
   removePatternTrack, removeSequenceStep, reorderPatternTracks, reorderSequenceSteps,

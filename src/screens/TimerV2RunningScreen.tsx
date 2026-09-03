@@ -18,7 +18,7 @@ import { soundTitle } from '../lib/soundLibrary'
 import { useTheme } from '../theme/ThemeContext'
 import { ChandasTimerService } from '../native/ChandasTimerService'
 import { GentleNotice } from '../components/timer-v2/experience-feedback'
-import { formatDuration } from '../components/timer-v2/RunLengthConfig'
+import { formatDuration } from '../components/timer-v2/run-length-config'
 
 interface Props {
   program: TimerProgram
@@ -70,7 +70,12 @@ export function TimerV2RunningScreen(props: Props) {
   const runtimeMuted = props.mute.mutedUntil > Date.now() || Boolean(props.mute.iteration)
   const muted = props.masterVolume <= 0 || runtimeMuted
   const resumeDate = new Date(props.activeHoursResumeAt)
-  const mainLabel = props.activeHoursPaused ? `${String(resumeDate.getHours()).padStart(2, '0')}:${String(resumeDate.getMinutes()).padStart(2, '0')}` : props.mainCountdown
+  const endsBeforeResume = props.activeHoursPaused && props.runEndsAt > 0 && props.runEndsAt <= props.activeHoursResumeAt
+  const mainLabel = endsBeforeResume
+    ? formatDuration(Math.ceil(props.runRemainingMs / 1_000))
+    : props.activeHoursPaused
+      ? `${String(resumeDate.getHours()).padStart(2, '0')}:${String(resumeDate.getMinutes()).padStart(2, '0')}`
+      : props.mainCountdown
   const sequenceIndex = props.program.mode === 'sequence' ? props.position?.currentStepIndex ?? 0 : 0
   const currentStep = props.program.mode === 'sequence' ? props.program.steps[sequenceIndex] : null
   const nextStep = props.program.mode === 'sequence' ? props.program.steps[(sequenceIndex + 1) % props.program.steps.length] : null
@@ -104,7 +109,7 @@ export function TimerV2RunningScreen(props: Props) {
         <TimerRings size={size} progress={props.progress} position={props.position} program={props.program} muted={muted} eventPulse={props.eventPulse} />
         <View style={[styles.center, { pointerEvents: 'none' }]}>
           <Text style={[styles.mainTime, { color: tokens.text }]} adjustsFontSizeToFit numberOfLines={1}>{mainLabel}</Text>
-          <Text style={[styles.mainCaption, { color: tokens.textMuted }]}>{props.activeHoursPaused ? 'Resumes' : props.program.mode === 'pattern' ? 'until main gong' : `step ${sequenceIndex + 1} of ${props.program.steps.length}`}</Text>
+          <Text style={[styles.mainCaption, { color: tokens.textMuted }]}>{endsBeforeResume ? 'session ends quietly' : props.activeHoursPaused ? 'Resumes' : props.program.mode === 'pattern' ? 'until main gong' : `step ${sequenceIndex + 1} of ${props.program.steps.length}`}</Text>
           {!props.activeHoursPaused && props.program.mode === 'pattern' && props.position?.nextEvent?.boundary !== 'pattern-main' ? <Animated.View key={props.nextCueLabel} entering={FadeIn.duration(reducedMotion ? 80 : 180)} style={styles.nextCue}><Text numberOfLines={1} style={[styles.nextCueName, { color: tokens.accent }]}>{props.nextCueLabel}</Text><Text style={[styles.nextCueTime, { color: tokens.textMuted }]}>{props.nextCueCountdown}</Text></Animated.View> : null}
           {!props.activeHoursPaused && props.program.mode === 'sequence' && nextStep ? <Animated.View key={nextStep.id} entering={FadeIn.duration(reducedMotion ? 80 : 180)} style={styles.nextCue}><Text style={[styles.nextLabel, { color: tokens.textMuted }]}>NEXT</Text><Text numberOfLines={1} style={[styles.nextCueName, { color: tokens.accent }]}>{nextStep.label} · {nextStep.durationMinutes}m</Text></Animated.View> : null}
         </View>

@@ -151,6 +151,13 @@ describe('timer v2 audio gate', () => {
     expect(result.nextAlarmBehavior).toBe('locked')
   })
 
+  it('keeps bounded Pattern completion one-shot even when Alarm is locked', () => {
+    const event = { ...nextPatternEvent(pattern(), 0, 29 * minute), completesRun: true }
+    const result = gateProgramAudio({ event, now: event.at, masterVolume: 1, mute: { mutedUntil: 0 }, alarmBehavior: 'locked', callActive: false })
+    expect(result.disposition).toBe('one-shot')
+    expect(result.nextAlarmBehavior).toBe('off')
+  })
+
   it('suppresses an ordinary cue during a call without consuming runtime state', () => {
     const event = nextSequenceEvent(sequence(), 0, 0)
     const mute = { mutedUntil: event.at + minute }
@@ -288,6 +295,14 @@ describe('bounded runs and availability policies', () => {
     const event = nextProgramEvent(program, 0, 29 * minute, 0)
     expect(event).toMatchObject({ at: 30 * minute, boundary: 'pattern-main', completesRun: true })
     expect(event?.candidates).toHaveLength(1)
+  })
+
+  it('keeps the promised terminal instant when a snapped phase realigns', () => {
+    const program = { ...pattern(), runPolicy: { kind: 'cycles', cycleCount: 2, durationSeconds: 30 * 60 } as const }
+    const startedAt = 12 * minute
+    const fixedEnd = runEndAt(program, 0, startedAt)!
+    const event = nextProgramEvent(program, 7 * minute, fixedEnd - 1, startedAt, fixedEnd)
+    expect(event).toMatchObject({ at: fixedEnd, boundary: 'run-complete', completesRun: true })
   })
 
   it('treats multiple weekly windows as a union and finds the next one', () => {
@@ -433,6 +448,7 @@ describe('timer v2 validation and presets', () => {
     })
     expect(malformed.mainMinutes).toBe(30)
     expect(malformed.mainCue.volume).toBe(0)
+    expect(normalizePatternProgram({ ...pattern(), runPolicy: { kind: 'cycles', cycleCount: 50_000, durationSeconds: 0 } }).runPolicy).toEqual({ kind: 'cycles', cycleCount: 999, durationSeconds: 1 })
     expect(malformed.tracks).toHaveLength(5)
     expect(malformed.tracks[0].selectedOffsetsMinutes).toEqual([3])
     expect(malformed.tracks[0].volume).toBe(1)
