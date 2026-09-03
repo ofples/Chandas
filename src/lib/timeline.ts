@@ -13,6 +13,7 @@ export interface ScheduledProgramEvent {
   at: number
   logicalId: string
   cycleIndex: number
+  boundary: 'pattern-main' | 'pattern-offset' | 'sequence-step' | 'sequence-cycle'
   candidates: TimelineCueCandidate[]
   winner: TimelineCueCandidate
   collision: boolean
@@ -73,7 +74,15 @@ export function nextPatternEvent(program: PatternProgram, anchor: number, now = 
       const candidates = candidatesByTime.get(at)!
       const winner = candidates[0].kind === 'pattern-main' ? candidates[0] : winnerForCandidates(candidates)
       const boundary = winner.kind === 'pattern-main' ? 'main' : `offset:${Math.round((at - cycleStart) / MINUTE_MS)}`
-      return { at, logicalId: logicalId('pattern', anchor, cycleIndex, boundary), cycleIndex, candidates, winner, collision: candidates.length > 1 }
+      return {
+        at,
+        logicalId: logicalId('pattern', anchor, cycleIndex, boundary),
+        cycleIndex,
+        boundary: winner.kind === 'pattern-main' ? 'pattern-main' : 'pattern-offset',
+        candidates,
+        winner,
+        collision: candidates.length > 1,
+      }
     }
     cycleIndex += 1
   }
@@ -95,6 +104,7 @@ export function nextSequenceEvent(program: SequenceProgram, anchor: number, now 
         at,
         logicalId: logicalId('sequence', anchor, cycleIndex, `step:${stepIndex}`),
         cycleIndex,
+        boundary: stepIndex === program.steps.length - 1 ? 'sequence-cycle' : 'sequence-step',
         candidates: [winner],
         winner,
         collision: false,

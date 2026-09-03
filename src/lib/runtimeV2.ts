@@ -13,9 +13,11 @@ export interface RuntimeMuteState {
 }
 
 export type AudioGateReason = 'none' | 'master-muted' | 'timed-mute' | 'iteration-mute' | 'call-active'
+export type AudioDisposition = 'suppressed' | 'one-shot' | 'continuous-alarm'
 
 export interface AudioGateResult {
   shouldPlay: boolean
+  disposition: AudioDisposition
   reason: AudioGateReason
   nextMute: RuntimeMuteState
   nextAlarmBehavior: AlarmBehavior
@@ -67,20 +69,20 @@ export function gateProgramAudio(options: {
   const normalizedMute: RuntimeMuteState = mute.mutedUntil > 0 && now >= mute.mutedUntil
     ? { mutedUntil: 0, iteration: mute.iteration }
     : mute
-  const isMain = event.winner.kind === 'pattern-main'
+  const isMain = event.boundary === 'pattern-main'
   const consumesOnce = isMain && alarmBehavior === 'once'
   const consumedAlarmBehavior: AlarmBehavior = consumesOnce ? 'off' : alarmBehavior
 
   // A call is a temporary external gate. It must not consume or clear the
   // user's timed mute or alarm state, and the missed event is never replayed.
   if (callActive) {
-    return { shouldPlay: false, reason: 'call-active', nextMute: normalizedMute, nextAlarmBehavior: alarmBehavior, consumeAlarmOnce: false }
+    return { shouldPlay: false, disposition: 'suppressed', reason: 'call-active', nextMute: normalizedMute, nextAlarmBehavior: alarmBehavior, consumeAlarmOnce: false }
   }
   if (masterVolume <= 0) {
-    return { shouldPlay: false, reason: 'master-muted', nextMute: normalizedMute, nextAlarmBehavior: alarmBehavior, consumeAlarmOnce: false }
+    return { shouldPlay: false, disposition: 'suppressed', reason: 'master-muted', nextMute: normalizedMute, nextAlarmBehavior: alarmBehavior, consumeAlarmOnce: false }
   }
   if (normalizedMute.mutedUntil > now) {
-    return { shouldPlay: false, reason: 'timed-mute', nextMute: normalizedMute, nextAlarmBehavior: alarmBehavior, consumeAlarmOnce: false }
+    return { shouldPlay: false, disposition: 'suppressed', reason: 'timed-mute', nextMute: normalizedMute, nextAlarmBehavior: alarmBehavior, consumeAlarmOnce: false }
   }
 
   const iteration = normalizedMute.iteration
@@ -88,9 +90,16 @@ export function gateProgramAudio(options: {
     if (event.logicalId === iteration.endsAtLogicalId || event.at > iteration.endsAt) {
       // At the requested final boundary the cue is audible. If process delay
       // moved past it, clear safely and resume only at this future event.
-      return { shouldPlay: true, reason: 'none', nextMute: { mutedUntil: 0 }, nextAlarmBehavior: consumedAlarmBehavior, consumeAlarmOnce: consumesOnce }
+      return { shouldPlay: true, disposition: isMain && alarmBehavior !== 'off' ? 'continuous-alarm' : 'one-shot', reason: 'none', nextMute: { mutedUntil: 0 }, nextAlarmBehavior: consumedAlarmBehavior, consumeAlarmOnce: consumesOnce }
     }
-    return { shouldPlay: false, reason: 'iteration-mute', nextMute: normalizedMute, nextAlarmBehavior: alarmBehavior, consumeAlarmOnce: false }
+    return { shouldPlay: false, disposition: 'suppressed', reason: 'iteration-mute', nextMute: normalizedMute, nextAlarmBehavior: alarmBehavior, consumeAlarmOnce: false }
   }
-  return { shouldPlay: true, reason: 'none', nextMute: normalizedMute, nextAlarmBehavior: consumedAlarmBehavior, consumeAlarmOnce: consumesOnce }
+  return {
+    shouldPlay: true,
+    disposition: isMain && alarmBehavior !== 'off' ? 'continuous-alarm' : 'one-shot',
+    reason: 'none',
+    nextMute: normalizedMute,
+    nextAlarmBehavior: consumedAlarmBehavior,
+    consumeAlarmOnce: consumesOnce,
+  }
 }

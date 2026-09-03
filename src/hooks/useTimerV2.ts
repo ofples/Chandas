@@ -187,8 +187,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     updateRuntimeState(gate.nextMute, gate.nextAlarmBehavior)
     if (!gate.shouldPlay) return
 
-    const shouldAlarm = event.winner.kind === 'pattern-main' && gate.nextAlarmBehavior !== 'off'
-    if (shouldAlarm) {
+    if (gate.disposition === 'continuous-alarm') {
       dismissAlarm()
       const player = createAudioPlayer(ALARM_SOURCE)
       player.loop = true

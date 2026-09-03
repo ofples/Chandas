@@ -23,6 +23,7 @@ export const MAX_DURATION_MINUTES = 240
 
 const builtIn = (id: BuiltInSoundId): SoundRef => ({ kind: 'builtin', id })
 const defaultCue = (id: BuiltInSoundId): CueSettings => ({ sound: builtIn(id), volume: 1 })
+const BUILT_IN_SOUND_IDS = new Set<BuiltInSoundId>(['temple-gong', 'clear-bell', 'soft-bowl', 'wood-block', 'bright-chime'])
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
 const whole = (value: unknown, fallback: number) => {
@@ -120,9 +121,28 @@ export function defaultTimerV2State(): TimerV2State {
 }
 
 export function normalizeCue(value: Partial<CueSettings> | undefined, fallback: CueSettings): CueSettings {
-  const sound = value?.sound
-  const isSoundRef = sound && typeof sound === 'object' && 'kind' in sound
-  return { sound: isSoundRef ? sound : fallback.sound, volume: clampVolume(value?.volume, fallback.volume) }
+  return { sound: normalizeSoundRef(value?.sound, fallback.sound), volume: clampVolume(value?.volume, fallback.volume) }
+}
+
+export function normalizeSoundRef(value: unknown, fallback: SoundRef): SoundRef {
+  if (!value || typeof value !== 'object') return fallback
+  const candidate = value as Record<string, unknown>
+  if (candidate.kind === 'builtin' && typeof candidate.id === 'string' && BUILT_IN_SOUND_IDS.has(candidate.id as BuiltInSoundId)) {
+    return { kind: 'builtin', id: candidate.id as BuiltInSoundId }
+  }
+  if (candidate.kind === 'android' && typeof candidate.uri === 'string' && candidate.uri.length > 0 && typeof candidate.title === 'string') {
+    const ringtoneType = candidate.ringtoneType === 'alarm' || candidate.ringtoneType === 'notification' ? candidate.ringtoneType : 'unknown'
+    return { kind: 'android', uri: candidate.uri, title: normalizeLabel(candidate.title, 'Android sound'), ringtoneType }
+  }
+  if (candidate.kind === 'document' && typeof candidate.uri === 'string' && candidate.uri.length > 0 && typeof candidate.title === 'string') {
+    return {
+      kind: 'document',
+      uri: candidate.uri,
+      title: normalizeLabel(candidate.title, 'Audio file'),
+      ...(typeof candidate.mimeType === 'string' && candidate.mimeType.length > 0 ? { mimeType: candidate.mimeType } : {}),
+    }
+  }
+  return fallback
 }
 
 export function normalizeTrack(track: Partial<PatternTrack>, mainMinutes: number): PatternTrack {

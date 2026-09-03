@@ -39,7 +39,7 @@ function withWorkingProgram(state: TimerV2State, mode: TimerMode, program: Timer
 
 export function chooseProgramMode(state: TimerV2State, mode: TimerMode): TimerV2State {
   if (state.workingPrograms.selectedMode === mode) return state
-  return { ...state, workingPrograms: { ...state.workingPrograms, selectedMode: mode } }
+  return { ...state, workingPrograms: { ...state.workingPrograms, selectedMode: mode, sourcePreset: undefined } }
 }
 
 export function updatePattern(state: TimerV2State, update: (program: PatternProgram) => PatternProgram): TimerV2State {
@@ -196,5 +196,12 @@ export function loadProgramPreset(state: TimerV2State, presetId: string): TimerV
 }
 
 export function deleteProgramPreset(state: TimerV2State, presetId: string): TimerV2State {
-  return { ...state, presets: state.presets.filter(preset => preset.id !== presetId) }
+  const sourcePreset = state.workingPrograms.sourcePreset
+  return {
+    ...state,
+    presets: state.presets.filter(preset => preset.id !== presetId),
+    workingPrograms: sourcePreset?.id === presetId
+      ? { ...state.workingPrograms, sourcePreset: { ...sourcePreset, deleted: true } }
+      : state.workingPrograms,
+  }
 }
