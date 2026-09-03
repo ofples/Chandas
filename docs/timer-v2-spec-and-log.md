@@ -1423,6 +1423,34 @@ This section is append-only. Every implementation session should record scope, m
 
 **Known gaps:** Reorder controls are currently accessible move-earlier/move-later controls rather than a true continuous drag gesture; device sound selection, Android exact alarms, DND reconciliation and call-state observation are the remaining native integration slice.
 
+### 2026-09-03 — Android V2 exact-alarm scheduler
+
+**Status:** Implemented; requires device/native-build verification.
+
+**Files changed:**
+
+- `modules/chandas-timer-service/android/src/main/java/expo/modules/chandastimerservice/TimerV2Timeline.kt`
+- `modules/chandas-timer-service/android/src/main/java/expo/modules/chandastimerservice/TimerScheduler.kt`
+- `modules/chandas-timer-service/android/src/main/java/expo/modules/chandastimerservice/TimerStateStore.kt`
+- `modules/chandas-timer-service/android/src/main/java/expo/modules/chandastimerservice/CallState.kt`
+- Android module bridge/manifest and `app.json`
+- `src/hooks/useTimerV2.ts`, `src/native/ChandasTimerService.ts`
+
+**Behavior implemented:**
+
+- Android parses the persisted V2 program and mirrors JS Pattern/Sequence event selection, including ordered-track collision precedence, cue volume and a single future exact-alarm target.
+- The V2 hook uses the Android scheduler when available; JS retains the web/foreground fallback only.
+- Normal Android timer cues are automatically gated during an active call when the user grants `READ_PHONE_STATE`; missed cues are not replayed and no mute/alarm state is consumed.
+- Native timed mute and V2 cycle mute retain the requested logical end boundary, so that boundary is audible and clears mute. Alarm Once now also remains armed if a cue is muted.
+- Local-clock Pattern anchors are recomputed in the Android restore path after boot, wall-clock and timezone broadcasts.
+
+**Verification:**
+
+- `npx tsc --noEmit` completed successfully after the bridge/hook changes.
+- Native compilation was deliberately not run: repository policy forbids local native builds.
+
+**Known gaps:** The Android system picker for user-owned notification/alarm/document sounds and a continuous drag reorder gesture remain to be added. V2 Android code needs a remote/device test pass before release.
+
 ### Implementation-entry template
 
 ```md

@@ -48,7 +48,11 @@ object TimerScheduler {
   }
 
   fun restore(context: Context, resetRinging: Boolean) {
-    val config = TimerStateStore.load(context) ?: return
+    val stored = TimerStateStore.load(context) ?: return
+    val config = stored.timerV2Program?.let { program ->
+      TimerV2Timeline.alignedAnchor(program, System.currentTimeMillis())?.let { anchor -> stored.copy(timerV2Anchor = anchor) } ?: stored
+    } ?: stored
+    if (config !== stored) TimerStateStore.save(context, config)
     if (resetRinging) {
       TimerStateStore.setRinging(context, false)
       TimerStateStore.setAlarmVisible(context, false)
@@ -64,14 +68,11 @@ object TimerScheduler {
     val active = config ?: return
 
     val now = System.currentTimeMillis()
+    val v2Event = active.timerV2Program?.let { TimerV2Timeline.next(it, active.timerV2Anchor, now) }
     val nextMain = TimerMath.nextTick(now, active.mainMs, active.phase)
-    val nextSub = if (active.subEnabled && active.subMs > 0L) {
-      TimerMath.nextSubTick(now, active.mainMs, active.subMs, active.phase)
-    } else {
-      Long.MAX_VALUE
-    }
-    var triggerAt = min(nextMain, nextSub)
-    var type = if (triggerAt == nextMain) TimerEventType.MAIN else TimerEventType.SUB
+    val nextSub = if (active.subEnabled && active.subMs > 0L) TimerMath.nextSubTick(now, active.mainMs, active.subMs, active.phase) else Long.MAX_VALUE
+    var triggerAt = v2Event?.at ?: min(nextMain, nextSub)
+    var type = if (v2Event != null) TimerEventType.V2 else if (triggerAt == nextMain) TimerEventType.MAIN else TimerEventType.SUB
     if (!ActiveHours.isActive(active, now) || !ActiveHours.isActive(active, triggerAt)) {
       triggerAt = ActiveHours.nextStart(active, now)
       type = TimerEventType.ACTIVE_START
@@ -128,7 +129,15 @@ object TimerScheduler {
       onFinished()
       return
     }
-    val alarmOnce = type == TimerEventType.MAIN && TimerStateStore.consumeAlarmOnce(context)
+    if (type == TimerEventType.V2) {
+      handleV2Triggered(context, config, triggerAt, onFinished)
+      return
+    }
+    if (CallState.isActive(context)) {
+      scheduleNext(context, config)
+      onFinished()
+      return
+    }
     val temporarilyMuted = TimerStateStore.consumeMuteForEvent(context, type, System.currentTimeMillis())
     val muted = config.volume <= 0f || temporarilyMuted
 
@@ -138,6 +147,8 @@ object TimerScheduler {
       onFinished()
       return
     }
+
+    val alarmOnce = type == TimerEventType.MAIN && TimerStateStore.consumeAlarmOnce(context)
 
     if (type == TimerEventType.MAIN && (config.alarmModeEnabled || alarmOnce)) {
       scheduleNext(context, config)
@@ -162,6 +173,49 @@ object TimerScheduler {
       FocusModeController.shouldUseAlarmAudio(context, config),
       onFinished,
     )
+  }
+
+  private fun handleV2Triggered(context: Context, config: TimerConfig, triggerAt: Long, onFinished: () -> Unit) {
+    val event = config.timerV2Program?.let { TimerV2Timeline.next(it, config.timerV2Anchor, triggerAt - 1L) }
+    if (event == null || event.at != triggerAt) {
+      scheduleNext(context, config)
+      onFinished()
+      return
+    }
+    val now = System.currentTimeMillis()
+    // Phone calls are an external, transient mute gate. They do not consume
+    // one-shot alarm or timed/cycle mute state, and no missed cue is replayed.
+    if (CallState.isActive(context)) {
+      scheduleNext(context, config)
+      onFinished()
+      return
+    }
+    val temporarilyMuted = TimerStateStore.consumeMuteForEvent(context, TimerEventType.V2, now, event.logicalId)
+    val muted = config.volume <= 0f || temporarilyMuted
+    TimerNotifications.postEvent(context, config, TimerEventType.V2)
+    if (muted) {
+      scheduleNext(context, config)
+      onFinished()
+      return
+    }
+    val alarmOnce = event.mainBoundary && TimerStateStore.consumeAlarmOnce(context)
+    if (event.mainBoundary && (config.alarmModeEnabled || alarmOnce)) {
+      scheduleNext(context, config)
+      TimerStateStore.setRinging(context, true)
+      TimerStateStore.setAlarmVisible(context, true)
+      AlarmStateRegistry.notify(true)
+      TimerNotifications.cancelRunning(context)
+      ContextCompat.startForegroundService(context, Intent(context, ChandasAlarmService::class.java).setAction(ChandasAlarmService.ACTION_START))
+      onFinished()
+      return
+    }
+    scheduleNext(context, config)
+    TimerSoundPlayer.play(context, resourceForV2Sound(event.soundId), (config.volume * event.volume).coerceIn(0f, 1f), FocusModeController.shouldUseAlarmAudio(context, config), onFinished)
+  }
+
+  private fun resourceForV2Sound(soundId: String): Int = when (soundId) {
+    "temple-gong" -> R.raw.gong
+    else -> R.raw.bell
   }
 
   fun cancelScheduledEvent(context: Context) {

@@ -22,6 +22,10 @@ export interface NativeTimerConfig {
   activeHoursEnd: number
   activeHoursDays: number
   alarmDurationSeconds: number
+  /** Serialized V2 Pattern/Sequence program. Native keeps this opaque until scheduling. */
+  timerV2Program?: string
+  /** Absolute V2 timeline anchor in epoch milliseconds. */
+  timerV2Anchor?: number
 }
 
 interface AlarmStateEvent {
@@ -50,6 +54,8 @@ export interface NativeTimerState {
   activeHoursEnd?: number
   activeHoursDays?: number
   alarmDurationSeconds?: number
+  timerV2Program?: string
+  timerV2Anchor?: number
   alarmOnceArmed?: boolean
   mutedUntil?: number
   mutedIterationsRemaining?: number

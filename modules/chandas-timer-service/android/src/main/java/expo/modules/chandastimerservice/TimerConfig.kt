@@ -14,11 +14,15 @@ data class TimerConfig(
   val activeHoursEnd: Int,
   val activeHoursDays: Int,
   val alarmDurationSeconds: Int,
+  /** Serialized V2 Pattern/Sequence program. Null keeps the legacy scheduler path. */
+  val timerV2Program: String? = null,
+  val timerV2Anchor: Long = 0L,
 )
 
 enum class TimerEventType(val value: String) {
   MAIN("main"),
   SUB("sub"),
+  V2("v2"),
   ACTIVE_START("activeStart");
 
   companion object {

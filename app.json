@@ -28,6 +28,7 @@
         "USE_EXACT_ALARM",
         "RECEIVE_BOOT_COMPLETED",
         "ACCESS_NOTIFICATION_POLICY",
+        "READ_PHONE_STATE",
         "android.permission.MODIFY_AUDIO_SETTINGS"
       ],
       "blockedPermissions": [

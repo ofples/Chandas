@@ -26,6 +26,8 @@ class TimerConfigRecord : Record {
   @Field var activeHoursEnd: Int? = null
   @Field var activeHoursDays: Int? = null
   @Field var alarmDurationSeconds: Int? = null
+  @Field var timerV2Program: String? = null
+  @Field var timerV2Anchor: Long? = null
 }
 
 class ChandasTimerServiceModule : Module() {
@@ -106,6 +108,8 @@ class ChandasTimerServiceModule : Module() {
           "activeHoursEnd" to config.activeHoursEnd,
           "activeHoursDays" to config.activeHoursDays,
           "alarmDurationSeconds" to config.alarmDurationSeconds,
+          "timerV2Program" to config.timerV2Program,
+          "timerV2Anchor" to config.timerV2Anchor,
           "alarmOnceArmed" to controls.alarmOnceArmed,
           "mutedUntil" to controls.mutedUntil,
           "mutedIterationsRemaining" to controls.mutedIterationsRemaining,
@@ -241,6 +245,8 @@ class ChandasTimerServiceModule : Module() {
         .let { if (it == 0) 0x7f else it },
       alarmDurationSeconds = (record.alarmDurationSeconds ?: previous?.alarmDurationSeconds ?: 60)
         .coerceIn(5, 3_600),
+      timerV2Program = record.timerV2Program ?: previous?.timerV2Program,
+      timerV2Anchor = record.timerV2Anchor ?: previous?.timerV2Anchor ?: 0L,
     )
   }
 

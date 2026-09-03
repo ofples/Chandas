@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AppState } from 'react-native'
+import { AppState, PermissionsAndroid, Platform } from 'react-native'
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake'
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio'
 import type { AlarmBehavior, AppTimerSettings, TimerProgram } from '../types'
@@ -9,6 +9,7 @@ import { sourceForSound, soundTitle } from '../lib/soundLibrary'
 import { nextProgramEvent, timelinePosition, type TimelinePosition } from '../lib/timeline'
 import { emptyRuntimeMute, gateProgramAudio, iterationMuteFor, type RuntimeMuteState } from '../lib/runtimeV2'
 import { clearTimerV2Session, saveTimerV2Session } from '../lib/storage'
+import { ChandasTimerService, isNativeServiceAvailable, type NativeTimerConfig } from '../native/ChandasTimerService'
 
 const KEEP_AWAKE_TAG = 'chandas-running-v2'
 const ALARM_SOURCE = require('../../assets/sounds/alarm.mp3')
@@ -64,6 +65,37 @@ function displayFor(program: TimerProgram, settings: AppTimerSettings, anchor: n
     activeHoursPaused: false,
     activeHoursResumeAt: 0,
   }
+}
+
+function nativeConfigFor(program: TimerProgram, settings: AppTimerSettings, anchor: number, alarmModeEnabled = false): NativeTimerConfig {
+  const mainMs = program.mode === 'pattern'
+    ? program.mainMinutes * 60_000
+    : program.steps.reduce((sum, step) => sum + step.durationMinutes * 60_000, 0)
+  return {
+    mainMs,
+    subMs: 60_000,
+    phase: 0,
+    subEnabled: false,
+    volume: settings.masterVolume,
+    notificationsEnabled: settings.notificationsEnabled,
+    focusModeEnabled: settings.focusAutomationEnabled,
+    alarmModeEnabled,
+    activeHoursEnabled: settings.activeHoursEnabled,
+    activeHoursStart: settings.activeHoursStart,
+    activeHoursEnd: settings.activeHoursEnd,
+    activeHoursDays: settings.activeHoursDays,
+    alarmDurationSeconds: settings.alarmDurationSeconds,
+    timerV2Program: JSON.stringify(program),
+    timerV2Anchor: anchor,
+  }
+}
+
+function alignedAnchorForStart(program: TimerProgram, now: number): number {
+  if (program.mode !== 'pattern' || program.alignment.kind !== 'local-clock') return now
+  const date = new Date(now)
+  const minuteOfDay = date.getHours() * 60 + date.getMinutes()
+  const elapsedMinutes = ((minuteOfDay - program.alignment.offsetMinutes) % program.mainMinutes + program.mainMinutes) % program.mainMinutes
+  return now - elapsedMinutes * 60_000 - date.getSeconds() * 1_000 - date.getMilliseconds()
 }
 
 /**
@@ -129,6 +161,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
   }, [persistSession])
 
   const dismissAlarm = useCallback(() => {
+    if (isNativeServiceAvailable) ChandasTimerService.stopAlarm()
     if (alarmStopRef.current) clearTimeout(alarmStopRef.current)
     alarmStopRef.current = null
     alarmPlayerRef.current?.remove()
@@ -198,17 +231,26 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
 
   const start = useCallback(async (restore?: number | { anchor: number; mute: RuntimeMuteState; alarmBehavior: AlarmBehavior }) => {
     const restored = typeof restore === 'number' ? undefined : restore
-    const anchor = typeof restore === 'number' ? restore : restored?.anchor ?? Date.now()
+    const anchor = typeof restore === 'number' ? restore : restored?.anchor ?? alignedAnchorForStart(programRef.current, Date.now())
     anchorRef.current = anchor
     if (restored) updateRuntimeState(restored.mute, restored.alarmBehavior)
     runningRef.current = true
     setIsRunning(true)
+    if (Platform.OS === 'android') {
+      // The permission is only used to suppress Chandas sounds during a live
+      // phone call. Refusal leaves the timer functional without call awareness.
+      await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE).catch(() => undefined)
+    }
     await setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: false })
     await activateKeepAwakeAsync(KEEP_AWAKE_TAG)
     refreshDisplay()
     rafRef.current = requestAnimationFrame(rafLoop)
     persistSession(restored?.mute ?? muteRef.current, restored?.alarmBehavior ?? alarmBehaviorRef.current)
-    scheduleNext()
+    if (isNativeServiceAvailable) {
+      ChandasTimerService.start(nativeConfigFor(programRef.current, settingsRef.current, anchor, alarmBehaviorRef.current === 'locked'))
+    } else {
+      scheduleNext()
+    }
   }, [persistSession, rafLoop, refreshDisplay, scheduleNext, updateRuntimeState])
 
   const stop = useCallback(() => {
@@ -222,6 +264,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     playerRef.current?.remove()
     playerRef.current = null
     deactivateKeepAwake(KEEP_AWAKE_TAG)
+    if (isNativeServiceAvailable) ChandasTimerService.stop()
     void clearTimerV2Session()
     setDisplay({ mainCountdown: '--:--', nextCueCountdown: '--:--', nextCueLabel: '', progress: 0, position: null, activeHoursPaused: false, activeHoursResumeAt: 0 })
   }, [dismissAlarm])
@@ -236,28 +279,49 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
         : 'off'
     lastAlarmPressRef.current = now
     updateRuntimeState(muteRef.current, next)
+    if (isNativeServiceAvailable && runningRef.current) {
+      if (current === 'once') ChandasTimerService.toggleAlarmOnce()
+      ChandasTimerService.update({ alarmModeEnabled: next === 'locked' })
+      if (next === 'once' && current === 'off') ChandasTimerService.toggleAlarmOnce()
+    }
   }, [updateRuntimeState])
 
   const muteForIterations = useCallback((count: number) => {
     const next = { mutedUntil: 0, iteration: iterationMuteFor(programRef.current, anchorRef.current, Date.now(), count) }
     updateRuntimeState(next, alarmBehaviorRef.current)
+    if (isNativeServiceAvailable && runningRef.current) ChandasTimerService.muteForIterations(count)
   }, [updateRuntimeState])
 
   const muteForMinutes = useCallback((minutes: number) => {
     const next = { mutedUntil: Date.now() + Math.max(1, Math.min(1_440, Math.round(minutes))) * 60_000 }
     updateRuntimeState(next, alarmBehaviorRef.current)
+    if (isNativeServiceAvailable && runningRef.current) ChandasTimerService.muteForMinutes(minutes)
   }, [updateRuntimeState])
 
-  const clearMute = useCallback(() => updateRuntimeState(emptyRuntimeMute(), alarmBehaviorRef.current), [updateRuntimeState])
+  const clearMute = useCallback(() => {
+    updateRuntimeState(emptyRuntimeMute(), alarmBehaviorRef.current)
+    if (isNativeServiceAvailable && runningRef.current) ChandasTimerService.clearMute()
+  }, [updateRuntimeState])
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', nextState => {
       if (nextState !== 'active' || !runningRef.current) return
       refreshDisplay()
-      scheduleNext()
+      if (!isNativeServiceAvailable) scheduleNext()
     })
     return () => subscription.remove()
   }, [refreshDisplay, scheduleNext])
+
+  useEffect(() => {
+    if (!isNativeServiceAvailable) return
+    const listener = ChandasTimerService.addAlarmListener(setIsAlarmRinging)
+    return () => listener?.remove()
+  }, [])
+
+  useEffect(() => {
+    if (!runningRef.current || !isNativeServiceAvailable) return
+    ChandasTimerService.update(nativeConfigFor(programRef.current, settingsRef.current, anchorRef.current, alarmBehaviorRef.current === 'locked'))
+  }, [program, settings])
 
   useEffect(() => () => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current)

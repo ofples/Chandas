@@ -60,8 +60,9 @@ object TimerNotifications {
     ensureChannels(context)
     val now = System.currentTimeMillis()
     val content = if (ActiveHours.isActive(config, now)) {
-      val nextMain = TimerMath.nextTick(now, config.mainMs, config.phase)
-      "Next gong at ${formatTime(nextMain)}"
+      val next = config.timerV2Program?.let { TimerV2Timeline.next(it, config.timerV2Anchor, now)?.at }
+        ?: TimerMath.nextTick(now, config.mainMs, config.phase)
+      "Next cue at ${formatTime(next)}"
     } else {
       "Resumes at ${formatTime(ActiveHours.nextStart(config, now))}"
     }
@@ -102,7 +103,7 @@ object TimerNotifications {
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
       )
     }
-    val label = if (type == TimerEventType.MAIN) "Gong" else "Bell"
+    val label = if (type == TimerEventType.MAIN) "Gong" else if (type == TimerEventType.V2) "Cue" else "Bell"
     manager.notify(
       EVENT_ID,
       NotificationCompat.Builder(context, EVENT_CHANNEL)

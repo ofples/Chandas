@@ -12,6 +12,8 @@ object TimerStateStore {
   private const val ALARM_ONCE = "alarmOnce"
   private const val MUTED_UNTIL = "mutedUntil"
   private const val MUTED_ITERATIONS = "mutedIterations"
+  private const val MUTED_ITERATION_END_ID = "mutedIterationEndId"
+  private const val MUTED_ITERATION_END_AT = "mutedIterationEndAt"
 
   fun save(context: Context, config: TimerConfig) {
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
@@ -29,6 +31,8 @@ object TimerStateStore {
       .putInt("activeHoursEnd", config.activeHoursEnd)
       .putInt("activeHoursDays", config.activeHoursDays)
       .putInt("alarmDurationSeconds", config.alarmDurationSeconds)
+      .putString("timerV2Program", config.timerV2Program)
+      .putLong("timerV2Anchor", config.timerV2Anchor)
       .commit()
   }
 
@@ -52,6 +56,8 @@ object TimerStateStore {
       activeHoursEnd = prefs.getInt("activeHoursEnd", 1_320).coerceIn(0, 1_439),
       activeHoursDays = prefs.getInt("activeHoursDays", 0x7f).and(0x7f).let { if (it == 0) 0x7f else it },
       alarmDurationSeconds = prefs.getInt("alarmDurationSeconds", 60).coerceIn(5, 3_600),
+      timerV2Program = prefs.getString("timerV2Program", null),
+      timerV2Anchor = prefs.getLong("timerV2Anchor", 0L),
     )
   }
 
@@ -106,7 +112,7 @@ object TimerStateStore {
     return TimerControlState(
       alarmOnceArmed = prefs.getBoolean(ALARM_ONCE, false),
       mutedUntil = mutedUntil,
-      mutedIterationsRemaining = prefs.getInt(MUTED_ITERATIONS, 0).coerceAtLeast(0),
+      mutedIterationsRemaining = if (prefs.getString(MUTED_ITERATION_END_ID, null) != null) 1 else prefs.getInt(MUTED_ITERATIONS, 0).coerceAtLeast(0),
     )
   }
 
@@ -127,10 +133,18 @@ object TimerStateStore {
   }
 
   fun muteForIterations(context: Context, count: Int): TimerControlState {
-    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-      .remove(MUTED_UNTIL)
-      .putInt(MUTED_ITERATIONS, count.coerceIn(1, 99))
-      .commit()
+    val editor = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(MUTED_UNTIL)
+    val config = load(context)
+    val v2End = config?.timerV2Program?.let { TimerV2Timeline.iterationEnd(it, config.timerV2Anchor, System.currentTimeMillis(), count) }
+    if (v2End != null) {
+      editor.remove(MUTED_ITERATIONS)
+        .putString(MUTED_ITERATION_END_ID, v2End.logicalId)
+        .putLong(MUTED_ITERATION_END_AT, v2End.at)
+    } else {
+      editor.remove(MUTED_ITERATION_END_ID).remove(MUTED_ITERATION_END_AT)
+        .putInt(MUTED_ITERATIONS, count.coerceIn(1, 99))
+    }
+    editor.commit()
     return getControlState(context).also(TimerControlRegistry::notify)
   }
 
@@ -139,6 +153,8 @@ object TimerStateStore {
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
       .putLong(MUTED_UNTIL, until)
       .remove(MUTED_ITERATIONS)
+      .remove(MUTED_ITERATION_END_ID)
+      .remove(MUTED_ITERATION_END_AT)
       .commit()
     return getControlState(context).also(TimerControlRegistry::notify)
   }
@@ -147,12 +163,29 @@ object TimerStateStore {
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
       .remove(MUTED_UNTIL)
       .remove(MUTED_ITERATIONS)
+      .remove(MUTED_ITERATION_END_ID)
+      .remove(MUTED_ITERATION_END_AT)
       .commit()
     return getControlState(context).also(TimerControlRegistry::notify)
   }
 
-  fun consumeMuteForEvent(context: Context, type: TimerEventType, now: Long): Boolean {
+  fun consumeMuteForEvent(context: Context, type: TimerEventType, now: Long, logicalId: String? = null): Boolean {
     val state = getControlState(context, now)
+    if (type == TimerEventType.V2) {
+      val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+      val endId = prefs.getString(MUTED_ITERATION_END_ID, null)
+      val endAt = prefs.getLong(MUTED_ITERATION_END_AT, 0L)
+      if (state.mutedUntil > now) return true
+      if (endId != null) {
+        if (logicalId == endId || now > endAt) {
+          prefs.edit().remove(MUTED_ITERATION_END_ID).remove(MUTED_ITERATION_END_AT).commit()
+          TimerControlRegistry.notify(getControlState(context, now))
+          return false
+        }
+        return true
+      }
+      return false
+    }
     val muted = state.mutedUntil > now || state.mutedIterationsRemaining > 0
     if (type == TimerEventType.MAIN && state.mutedIterationsRemaining > 0) {
       val remaining = state.mutedIterationsRemaining - 1
