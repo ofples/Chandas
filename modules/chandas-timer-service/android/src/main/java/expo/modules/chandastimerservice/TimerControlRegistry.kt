@@ -4,6 +4,8 @@ data class TimerControlState(
   val alarmOnceArmed: Boolean,
   val mutedUntil: Long,
   val mutedIterationsRemaining: Int,
+  val mutedIterationEndId: String?,
+  val mutedIterationEndAt: Long,
 )
 
 object TimerControlRegistry {

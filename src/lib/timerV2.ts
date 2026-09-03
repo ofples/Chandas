@@ -209,6 +209,20 @@ export function normalizePreset(value: Partial<ProgramPreset>): ProgramPreset | 
   }
 }
 
+export function parseTimerProgram(value: unknown): TimerProgram | null {
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value) as unknown : value
+    if (!parsed || typeof parsed !== 'object') return null
+    const candidate = parsed as Partial<TimerProgram> & { schemaVersion?: unknown; mode?: unknown }
+    if (candidate.schemaVersion !== TIMER_V2_SCHEMA_VERSION) return null
+    if (candidate.mode === 'pattern') return normalizePatternProgram(candidate as Partial<PatternProgram>)
+    if (candidate.mode === 'sequence') return normalizeSequenceProgram(candidate as Partial<SequenceProgram>)
+    return null
+  } catch {
+    return null
+  }
+}
+
 /** Converts the old flat config exactly once, without mutating or deleting it. */
 export function migrateLegacyConfig(legacy: Partial<TimerConfig>): TimerV2State {
   const mainMinutes = clampDuration(legacy.mainInterval, 30)

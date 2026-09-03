@@ -26,6 +26,10 @@ export interface NativeTimerConfig {
   timerV2Program?: string
   /** Absolute V2 timeline anchor in epoch milliseconds. */
   timerV2Anchor?: number
+  alarmOnceArmed?: boolean
+  mutedUntil?: number
+  mutedIterationEndId?: string
+  mutedIterationEndAt?: number
 }
 
 interface AlarmStateEvent {
@@ -36,6 +40,8 @@ export interface NativeControlState {
   alarmOnceArmed: boolean
   mutedUntil: number
   mutedIterationsRemaining: number
+  mutedIterationEndId?: string
+  mutedIterationEndAt?: number
 }
 
 export interface NativeTimerState {
@@ -59,6 +65,21 @@ export interface NativeTimerState {
   alarmOnceArmed?: boolean
   mutedUntil?: number
   mutedIterationsRemaining?: number
+  mutedIterationEndId?: string
+  mutedIterationEndAt?: number
+  nextEventAt?: number
+  nextLogicalId?: string
+  sessionGeneration?: string
+}
+
+export interface NativeTimerEvent {
+  at: number
+  logicalId: string
+  boundary: 'pattern-main' | 'pattern-offset' | 'sequence-step' | 'sequence-cycle'
+  winnerCueId: string
+  collision: boolean
+  suppressed: boolean
+  suppressionReason: 'none' | 'call-active' | 'master-muted' | 'user-mute'
 }
 
 interface EventSubscription {
@@ -66,7 +87,7 @@ interface EventSubscription {
 }
 
 interface ChandasTimerServiceModule {
-  start(config: NativeTimerConfig): void
+  start(config: NativeTimerConfig): boolean
   update(config: Partial<NativeTimerConfig>): void
   stop(): void
   stopAlarm(): void
@@ -88,6 +109,7 @@ interface ChandasTimerServiceModule {
   pickDeviceSound(kind: 'alarm' | 'notification' | 'unknown'): Promise<{ uri: string; title: string } | null>
   addListener(eventName: 'onAlarmStateChanged', listener: (event: AlarmStateEvent) => void): EventSubscription
   addListener(eventName: 'onControlStateChanged', listener: (event: NativeControlState) => void): EventSubscription
+  addListener(eventName: 'onTimerEventFired', listener: (event: NativeTimerEvent) => void): EventSubscription
 }
 
 const native = Platform.OS === 'android'
@@ -98,7 +120,7 @@ export const isNativeServiceAvailable = native !== null
 
 export const ChandasTimerService = {
   start(config: NativeTimerConfig) {
-    native?.start(config)
+    return native?.start(config) ?? false
   },
   update(config: Partial<NativeTimerConfig>) {
     native?.update(config)
@@ -167,5 +189,8 @@ export const ChandasTimerService = {
   },
   addControlListener(listener: (state: NativeControlState) => void): EventSubscription | null {
     return native?.addListener('onControlStateChanged', listener) ?? null
+  },
+  addTimerEventListener(listener: (event: NativeTimerEvent) => void): EventSubscription | null {
+    return native?.addListener('onTimerEventFired', listener) ?? null
   },
 }

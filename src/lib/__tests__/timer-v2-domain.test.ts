@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { PatternProgram, SequenceProgram } from '../../types'
 import { deleteProgramPreset, chooseProgramMode, loadProgramPreset } from '../programActions'
 import { gateProgramAudio, iterationMuteFor } from '../runtimeV2'
-import { defaultTimerV2State, normalizeSoundRef } from '../timerV2'
+import { defaultTimerV2State, normalizeSoundRef, parseTimerProgram } from '../timerV2'
 import { nextPatternEvent, nextSequenceEvent } from '../timeline'
 
 const minute = 60_000
@@ -95,6 +95,12 @@ describe('timer v2 validation and presets', () => {
     expect(normalizeSoundRef({ kind: 'android', uri: 'content://tone', title: 'Tone', ringtoneType: 'future' }, fallback)).toEqual({
       kind: 'android', uri: 'content://tone', title: 'Tone', ringtoneType: 'unknown',
     })
+  })
+
+  it('rejects unsupported program schema versions without throwing', () => {
+    expect(parseTimerProgram('{"schemaVersion":99,"mode":"pattern"}')).toBeNull()
+    expect(parseTimerProgram('{not json')).toBeNull()
+    expect(parseTimerProgram(JSON.stringify(pattern()))).toEqual(pattern())
   })
 
   it('marks a loaded preset deleted without mutating the working copy', () => {

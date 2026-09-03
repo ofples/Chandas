@@ -14,7 +14,6 @@ object TimerSoundPlayer {
     context: Context,
     resId: Int,
     volume: Float,
-    useAlarmUsage: Boolean,
     onFinished: () -> Unit,
     sourceUri: String? = null,
   ) {
@@ -37,7 +36,7 @@ object TimerSoundPlayer {
     try {
       player.setAudioAttributes(
         AudioAttributes.Builder()
-          .setUsage(if (useAlarmUsage) AudioAttributes.USAGE_ALARM else AudioAttributes.USAGE_NOTIFICATION_EVENT)
+          .setUsage(AudioAttributes.USAGE_ALARM)
           .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
           .build(),
       )

@@ -10,16 +10,30 @@ import kotlin.math.min
 
 object TimerScheduler {
   private const val TIMER_REQUEST = 8201
-  private const val SHOW_REQUEST = 8202
 
-  fun start(context: Context, config: TimerConfig) {
+  fun canScheduleExactAlarms(context: Context): Boolean {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
+    val manager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+    return manager.canScheduleExactAlarms()
+  }
+
+  fun start(context: Context, config: TimerConfig): Boolean {
+    if (!canScheduleExactAlarms(context)) return false
+    if (config.timerV2Program != null && !TimerV2Timeline.isValid(config.timerV2Program)) return false
     cancelScheduledEvent(context)
     TimerStateStore.save(context, config)
+    TimerStateStore.beginSession(context)
     TimerStateStore.setRinging(context, false)
     TimerStateStore.setAlarmVisible(context, false)
     TimerNotifications.ensureChannels(context)
     FocusModeController.sync(context, config)
-    scheduleNext(context)
+    val scheduled = scheduleNext(context)
+    if (!scheduled) {
+      FocusModeController.deactivate(context)
+      TimerStateStore.clear(context)
+      TimerNotifications.cancelRunning(context)
+    }
+    return scheduled
   }
 
   fun update(context: Context, config: TimerConfig) {
@@ -49,6 +63,10 @@ object TimerScheduler {
 
   fun restore(context: Context, resetRinging: Boolean) {
     val stored = TimerStateStore.load(context) ?: return
+    if (stored.timerV2Program != null && !TimerV2Timeline.isValid(stored.timerV2Program)) {
+      stop(context)
+      return
+    }
     val config = stored.timerV2Program?.let { program ->
       TimerV2Timeline.alignedAnchor(program, System.currentTimeMillis())?.let { anchor -> stored.copy(timerV2Anchor = anchor) } ?: stored
     } ?: stored
@@ -64,8 +82,13 @@ object TimerScheduler {
     scheduleNext(context, config)
   }
 
-  fun scheduleNext(context: Context, config: TimerConfig? = TimerStateStore.load(context)) {
-    val active = config ?: return
+  fun scheduleNext(context: Context, config: TimerConfig? = TimerStateStore.load(context)): Boolean {
+    val active = config ?: return false
+    if (active.timerV2Program != null && !TimerV2Timeline.isValid(active.timerV2Program)) return false
+    if (!canScheduleExactAlarms(context)) {
+      TimerStateStore.clearNext(context)
+      return false
+    }
 
     val now = System.currentTimeMillis()
     val v2Event = active.timerV2Program?.let { TimerV2Timeline.next(it, active.timerV2Anchor, now) }
@@ -73,10 +96,13 @@ object TimerScheduler {
     val nextSub = if (active.subEnabled && active.subMs > 0L) TimerMath.nextSubTick(now, active.mainMs, active.subMs, active.phase) else Long.MAX_VALUE
     var triggerAt = v2Event?.at ?: min(nextMain, nextSub)
     var type = if (v2Event != null) TimerEventType.V2 else if (triggerAt == nextMain) TimerEventType.MAIN else TimerEventType.SUB
+    var logicalId = v2Event?.logicalId ?: "legacy:${type.value}:$triggerAt"
     if (!ActiveHours.isActive(active, now) || !ActiveHours.isActive(active, triggerAt)) {
       triggerAt = ActiveHours.nextStart(active, now)
       type = TimerEventType.ACTIVE_START
+      logicalId = "active-start:$triggerAt"
     }
+    val generation = TimerStateStore.ensureSessionGeneration(context)
 
     val operation = PendingIntent.getBroadcast(
       context,
@@ -85,39 +111,38 @@ object TimerScheduler {
         action = TimerEventReceiver.ACTION_FIRE
         putExtra(TimerEventReceiver.EXTRA_TRIGGER_AT, triggerAt)
         putExtra(TimerEventReceiver.EXTRA_EVENT_TYPE, type.value)
+        putExtra(TimerEventReceiver.EXTRA_LOGICAL_ID, logicalId)
+        putExtra(TimerEventReceiver.EXTRA_GENERATION, generation)
       },
       PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
-    val showIntent = context.packageManager.getLaunchIntentForPackage(context.packageName) ?: return
-    val showPendingIntent = PendingIntent.getActivity(
-      context,
-      SHOW_REQUEST,
-      showIntent,
-      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-    )
-
-    TimerStateStore.setNext(context, triggerAt, type)
+    TimerStateStore.setNext(context, triggerAt, type, logicalId, generation)
     val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
     try {
-      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarmManager.canScheduleExactAlarms()) {
-        alarmManager.setAlarmClock(AlarmManager.AlarmClockInfo(triggerAt, showPendingIntent), operation)
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, operation)
       } else {
-        alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, operation)
+        @Suppress("DEPRECATION")
+        alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAt, operation)
       }
     } catch (_: SecurityException) {
-      alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, operation)
+      TimerStateStore.clearNext(context)
+      return false
     }
     TimerNotifications.postRunning(context, active)
+    return true
   }
 
   fun handleTriggered(
     context: Context,
     triggerAt: Long,
     type: TimerEventType,
+    logicalId: String,
+    generation: String,
     onFinished: () -> Unit,
   ) {
     val config = TimerStateStore.load(context)
-    if (config == null || !TimerStateStore.matchesNext(context, triggerAt, type)) {
+    if (config == null || !TimerStateStore.matchesNext(context, triggerAt, type, logicalId, generation)) {
       onFinished()
       return
     }
@@ -170,7 +195,6 @@ object TimerScheduler {
       context,
       sound,
       config.volume,
-      FocusModeController.shouldUseAlarmAudio(context, config),
       onFinished,
     )
   }
@@ -187,6 +211,7 @@ object TimerScheduler {
     // one-shot alarm or timed/cycle mute state, and no missed cue is replayed.
     if (CallState.isActive(context)) {
       scheduleNext(context, config)
+      emitV2Event(event, suppressed = true, reason = "call-active")
       onFinished()
       return
     }
@@ -195,22 +220,46 @@ object TimerScheduler {
     TimerNotifications.postEvent(context, config, TimerEventType.V2)
     if (muted) {
       scheduleNext(context, config)
+      emitV2Event(event, suppressed = true, reason = if (config.volume <= 0f) "master-muted" else "user-mute")
       onFinished()
       return
     }
-    val alarmOnce = event.mainBoundary && TimerStateStore.consumeAlarmOnce(context)
-    if (event.mainBoundary && (config.alarmModeEnabled || alarmOnce)) {
+    val isPatternMain = event.boundary == TimerV2Boundary.PATTERN_MAIN
+    val alarmOnce = isPatternMain && TimerStateStore.consumeAlarmOnce(context)
+    if (isPatternMain && (config.alarmModeEnabled || alarmOnce)) {
       scheduleNext(context, config)
       TimerStateStore.setRinging(context, true)
       TimerStateStore.setAlarmVisible(context, true)
       AlarmStateRegistry.notify(true)
       TimerNotifications.cancelRunning(context)
+      emitV2Event(event, suppressed = false, reason = "none")
       ContextCompat.startForegroundService(context, Intent(context, ChandasAlarmService::class.java).setAction(ChandasAlarmService.ACTION_START))
       onFinished()
       return
     }
     scheduleNext(context, config)
-    TimerSoundPlayer.play(context, resourceForV2Sound(event.soundId), (config.volume * event.volume).coerceIn(0f, 1f), FocusModeController.shouldUseAlarmAudio(context, config), onFinished, event.soundId.takeIf { it.contains("://") })
+    emitV2Event(event, suppressed = false, reason = "none")
+    TimerSoundPlayer.play(
+      context,
+      resourceForV2Sound(event.winner.soundId),
+      (config.volume * event.winner.volume).coerceIn(0f, 1f),
+      onFinished,
+      event.winner.soundId.takeIf { it.contains("://") },
+    )
+  }
+
+  private fun emitV2Event(event: TimerV2Event, suppressed: Boolean, reason: String) {
+    TimerEventRegistry.notify(
+      TimerEventSignal(
+        at = event.at,
+        logicalId = event.logicalId,
+        boundary = event.boundary.value,
+        winnerCueId = event.winner.cueId,
+        collision = event.candidates.size > 1,
+        suppressed = suppressed,
+        suppressionReason = reason,
+      ),
+    )
   }
 
   private fun resourceForV2Sound(soundId: String): Int = when (soundId) {

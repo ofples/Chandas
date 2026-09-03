@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { StatusBar } from 'expo-status-bar'
-import { AppState as NativeAppState, Platform, View } from 'react-native'
+import { Alert, AppState as NativeAppState, Platform, View } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { useFonts, JetBrainsMono_300Light, JetBrainsMono_400Regular } from '@expo-google-fonts/jetbrains-mono'
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext'
-import type { AppState, TimerV2State } from './src/types'
+import type { AppState, AppTimerSettings, TimerV2State } from './src/types'
 import { useTimerV2 } from './src/hooks/useTimerV2'
-import { loadTimerV2Session, loadTimerV2State, saveTimerV2State, type TimerV2Session } from './src/lib/storage'
-import { selectedProgram } from './src/lib/timerV2'
+import { clearTimerV2Session, loadTimerV2Session, loadTimerV2State, saveTimerV2Session, saveTimerV2State, type TimerV2Session } from './src/lib/storage'
+import { parseTimerProgram, replaceWorkingProgram, selectedProgram } from './src/lib/timerV2'
 import { TimerV2ConfigScreen } from './src/screens/TimerV2ConfigScreen'
 import { TimerV2RunningScreen } from './src/screens/TimerV2RunningScreen'
 import { AlarmRingingScreen } from './src/screens/AlarmRingingScreen'
@@ -19,6 +19,24 @@ const FALLBACK_PROGRAM = {
 }
 const FALLBACK_SETTINGS = { masterVolume: 0.8, notificationsEnabled: true, activeHoursEnabled: false, activeHoursStart: 480, activeHoursEnd: 1320, activeHoursDays: 127, focusAutomationEnabled: false, alarmDurationSeconds: 60 }
 
+interface PendingRestore {
+  session: TimerV2Session
+  attachNative: boolean
+}
+
+function settingsFromNative(current: AppTimerSettings, native: ReturnType<typeof ChandasTimerService.getState>): AppTimerSettings {
+  return {
+    masterVolume: native.volume ?? current.masterVolume,
+    notificationsEnabled: native.notificationsEnabled ?? current.notificationsEnabled,
+    activeHoursEnabled: native.activeHoursEnabled ?? current.activeHoursEnabled,
+    activeHoursStart: native.activeHoursStart ?? current.activeHoursStart,
+    activeHoursEnd: native.activeHoursEnd ?? current.activeHoursEnd,
+    activeHoursDays: native.activeHoursDays ?? current.activeHoursDays,
+    focusAutomationEnabled: native.focusModeEnabled ?? current.focusAutomationEnabled,
+    alarmDurationSeconds: native.alarmDurationSeconds ?? current.alarmDurationSeconds,
+  }
+}
+
 function Root() {
   const { tokens, theme } = useTheme()
   const [timerState, setTimerState] = useState<TimerV2State | null>(null)
@@ -26,7 +44,7 @@ function Root() {
   const [ready, setReady] = useState(false)
   const [focusPolicyAccess, setFocusPolicyAccess] = useState(false)
   const [focusModeActive, setFocusModeActive] = useState(false)
-  const [restoreSession, setRestoreSession] = useState<TimerV2Session | null>(null)
+  const [restoreSession, setRestoreSession] = useState<PendingRestore | null>(null)
   const program = timerState ? selectedProgram(timerState) : null
   const timer = useTimerV2(program ?? FALLBACK_PROGRAM, timerState?.settings ?? FALLBACK_SETTINGS)
 
@@ -54,11 +72,36 @@ function Root() {
   useEffect(() => {
     void (async () => {
       const [stored, session] = await Promise.all([loadTimerV2State(), loadTimerV2Session()])
-      setTimerState(stored)
-      if (session) {
-        setAppState('running')
-        setRestoreSession(session)
+      let reconciled = stored
+      let pending: PendingRestore | null = null
+      if (Platform.OS === 'android' && isNativeServiceAvailable) {
+        const native = ChandasTimerService.getState()
+        const nativeProgram = native.active ? parseTimerProgram(native.timerV2Program) : null
+        if (native.active && nativeProgram && native.timerV2Anchor && native.timerV2Anchor > 0) {
+          reconciled = {
+            ...replaceWorkingProgram(stored, nativeProgram),
+            settings: settingsFromNative(stored.settings, native),
+          }
+          const nativeSession: TimerV2Session = {
+            schemaVersion: 2,
+            anchor: native.timerV2Anchor,
+            program: nativeProgram,
+            mute: native.mutedIterationEndId && native.mutedIterationEndAt
+              ? { mutedUntil: native.mutedUntil ?? 0, iteration: { endsAtLogicalId: native.mutedIterationEndId, endsAt: native.mutedIterationEndAt } }
+              : { mutedUntil: native.mutedUntil ?? 0 },
+            alarmBehavior: native.alarmModeEnabled ? 'locked' : native.alarmOnceArmed ? 'once' : 'off',
+          }
+          pending = { session: nativeSession, attachNative: true }
+          await Promise.all([saveTimerV2State(reconciled), saveTimerV2Session(nativeSession)])
+        } else {
+          if (native.active) ChandasTimerService.stop()
+          await clearTimerV2Session()
+        }
+      } else if (session) {
+        pending = { session, attachNative: false }
       }
+      setTimerState(reconciled)
+      setRestoreSession(pending)
       setReady(true)
     })()
     // The hook is intentionally stable during the one-time async restore.
@@ -67,7 +110,12 @@ function Root() {
 
   useEffect(() => {
     if (!restoreSession || !timerState) return
-    void timer.start(restoreSession)
+    if (restoreSession.attachNative) {
+      setAppState('running')
+      void timer.attachNativeSession(restoreSession.session)
+    } else {
+      void timer.start(restoreSession.session).then(started => setAppState(started ? 'running' : 'config'))
+    }
     setRestoreSession(null)
   }, [restoreSession, timer, timerState])
 
@@ -85,8 +133,21 @@ function Root() {
   }
 
   const start = () => {
-    setAppState('running')
-    void timer.start().then(refreshFocusState)
+    void timer.start().then(started => {
+      if (started) {
+        setAppState('running')
+        refreshFocusState()
+        return
+      }
+      Alert.alert(
+        'Allow exact alarms',
+        'Chandas needs exact-alarm access to keep bells precisely on time, including while the screen is off.',
+        [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'Open settings', onPress: ChandasTimerService.openExactAlarmSettings },
+        ],
+      )
+    })
   }
 
   const stop = () => {

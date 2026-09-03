@@ -32,6 +32,10 @@ class TimerConfigRecord : Record {
   @Field var alarmDurationSeconds: Int? = null
   @Field var timerV2Program: String? = null
   @Field var timerV2Anchor: Long? = null
+  @Field var alarmOnceArmed: Boolean? = null
+  @Field var mutedUntil: Long? = null
+  @Field var mutedIterationEndId: String? = null
+  @Field var mutedIterationEndAt: Long? = null
 }
 
 class ChandasTimerServiceModule : Module() {
@@ -42,15 +46,36 @@ class ChandasTimerServiceModule : Module() {
   private val controlListener: (TimerControlState) -> Unit = { state ->
     sendEvent("onControlStateChanged", controlBundle(state))
   }
+  private val timerEventListener: (TimerEventSignal) -> Unit = { event ->
+    sendEvent("onTimerEventFired", bundleOf(
+      "at" to event.at,
+      "logicalId" to event.logicalId,
+      "boundary" to event.boundary,
+      "winnerCueId" to event.winnerCueId,
+      "collision" to event.collision,
+      "suppressed" to event.suppressed,
+      "suppressionReason" to event.suppressionReason,
+    ))
+  }
 
   override fun definition() = ModuleDefinition {
     Name("ChandasTimerService")
-    Events("onAlarmStateChanged", "onControlStateChanged")
+    Events("onAlarmStateChanged", "onControlStateChanged", "onTimerEventFired")
 
     Function("start") { record: TimerConfigRecord ->
-      val context = appContext.reactContext ?: return@Function
-      val config = merge(record, null) ?: return@Function
-      TimerScheduler.start(context, config)
+      val context = appContext.reactContext ?: return@Function false
+      val config = merge(record, null) ?: return@Function false
+      val started = TimerScheduler.start(context, config)
+      if (started) {
+        TimerStateStore.restoreControls(
+          context,
+          record.alarmOnceArmed == true,
+          record.mutedUntil ?: 0L,
+          record.mutedIterationEndId,
+          record.mutedIterationEndAt ?: 0L,
+        )
+      }
+      started
     }
 
     Function("update") { record: TimerConfigRecord ->
@@ -118,6 +143,11 @@ class ChandasTimerServiceModule : Module() {
           "alarmOnceArmed" to controls.alarmOnceArmed,
           "mutedUntil" to controls.mutedUntil,
           "mutedIterationsRemaining" to controls.mutedIterationsRemaining,
+          "mutedIterationEndId" to controls.mutedIterationEndId,
+          "mutedIterationEndAt" to controls.mutedIterationEndAt,
+          "nextEventAt" to TimerStateStore.nextAt(context),
+          "nextLogicalId" to TimerStateStore.nextLogicalId(context),
+          "sessionGeneration" to TimerStateStore.sessionGeneration(context),
         )
       }
     }
@@ -169,8 +199,7 @@ class ChandasTimerServiceModule : Module() {
       if (context == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
         true
       } else {
-        val manager = context.getSystemService(android.content.Context.ALARM_SERVICE) as AlarmManager
-        manager.canScheduleExactAlarms()
+        TimerScheduler.canScheduleExactAlarms(context)
       }
     }
 
@@ -249,6 +278,14 @@ class ChandasTimerServiceModule : Module() {
       TimerControlRegistry.remove(controlListener)
     }
 
+    OnStartObserving("onTimerEventFired") {
+      TimerEventRegistry.add(timerEventListener)
+    }
+
+    OnStopObserving("onTimerEventFired") {
+      TimerEventRegistry.remove(timerEventListener)
+    }
+
     OnActivityResult { _, result ->
       if (result.requestCode != DEVICE_SOUND_PICKER_REQUEST) return@OnActivityResult
       val promise = soundPickerPromise ?: return@OnActivityResult
@@ -294,6 +331,8 @@ class ChandasTimerServiceModule : Module() {
     "alarmOnceArmed" to state.alarmOnceArmed,
     "mutedUntil" to state.mutedUntil,
     "mutedIterationsRemaining" to state.mutedIterationsRemaining,
+    "mutedIterationEndId" to state.mutedIterationEndId,
+    "mutedIterationEndAt" to state.mutedIterationEndAt,
   )
 
   private companion object {

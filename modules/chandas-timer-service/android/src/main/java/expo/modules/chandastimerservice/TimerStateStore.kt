@@ -9,6 +9,8 @@ object TimerStateStore {
   private const val ALARM_VISIBLE = "alarmVisible"
   private const val NEXT_AT = "nextAt"
   private const val NEXT_TYPE = "nextType"
+  private const val NEXT_LOGICAL_ID = "nextLogicalId"
+  private const val SESSION_GENERATION = "sessionGeneration"
   private const val ALARM_ONCE = "alarmOnce"
   private const val MUTED_UNTIL = "mutedUntil"
   private const val MUTED_ITERATIONS = "mutedIterations"
@@ -65,6 +67,19 @@ object TimerStateStore {
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().commit()
   }
 
+  fun beginSession(context: Context): String {
+    val generation = java.util.UUID.randomUUID().toString()
+    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+      .putString(SESSION_GENERATION, generation)
+      .commit()
+    return generation
+  }
+
+  fun ensureSessionGeneration(context: Context): String {
+    val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    return prefs.getString(SESSION_GENERATION, null) ?: beginSession(context)
+  }
+
   fun setRinging(context: Context, ringing: Boolean) {
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
       .putBoolean(RINGING, ringing)
@@ -83,10 +98,12 @@ object TimerStateStore {
   fun isAlarmVisible(context: Context): Boolean =
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(ALARM_VISIBLE, false)
 
-  fun setNext(context: Context, at: Long, type: TimerEventType) {
+  fun setNext(context: Context, at: Long, type: TimerEventType, logicalId: String, generation: String) {
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
       .putLong(NEXT_AT, at)
       .putString(NEXT_TYPE, type.value)
+      .putString(NEXT_LOGICAL_ID, logicalId)
+      .putString(SESSION_GENERATION, generation)
       .commit()
   }
 
@@ -94,13 +111,21 @@ object TimerStateStore {
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
       .remove(NEXT_AT)
       .remove(NEXT_TYPE)
+      .remove(NEXT_LOGICAL_ID)
       .commit()
   }
 
-  fun matchesNext(context: Context, at: Long, type: TimerEventType): Boolean {
+  fun matchesNext(context: Context, at: Long, type: TimerEventType, logicalId: String, generation: String): Boolean {
     val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-    return prefs.getLong(NEXT_AT, -1L) == at && prefs.getString(NEXT_TYPE, null) == type.value
+    return prefs.getLong(NEXT_AT, -1L) == at &&
+      prefs.getString(NEXT_TYPE, null) == type.value &&
+      prefs.getString(NEXT_LOGICAL_ID, null) == logicalId &&
+      prefs.getString(SESSION_GENERATION, null) == generation
   }
+
+  fun nextLogicalId(context: Context): String? = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(NEXT_LOGICAL_ID, null)
+  fun nextAt(context: Context): Long = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong(NEXT_AT, 0L)
+  fun sessionGeneration(context: Context): String? = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(SESSION_GENERATION, null)
 
   fun getControlState(context: Context, now: Long = System.currentTimeMillis()): TimerControlState {
     val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -113,6 +138,8 @@ object TimerStateStore {
       alarmOnceArmed = prefs.getBoolean(ALARM_ONCE, false),
       mutedUntil = mutedUntil,
       mutedIterationsRemaining = if (prefs.getString(MUTED_ITERATION_END_ID, null) != null) 1 else prefs.getInt(MUTED_ITERATIONS, 0).coerceAtLeast(0),
+      mutedIterationEndId = prefs.getString(MUTED_ITERATION_END_ID, null),
+      mutedIterationEndAt = prefs.getLong(MUTED_ITERATION_END_AT, 0L),
     )
   }
 
@@ -166,6 +193,28 @@ object TimerStateStore {
       .remove(MUTED_ITERATION_END_ID)
       .remove(MUTED_ITERATION_END_AT)
       .commit()
+    return getControlState(context).also(TimerControlRegistry::notify)
+  }
+
+  fun restoreControls(
+    context: Context,
+    alarmOnceArmed: Boolean,
+    mutedUntil: Long,
+    mutedIterationEndId: String?,
+    mutedIterationEndAt: Long,
+  ): TimerControlState {
+    val editor = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+      .putBoolean(ALARM_ONCE, alarmOnceArmed)
+      .remove(MUTED_ITERATIONS)
+      .remove(MUTED_UNTIL)
+      .remove(MUTED_ITERATION_END_ID)
+      .remove(MUTED_ITERATION_END_AT)
+    if (mutedUntil > System.currentTimeMillis()) editor.putLong(MUTED_UNTIL, mutedUntil)
+    if (!mutedIterationEndId.isNullOrBlank() && mutedIterationEndAt > 0L) {
+      editor.putString(MUTED_ITERATION_END_ID, mutedIterationEndId)
+        .putLong(MUTED_ITERATION_END_AT, mutedIterationEndAt)
+    }
+    editor.commit()
     return getControlState(context).also(TimerControlRegistry::notify)
   }
 
