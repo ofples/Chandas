@@ -31,6 +31,7 @@ export interface NativeTimerConfig {
   mutedUntil?: number
   mutedIterationEndId?: string
   mutedIterationEndAt?: number
+  mutedIterationCount?: number
 }
 
 interface AlarmStateEvent {

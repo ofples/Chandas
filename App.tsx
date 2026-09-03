@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { StatusBar } from 'expo-status-bar'
 import { Alert, AppState as NativeAppState, Platform, View } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
@@ -8,6 +8,7 @@ import type { AppState, AppTimerSettings, TimerV2State } from './src/types'
 import { useTimerV2 } from './src/hooks/useTimerV2'
 import { clearTimerV2Session, loadTimerV2Session, loadTimerV2State, saveTimerV2Session, saveTimerV2State, type TimerV2Session } from './src/lib/storage'
 import { parseTimerProgram, replaceWorkingProgram, selectedProgram } from './src/lib/timerV2'
+import { patchPatternTrack, patchSequenceStep, updatePattern } from './src/lib/programActions'
 import { TimerV2ConfigScreen } from './src/screens/TimerV2ConfigScreen'
 import { TimerV2RunningScreen } from './src/screens/TimerV2RunningScreen'
 import { AlarmRingingScreen } from './src/screens/AlarmRingingScreen'
@@ -45,6 +46,7 @@ function Root() {
   const [ready, setReady] = useState(false)
   const [focusState, setFocusState] = useState<NativeFocusState>(DEFAULT_FOCUS_STATE)
   const [restoreSession, setRestoreSession] = useState<PendingRestore | null>(null)
+  const fullScreenGuidanceShown = useRef(false)
   const program = timerState ? selectedProgram(timerState) : null
   const timer = useTimerV2(program ?? FALLBACK_PROGRAM, timerState?.settings ?? FALLBACK_SETTINGS)
 
@@ -95,7 +97,7 @@ function Root() {
             anchor: native.timerV2Anchor,
             program: nativeProgram,
             mute: native.mutedIterationEndId && native.mutedIterationEndAt
-              ? { mutedUntil: native.mutedUntil ?? 0, iteration: { endsAtLogicalId: native.mutedIterationEndId, endsAt: native.mutedIterationEndAt } }
+              ? { mutedUntil: native.mutedUntil ?? 0, iteration: { endsAtLogicalId: native.mutedIterationEndId, endsAt: native.mutedIterationEndAt, iterations: Math.max(1, native.mutedIterationsRemaining ?? 1) } }
               : { mutedUntil: native.mutedUntil ?? 0 },
             alarmBehavior: native.alarmModeEnabled ? 'locked' : native.alarmOnceArmed ? 'once' : 'off',
           }
@@ -136,6 +138,10 @@ function Root() {
     setRestoreSession(null)
   }, [restoreSession, timer, timerState])
 
+  useEffect(() => {
+    if (ready && appState === 'running' && !restoreSession && !timer.isRunning) setAppState('config')
+  }, [appState, ready, restoreSession, timer.isRunning])
+
   const changeTimerState = (next: TimerV2State) => {
     setTimerState(next)
     void saveTimerV2State(next)
@@ -164,7 +170,44 @@ function Root() {
           { text: 'Open settings', onPress: ChandasTimerService.openExactAlarmSettings },
         ],
       )
-    })
+    }).catch(() => Alert.alert('Could not start timer', 'Chandas could not prepare audio or exact scheduling. Check Android permissions and try again.'))
+  }
+
+  const reanchor = (alignToClock: boolean, offsetMinutes = 0) => {
+    if (!timerState || !program) return
+    const nextState = program.mode === 'pattern'
+      ? updatePattern(timerState, value => ({ ...value, alignment: alignToClock ? { kind: 'local-clock', offsetMinutes } : { kind: 'elapsed' } }))
+      : timerState
+    const nextProgram = selectedProgram(nextState)
+    void timer.reanchor(nextProgram, alignToClock).then(started => {
+      if (started) changeTimerState(nextState)
+      else Alert.alert('Could not realign timer', 'Exact-alarm access is required to keep the live timer precise.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Open settings', onPress: ChandasTimerService.openExactAlarmSettings }])
+    }).catch(() => Alert.alert('Could not realign timer', 'The timer remains on its previous schedule. Please try again.'))
+  }
+
+  const changeCueVolume = (cueId: string, volume: number) => {
+    if (!timerState || !program) return
+    if (program.mode === 'sequence') changeTimerState(patchSequenceStep(timerState, cueId, { volume }))
+    else if (cueId === 'main') changeTimerState(updatePattern(timerState, value => ({ ...value, mainCue: { ...value.mainCue, volume } })))
+    else changeTimerState(patchPatternTrack(timerState, cueId, { volume }))
+  }
+
+  const pressAlarm = () => {
+    const wasOff = timer.alarmBehavior === 'off'
+    timer.pressAlarm()
+    if (wasOff && !fullScreenGuidanceShown.current && Platform.OS === 'android' && isNativeServiceAvailable && !ChandasTimerService.canUseFullScreenIntent()) {
+      fullScreenGuidanceShown.current = true
+      // Wait beyond the double-tap window so this guidance never interrupts
+      // the one-tap-then-lock gesture.
+      setTimeout(() => {
+        const native = ChandasTimerService.getState()
+        if (!native.alarmModeEnabled && !native.alarmOnceArmed) return
+        Alert.alert('Alarm armed', 'Sound will still play. Allow full-screen alarms if you also want the dismiss screen to appear over the lock screen.', [
+          { text: 'Later', style: 'cancel' },
+          { text: 'Open settings', onPress: ChandasTimerService.openFullScreenIntentSettings },
+        ])
+      }, 550)
+    }
   }
 
   const stop = () => {
@@ -177,7 +220,7 @@ function Root() {
 
   return <View style={{ flex: 1, backgroundColor: tokens.bg }}>
     <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
-    {appState === 'config' ? <TimerV2ConfigScreen state={timerState} onChange={changeTimerState} onStart={start} focusState={focusState} onFocusAutomationChange={setFocusAutomation} onOpenFocusSettings={ChandasTimerService.openNotificationPolicySettings} /> : <TimerV2RunningScreen program={program} mainCountdown={timer.mainCountdown} nextCueCountdown={timer.nextCueCountdown} nextCueLabel={timer.nextCueLabel} progress={timer.progress} activeHoursPaused={timer.activeHoursPaused} activeHoursResumeAt={timer.activeHoursResumeAt} mute={timer.mute} alarmBehavior={timer.alarmBehavior} onStop={stop} onPressAlarm={timer.pressAlarm} onMuteForIterations={timer.muteForIterations} onMuteForMinutes={timer.muteForMinutes} onClearMute={timer.clearMute} masterVolume={timerState.settings.masterVolume} onMasterVolumeChange={masterVolume => changeTimerState({ ...timerState, settings: { ...timerState.settings, masterVolume } })} focusEnabled={timerState.settings.focusAutomationEnabled} focusActive={focusState.actual === 'active' && !timer.activeHoursPaused} focusPolicyAccess={focusState.policyAccess} onToggleFocus={() => setFocusAutomation(!timerState.settings.focusAutomationEnabled)} />}
+    {appState === 'config' ? <TimerV2ConfigScreen state={timerState} onChange={changeTimerState} onStart={start} focusState={focusState} onFocusAutomationChange={setFocusAutomation} onOpenFocusSettings={ChandasTimerService.openNotificationPolicySettings} /> : <TimerV2RunningScreen program={program} mainCountdown={timer.mainCountdown} nextCueCountdown={timer.nextCueCountdown} nextCueLabel={timer.nextCueLabel} progress={timer.progress} position={timer.position} eventPulse={timer.eventPulse} activeHoursPaused={timer.activeHoursPaused} activeHoursResumeAt={timer.activeHoursResumeAt} mute={timer.mute} alarmBehavior={timer.alarmBehavior} onStop={stop} onRestartUnsynced={() => reanchor(false)} onSnapToClock={offset => reanchor(true, offset)} onPressAlarm={pressAlarm} onMuteForIterations={timer.muteForIterations} onMuteForMinutes={timer.muteForMinutes} onClearMute={timer.clearMute} masterVolume={timerState.settings.masterVolume} onMasterVolumeChange={masterVolume => changeTimerState({ ...timerState, settings: { ...timerState.settings, masterVolume } })} onCueVolumeChange={changeCueVolume} focusEnabled={timerState.settings.focusAutomationEnabled} focusActive={focusState.actual === 'active' && !timer.activeHoursPaused} focusPolicyAccess={focusState.policyAccess} onToggleFocus={() => setFocusAutomation(!timerState.settings.focusAutomationEnabled)} />}
     {timer.isAlarmRinging && <AlarmRingingScreen onDismiss={timer.dismissAlarm} />}
   </View>
 }

@@ -5,6 +5,8 @@ export interface IterationMute {
   /** The final main/cycle boundary that remains audible and clears mute. */
   endsAtLogicalId: string
   endsAt: number
+  /** Original user choice, retained for an honest selected state in the UI. */
+  iterations: number
 }
 
 export interface RuntimeMuteState {
@@ -44,7 +46,7 @@ export function iterationMuteFor(program: TimerProgram, anchor: number, now: num
     const currentCycle = cycleIndexAt(now, anchor, cycleMs)
     const nextMainCycle = anchor + (currentCycle + 1) * cycleMs <= now ? currentCycle + 1 : currentCycle
     const endingCycle = nextMainCycle + iterations - 1
-    return { endsAtLogicalId: `pattern:${anchor}:${endingCycle}:main`, endsAt: anchor + (endingCycle + 1) * cycleMs }
+    return { endsAtLogicalId: `pattern:${anchor}:${endingCycle}:main`, endsAt: anchor + (endingCycle + 1) * cycleMs, iterations }
   }
   const cycleMs = program.steps.reduce((total, step) => total + step.durationMinutes * 60_000, 0)
   const currentCycle = cycleIndexAt(now, anchor, cycleMs)
@@ -53,6 +55,7 @@ export function iterationMuteFor(program: TimerProgram, anchor: number, now: num
   return {
     endsAtLogicalId: `sequence:${anchor}:${endingCycle}:step:${program.steps.length - 1}`,
     endsAt: anchor + (endingCycle + 1) * cycleMs,
+    iterations,
   }
 }
 

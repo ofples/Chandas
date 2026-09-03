@@ -1,6 +1,7 @@
 package expo.modules.chandastimerservice
 
 import android.content.Context
+import android.os.SystemClock
 
 object TimerStateStore {
   private const val PREFS = "chandas-native-state"
@@ -16,6 +17,8 @@ object TimerStateStore {
   private const val MUTED_ITERATIONS = "mutedIterations"
   private const val MUTED_ITERATION_END_ID = "mutedIterationEndId"
   private const val MUTED_ITERATION_END_AT = "mutedIterationEndAt"
+  private const val WALL_CLOCK_SAMPLE = "wallClockSample"
+  private const val ELAPSED_CLOCK_SAMPLE = "elapsedClockSample"
 
   fun save(context: Context, config: TimerConfig) {
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
@@ -35,6 +38,8 @@ object TimerStateStore {
       .putInt("alarmDurationSeconds", config.alarmDurationSeconds)
       .putString("timerV2Program", config.timerV2Program)
       .putLong("timerV2Anchor", config.timerV2Anchor)
+      .putLong(WALL_CLOCK_SAMPLE, System.currentTimeMillis())
+      .putLong(ELAPSED_CLOCK_SAMPLE, SystemClock.elapsedRealtime())
       .commit()
   }
 
@@ -127,6 +132,16 @@ object TimerStateStore {
   fun nextAt(context: Context): Long = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong(NEXT_AT, 0L)
   fun sessionGeneration(context: Context): String? = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(SESSION_GENERATION, null)
 
+  /** Difference introduced by a manual wall-clock set; zero after reboot or without a reliable sample. */
+  fun wallClockDelta(context: Context, now: Long = System.currentTimeMillis()): Long {
+    val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    val oldWall = prefs.getLong(WALL_CLOCK_SAMPLE, 0L)
+    val oldElapsed = prefs.getLong(ELAPSED_CLOCK_SAMPLE, -1L)
+    val elapsed = SystemClock.elapsedRealtime()
+    if (oldWall <= 0L || oldElapsed < 0L || elapsed < oldElapsed) return 0L
+    return now - (oldWall + elapsed - oldElapsed)
+  }
+
   fun getControlState(context: Context, now: Long = System.currentTimeMillis()): TimerControlState {
     val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     var mutedUntil = prefs.getLong(MUTED_UNTIL, 0L)
@@ -137,7 +152,7 @@ object TimerStateStore {
     return TimerControlState(
       alarmOnceArmed = prefs.getBoolean(ALARM_ONCE, false),
       mutedUntil = mutedUntil,
-      mutedIterationsRemaining = if (prefs.getString(MUTED_ITERATION_END_ID, null) != null) 1 else prefs.getInt(MUTED_ITERATIONS, 0).coerceAtLeast(0),
+      mutedIterationsRemaining = prefs.getInt(MUTED_ITERATIONS, 0).coerceAtLeast(0),
       mutedIterationEndId = prefs.getString(MUTED_ITERATION_END_ID, null),
       mutedIterationEndAt = prefs.getLong(MUTED_ITERATION_END_AT, 0L),
     )
@@ -164,7 +179,7 @@ object TimerStateStore {
     val config = load(context)
     val v2End = config?.timerV2Program?.let { TimerV2Timeline.iterationEnd(it, config.timerV2Anchor, System.currentTimeMillis(), count) }
     if (v2End != null) {
-      editor.remove(MUTED_ITERATIONS)
+      editor.putInt(MUTED_ITERATIONS, count.coerceIn(1, 99))
         .putString(MUTED_ITERATION_END_ID, v2End.logicalId)
         .putLong(MUTED_ITERATION_END_AT, v2End.at)
     } else {
@@ -202,6 +217,7 @@ object TimerStateStore {
     mutedUntil: Long,
     mutedIterationEndId: String?,
     mutedIterationEndAt: Long,
+    mutedIterationCount: Int,
   ): TimerControlState {
     val editor = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
       .putBoolean(ALARM_ONCE, alarmOnceArmed)
@@ -213,6 +229,7 @@ object TimerStateStore {
     if (!mutedIterationEndId.isNullOrBlank() && mutedIterationEndAt > 0L) {
       editor.putString(MUTED_ITERATION_END_ID, mutedIterationEndId)
         .putLong(MUTED_ITERATION_END_AT, mutedIterationEndAt)
+        .putInt(MUTED_ITERATIONS, mutedIterationCount.coerceIn(1, 99))
     }
     editor.commit()
     return getControlState(context).also(TimerControlRegistry::notify)
@@ -227,7 +244,7 @@ object TimerStateStore {
       if (state.mutedUntil > now) return true
       if (endId != null) {
         if (logicalId == endId || now > endAt) {
-          prefs.edit().remove(MUTED_ITERATION_END_ID).remove(MUTED_ITERATION_END_AT).commit()
+          prefs.edit().remove(MUTED_ITERATIONS).remove(MUTED_ITERATION_END_ID).remove(MUTED_ITERATION_END_AT).commit()
           TimerControlRegistry.notify(getControlState(context, now))
           return false
         }

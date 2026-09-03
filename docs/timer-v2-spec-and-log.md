@@ -1510,6 +1510,74 @@ This section is append-only. Every implementation session should record scope, m
 
 - `npx tsc --noEmit` completed successfully.
 
+### 2026-09-03 — Complete configuration and editor flows
+
+**Status:** Implemented; visual device verification remains.
+
+**Decisions referenced:** D-006, D-009, D-010, D-014, D-028, D-029.
+
+**Behavior implemented:**
+
+- Rebuilt configuration as compact summaries with focused sheets for trigger editing, immutable presets, sound selection, and the mixer.
+- Restored the exact main-duration and clock-snap quick choices, plus custom entry.
+- Added tap-and-drag cue painting, select/clear all, named overlap priority, compact timeline preview, five-track limit, and accessible cell state.
+- Added multi-position drag handles with lift/crossing haptics and accessibility increment/decrement actions.
+- Added Sequence duplication, custom duration, confirmation before removal, and 20-step enforcement.
+- Added five stable built-in sound identities, Android alarm/notification pickers, document selection, preview, URI fallback, and per-cue levels.
+- Added active-day selection and prevented starting with active hours enabled but no selected days.
+
+**Verification run:** `npx tsc --noEmit`; `npm test`.
+
+**Results:** Type checking passed; all current deterministic domain tests passed.
+
+### 2026-09-03 — Live timer controls and visualization
+
+**Status:** Implemented; visual and native device verification remains.
+
+**Decisions referenced:** D-014, D-024, D-026, D-027, D-029, D-030, D-031.
+
+**Behavior implemented:**
+
+- Pattern now renders the main progress ring plus one stable inner ring per audible sub-track and only the next winning sub-cue in the center.
+- Sequence now shows current step, position, next step, and current-step progress without an alarm control.
+- Restored restart-from-now and running clock-snap controls; realigning atomically restarts native scheduling and rewrites mute boundary identity when needed.
+- Alarm remains one-shot on first tap and locks on a quick second tap; state is shown with `1`/`∞` badges.
+- Added a complete running mixer, `1×`/`2×`/`3×` cycle mute, custom minute mute, explicit mute status, and final-boundary-audible behavior.
+- Added long-press tooltips, an always-visible Help action, and event-driven ring flashes that cannot be triggered by foregrounding or countdown jumps.
+- Optional call and notification permissions are requested with scoped explanations; refusal does not stop the timer.
+- Serialized state/session persistence prevents rapid gestures, sliders, or Stop from completing writes out of order.
+
+**Verification run:** `npx tsc --noEmit`; `npm test`; Expo module autolinking search.
+
+**Results:** All checks passed and the local module resolves without duplicates.
+
+### 2026-09-03 — Civil-time and DST-safe Android scheduling
+
+**Status:** Implemented by static review; native device verification remains mandatory.
+
+**Decisions referenced:** D-018, D-019, D-020.
+
+**Behavior implemented:**
+
+- Local-clock patterns compare schedule lattices at every scheduling and delivery boundary, realigning only when the civil-time phase truly changed and suppressing stale deliveries.
+- A dedicated exact realignment event is scheduled at the next timezone-offset transition on API 24+, covering daylight-saving changes before Android 17 introduced an offset-change broadcast.
+- Date, timezone, manual-time, package, boot, and exact-alarm permission changes all reconcile from persisted native state.
+- Manual wall-clock changes shift elapsed Pattern/Sequence anchors using paired wall/monotonic clock samples, preserving elapsed cadence; local-clock patterns instead recompute their civil anchor.
+- Iteration mute boundaries are recomputed across a realignment so the final selected main/cycle boundary remains the audible one.
+- Native validation now rejects duplicate IDs/offsets and invalid Sequence labels before scheduling.
+
+**Reference validation:**
+
+- Android documents `ACTION_TIMEZONE_CHANGED`, `ACTION_TIME_CHANGED`, and the API 37 `ACTION_TIMEZONE_OFFSET_CHANGED` semantics in the [Intent API reference](https://developer.android.com/reference/android/content/Intent).
+- Android exposes timezone transition data from API 24 through [`android.icu.util.TimeZone`](https://developer.android.com/reference/android/icu/util/TimeZone).
+- Exact alarm access and delivery behavior were checked against the [AlarmManager API reference](https://developer.android.com/reference/android/app/AlarmManager).
+- Call-state detection uses `TelecomManager.isInCall()`, whose documented requirement is `READ_PHONE_STATE`, with only a deprecated compatibility fallback; see [TelecomManager](https://developer.android.com/reference/android/telecom/TelecomManager).
+- The Focus policy intentionally sets only alarm allowance because unset `ZenPolicy` fields do not change the surrounding policy; see [ZenPolicy.Builder](https://developer.android.com/reference/android/service/notification/ZenPolicy.Builder).
+- Android 15 user-managed rule semantics and activation/deactivation status handling were checked against [NotificationManager](https://developer.android.com/reference/android/app/NotificationManager).
+- The alarm service declares `mediaPlayback` and its matching permissions in line with Android’s [foreground-service type requirements](https://developer.android.com/develop/background-work/services/fgs/service-types).
+
+**Native/on-device verification still required:** DST gap/fold, a non-hour offset change, manual clock jumps, reboot, and API 24/29/35/37 behavior cannot be proven without an Android build and devices; local builds are prohibited by repository policy.
+
 ### Implementation-entry template
 
 ```md

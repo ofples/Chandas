@@ -21,6 +21,6 @@ class TimerRestoreReceiver : BroadcastReceiver() {
     }
     val resetRinging = intent.action == Intent.ACTION_BOOT_COMPLETED ||
       intent.action == Intent.ACTION_MY_PACKAGE_REPLACED
-    TimerScheduler.restore(context, resetRinging)
+    TimerScheduler.restore(context, resetRinging, wallClockChanged = intent.action == Intent.ACTION_TIME_CHANGED)
   }
 }

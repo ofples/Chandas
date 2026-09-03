@@ -18,6 +18,12 @@ const APP_TIMER_SETTINGS_V2_KEY = 'chandas-app-timer-settings-v2'
 const TIMER_V2_MIGRATION_KEY = 'chandas-timer-v2-migrated'
 const TIMER_V2_SESSION_KEY = 'chandas-timer-v2-session'
 
+// AsyncStorage calls can complete out of order under rapid slider/gesture input.
+// Keeping independent state and session queues makes the newest user action the
+// final durable value, including Stop racing an earlier session save.
+let stateWriteQueue: Promise<void> = Promise.resolve()
+let sessionWriteQueue: Promise<void> = Promise.resolve()
+
 export const DEFAULT_CONFIG: TimerConfig = {
   mainInterval: 30,
   subInterval: 5,
@@ -105,7 +111,9 @@ function parseJson<T>(raw: string | null): T | null {
 }
 
 export async function saveTimerV2Session(session: TimerV2Session): Promise<void> {
-  try { await AsyncStorage.setItem(TIMER_V2_SESSION_KEY, JSON.stringify(session)) } catch { /* storage unavailable */ }
+  const snapshot = JSON.stringify(session)
+  sessionWriteQueue = sessionWriteQueue.catch(() => undefined).then(() => AsyncStorage.setItem(TIMER_V2_SESSION_KEY, snapshot))
+  try { await sessionWriteQueue } catch { /* storage unavailable */ }
 }
 
 export async function loadTimerV2Session(): Promise<TimerV2Session | null> {
@@ -125,7 +133,7 @@ export async function loadTimerV2Session(): Promise<TimerV2Session | null> {
       mute: {
         mutedUntil: typeof value.mute?.mutedUntil === 'number' ? Math.max(0, value.mute.mutedUntil) : 0,
         iteration: value.mute?.iteration && typeof value.mute.iteration.endsAt === 'number' && typeof value.mute.iteration.endsAtLogicalId === 'string'
-          ? { endsAt: value.mute.iteration.endsAt, endsAtLogicalId: value.mute.iteration.endsAtLogicalId }
+          ? { endsAt: value.mute.iteration.endsAt, endsAtLogicalId: value.mute.iteration.endsAtLogicalId, iterations: typeof value.mute.iteration.iterations === 'number' ? Math.max(1, Math.min(99, Math.round(value.mute.iteration.iterations))) : 1 }
           : undefined,
       },
       alarmBehavior: value.alarmBehavior === 'once' || value.alarmBehavior === 'locked' ? value.alarmBehavior : 'off',
@@ -134,7 +142,8 @@ export async function loadTimerV2Session(): Promise<TimerV2Session | null> {
 }
 
 export async function clearTimerV2Session(): Promise<void> {
-  try { await AsyncStorage.removeItem(TIMER_V2_SESSION_KEY) } catch { /* storage unavailable */ }
+  sessionWriteQueue = sessionWriteQueue.catch(() => undefined).then(() => AsyncStorage.removeItem(TIMER_V2_SESSION_KEY))
+  try { await sessionWriteQueue } catch { /* storage unavailable */ }
 }
 
 export async function hasTimerV2Session(): Promise<boolean> {
@@ -219,7 +228,11 @@ export async function loadTimerV2State(): Promise<TimerV2State> {
 }
 
 export async function saveTimerV2State(state: TimerV2State): Promise<void> {
-  try { await saveV2Records(state, false) } catch { /* storage unavailable */ }
+  // Freeze serialization at call time; callers continue producing immutable
+  // state while this snapshot waits behind earlier writes.
+  const snapshot = JSON.parse(JSON.stringify(state)) as TimerV2State
+  stateWriteQueue = stateWriteQueue.catch(() => undefined).then(() => saveV2Records(snapshot, false))
+  try { await stateWriteQueue } catch { /* storage unavailable */ }
 }
 
 export async function saveWorkingProgramsV2(workingPrograms: WorkingProgramState): Promise<void> {

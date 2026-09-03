@@ -23,7 +23,8 @@ enum class TimerEventType(val value: String) {
   MAIN("main"),
   SUB("sub"),
   V2("v2"),
-  ACTIVE_START("activeStart");
+  ACTIVE_START("activeStart"),
+  REALIGN("realign");
 
   companion object {
     fun fromValue(value: String?): TimerEventType? = entries.firstOrNull { it.value == value }

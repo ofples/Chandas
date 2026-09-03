@@ -383,3 +383,13 @@ After static and unit checks pass, use an explicitly requested EAS development b
 
 The work is complete only when every definition-of-done item in the specification is demonstrably satisfied, all new tests pass, TypeScript and Expo static checks pass, the mockup flows are represented faithfully at phone and larger widths, no known P0/P1 review findings remain, and every item that still needs an EAS/device confirmation is listed explicitly in the handoff.
 
+## 11. Authoritative Android references used for validation
+
+- [AlarmManager](https://developer.android.com/reference/android/app/AlarmManager): exact-alarm access, exact idle delivery, and permission behavior.
+- [Intent time broadcasts](https://developer.android.com/reference/android/content/Intent): manual time, timezone ID, date, and API 37 seasonal offset-change signals.
+- [`android.icu.util.TimeZone`](https://developer.android.com/reference/android/icu/util/TimeZone): transition lookup available from API 24 for pre-API 37 DST handling.
+- [TelecomManager](https://developer.android.com/reference/android/telecom/TelecomManager): aggregate `isInCall()` semantics and the `READ_PHONE_STATE` requirement.
+- [NotificationManager](https://developer.android.com/reference/android/app/NotificationManager): automatic Zen rule ownership, state/status broadcasts, manual deactivation, and Android 15 user-managed rule constraints.
+- [ZenPolicy.Builder](https://developer.android.com/reference/android/service/notification/ZenPolicy.Builder): unset policy fields preserve surrounding policy behavior; Chandas sets only alarm allowance.
+- [AutomaticZenRule](https://developer.android.com/reference/android/app/AutomaticZenRule): API-level constructor and owner/condition requirements.
+- [Foreground service types](https://developer.android.com/develop/background-work/services/fgs/service-types): `mediaPlayback` declaration and permission requirements for continuous alarm playback.

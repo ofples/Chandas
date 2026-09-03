@@ -30,6 +30,7 @@
         <action android:name="android.intent.action.TIME_SET" />
         <action android:name="android.intent.action.TIMEZONE_CHANGED" />
         <action android:name="android.intent.action.TIMEZONE_OFFSET_CHANGED" />
+        <action android:name="android.intent.action.DATE_CHANGED" />
         <action android:name="android.app.action.NOTIFICATION_POLICY_ACCESS_GRANTED_CHANGED" />
         <action android:name="android.app.action.AUTOMATIC_ZEN_RULE_STATUS_CHANGED" />
         <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />

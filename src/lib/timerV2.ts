@@ -165,7 +165,13 @@ export function normalizeTrack(track: Partial<PatternTrack>, mainMinutes: number
 export function normalizePatternProgram(value: Partial<PatternProgram> | undefined): PatternProgram {
   const mainMinutes = clampDuration(value?.mainMinutes, 30)
   const rawTracks = Array.isArray(value?.tracks) ? value.tracks : []
-  const tracks = rawTracks.slice(0, MAX_PATTERN_TRACKS).map(track => normalizeTrack(track, mainMinutes))
+  const trackIds = new Set<string>()
+  const tracks = rawTracks.slice(0, MAX_PATTERN_TRACKS).map(track => {
+    const normalized = normalizeTrack(track, mainMinutes)
+    if (trackIds.has(normalized.id)) normalized.id = createProgramId()
+    trackIds.add(normalized.id)
+    return normalized
+  })
   const offset = value?.alignment?.kind === 'local-clock' ? clampSnapOffset(value.alignment.offsetMinutes) : undefined
   return {
     schemaVersion: TIMER_V2_SCHEMA_VERSION,
@@ -179,12 +185,13 @@ export function normalizePatternProgram(value: Partial<PatternProgram> | undefin
 
 export function normalizeSequenceProgram(value: Partial<SequenceProgram> | undefined): SequenceProgram {
   const rawSteps = Array.isArray(value?.steps) ? value.steps : []
-  const steps = rawSteps.slice(0, MAX_SEQUENCE_STEPS).map((step, index): SequenceStep => ({
-    id: typeof step.id === 'string' && step.id.length > 0 ? step.id : createProgramId(),
-    durationMinutes: clampDuration(step.durationMinutes, 5),
-    label: normalizeLabel(step.label, `Step ${index + 1}`),
-    ...normalizeCue(step, defaultCue('clear-bell')),
-  }))
+  const stepIds = new Set<string>()
+  const steps = rawSteps.slice(0, MAX_SEQUENCE_STEPS).map((step, index): SequenceStep => {
+    let id = typeof step.id === 'string' && step.id.length > 0 ? step.id : createProgramId()
+    if (stepIds.has(id)) id = createProgramId()
+    stepIds.add(id)
+    return { id, durationMinutes: clampDuration(step.durationMinutes, 5), label: normalizeLabel(step.label, `Step ${index + 1}`), ...normalizeCue(step, defaultCue('clear-bell')) }
+  })
   return { schemaVersion: TIMER_V2_SCHEMA_VERSION, mode: 'sequence', steps: steps.length > 0 ? steps : defaultSequenceProgram().steps }
 }
 

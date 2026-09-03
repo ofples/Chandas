@@ -3,6 +3,7 @@ package expo.modules.chandastimerservice
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Calendar
+import android.os.Build
 import kotlin.math.max
 
 data class TimerV2Event(
@@ -98,6 +99,26 @@ object TimerV2Timeline {
     now - elapsedMinutes * MINUTE - calendar.get(Calendar.SECOND) * 1_000L - calendar.get(Calendar.MILLISECOND)
   }.getOrNull()
 
+  fun isLocalClock(serialized: String): Boolean = runCatching {
+    val root = JSONObject(serialized)
+    root.optString("mode") == "pattern" && root.optJSONObject("alignment")?.optString("kind") == "local-clock"
+  }.getOrDefault(false)
+
+  fun cycleDuration(serialized: String): Long? = runCatching {
+    val root = JSONObject(serialized)
+    when (root.optString("mode")) {
+      "pattern" -> root.optInt("mainMinutes", 0).toLong().times(MINUTE).takeIf { it > 0L }
+      "sequence" -> sequenceDuration(root.optJSONArray("steps") ?: return@runCatching null).takeIf { it > 0L }
+      else -> null
+    }
+  }.getOrNull()
+
+  /** Exact seasonal-offset boundary so local-clock patterns can realign even on pre-API 37 Android. */
+  fun nextTimezoneTransition(now: Long): Long? {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return null
+    return runCatching { android.icu.util.TimeZone.getDefault().getNextTransition(now, false)?.time }.getOrNull()
+  }
+
   private fun nextPattern(root: JSONObject, anchor: Long, now: Long): TimerV2Event? {
     val mainMinutes = root.optInt("mainMinutes", 0)
     val duration = mainMinutes.toLong() * MINUTE
@@ -181,15 +202,18 @@ object TimerV2Timeline {
     if (mainMinutes !in 1..MAX_DURATION_MINUTES || !validCue(root.optJSONObject("mainCue"))) return false
     val tracks = root.optJSONArray("tracks") ?: return false
     if (tracks.length() > MAX_TRACKS) return false
+    val trackIds = mutableSetOf<String>()
     for (index in 0 until tracks.length()) {
       val track = tracks.optJSONObject(index) ?: return false
-      if (track.optString("id").isBlank() || !validCue(track)) return false
+      val trackId = track.optString("id")
+      if (trackId.isBlank() || !trackIds.add(trackId) || !validCue(track)) return false
       val cadence = track.optInt("cadenceMinutes", -1)
       if (cadence !in 1 until mainMinutes) return false
       val offsets = track.optJSONArray("selectedOffsetsMinutes") ?: return false
+      val seenOffsets = mutableSetOf<Int>()
       for (offsetIndex in 0 until offsets.length()) {
         val offset = offsets.optInt(offsetIndex, -1)
-        if (offset !in 1 until mainMinutes || offset % cadence != 0) return false
+        if (offset !in 1 until mainMinutes || offset % cadence != 0 || !seenOffsets.add(offset)) return false
       }
     }
     val alignment = root.optJSONObject("alignment") ?: return false
@@ -203,9 +227,12 @@ object TimerV2Timeline {
   private fun validateSequence(root: JSONObject): Boolean {
     val steps = root.optJSONArray("steps") ?: return false
     if (steps.length() !in 1..MAX_STEPS) return false
+    val stepIds = mutableSetOf<String>()
     for (index in 0 until steps.length()) {
       val step = steps.optJSONObject(index) ?: return false
-      if (step.optString("id").isBlank() || step.optInt("durationMinutes", -1) !in 1..MAX_DURATION_MINUTES || !validCue(step)) return false
+      val id = step.optString("id")
+      val label = step.optString("label")
+      if (id.isBlank() || !stepIds.add(id) || label.isBlank() || label.length > 60 || step.optInt("durationMinutes", -1) !in 1..MAX_DURATION_MINUTES || !validCue(step)) return false
     }
     return true
   }

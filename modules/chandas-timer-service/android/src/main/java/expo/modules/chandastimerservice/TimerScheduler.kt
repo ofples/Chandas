@@ -61,16 +61,19 @@ object TimerScheduler {
     AlarmStateRegistry.notify(false)
   }
 
-  fun restore(context: Context, resetRinging: Boolean) {
-    val stored = TimerStateStore.load(context) ?: return
+  fun restore(context: Context, resetRinging: Boolean, wallClockChanged: Boolean = false) {
+    var stored = TimerStateStore.load(context) ?: return
     if (stored.timerV2Program != null && !TimerV2Timeline.isValid(stored.timerV2Program)) {
       stop(context)
       return
     }
-    val config = stored.timerV2Program?.let { program ->
-      TimerV2Timeline.alignedAnchor(program, System.currentTimeMillis())?.let { anchor -> stored.copy(timerV2Anchor = anchor) } ?: stored
-    } ?: stored
-    if (config !== stored) TimerStateStore.save(context, config)
+    if (wallClockChanged) {
+      val delta = TimerStateStore.wallClockDelta(context)
+      if (delta != 0L && stored.timerV2Program?.let(TimerV2Timeline::isLocalClock) != true) {
+        stored = stored.copy(phase = stored.phase + delta, timerV2Anchor = stored.timerV2Anchor + delta)
+        TimerStateStore.save(context, stored)
+      }
+    }
     if (resetRinging) {
       TimerStateStore.setRinging(context, false)
       TimerStateStore.setAlarmVisible(context, false)
@@ -78,19 +81,20 @@ object TimerScheduler {
     }
     cancelScheduledEvent(context)
     TimerNotifications.ensureChannels(context)
-    FocusModeController.reconcile(context, config)
-    scheduleNext(context, config)
+    FocusModeController.reconcile(context, stored)
+    scheduleNext(context, stored)
   }
 
   fun scheduleNext(context: Context, config: TimerConfig? = TimerStateStore.load(context)): Boolean {
-    val active = config ?: return false
-    if (active.timerV2Program != null && !TimerV2Timeline.isValid(active.timerV2Program)) return false
+    val initial = config ?: return false
+    if (initial.timerV2Program != null && !TimerV2Timeline.isValid(initial.timerV2Program)) return false
     if (!canScheduleExactAlarms(context)) {
       TimerStateStore.clearNext(context)
       return false
     }
 
     val now = System.currentTimeMillis()
+    val active = reconcileLocalClock(context, initial, now).config
     val v2Event = active.timerV2Program?.let { TimerV2Timeline.next(it, active.timerV2Anchor, now) }
     val nextMain = TimerMath.nextTick(now, active.mainMs, active.phase)
     val nextSub = if (active.subEnabled && active.subMs > 0L) TimerMath.nextSubTick(now, active.mainMs, active.subMs, active.phase) else Long.MAX_VALUE
@@ -101,6 +105,14 @@ object TimerScheduler {
       triggerAt = ActiveHours.nextStart(active, now)
       type = TimerEventType.ACTIVE_START
       logicalId = "active-start:$triggerAt"
+    }
+    val transition = active.timerV2Program
+      ?.takeIf(TimerV2Timeline::isLocalClock)
+      ?.let { TimerV2Timeline.nextTimezoneTransition(now) }
+    if (transition != null && transition > now && transition < triggerAt) {
+      triggerAt = transition
+      type = TimerEventType.REALIGN
+      logicalId = "realign:$transition"
     }
     val generation = TimerStateStore.ensureSessionGeneration(context)
 
@@ -141,13 +153,20 @@ object TimerScheduler {
     generation: String,
     onFinished: () -> Unit,
   ) {
-    val config = TimerStateStore.load(context)
-    if (config == null || !TimerStateStore.matchesNext(context, triggerAt, type, logicalId, generation)) {
+    val stored = TimerStateStore.load(context)
+    if (stored == null || !TimerStateStore.matchesNext(context, triggerAt, type, logicalId, generation)) {
       onFinished()
       return
     }
 
     TimerStateStore.clearNext(context)
+    val realignment = reconcileLocalClock(context, stored, System.currentTimeMillis())
+    if (type == TimerEventType.REALIGN || realignment.changed) {
+      scheduleNext(context, realignment.config)
+      onFinished()
+      return
+    }
+    val config = realignment.config
     if (type == TimerEventType.ACTIVE_START) {
       FocusModeController.reconcile(context, config)
       scheduleNext(context, config)
@@ -266,6 +285,33 @@ object TimerScheduler {
         suppressionReason = reason,
       ),
     )
+  }
+
+  private data class LocalClockResult(val config: TimerConfig, val changed: Boolean)
+
+  /**
+   * A stored anchor may be many complete cycles behind and still represent the
+   * same local lattice. Only a non-integral phase difference is a real timezone,
+   * DST, date-boundary, or clock-offset change.
+   */
+  private fun reconcileLocalClock(context: Context, config: TimerConfig, now: Long): LocalClockResult {
+    val program = config.timerV2Program ?: return LocalClockResult(config, false)
+    if (!TimerV2Timeline.isLocalClock(program)) return LocalClockResult(config, false)
+    val aligned = TimerV2Timeline.alignedAnchor(program, now) ?: return LocalClockResult(config, false)
+    val duration = TimerV2Timeline.cycleDuration(program) ?: return LocalClockResult(config, false)
+    if (Math.floorMod(aligned - config.timerV2Anchor, duration) == 0L) return LocalClockResult(config, false)
+
+    val controls = TimerStateStore.getControlState(context, now)
+    val next = config.copy(timerV2Anchor = aligned)
+    TimerStateStore.save(context, next)
+    if (controls.mutedIterationEndId != null && controls.mutedIterationEndAt > 0L) {
+      val remaining = ((controls.mutedIterationEndAt - now + duration - 1L) / duration)
+        .coerceIn(1L, controls.mutedIterationsRemaining.coerceAtLeast(1).toLong())
+        .toInt()
+      val ending = TimerV2Timeline.iterationEnd(program, aligned, now, remaining)
+      TimerStateStore.restoreControls(context, controls.alarmOnceArmed, controls.mutedUntil, ending?.logicalId, ending?.at ?: 0L, remaining)
+    }
+    return LocalClockResult(next, true)
   }
 
   private fun resourceForV2Sound(soundId: String): Int = when (soundId) {

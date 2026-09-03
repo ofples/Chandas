@@ -37,6 +37,7 @@ class TimerConfigRecord : Record {
   @Field var mutedUntil: Long? = null
   @Field var mutedIterationEndId: String? = null
   @Field var mutedIterationEndAt: Long? = null
+  @Field var mutedIterationCount: Int? = null
 }
 
 class ChandasTimerServiceModule : Module() {
@@ -77,6 +78,7 @@ class ChandasTimerServiceModule : Module() {
           record.mutedUntil ?: 0L,
           record.mutedIterationEndId,
           record.mutedIterationEndAt ?: 0L,
+          record.mutedIterationCount ?: 1,
         )
       }
       started
