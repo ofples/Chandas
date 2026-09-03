@@ -1,6 +1,8 @@
 package expo.modules.chandastimerservice
 
 import android.app.AlarmManager
+import android.app.Activity
+import android.media.RingtoneManager
 import android.app.NotificationManager
 import android.content.Intent
 import android.net.Uri
@@ -9,6 +11,8 @@ import android.provider.Settings
 import androidx.core.os.bundleOf
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+import expo.modules.kotlin.Promise
+import expo.modules.kotlin.functions.Queues
 import expo.modules.kotlin.records.Field
 import expo.modules.kotlin.records.Record
 
@@ -31,6 +35,7 @@ class TimerConfigRecord : Record {
 }
 
 class ChandasTimerServiceModule : Module() {
+  private var soundPickerPromise: Promise? = null
   private val ringingListener: (Boolean) -> Unit = { ringing ->
     sendEvent("onAlarmStateChanged", bundleOf("ringing" to ringing))
   }
@@ -139,6 +144,26 @@ class ChandasTimerServiceModule : Module() {
       if (context != null) TimerStateStore.clearMute(context)
     }
 
+    AsyncFunction("pickDeviceSound") { kind: String, promise: Promise ->
+      val activity = appContext.activityProvider?.currentActivity
+      if (activity == null) {
+        promise.resolve(null)
+        return@AsyncFunction
+      }
+      soundPickerPromise?.resolve(null)
+      soundPickerPromise = promise
+      val type = when (kind) {
+        "alarm" -> RingtoneManager.TYPE_ALARM
+        "notification" -> RingtoneManager.TYPE_NOTIFICATION
+        else -> RingtoneManager.TYPE_ALL
+      }
+      activity.startActivityForResult(Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+        putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, type)
+        putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, false)
+        putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
+      }, DEVICE_SOUND_PICKER_REQUEST)
+    }.runOnQueue(Queues.MAIN)
+
     Function("canScheduleExactAlarms") {
       val context = appContext.reactContext
       if (context == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
@@ -222,6 +247,20 @@ class ChandasTimerServiceModule : Module() {
     OnStopObserving("onControlStateChanged") {
       TimerControlRegistry.remove(controlListener)
     }
+
+    OnActivityResult { _, result ->
+      if (result.requestCode != DEVICE_SOUND_PICKER_REQUEST) return@OnActivityResult
+      val promise = soundPickerPromise ?: return@OnActivityResult
+      soundPickerPromise = null
+      val uri = result.data?.getParcelableExtra<android.net.Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+      if (result.resultCode != Activity.RESULT_OK || uri == null) {
+        promise.resolve(null)
+      } else {
+        val context = appContext.reactContext
+        val title = context?.let { RingtoneManager.getRingtone(it, uri)?.getTitle(it) } ?: "Device sound"
+        promise.resolve(bundleOf("uri" to uri.toString(), "title" to title))
+      }
+    }
   }
 
   private fun merge(record: TimerConfigRecord, previous: TimerConfig?): TimerConfig? {
@@ -255,4 +294,8 @@ class ChandasTimerServiceModule : Module() {
     "mutedUntil" to state.mutedUntil,
     "mutedIterationsRemaining" to state.mutedIterationsRemaining,
   )
+
+  private companion object {
+    const val DEVICE_SOUND_PICKER_REQUEST = 8452
+  }
 }

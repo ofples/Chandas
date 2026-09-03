@@ -1451,6 +1451,27 @@ This section is append-only. Every implementation session should record scope, m
 
 **Known gaps:** The Android system picker for user-owned notification/alarm/document sounds and a continuous drag reorder gesture remain to be added. V2 Android code needs a remote/device test pass before release.
 
+### 2026-09-03 — Android device sound picker
+
+**Status:** Implemented; requires device/native-build verification.
+
+**Files changed:**
+
+- `ChandasTimerServiceModule.kt`, `TimerSoundPlayer.kt`, `TimerScheduler.kt`
+- `src/native/ChandasTimerService.ts`
+- `src/screens/TimerV2ConfigScreen.tsx`
+
+**Behavior implemented:**
+
+- The per-cue sound sheet opens Android’s system ringtone picker for alarm/notification sounds.
+- Selected content URIs and titles are stored in the V2 `SoundRef` and are played directly by the native one-shot player at the cue’s effective volume.
+- Built-in library identities continue to map to bundled placeholder sounds until the final five distinct assets are supplied.
+
+**Verification:**
+
+- `npx tsc --noEmit` completed successfully.
+- The native picker/playback path is static-reviewed only; local native builds are prohibited by repository policy.
+
 ### Implementation-entry template
 
 ```md

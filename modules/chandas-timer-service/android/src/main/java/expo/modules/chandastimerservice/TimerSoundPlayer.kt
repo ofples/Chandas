@@ -3,6 +3,7 @@ package expo.modules.chandastimerservice
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.MediaPlayer
+import android.net.Uri
 import android.os.PowerManager
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -15,6 +16,7 @@ object TimerSoundPlayer {
     volume: Float,
     useAlarmUsage: Boolean,
     onFinished: () -> Unit,
+    sourceUri: String? = null,
   ) {
     if (volume <= 0f) {
       onFinished()
@@ -40,9 +42,13 @@ object TimerSoundPlayer {
           .build(),
       )
       player.setWakeMode(context.applicationContext, PowerManager.PARTIAL_WAKE_LOCK)
-      val afd = context.resources.openRawResourceFd(resId)
-      player.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
-      afd.close()
+      if (sourceUri != null) {
+        player.setDataSource(context, Uri.parse(sourceUri))
+      } else {
+        val afd = context.resources.openRawResourceFd(resId)
+        player.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+        afd.close()
+      }
       val level = volume.coerceIn(0f, 1f)
       player.setVolume(level, level)
       player.setOnCompletionListener { release() }

@@ -210,7 +210,7 @@ object TimerScheduler {
       return
     }
     scheduleNext(context, config)
-    TimerSoundPlayer.play(context, resourceForV2Sound(event.soundId), (config.volume * event.volume).coerceIn(0f, 1f), FocusModeController.shouldUseAlarmAudio(context, config), onFinished)
+    TimerSoundPlayer.play(context, resourceForV2Sound(event.soundId), (config.volume * event.volume).coerceIn(0f, 1f), FocusModeController.shouldUseAlarmAudio(context, config), onFinished, event.soundId.takeIf { it.contains("://") })
   }
 
   private fun resourceForV2Sound(soundId: String): Int = when (soundId) {

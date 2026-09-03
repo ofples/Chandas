@@ -85,6 +85,7 @@ interface ChandasTimerServiceModule {
   muteForIterations(count: number): void
   muteForMinutes(minutes: number): void
   clearMute(): void
+  pickDeviceSound(kind: 'alarm' | 'notification' | 'unknown'): Promise<{ uri: string; title: string } | null>
   addListener(eventName: 'onAlarmStateChanged', listener: (event: AlarmStateEvent) => void): EventSubscription
   addListener(eventName: 'onControlStateChanged', listener: (event: NativeControlState) => void): EventSubscription
 }
@@ -156,6 +157,9 @@ export const ChandasTimerService = {
   },
   clearMute() {
     native?.clearMute()
+  },
+  async pickDeviceSound(kind: 'alarm' | 'notification' | 'unknown'): Promise<{ uri: string; title: string } | null> {
+    return native?.pickDeviceSound(kind) ?? null
   },
   // Live updates while the app is open — the counterpart to isRinging() above.
   addAlarmListener(listener: (ringing: boolean) => void): EventSubscription | null {
