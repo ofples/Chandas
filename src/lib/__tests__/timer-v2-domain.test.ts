@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { PatternProgram, SequenceProgram } from '../../types'
 import { chooseProgramMode, deleteProgramPreset, loadProgramPreset, patchSequenceStep, reorderPatternTracks, saveProgramPreset, updatePatternMainMinutes } from '../programActions'
-import { alarmBehaviorAfterGesture, gateProgramAudio, iterationMuteFor, muteAfterScheduleChange } from '../runtimeV2'
+import { alarmBehaviorAfterGesture, gateProgramAudio, isFreshScheduledEvent, iterationMuteFor, muteAfterScheduleChange, shouldSurfaceTimerSignal } from '../runtimeV2'
 import { defaultTimerV2State, migrateLegacyConfig, normalizePatternProgram, normalizeSequenceProgram, normalizeSoundRef, parseTimerProgram, validOffsets } from '../timerV2'
 import { nextPatternEvent, nextSequenceEvent, timelinePosition } from '../timeline'
 import { isWithinActiveHours, nextActiveHoursStart } from '../activeHours'
@@ -100,6 +100,16 @@ describe('timer v2 timeline contracts', () => {
 })
 
 describe('timer v2 audio gate', () => {
+  it('surfaces only fresh events while the app is active', () => {
+    expect(isFreshScheduledEvent(10_000, 14_999)).toBe(true)
+    expect(isFreshScheduledEvent(10_000, 15_001)).toBe(false)
+    expect(shouldSurfaceTimerSignal({ suppressed: false, firedAt: 10_000 }, 14_999, true)).toBe(true)
+    expect(shouldSurfaceTimerSignal({ suppressed: false, firedAt: 10_000 }, 15_001, true)).toBe(false)
+    expect(shouldSurfaceTimerSignal({ suppressed: false, firedAt: 10_000 }, 10_100, false)).toBe(false)
+    expect(shouldSurfaceTimerSignal({ suppressed: true, firedAt: 10_000 }, 10_100, true)).toBe(false)
+    expect(shouldSurfaceTimerSignal({ suppressed: false }, 10_100, true)).toBe(false)
+  })
+
   it('implements the full exclusive single/double alarm gesture table', () => {
     expect(alarmBehaviorAfterGesture('off', 'single')).toBe('once')
     expect(alarmBehaviorAfterGesture('off', 'double')).toBe('locked')

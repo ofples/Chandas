@@ -40,6 +40,7 @@ interface Props {
   state: TimerV2State
   onChange: (state: TimerV2State) => void
   onStart: () => void
+  starting: boolean
   focusState: NativeFocusState
   onFocusAutomationChange: (enabled: boolean) => void
   onOpenFocusSettings: () => void
@@ -50,7 +51,7 @@ interface Props {
   onRequestNotificationAccess: () => void
 }
 
-export function TimerV2ConfigScreen({ state, onChange, onStart, focusState, onFocusAutomationChange, onOpenFocusSettings, onOpenFocusRuleSettings, androidAccess, onOpenExactAlarmSettings, onRequestCallMuteAccess, onRequestNotificationAccess }: Props) {
+export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusState, onFocusAutomationChange, onOpenFocusSettings, onOpenFocusRuleSettings, androidAccess, onOpenExactAlarmSettings, onRequestCallMuteAccess, onRequestNotificationAccess }: Props) {
   const { tokens } = useTheme()
   const insets = useSafeAreaInsets()
   const [cueTarget, setCueTarget] = useState<CueTarget | null>(null)
@@ -109,7 +110,7 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, focusState, onFo
       </ScrollView>
 
       <View style={[styles.bottom, { backgroundColor: tokens.bg, paddingBottom: insets.bottom + 16 }]}>
-        <Pressable disabled={!validToStart} onPress={onStart} style={({ pressed }) => [styles.start, { backgroundColor: tokens.accent, opacity: !validToStart ? 0.35 : pressed ? 0.76 : 1 }]} accessibilityRole="button"><Text style={styles.startText}>{validToStart ? 'Start timer' : 'Choose an active day'}</Text></Pressable>
+        <Pressable disabled={!validToStart || starting} onPress={onStart} style={({ pressed }) => [styles.start, { backgroundColor: tokens.accent, opacity: !validToStart || starting ? 0.35 : pressed ? 0.76 : 1 }]} accessibilityRole="button" accessibilityState={{ disabled: !validToStart || starting, busy: starting }}><Text style={styles.startText}>{starting ? 'Starting…' : validToStart ? 'Start timer' : 'Choose an active day'}</Text></Pressable>
       </View>
 
       {trackId ? <TrackEditorSheet state={state} trackId={trackId} onChange={onChange} onEditCue={() => setCueTarget({ kind: 'track', id: trackId })} onClose={() => setTrackId(null)} /> : null}

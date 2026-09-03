@@ -78,6 +78,7 @@ export interface NativeTimerState {
 
 export interface NativeTimerEvent {
   at: number
+  firedAt?: number
   logicalId: string
   boundary: 'pattern-main' | 'pattern-offset' | 'sequence-step' | 'sequence-cycle'
   winnerCueId: string

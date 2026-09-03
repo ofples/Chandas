@@ -26,6 +26,23 @@ export interface AudioGateResult {
   consumeAlarmOnce: boolean
 }
 
+export const EVENT_FRESHNESS_WINDOW_MS = 5_000
+
+/** A throttled JS timer must not replay an old cue when its tab wakes later. */
+export function isFreshScheduledEvent(eventAt: number, observedAt: number, windowMs = EVENT_FRESHNESS_WINDOW_MS): boolean {
+  return Number.isFinite(eventAt) && Number.isFinite(observedAt) && observedAt >= eventAt && observedAt - eventAt <= windowMs
+}
+
+/** Native bridge events animate only if delivery itself happened while this UI was effectively current. */
+export function shouldSurfaceTimerSignal(
+  event: { suppressed: boolean; firedAt?: number },
+  observedAt: number,
+  appActive: boolean,
+  windowMs = EVENT_FRESHNESS_WINDOW_MS,
+): boolean {
+  return appActive && !event.suppressed && typeof event.firedAt === 'number' && Math.abs(observedAt - event.firedAt) <= windowMs
+}
+
 export function emptyRuntimeMute(): RuntimeMuteState {
   return { mutedUntil: 0 }
 }

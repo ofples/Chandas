@@ -30,6 +30,7 @@ export function BottomSheet({ visible, title, eyebrow, onClose, children, scroll
           <Pressable
             style={[styles.sheet, { backgroundColor: tokens.surface, borderColor: tokens.border, paddingBottom: Math.max(insets.bottom, 16) }]}
             onPress={event => event.stopPropagation()}
+            accessible={false}
             accessibilityViewIsModal
           >
             <View style={[styles.grabber, { backgroundColor: tokens.textDisabled }]} />

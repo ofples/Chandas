@@ -64,6 +64,7 @@ class ChandasTimerServiceModule : Module() {
   private val timerEventListener: (TimerEventSignal) -> Unit = { event ->
     sendEvent("onTimerEventFired", bundleOf(
       "at" to event.at,
+      "firedAt" to event.firedAt,
       "logicalId" to event.logicalId,
       "boundary" to event.boundary,
       "winnerCueId" to event.winnerCueId,

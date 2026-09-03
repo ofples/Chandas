@@ -3,6 +3,7 @@ package expo.modules.chandastimerservice
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import java.util.concurrent.atomic.AtomicBoolean
 
 class TimerEventReceiver : BroadcastReceiver() {
   companion object {
@@ -26,7 +27,17 @@ class TimerEventReceiver : BroadcastReceiver() {
         val generation = intent.getStringExtra(EXTRA_GENERATION) ?: return
         if (triggerAt <= 0L) return
         val pendingResult = goAsync()
-        TimerScheduler.handleTriggered(context, triggerAt, type, logicalId, generation) { pendingResult.finish() }
+        val finished = AtomicBoolean(false)
+        val finishOnce = { if (finished.compareAndSet(false, true)) pendingResult.finish() }
+        try {
+          TimerScheduler.handleTriggered(context, triggerAt, type, logicalId, generation, finishOnce)
+        } catch (_: Exception) {
+          // A receiver must always release goAsync. Attempt to reconstruct the
+          // one-future-event invariant before yielding; restore itself fails
+          // closed if the persisted program or exact-alarm access is invalid.
+          runCatching { TimerScheduler.restore(context, resetRinging = false) }
+          finishOnce()
+        }
       }
     }
   }

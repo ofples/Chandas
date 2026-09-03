@@ -2,6 +2,8 @@ package expo.modules.chandastimerservice
 
 data class TimerEventSignal(
   val at: Long,
+  /** Wall-clock time at which native actually handled and emitted the event. */
+  val firedAt: Long,
   val logicalId: String,
   val boundary: String,
   val winnerCueId: String,

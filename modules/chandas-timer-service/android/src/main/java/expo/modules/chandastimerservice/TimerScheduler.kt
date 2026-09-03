@@ -301,6 +301,7 @@ object TimerScheduler {
     TimerEventRegistry.notify(
       TimerEventSignal(
         at = event.at,
+        firedAt = System.currentTimeMillis(),
         logicalId = event.logicalId,
         boundary = event.boundary.value,
         winnerCueId = event.winner.cueId,

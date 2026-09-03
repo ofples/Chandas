@@ -1,6 +1,7 @@
 import { useMemo, useRef } from 'react'
 import { Animated, PanResponder, StyleSheet, Text } from 'react-native'
 import * as Haptics from 'expo-haptics'
+import { useReducedMotion } from 'react-native-reanimated'
 import { useTheme } from '../../theme/ThemeContext'
 
 interface Props {
@@ -17,6 +18,7 @@ interface Props {
 /** Drag handle that can cross several fixed-height rows, with an accessible increment/decrement fallback. */
 export function ReorderHandle({ index, itemCount, rowHeight = 72, onMove, label, rowTranslation, onDragStateChange }: Props) {
   const { tokens } = useTheme()
+  const reducedMotion = useReducedMotion()
   const internalTranslation = useRef(new Animated.Value(0)).current
   const translation = rowTranslation ?? internalTranslation
   const originRef = useRef(index)
@@ -52,10 +54,11 @@ export function ReorderHandle({ index, itemCount, rowHeight = 72, onMove, label,
       onDragStateChange?.(false)
     },
     onPanResponderTerminate: () => {
-      Animated.spring(translation, { toValue: 0, useNativeDriver: true }).start()
+      if (reducedMotion) translation.setValue(0)
+      else Animated.spring(translation, { toValue: 0, useNativeDriver: true }).start()
       onDragStateChange?.(false)
     },
-  }), [index, itemCount, onDragStateChange, onMove, rowHeight, translation])
+  }), [index, itemCount, onDragStateChange, onMove, reducedMotion, rowHeight, translation])
 
   const adjust = (direction: 'increment' | 'decrement') => {
     const target = Math.max(0, Math.min(itemCount - 1, index + (direction === 'increment' ? 1 : -1)))

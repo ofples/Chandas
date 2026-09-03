@@ -8,7 +8,7 @@ import { isWithinActiveHours, nextActiveHoursStart } from '../lib/activeHours'
 import { formatCountdown } from '../lib/snapLogic'
 import { sourceForSound, soundTitle } from '../lib/soundLibrary'
 import { nextProgramEvent, timelinePosition, type TimelinePosition } from '../lib/timeline'
-import { alarmBehaviorAfterGesture, emptyRuntimeMute, gateProgramAudio, iterationMuteFor, muteAfterScheduleChange, type RuntimeMuteState } from '../lib/runtimeV2'
+import { alarmBehaviorAfterGesture, emptyRuntimeMute, gateProgramAudio, isFreshScheduledEvent, iterationMuteFor, muteAfterScheduleChange, shouldSurfaceTimerSignal, type RuntimeMuteState } from '../lib/runtimeV2'
 import { clearTimerV2Session, saveTimerV2Session } from '../lib/storage'
 import { ChandasTimerService, isNativeServiceAvailable, type NativeTimerConfig } from '../native/ChandasTimerService'
 
@@ -208,7 +208,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
 
     if (gate.disposition === 'continuous-alarm') {
       dismissAlarm()
-      const player = createAudioPlayer(ALARM_SOURCE)
+      const player = createAudioPlayer(sourceForSound(event.winner.sound) ?? ALARM_SOURCE)
       player.loop = true
       player.volume = Math.max(0, Math.min(1, activeSettings.masterVolume * event.winner.volume))
       player.play()
@@ -238,7 +238,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     timeoutRef.current = setTimeout(() => {
       if (!runningRef.current) return
       const firedAt = Date.now()
-      if (activeNow && activeAtEvent) playEvent(event.at)
+      if (activeNow && activeAtEvent && isFreshScheduledEvent(event.at, firedAt)) playEvent(event.at)
       // When returning to active hours the scheduler only finds the next
       // future event; it deliberately never replays inactive/call-muted cues.
       refreshDisplay()
@@ -450,7 +450,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
   useEffect(() => {
     if (!isNativeServiceAvailable) return
     const listener = ChandasTimerService.addTimerEventListener(event => {
-      if (!event.suppressed) setEventPulse(value => value + 1)
+      if (shouldSurfaceTimerSignal(event, Date.now(), AppState.currentState === 'active')) setEventPulse(value => value + 1)
     })
     return () => listener?.remove()
   }, [])
