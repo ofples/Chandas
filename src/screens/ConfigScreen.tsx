@@ -156,9 +156,11 @@ export function ConfigScreen({
               enabled={config.activeHoursEnabled}
               startMinutes={config.activeHoursStart}
               endMinutes={config.activeHoursEnd}
+              days={config.activeHoursDays}
               onToggle={value => set('activeHoursEnabled', value)}
               onStartChange={value => set('activeHoursStart', value)}
               onEndChange={value => set('activeHoursEnd', value)}
+              onDaysChange={value => set('activeHoursDays', value)}
             />
 
             {Platform.OS === 'android' && isNativeServiceAvailable && (

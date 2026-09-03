@@ -140,6 +140,19 @@ export function addSequenceStep(state: TimerV2State): TimerV2State {
   })
 }
 
+export function duplicateSequenceStep(state: TimerV2State, stepId: string): TimerV2State {
+  return updateSequence(state, program => {
+    if (program.steps.length >= MAX_SEQUENCE_STEPS) return program
+    const index = program.steps.findIndex(step => step.id === stepId)
+    if (index < 0) return program
+    const source = program.steps[index]
+    const duplicate: SequenceStep = { ...source, id: createProgramId(), label: `${source.label} copy`.slice(0, 60) }
+    const steps = [...program.steps]
+    steps.splice(index + 1, 0, duplicate)
+    return { ...program, steps }
+  })
+}
+
 export function patchSequenceStep(state: TimerV2State, stepId: string, patch: Partial<SequenceStep>): TimerV2State {
   return updateSequence(state, program => ({
     ...program,

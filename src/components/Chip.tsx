@@ -6,17 +6,23 @@ interface Props {
   active: boolean
   disabled?: boolean
   onPress: () => void
+  compact?: boolean
+  accessibilityLabel?: string
 }
 
 // Pill chip — ported from legacy-web .chip / .chip.active.
-export function Chip({ label, active, disabled, onPress }: Props) {
+export function Chip({ label, active, disabled, onPress, compact = false, accessibilityLabel }: Props) {
   const { tokens } = useTheme()
   return (
     <Pressable
       onPress={onPress}
       disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityState={{ selected: active, disabled }}
       style={({ pressed }) => [
         styles.chip,
+        compact && styles.compact,
         {
           borderColor: active ? tokens.accent : tokens.border,
           backgroundColor: active ? tokens.accent : 'transparent',
@@ -37,6 +43,7 @@ const styles = StyleSheet.create({
     borderRadius: 9999,
     borderWidth: 1.5,
   },
+  compact: { paddingVertical: 7, paddingHorizontal: 12 },
   label: {
     fontSize: 14,
     fontWeight: '500',

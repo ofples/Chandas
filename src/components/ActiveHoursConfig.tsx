@@ -8,10 +8,22 @@ interface Props {
   enabled: boolean
   startMinutes: number
   endMinutes: number
+  days: number
   onToggle: (enabled: boolean) => void
   onStartChange: (minutes: number) => void
   onEndChange: (minutes: number) => void
+  onDaysChange: (days: number) => void
 }
+
+const DAYS = [
+  { label: 'S', name: 'Sunday', bit: 1 << 0 },
+  { label: 'M', name: 'Monday', bit: 1 << 1 },
+  { label: 'T', name: 'Tuesday', bit: 1 << 2 },
+  { label: 'W', name: 'Wednesday', bit: 1 << 3 },
+  { label: 'T', name: 'Thursday', bit: 1 << 4 },
+  { label: 'F', name: 'Friday', bit: 1 << 5 },
+  { label: 'S', name: 'Saturday', bit: 1 << 6 },
+] as const
 
 export function formatTimeOfDay(minutes: number): string {
   const normalized = ((minutes % 1_440) + 1_440) % 1_440
@@ -22,9 +34,11 @@ export function ActiveHoursConfig({
   enabled,
   startMinutes,
   endMinutes,
+  days,
   onToggle,
   onStartChange,
   onEndChange,
+  onDaysChange,
 }: Props) {
   const { tokens } = useTheme()
   const [editing, setEditing] = useState<'start' | 'end' | null>(null)
@@ -37,22 +51,38 @@ export function ActiveHoursConfig({
       </View>
 
       {enabled && (
-        <View style={styles.range}>
-          <Pressable
+        <View style={styles.details}>
+          <View style={styles.range}>
+            <Pressable
             onPress={() => setEditing('start')}
             style={({ pressed }) => [styles.time, { borderColor: tokens.border, opacity: pressed ? 0.75 : 1 }]}
             accessibilityLabel={`Active hours start ${formatTimeOfDay(startMinutes)}`}
-          >
-            <Text style={[styles.timeLabel, { color: tokens.text }]}>{formatTimeOfDay(startMinutes)}</Text>
-          </Pressable>
-          <Text style={[styles.to, { color: tokens.textMuted }]}>to</Text>
-          <Pressable
+            >
+              <Text style={[styles.timeLabel, { color: tokens.text }]}>{formatTimeOfDay(startMinutes)}</Text>
+            </Pressable>
+            <Text style={[styles.to, { color: tokens.textMuted }]}>to</Text>
+            <Pressable
             onPress={() => setEditing('end')}
             style={({ pressed }) => [styles.time, { borderColor: tokens.border, opacity: pressed ? 0.75 : 1 }]}
             accessibilityLabel={`Active hours end ${formatTimeOfDay(endMinutes)}`}
-          >
-            <Text style={[styles.timeLabel, { color: tokens.text }]}>{formatTimeOfDay(endMinutes)}</Text>
-          </Pressable>
+            >
+              <Text style={[styles.timeLabel, { color: tokens.text }]}>{formatTimeOfDay(endMinutes)}</Text>
+            </Pressable>
+          </View>
+          <View style={styles.days}>
+            {DAYS.map(day => {
+              const selected = (days & day.bit) !== 0
+              return <Pressable
+                key={day.name}
+                onPress={() => onDaysChange(selected ? days & ~day.bit : days | day.bit)}
+                accessibilityRole="button"
+                accessibilityLabel={day.name}
+                accessibilityState={{ selected }}
+                style={[styles.day, { borderColor: selected ? tokens.accent : tokens.border, backgroundColor: selected ? tokens.accentGlow : 'transparent' }]}
+              ><Text style={[styles.dayText, { color: selected ? tokens.accent : tokens.textMuted }]}>{day.label}</Text></Pressable>
+            })}
+          </View>
+          {days === 0 ? <Text style={[styles.warning, { color: tokens.accent }]}>Choose at least one active day.</Text> : null}
         </View>
       )}
 
@@ -77,6 +107,11 @@ const styles = StyleSheet.create({
   toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   label: { fontSize: 11, fontWeight: '500', letterSpacing: 1.3, textTransform: 'uppercase' },
   range: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingTop: 4 },
+  details: { gap: 12 },
+  days: { flexDirection: 'row', gap: 7 },
+  day: { flex: 1, aspectRatio: 1, maxWidth: 42, borderWidth: 1.5, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
+  dayText: { fontSize: 11, fontWeight: '700' },
+  warning: { fontSize: 11, fontWeight: '600' },
   time: {
     minWidth: 84,
     paddingVertical: 8,
