@@ -1421,7 +1421,7 @@ This section is append-only. Every implementation session should record scope, m
 
 - `npx tsc --noEmit` completed successfully.
 
-**Known gaps:** Reorder controls are currently accessible move-earlier/move-later controls rather than a true continuous drag gesture; device sound selection, Android exact alarms, DND reconciliation and call-state observation are the remaining native integration slice.
+**Known gaps:** Final distinct bundled audio assets remained at this point in the log; subsequent slices add the native scheduler, DND reconciliation, device picker and haptic drag reorder.
 
 ### 2026-09-03 — Android V2 exact-alarm scheduler
 
@@ -1449,7 +1449,7 @@ This section is append-only. Every implementation session should record scope, m
 - `npx tsc --noEmit` completed successfully after the bridge/hook changes.
 - Native compilation was deliberately not run: repository policy forbids local native builds.
 
-**Known gaps:** A continuous drag reorder gesture and final distinct bundled audio assets remain to be added. V2 Android code needs a remote/device test pass before release.
+**Known gaps:** Final distinct bundled audio assets remain to be added. V2 Android code needs a remote/device test pass before release.
 
 ### 2026-09-03 — Android device sound picker
 
@@ -1492,6 +1492,23 @@ This section is append-only. Every implementation session should record scope, m
 
 - `npx tsc --noEmit` completed successfully.
 - Native compilation/device DND transitions remain unverified locally by repository policy.
+
+### 2026-09-03 — Haptic reorder handles
+
+**Status:** Complete for React Native UI.
+
+**Files changed:**
+
+- `src/screens/TimerV2ConfigScreen.tsx`
+
+**Behavior implemented:**
+
+- Pattern tracks and Sequence steps have dedicated drag handles that provide a small haptic response and move the item one position in the drag direction.
+- Visible move-earlier/move-later buttons remain alongside the gesture as an accessible alternative.
+
+**Verification:**
+
+- `npx tsc --noEmit` completed successfully.
 
 ### Implementation-entry template
 
