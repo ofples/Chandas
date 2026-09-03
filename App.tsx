@@ -11,13 +11,14 @@ import { parseTimerProgram, replaceWorkingProgram, selectedProgram } from './src
 import { TimerV2ConfigScreen } from './src/screens/TimerV2ConfigScreen'
 import { TimerV2RunningScreen } from './src/screens/TimerV2RunningScreen'
 import { AlarmRingingScreen } from './src/screens/AlarmRingingScreen'
-import { ChandasTimerService, isNativeServiceAvailable } from './src/native/ChandasTimerService'
+import { ChandasTimerService, isNativeServiceAvailable, type NativeFocusState } from './src/native/ChandasTimerService'
 
 const FALLBACK_PROGRAM = {
   schemaVersion: 2 as const, mode: 'pattern' as const, mainMinutes: 30,
   mainCue: { sound: { kind: 'builtin' as const, id: 'temple-gong' as const }, volume: 1 }, tracks: [], alignment: { kind: 'elapsed' as const },
 }
 const FALLBACK_SETTINGS = { masterVolume: 0.8, notificationsEnabled: true, activeHoursEnabled: false, activeHoursStart: 480, activeHoursEnd: 1320, activeHoursDays: 127, focusAutomationEnabled: false, alarmDurationSeconds: 60 }
+const DEFAULT_FOCUS_STATE: NativeFocusState = { policyAccess: false, automationEnabled: false, ruleExists: false, ruleEnabled: false, actual: 'unknown', reason: 'off' }
 
 interface PendingRestore {
   session: TimerV2Session
@@ -42,31 +43,38 @@ function Root() {
   const [timerState, setTimerState] = useState<TimerV2State | null>(null)
   const [appState, setAppState] = useState<AppState>('config')
   const [ready, setReady] = useState(false)
-  const [focusPolicyAccess, setFocusPolicyAccess] = useState(false)
-  const [focusModeActive, setFocusModeActive] = useState(false)
+  const [focusState, setFocusState] = useState<NativeFocusState>(DEFAULT_FOCUS_STATE)
   const [restoreSession, setRestoreSession] = useState<PendingRestore | null>(null)
   const program = timerState ? selectedProgram(timerState) : null
   const timer = useTimerV2(program ?? FALLBACK_PROGRAM, timerState?.settings ?? FALLBACK_SETTINGS)
 
   const refreshFocusState = useCallback(() => {
     if (Platform.OS !== 'android' || !isNativeServiceAvailable) return
-    ChandasTimerService.refreshFocusMode()
-    setFocusPolicyAccess(ChandasTimerService.hasNotificationPolicyAccess())
-    setFocusModeActive(ChandasTimerService.isFocusModeActive())
-    if (ChandasTimerService.getState().focusModeEnabled === false) {
-      setTimerState(current => {
-        if (!current?.settings.focusAutomationEnabled) return current
-        const next = { ...current, settings: { ...current.settings, focusAutomationEnabled: false } }
-        void saveTimerV2State(next)
-        return next
-      })
-    }
+    const nextFocus = ChandasTimerService.getFocusState()
+    setFocusState(nextFocus)
+    setTimerState(current => {
+      if (!current) return current
+      const shouldMirror = nextFocus.automationEnabled || nextFocus.reason === 'rule-disabled'
+      if (!shouldMirror || current.settings.focusAutomationEnabled === nextFocus.automationEnabled) return current
+      const next = { ...current, settings: { ...current.settings, focusAutomationEnabled: nextFocus.automationEnabled } }
+      void saveTimerV2State(next)
+      return next
+    })
   }, [])
 
   useEffect(() => {
     refreshFocusState()
     const subscription = NativeAppState.addEventListener('change', state => { if (state === 'active') refreshFocusState() })
-    return () => subscription.remove()
+    const focusSubscription = isNativeServiceAvailable ? ChandasTimerService.addFocusListener(nextFocus => {
+      setFocusState(nextFocus)
+      setTimerState(current => {
+        if (!current || current.settings.focusAutomationEnabled === nextFocus.automationEnabled) return current
+        const next = { ...current, settings: { ...current.settings, focusAutomationEnabled: nextFocus.automationEnabled } }
+        void saveTimerV2State(next)
+        return next
+      })
+    }) : null
+    return () => { subscription.remove(); focusSubscription?.remove() }
   }, [refreshFocusState])
 
   useEffect(() => {
@@ -101,6 +109,15 @@ function Root() {
         pending = { session, attachNative: false }
       }
       setTimerState(reconciled)
+      if (Platform.OS === 'android' && isNativeServiceAvailable) {
+        const currentFocus = ChandasTimerService.getFocusState()
+        if (reconciled.settings.focusAutomationEnabled && !currentFocus.automationEnabled && !currentFocus.ruleExists && currentFocus.reason !== 'rule-disabled') {
+          ChandasTimerService.setFocusModeEnabled(true)
+          setFocusState(ChandasTimerService.getFocusState())
+        } else {
+          setFocusState(currentFocus)
+        }
+      }
       setRestoreSession(pending)
       setReady(true)
     })()
@@ -127,7 +144,7 @@ function Root() {
   const setFocusAutomation = (enabled: boolean) => {
     if (!timerState) return
     changeTimerState({ ...timerState, settings: { ...timerState.settings, focusAutomationEnabled: enabled } })
-    if (enabled && Platform.OS === 'android' && isNativeServiceAvailable && !focusPolicyAccess) ChandasTimerService.openNotificationPolicySettings()
+    if (enabled && Platform.OS === 'android' && isNativeServiceAvailable && !focusState.policyAccess) ChandasTimerService.openNotificationPolicySettings()
     if (isNativeServiceAvailable) ChandasTimerService.setFocusModeEnabled(enabled)
     setTimeout(refreshFocusState, 100)
   }
@@ -153,14 +170,14 @@ function Root() {
   const stop = () => {
     timer.stop()
     setAppState('config')
-    setFocusModeActive(false)
+    refreshFocusState()
   }
 
   if (!ready || !timerState || !program) return <View style={{ flex: 1, backgroundColor: tokens.bg }} />
 
   return <View style={{ flex: 1, backgroundColor: tokens.bg }}>
     <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
-    {appState === 'config' ? <TimerV2ConfigScreen state={timerState} onChange={changeTimerState} onStart={start} focusPolicyAccess={focusPolicyAccess} onFocusAutomationChange={setFocusAutomation} onOpenFocusSettings={ChandasTimerService.openNotificationPolicySettings} /> : <TimerV2RunningScreen program={program} mainCountdown={timer.mainCountdown} nextCueCountdown={timer.nextCueCountdown} nextCueLabel={timer.nextCueLabel} progress={timer.progress} activeHoursPaused={timer.activeHoursPaused} activeHoursResumeAt={timer.activeHoursResumeAt} mute={timer.mute} alarmBehavior={timer.alarmBehavior} onStop={stop} onPressAlarm={timer.pressAlarm} onMuteForIterations={timer.muteForIterations} onMuteForMinutes={timer.muteForMinutes} onClearMute={timer.clearMute} masterVolume={timerState.settings.masterVolume} onMasterVolumeChange={masterVolume => changeTimerState({ ...timerState, settings: { ...timerState.settings, masterVolume } })} focusEnabled={timerState.settings.focusAutomationEnabled} focusActive={focusModeActive && !timer.activeHoursPaused} focusPolicyAccess={focusPolicyAccess} onToggleFocus={() => setFocusAutomation(!timerState.settings.focusAutomationEnabled)} />}
+    {appState === 'config' ? <TimerV2ConfigScreen state={timerState} onChange={changeTimerState} onStart={start} focusPolicyAccess={focusState.policyAccess} onFocusAutomationChange={setFocusAutomation} onOpenFocusSettings={ChandasTimerService.openNotificationPolicySettings} /> : <TimerV2RunningScreen program={program} mainCountdown={timer.mainCountdown} nextCueCountdown={timer.nextCueCountdown} nextCueLabel={timer.nextCueLabel} progress={timer.progress} activeHoursPaused={timer.activeHoursPaused} activeHoursResumeAt={timer.activeHoursResumeAt} mute={timer.mute} alarmBehavior={timer.alarmBehavior} onStop={stop} onPressAlarm={timer.pressAlarm} onMuteForIterations={timer.muteForIterations} onMuteForMinutes={timer.muteForMinutes} onClearMute={timer.clearMute} masterVolume={timerState.settings.masterVolume} onMasterVolumeChange={masterVolume => changeTimerState({ ...timerState, settings: { ...timerState.settings, masterVolume } })} focusEnabled={timerState.settings.focusAutomationEnabled} focusActive={focusState.actual === 'active' && !timer.activeHoursPaused} focusPolicyAccess={focusState.policyAccess} onToggleFocus={() => setFocusAutomation(!timerState.settings.focusAutomationEnabled)} />}
     {timer.isAlarmRinging && <AlarmRingingScreen onDismiss={timer.dismissAlarm} />}
   </View>
 }

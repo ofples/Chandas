@@ -8,7 +8,15 @@ import android.content.Intent
 class TimerRestoreReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
     if (intent.action == NotificationManager.ACTION_NOTIFICATION_POLICY_ACCESS_GRANTED_CHANGED) {
-      FocusModeController.sync(context)
+      FocusModeController.reconcile(context)
+      return
+    }
+    if (intent.action == NotificationManager.ACTION_AUTOMATIC_ZEN_RULE_STATUS_CHANGED) {
+      FocusModeController.handleRuleStatus(
+        context,
+        intent.getStringExtra(NotificationManager.EXTRA_AUTOMATIC_ZEN_RULE_ID),
+        intent.getIntExtra(NotificationManager.EXTRA_AUTOMATIC_ZEN_RULE_STATUS, NotificationManager.AUTOMATIC_RULE_STATUS_UNKNOWN),
+      )
       return
     }
     val resetRinging = intent.action == Intent.ACTION_BOOT_COMPLETED ||

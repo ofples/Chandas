@@ -26,7 +26,7 @@ object TimerScheduler {
     TimerStateStore.setRinging(context, false)
     TimerStateStore.setAlarmVisible(context, false)
     TimerNotifications.ensureChannels(context)
-    FocusModeController.sync(context, config)
+    FocusModeController.reconcile(context, config)
     val scheduled = scheduleNext(context)
     if (!scheduled) {
       FocusModeController.deactivate(context)
@@ -39,7 +39,7 @@ object TimerScheduler {
   fun update(context: Context, config: TimerConfig) {
     if (TimerStateStore.load(context) == null) return
     TimerStateStore.save(context, config)
-    FocusModeController.sync(context, config)
+    FocusModeController.reconcile(context, config)
     if (TimerStateStore.isRinging(context)) {
       context.startService(Intent(context, ChandasAlarmService::class.java).apply {
         action = ChandasAlarmService.ACTION_UPDATE_VOLUME
@@ -78,7 +78,7 @@ object TimerScheduler {
     }
     cancelScheduledEvent(context)
     TimerNotifications.ensureChannels(context)
-    FocusModeController.sync(context, config)
+    FocusModeController.reconcile(context, config)
     scheduleNext(context, config)
   }
 
@@ -149,7 +149,7 @@ object TimerScheduler {
 
     TimerStateStore.clearNext(context)
     if (type == TimerEventType.ACTIVE_START) {
-      FocusModeController.sync(context, config)
+      FocusModeController.reconcile(context, config)
       scheduleNext(context, config)
       onFinished()
       return

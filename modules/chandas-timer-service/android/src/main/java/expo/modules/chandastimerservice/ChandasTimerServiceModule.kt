@@ -57,10 +57,13 @@ class ChandasTimerServiceModule : Module() {
       "suppressionReason" to event.suppressionReason,
     ))
   }
+  private val focusListener: (NativeFocusState) -> Unit = { state ->
+    sendEvent("onFocusStateChanged", focusBundle(state))
+  }
 
   override fun definition() = ModuleDefinition {
     Name("ChandasTimerService")
-    Events("onAlarmStateChanged", "onControlStateChanged", "onTimerEventFired")
+    Events("onAlarmStateChanged", "onControlStateChanged", "onTimerEventFired", "onFocusStateChanged")
 
     Function("start") { record: TimerConfigRecord ->
       val context = appContext.reactContext ?: return@Function false
@@ -243,6 +246,12 @@ class ChandasTimerServiceModule : Module() {
       context != null && FocusModeController.isActive(context)
     }
 
+    Function("getFocusState") {
+      val context = appContext.reactContext
+      if (context == null) focusBundle(NativeFocusState(false, false, false, false, "unknown", "unknown"))
+      else focusBundle(FocusModeController.query(context))
+    }
+
     Function("openNotificationPolicySettings") {
       val context = appContext.reactContext
       if (context != null) FocusModeController.openPolicySettings(context)
@@ -250,16 +259,12 @@ class ChandasTimerServiceModule : Module() {
 
     Function("refreshFocusMode") {
       val context = appContext.reactContext
-      if (context != null) FocusModeController.sync(context)
+      if (context != null) FocusModeController.query(context)
     }
 
     Function("setFocusModeEnabled") { enabled: Boolean ->
       val context = appContext.reactContext ?: return@Function
-      val previous = TimerStateStore.load(context) ?: return@Function
-      val config = previous.copy(focusModeEnabled = enabled)
-      TimerStateStore.save(context, config)
-      if (enabled) FocusModeController.enableFromApp(context)
-      FocusModeController.sync(context, config)
+      FocusModeController.setAutomationFromApp(context, enabled)
     }
 
     OnStartObserving("onAlarmStateChanged") {
@@ -284,6 +289,14 @@ class ChandasTimerServiceModule : Module() {
 
     OnStopObserving("onTimerEventFired") {
       TimerEventRegistry.remove(timerEventListener)
+    }
+
+    OnStartObserving("onFocusStateChanged") {
+      FocusStateRegistry.add(focusListener)
+    }
+
+    OnStopObserving("onFocusStateChanged") {
+      FocusStateRegistry.remove(focusListener)
     }
 
     OnActivityResult { _, result ->
@@ -333,6 +346,15 @@ class ChandasTimerServiceModule : Module() {
     "mutedIterationsRemaining" to state.mutedIterationsRemaining,
     "mutedIterationEndId" to state.mutedIterationEndId,
     "mutedIterationEndAt" to state.mutedIterationEndAt,
+  )
+
+  private fun focusBundle(state: NativeFocusState) = bundleOf(
+    "policyAccess" to state.policyAccess,
+    "automationEnabled" to state.automationEnabled,
+    "ruleExists" to state.ruleExists,
+    "ruleEnabled" to state.ruleEnabled,
+    "actual" to state.actual,
+    "reason" to state.reason,
   )
 
   private companion object {

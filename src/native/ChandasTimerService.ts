@@ -82,6 +82,15 @@ export interface NativeTimerEvent {
   suppressionReason: 'none' | 'call-active' | 'master-muted' | 'user-mute'
 }
 
+export interface NativeFocusState {
+  policyAccess: boolean
+  automationEnabled: boolean
+  ruleExists: boolean
+  ruleEnabled: boolean
+  actual: 'inactive' | 'active' | 'unknown'
+  reason: 'off' | 'timer-stopped' | 'outside-active-hours' | 'active' | 'paused-by-android' | 'rule-disabled' | 'access-required' | 'unknown'
+}
+
 interface EventSubscription {
   remove(): void
 }
@@ -99,6 +108,7 @@ interface ChandasTimerServiceModule {
   openFullScreenIntentSettings(): void
   hasNotificationPolicyAccess(): boolean
   isFocusModeActive(): boolean
+  getFocusState(): NativeFocusState
   openNotificationPolicySettings(): void
   refreshFocusMode(): void
   setFocusModeEnabled(enabled: boolean): void
@@ -110,6 +120,7 @@ interface ChandasTimerServiceModule {
   addListener(eventName: 'onAlarmStateChanged', listener: (event: AlarmStateEvent) => void): EventSubscription
   addListener(eventName: 'onControlStateChanged', listener: (event: NativeControlState) => void): EventSubscription
   addListener(eventName: 'onTimerEventFired', listener: (event: NativeTimerEvent) => void): EventSubscription
+  addListener(eventName: 'onFocusStateChanged', listener: (event: NativeFocusState) => void): EventSubscription
 }
 
 const native = Platform.OS === 'android'
@@ -159,6 +170,9 @@ export const ChandasTimerService = {
   isFocusModeActive(): boolean {
     return native?.isFocusModeActive() ?? false
   },
+  getFocusState(): NativeFocusState {
+    return native?.getFocusState() ?? { policyAccess: false, automationEnabled: false, ruleExists: false, ruleEnabled: false, actual: 'unknown', reason: 'unknown' }
+  },
   openNotificationPolicySettings() {
     native?.openNotificationPolicySettings()
   },
@@ -192,5 +206,8 @@ export const ChandasTimerService = {
   },
   addTimerEventListener(listener: (event: NativeTimerEvent) => void): EventSubscription | null {
     return native?.addListener('onTimerEventFired', listener) ?? null
+  },
+  addFocusListener(listener: (state: NativeFocusState) => void): EventSubscription | null {
+    return native?.addListener('onFocusStateChanged', listener) ?? null
   },
 }
