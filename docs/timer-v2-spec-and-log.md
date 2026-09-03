@@ -132,6 +132,11 @@ Timer v2 replaces these assumptions rather than layering special cases over them
 | D-032 | Exact-alarm access is a hard Android runtime requirement. Start is blocked without it; loss stops and clears the native running session instead of silently degrading to inexact delivery. |
 | D-033 | Equal active-hours start/end values mean the selected civil day is active for all 24 hours, with midnight as the next window boundary. |
 | D-034 | Alarm audio usage routes Chandas through the phone Alarm stream but cannot override an unrelated DND mode that disallows alarms. Chandas Focus permits alarms and never claims to clone or modify other DND profiles. |
+| D-035 | Every Pattern and Sequence configuration has a run policy: Continuous, a bounded number of complete cycles, or a bounded elapsed duration in hours/minutes/seconds. The policy is part of saved presets. |
+| D-036 | Pattern `N cycles` means `N` main intervals; Sequence `N cycles` means `N` complete traversals of the ordered step list. Duration bounds use elapsed time from the accepted Start anchor and do not pause for inactive schedule windows, calls, or mute. |
+| D-037 | A bounded run ends exactly once. Its natural cue plays when a cycle bound or duration deadline coincides with a normal cue. A duration deadline between cues uses the Pattern main sound or the Sequence final-step sound as a one-shot completion cue. It never creates two overlapping sounds. |
+| D-038 | Continuous runs may be governed by multiple weekly active windows. A timestamp is active when it belongs to at least one enabled window; overlapping or adjacent windows are a union and never duplicate delivery. Cross-midnight attribution remains attached to the window's start day. |
+| D-039 | Scheduling is represented as an availability policy with weekly windows plus a currently empty list of resolved absolute-time overrides. A later calendar feature may populate `active` or `mute` overrides without changing timer, audio, or native scheduling contracts; mute overrides take precedence. No calendar permission or unfinished calendar UI ships in this slice. |
 
 ---
 
@@ -155,6 +160,9 @@ Timer v2 replaces these assumptions rather than layering special cases over them
 | Alarm Locked | Repeat-until-dismissed behavior for every Pattern main boundary until disabled. |
 | Focus automation | The user's request that Chandas activate its Android Focus rule while a running program is within active hours. |
 | Focus actual state | The current state of Chandas's owned Android rule, as reported by Android. |
+| Run policy | Whether a started configuration continues until stopped or ends after a cycle count or exact elapsed duration. |
+| Weekly window | A device-local recurring day/time range in which timer audio and Chandas Focus may be active. |
+| Availability override | A resolved absolute-time active/mute interval, designed for later calendar sync without giving the native scheduler direct calendar access. |
 
 ---
 
@@ -174,8 +182,10 @@ The base configuration screen remains a single centered column with a fixed Star
    - Sequence: total cycle duration and ordered step summaries; the active step editor uses the same quick-choice pattern.
 4. Mixer entry with current master percentage.
 5. Snap settings for Pattern only, including the legacy `:00`, `:10`, `:15`, and custom quick choices.
-6. Advanced settings containing active hours and Chandas Focus.
-7. Start.
+6. Run length containing Continuous and bounded Cycle/Duration choices.
+7. Schedule containing one or more weekly active windows, collapsed behind a simple toggle when unused.
+8. Advanced settings containing Chandas Focus and platform access.
+9. Start.
 
 Structural track and step editing opens a focused editor. Frequently used duration and snap choices remain directly available as compact chips so Timer v2 does not add friction to existing workflows.
 
@@ -211,6 +221,8 @@ Sequence running state shows:
 - `Step n of m` and next step summary.
 - Ring progress within the current step.
 - Alarm control hidden because continuous alarm is Pattern-only.
+
+Both modes show a quiet remaining-run summary when bounded. The timer returns to configuration after the completion cue is dispatched and native running state is durably cleared.
 
 The top-right Help button is always available. The bottom Start/Stop hierarchy remains unchanged.
 
@@ -295,6 +307,54 @@ Example:
 - Accessible custom actions: Move up and Move down.
 
 The header shows total cycle duration. Each step sound fires at the end of that step. The final step's sound marks the cycle boundary; step 1 then begins immediately.
+
+### 7.4.1 Run length
+
+Run length is configured independently for Pattern and Sequence and is included in Save As snapshots.
+
+- `Continuous` is the default and has no automatic end.
+- `Cycles` accepts a whole number from 1–999.
+  - Pattern copy uses `main cycles`.
+  - Sequence copy uses `rounds`, with `cycle` retained in Help as the formal term.
+- `Duration` accepts hours, minutes, and seconds and normalizes them to a total of 1 second through 359:59:59.
+- Switching between choices preserves the most recently entered valid cycle count and duration so experimentation is reversible; only the selected policy is scheduled.
+- The setup summary states the concrete outcome, for example `Ends after 6 main cycles · 3:00:00` or `Ends after 45:00`.
+- Start is unavailable only while the selected bound is invalid. Validation is local, calm, and specific; it never erases the user's last valid value.
+
+Bound semantics:
+
+- The run epoch begins when Start is accepted. A snapped Pattern may use an earlier lattice anchor for cue phase, so the session separately persists `startedAt`; duration bounds are always measured from `startedAt`, not from the phase anchor.
+- A cycle bound ends on the first matching natural cycle boundary at or after Start. It includes exactly the requested number of newly completed Pattern main intervals or Sequence rounds.
+- A duration bound ends at `startedAt + durationSeconds × 1000`.
+- Schedule windows, Focus state, calls, and user mute gate sound but never extend the deadline.
+- At an exact collision between the deadline and a normal event, the event is marked `completesRun` and is delivered once.
+- At a between-cue deadline, a synthetic `run-complete` event uses the Pattern main cue or Sequence final-step cue.
+- A delivery recovered after the deadline clears the run without replaying a stale completion cue.
+- Alarm Once/Locked never converts a bounded completion into a looping alarm; bounded completion is one-shot and terminal.
+
+### 7.4.2 Schedule and multiple active windows
+
+The schedule card is intentionally lightweight:
+
+- Off means always available.
+- On reveals an ordered list of weekly windows plus `Add time range`.
+- Each window has a concise day summary, start/end times, and an enabled switch.
+- Tapping a row opens its focused editor. The editor reuses the seven day buttons and start/end pickers.
+- New windows default to the days of the most recently edited window and a non-overlapping daytime range when one can be inferred; otherwise they use every day, 08:00–22:00.
+- Removing the final window leaves an empty state and disables Start until a window is added or Schedule is switched Off.
+- Up to 16 weekly windows are supported. This is enough for split-day schedules without creating an unwieldy foreground/native payload.
+- Overlap is allowed. The union is active, and a small `Overlaps another range` note is informational rather than an error.
+- Equal endpoints retain the existing all-day meaning for that window on its selected start days.
+- Cross-midnight windows retain start-day attribution.
+
+The currently hidden calendar-ready layer is a list of resolved absolute-time overrides. Later, a calendar-selection UI can translate chosen event slots into overrides and persist a bounded horizon. The availability resolver applies this order:
+
+1. If Schedule is Off, the weekly base is active; if On, the weekly-window union is the base.
+2. Matching `active` overrides may open otherwise inactive time.
+3. Matching `mute` overrides always close it and win over both weekly windows and active overrides.
+4. Expired overrides are ignored and may be pruned safely.
+
+Android receives only normalized weekly windows and resolved overrides. It does not read calendars itself, so future calendar permission, account selection, and sync failures remain isolated from exact timer delivery.
 
 ### 7.5 Preset library
 
@@ -503,6 +563,11 @@ interface CueSettings {
   volume: number // normalized 0..1
 }
 
+type RunPolicy =
+  | { kind: 'continuous' }
+  | { kind: 'cycles'; count: number }
+  | { kind: 'duration'; seconds: number }
+
 interface PatternTrack extends CueSettings {
   id: string
   enabled: boolean
@@ -519,6 +584,7 @@ interface PatternProgram {
   alignment:
     | { kind: 'elapsed' }
     | { kind: 'local-clock'; offsetMinutes: number }
+  runPolicy: RunPolicy
 }
 
 interface SequenceStep extends CueSettings {
@@ -531,6 +597,7 @@ interface SequenceProgram {
   schemaVersion: 2
   mode: 'sequence'
   steps: SequenceStep[]
+  runPolicy: RunPolicy
 }
 
 type TimerProgram = PatternProgram | SequenceProgram
@@ -561,10 +628,24 @@ Common/global settings remain separate:
 interface AppTimerSettings {
   masterVolume: number
   notificationsEnabled: boolean
-  activeHoursEnabled: boolean
-  activeHoursStart: number
-  activeHoursEnd: number
-  activeHoursDays: number
+  availability: {
+    enabled: boolean
+    weeklyWindows: Array<{
+      id: string
+      enabled: boolean
+      startMinutes: number
+      endMinutes: number
+      days: number
+    }>
+    overrides: Array<{
+      id: string
+      startAt: number
+      endAt: number
+      behavior: 'active' | 'mute'
+      source: 'calendar'
+      sourceId?: string
+    }>
+  }
   focusAutomationEnabled: boolean
   alarmDurationSeconds: number
 }
@@ -601,6 +682,10 @@ Validation:
 - Labels are trimmed and at most 60 Unicode characters.
 - Preset names are trimmed, non-empty, and at most 80 Unicode characters.
 - IDs are stable UUIDs and are never inferred from array index.
+- Run cycle counts are whole numbers from 1–999.
+- Run durations are whole seconds from 1–1,295,999 (`359:59:59`).
+- Weekly-window count is 0–16; its IDs are unique, minutes lie in 0–1,439, and days use a Sunday-first seven-bit mask.
+- Availability override count is bounded, IDs are unique, timestamps are finite, and `endAt > startAt`. Unknown sources/behaviors and expired records are ignored safely.
 
 ---
 
@@ -659,6 +744,9 @@ The Kotlin state store must persist the complete running program as a versioned 
 - Timestamp mute or iteration-mute boundary identity.
 - Focus automation state required for restoration.
 - Resolved sound references and fallback IDs.
+- Session `startedAt`, distinct from the cue-phase anchor.
+- The immutable run policy and derived terminal event/deadline.
+- The normalized availability policy, including future resolved overrides.
 
 Native deserialization must reject unsupported future schema versions without crashing and clear only the invalid running session, not AsyncStorage presets.
 
@@ -687,6 +775,7 @@ interface ScheduledProgramEvent {
   candidates: TimelineCueCandidate[]
   winner: TimelineCueCandidate
   collision: boolean
+  completesRun: boolean
 }
 
 interface TimelinePosition {
@@ -748,6 +837,20 @@ Before scheduling or firing:
 - If an event arrives after active hours closed, suppress it and schedule the next active start.
 - Never replay events skipped while inactive.
 
+For multiple weekly windows, `isActive` evaluates their union and `nextStart` chooses the earliest strictly future start among all enabled, selected-day windows. `currentWindowEnd` finds the end of the connected active union, including overlapping and exactly adjacent windows; it must not pause Focus at an internal boundary where another window keeps availability active.
+
+Absolute availability overrides use epoch timestamps and therefore retain their real-world instant through timezone changes. Weekly windows are civil-time values and are re-evaluated in the new timezone. A matching mute override always wins.
+
+### 10.6.1 Bounded terminal event
+
+- The runtime derives one terminal timestamp from `startedAt`, the run policy, and the program cycle duration.
+- For `cycles`, terminal time is `startedAt + count × cycleDuration` for elapsed programs. For a snapped Pattern, it is the `count`th main boundary strictly after `startedAt` so requested cycles are never shortened by an earlier phase anchor.
+- For `duration`, terminal time is exactly `startedAt + seconds × 1000`.
+- The next scheduler target is the earlier of the next normal cue and the terminal timestamp.
+- Equality produces one normal event with `completesRun: true`; strict terminal precedence produces a synthetic `run-complete` event.
+- After validating and delivering a terminal event, native clears persisted active state, future alarms, Focus condition, and the running notification before playback begins. One-shot playback may finish independently.
+- If restoration occurs at or after a missed terminal timestamp, clear the run silently. Do not replay stale completion audio.
+
 ### 10.7 Event delivery order
 
 For a valid fired event:
@@ -761,6 +864,8 @@ For a valid fired event:
 7. Schedule the next event before starting playback.
 8. Emit an in-process timer-event signal with timestamp, winner, collision, and whether sound was suppressed.
 9. Play one-shot or start continuous alarm if allowed.
+
+For a terminal event, step 7 is replaced by durable session completion. It is still performed before one-shot playback.
 
 Scheduling the next event before playback prevents a slow/missing audio URI from breaking the timer.
 
