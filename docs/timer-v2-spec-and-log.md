@@ -1399,6 +1399,30 @@ This section is append-only. Every implementation session should record scope, m
 
 **Known gaps:** The JS runtime cannot authoritatively observe Android call state and is foreground-only. The native exact-alarm implementation must consume the same V2 session and add call-state suppression.
 
+### 2026-09-03 — V2 application surfaces
+
+**Status:** Complete for the React Native UI.
+
+**Files changed:**
+
+- `App.tsx`
+- `src/screens/TimerV2ConfigScreen.tsx`
+- `src/screens/TimerV2RunningScreen.tsx`
+
+**Behavior implemented:**
+
+- The application now boots from V2 state, migrates legacy data automatically, restores a V2 session, and renders V2 configuration/running surfaces.
+- Pattern mode exposes five ordered sub-bell tracks with quick duration/cadence choices, selected-cue grids, per-cue sound/volume controls and visible collision priority.
+- Sequence mode provides a repeatable, labelled step list with cue/volume choices, durable order controls and safe add/remove behavior.
+- The running screen uses nested rings for enabled Pattern tracks, surfaces only the next cue in the centre, avoids the old foreground flash heuristic, and retains cycle/time mute controls in its mixer.
+- Help, immutable save/load/delete configuration flow, active-hours settings, Focus/DND controls, and one-tap/quick-double-tap alarm semantics are available in the V2 UI.
+
+**Verification:**
+
+- `npx tsc --noEmit` completed successfully.
+
+**Known gaps:** Reorder controls are currently accessible move-earlier/move-later controls rather than a true continuous drag gesture; device sound selection, Android exact alarms, DND reconciliation and call-state observation are the remaining native integration slice.
+
 ### Implementation-entry template
 
 ```md

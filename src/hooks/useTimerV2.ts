@@ -28,7 +28,7 @@ export interface UseTimerV2Return extends TimerV2Display {
   isAlarmRinging: boolean
   alarmBehavior: AlarmBehavior
   mute: RuntimeMuteState
-  start: (anchor?: number) => Promise<void>
+  start: (restore?: number | { anchor: number; mute: RuntimeMuteState; alarmBehavior: AlarmBehavior }) => Promise<void>
   stop: () => void
   dismissAlarm: () => void
   pressAlarm: () => void
@@ -196,17 +196,20 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     }, Math.max(0, triggerAt - firedAtSafe(now)))
   }, [playEvent, refreshDisplay])
 
-  const start = useCallback(async (anchor = Date.now()) => {
+  const start = useCallback(async (restore?: number | { anchor: number; mute: RuntimeMuteState; alarmBehavior: AlarmBehavior }) => {
+    const restored = typeof restore === 'number' ? undefined : restore
+    const anchor = typeof restore === 'number' ? restore : restored?.anchor ?? Date.now()
     anchorRef.current = anchor
+    if (restored) updateRuntimeState(restored.mute, restored.alarmBehavior)
     runningRef.current = true
     setIsRunning(true)
     await setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: false })
     await activateKeepAwakeAsync(KEEP_AWAKE_TAG)
     refreshDisplay()
     rafRef.current = requestAnimationFrame(rafLoop)
-    persistSession(muteRef.current, alarmBehaviorRef.current)
+    persistSession(restored?.mute ?? muteRef.current, restored?.alarmBehavior ?? alarmBehaviorRef.current)
     scheduleNext()
-  }, [persistSession, rafLoop, refreshDisplay, scheduleNext])
+  }, [persistSession, rafLoop, refreshDisplay, scheduleNext, updateRuntimeState])
 
   const stop = useCallback(() => {
     runningRef.current = false
