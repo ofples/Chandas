@@ -30,6 +30,17 @@ export function emptyRuntimeMute(): RuntimeMuteState {
   return { mutedUntil: 0 }
 }
 
+/** Pure transition table for the intentionally exclusive alarm tap gestures. */
+export function alarmBehaviorAfterGesture(current: AlarmBehavior, gesture: 'single' | 'double'): AlarmBehavior {
+  if (gesture === 'double') return current === 'locked' ? 'off' : 'locked'
+  return current === 'off' ? 'once' : 'off'
+}
+
+/** Schedule identities are invalid after structural change or reanchoring. */
+export function muteAfterScheduleChange(mute: RuntimeMuteState): RuntimeMuteState {
+  return mute.iteration ? { mutedUntil: mute.mutedUntil } : mute
+}
+
 function cycleIndexAt(now: number, anchor: number, cycleMs: number): number {
   return Math.max(0, Math.floor((now - anchor) / cycleMs))
 }

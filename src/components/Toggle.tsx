@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { Animated, Pressable, StyleSheet } from 'react-native'
+import { useReducedMotion } from 'react-native-reanimated'
 import { useTheme } from '../theme/ThemeContext'
 
 interface Props {
@@ -11,15 +12,16 @@ interface Props {
 // Pill toggle switch — ported from legacy-web .toggle/.toggle-track/.toggle-thumb.
 export function Toggle({ value, onChange, accessibilityLabel }: Props) {
   const { tokens } = useTheme()
+  const reducedMotion = useReducedMotion()
   const anim = useRef(new Animated.Value(value ? 1 : 0)).current
 
   useEffect(() => {
     Animated.timing(anim, {
       toValue: value ? 1 : 0,
-      duration: 200,
+      duration: reducedMotion ? 0 : 200,
       useNativeDriver: false,
     }).start()
-  }, [value, anim])
+  }, [value, anim, reducedMotion])
 
   const trackColor = anim.interpolate({
     inputRange: [0, 1],

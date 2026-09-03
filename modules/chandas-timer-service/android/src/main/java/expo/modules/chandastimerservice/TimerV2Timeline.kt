@@ -113,6 +113,17 @@ object TimerV2Timeline {
     }
   }.getOrNull()
 
+  /** Main cue scalar used while a Pattern continuous alarm is already ringing. */
+  fun mainCueVolume(serialized: String): Float = runCatching {
+    val root = JSONObject(serialized)
+    if (root.optString("mode") == "pattern") cueVolume(root.optJSONObject("mainCue")) else 1f
+  }.getOrDefault(1f)
+
+  fun mainCueSound(serialized: String): String = runCatching {
+    val root = JSONObject(serialized)
+    if (root.optString("mode") == "pattern") cueSound(root.optJSONObject("mainCue")) else "temple-gong"
+  }.getOrDefault("temple-gong")
+
   /** Exact seasonal-offset boundary so local-clock patterns can realign even on pre-API 37 Android. */
   fun nextTimezoneTransition(now: Long): Long? {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return null
@@ -208,7 +219,7 @@ object TimerV2Timeline {
       val trackId = track.optString("id")
       if (trackId.isBlank() || !trackIds.add(trackId) || !validCue(track)) return false
       val cadence = track.optInt("cadenceMinutes", -1)
-      if (cadence !in 1 until mainMinutes) return false
+      if (cadence !in 1..MAX_DURATION_MINUTES) return false
       val offsets = track.optJSONArray("selectedOffsetsMinutes") ?: return false
       val seenOffsets = mutableSetOf<Int>()
       for (offsetIndex in 0 until offsets.length()) {
@@ -232,7 +243,7 @@ object TimerV2Timeline {
       val step = steps.optJSONObject(index) ?: return false
       val id = step.optString("id")
       val label = step.optString("label")
-      if (id.isBlank() || !stepIds.add(id) || label.isBlank() || label.length > 60 || step.optInt("durationMinutes", -1) !in 1..MAX_DURATION_MINUTES || !validCue(step)) return false
+      if (id.isBlank() || !stepIds.add(id) || label.isBlank() || label.codePointCount(0, label.length) > 60 || step.optInt("durationMinutes", -1) !in 1..MAX_DURATION_MINUTES || !validCue(step)) return false
     }
     return true
   }

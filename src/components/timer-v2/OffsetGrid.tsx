@@ -77,7 +77,7 @@ export function OffsetGrid({ offsets, selected, onChange, conflicts = new Map() 
         return (
           <View
             key={offset}
-            style={[styles.cell, { width: cellWidth, height: cellHeight, borderColor: active ? tokens.accent : tokens.border, backgroundColor: active ? tokens.accentGlow : 'transparent' }]}
+            style={[styles.cell, { width: cellWidth, height: cellHeight, borderColor: active ? tokens.accent : tokens.border, backgroundColor: active && (!conflict || conflict.isWinner) ? tokens.accentGlow : 'transparent' }]}
             accessible
             accessibilityRole="button"
             accessibilityLabel={`${offset} minutes after start${conflict ? `, overlap, ${conflict.isWinner ? 'wins' : `loses to ${conflict.winner}`}` : ''}`}

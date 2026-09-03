@@ -1540,7 +1540,7 @@ This section is append-only. Every implementation session should record scope, m
 
 - Pattern now renders the main progress ring plus one stable inner ring per audible sub-track and only the next winning sub-cue in the center.
 - Sequence now shows current step, position, next step, and current-step progress without an alarm control.
-- Restored restart-from-now and running clock-snap controls; realigning atomically restarts native scheduling and rewrites mute boundary identity when needed.
+- Restored restart-from-now and running clock-snap controls; realigning atomically restarts native scheduling and clears any cycle mute whose old ending identity no longer exists, while preserving timestamp mute.
 - Alarm remains one-shot on first tap and locks on a quick second tap; state is shown with `1`/`∞` badges.
 - Added a complete running mixer, `1×`/`2×`/`3×` cycle mute, custom minute mute, explicit mute status, and final-boundary-audible behavior.
 - Added long-press tooltips, an always-visible Help action, and event-driven ring flashes that cannot be triggered by foregrounding or countdown jumps.
@@ -1563,7 +1563,7 @@ This section is append-only. Every implementation session should record scope, m
 - A dedicated exact realignment event is scheduled at the next timezone-offset transition on API 24+, covering daylight-saving changes before Android 17 introduced an offset-change broadcast.
 - Date, timezone, manual-time, package, boot, and exact-alarm permission changes all reconcile from persisted native state.
 - Manual wall-clock changes shift elapsed Pattern/Sequence anchors using paired wall/monotonic clock samples, preserving elapsed cadence; local-clock patterns instead recompute their civil anchor.
-- Iteration mute boundaries are recomputed across a realignment so the final selected main/cycle boundary remains the audible one.
+- Iteration mute is cleared across a realignment and a native control-state update is emitted, matching D-025; timestamp mute and Alarm Once remain intact.
 - Native validation now rejects duplicate IDs/offsets and invalid Sequence labels before scheduling.
 
 **Reference validation:**
@@ -1577,6 +1577,28 @@ This section is append-only. Every implementation session should record scope, m
 - The alarm service declares `mediaPlayback` and its matching permissions in line with Android’s [foreground-service type requirements](https://developer.android.com/develop/background-work/services/fgs/service-types).
 
 **Native/on-device verification still required:** DST gap/fold, a non-hour offset change, manual clock jumps, reboot, and API 24/29/35/37 behavior cannot be proven without an Android build and devices; local builds are prohibited by repository policy.
+
+### 2026-09-03 — Completion-audit hardening
+
+**Status:** Implemented by TypeScript tests and static review; native device verification remains mandatory.
+
+**Behavior implemented:**
+
+- Made Alarm tap recognition exclusive and covered the complete Off/Once/Locked single/double transition table; alarm state changes now use the specified light/medium haptics.
+- Clear cycle mute when restart, snap, timezone, or DST realignment invalidates its logical ending boundary, while retaining timestamp mute and Alarm Once.
+- Added sound-URI availability labels and Replace affordances, preview controls in both Mixers, built-in preview fallback outside Android, picker busy states, and preview cleanup on changes, close, background, and unmount.
+- Preserved Pattern cadence when the main interval becomes shorter, including the valid empty-grid case, and made main-duration confirmation account for every removed selection.
+- Completed preset inspection, explicit Load copy, Save As provenance, deleted-source handling, Unicode-safe limits, timestamps, filters, and post-confirmation warning haptics.
+- Lifted and animated the full dragged track/step row, added insertion-boundary/drop haptics, measured row travel, retained TalkBack move actions, and respected reduced-motion preferences.
+- Expanded Help, tooltip dismissal, paused-Focus messaging/resume behavior, and visible Android access status for exact timing, call auto-mute, and notifications.
+- Hardened native alarm recovery after process recreation, live main-cue volume changes, notification small-icon selection, audio-focus handling, URI grants, Android rule deletion/disable reconciliation, and explicit rule re-enable without overwriting policy.
+- Added one shared JSON Pattern/Sequence fixture corpus consumed by TypeScript tests and staged Kotlin unit tests (not run locally per repository build policy).
+
+**Verification run:** `npx tsc --noEmit`; `npm test`; Expo Android local-module autolinking search.
+
+**Results:** Type checking passed, all 17 focused tests passed, and `chandas-timer-service` resolves without duplicates.
+
+**Native/on-device verification still required:** Kotlin compilation/tests and the Android/API/OEM matrix in section 19.4 remain intentionally unexecuted until the user requests a remote EAS development build.
 
 ### Implementation-entry template
 

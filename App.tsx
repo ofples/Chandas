@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { StatusBar } from 'expo-status-bar'
-import { Alert, AppState as NativeAppState, Platform, View } from 'react-native'
+import { Alert, AppState as NativeAppState, PermissionsAndroid, Platform, View } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { useFonts, JetBrainsMono_300Light, JetBrainsMono_400Regular } from '@expo-google-fonts/jetbrains-mono'
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext'
@@ -26,6 +26,12 @@ interface PendingRestore {
   attachNative: boolean
 }
 
+interface AndroidAccessState {
+  exactAlarms: boolean
+  callMute: boolean
+  notifications: boolean
+}
+
 function settingsFromNative(current: AppTimerSettings, native: ReturnType<typeof ChandasTimerService.getState>): AppTimerSettings {
   return {
     masterVolume: native.volume ?? current.masterVolume,
@@ -46,6 +52,7 @@ function Root() {
   const [ready, setReady] = useState(false)
   const [focusState, setFocusState] = useState<NativeFocusState>(DEFAULT_FOCUS_STATE)
   const [restoreSession, setRestoreSession] = useState<PendingRestore | null>(null)
+  const [androidAccess, setAndroidAccess] = useState<AndroidAccessState>({ exactAlarms: true, callMute: true, notifications: true })
   const fullScreenGuidanceShown = useRef(false)
   const program = timerState ? selectedProgram(timerState) : null
   const timer = useTimerV2(program ?? FALLBACK_PROGRAM, timerState?.settings ?? FALLBACK_SETTINGS)
@@ -64,9 +71,19 @@ function Root() {
     })
   }, [])
 
+  const refreshAndroidAccess = useCallback(async () => {
+    if (Platform.OS !== 'android') return
+    const [callMute, notifications] = await Promise.all([
+      PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE),
+      Platform.Version >= 33 ? PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS) : Promise.resolve(true),
+    ])
+    setAndroidAccess({ exactAlarms: !isNativeServiceAvailable || ChandasTimerService.canScheduleExactAlarms(), callMute, notifications })
+  }, [])
+
   useEffect(() => {
     refreshFocusState()
-    const subscription = NativeAppState.addEventListener('change', state => { if (state === 'active') refreshFocusState() })
+    void refreshAndroidAccess()
+    const subscription = NativeAppState.addEventListener('change', state => { if (state === 'active') { refreshFocusState(); void refreshAndroidAccess() } })
     const focusSubscription = isNativeServiceAvailable ? ChandasTimerService.addFocusListener(nextFocus => {
       setFocusState(nextFocus)
       setTimerState(current => {
@@ -77,7 +94,21 @@ function Root() {
       })
     }) : null
     return () => { subscription.remove(); focusSubscription?.remove() }
-  }, [refreshFocusState])
+  }, [refreshAndroidAccess, refreshFocusState])
+
+  useEffect(() => {
+    if (Platform.OS !== 'android' || appState !== 'running') return
+    const subscription = NativeAppState.addEventListener('change', state => {
+      if (state !== 'active' || !isNativeServiceAvailable || ChandasTimerService.canScheduleExactAlarms()) return
+      timer.stop()
+      setAppState('config')
+      Alert.alert('Timer stopped', 'Android removed exact-alarm access, so Chandas stopped instead of continuing with unreliable timing.', [
+        { text: 'Later', style: 'cancel' },
+        { text: 'Open settings', onPress: ChandasTimerService.openExactAlarmSettings },
+      ])
+    })
+    return () => subscription.remove()
+  }, [appState, timer.stop])
 
   useEffect(() => {
     void (async () => {
@@ -155,6 +186,31 @@ function Root() {
     setTimeout(refreshFocusState, 100)
   }
 
+  const resumeFocusAutomation = () => {
+    setFocusAutomation(false)
+    setFocusAutomation(true)
+  }
+
+  const requestCallMuteAccess = async () => {
+    if (Platform.OS !== 'android') return
+    await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE, {
+      title: 'Mute bells during calls',
+      message: 'Allow phone-state access so Chandas can stay quiet during calls. Chandas never reads phone numbers or call history.',
+      buttonPositive: 'Allow', buttonNegative: 'Not now',
+    })
+    await refreshAndroidAccess()
+  }
+
+  const requestNotificationAccess = async () => {
+    if (Platform.OS !== 'android' || Platform.Version < 33) return
+    await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS, {
+      title: 'Show timer notifications',
+      message: 'Allow notifications so Android can show the running timer and alarm controls.',
+      buttonPositive: 'Allow', buttonNegative: 'Not now',
+    })
+    await refreshAndroidAccess()
+  }
+
   const start = () => {
     void timer.start().then(started => {
       if (started) {
@@ -171,6 +227,7 @@ function Root() {
         ],
       )
     }).catch(() => Alert.alert('Could not start timer', 'Chandas could not prepare audio or exact scheduling. Check Android permissions and try again.'))
+      .finally(() => { void refreshAndroidAccess() })
   }
 
   const reanchor = (alignToClock: boolean, offsetMinutes = 0) => {
@@ -220,7 +277,7 @@ function Root() {
 
   return <View style={{ flex: 1, backgroundColor: tokens.bg }}>
     <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
-    {appState === 'config' ? <TimerV2ConfigScreen state={timerState} onChange={changeTimerState} onStart={start} focusState={focusState} onFocusAutomationChange={setFocusAutomation} onOpenFocusSettings={ChandasTimerService.openNotificationPolicySettings} /> : <TimerV2RunningScreen program={program} mainCountdown={timer.mainCountdown} nextCueCountdown={timer.nextCueCountdown} nextCueLabel={timer.nextCueLabel} progress={timer.progress} position={timer.position} eventPulse={timer.eventPulse} activeHoursPaused={timer.activeHoursPaused} activeHoursResumeAt={timer.activeHoursResumeAt} mute={timer.mute} alarmBehavior={timer.alarmBehavior} onStop={stop} onRestartUnsynced={() => reanchor(false)} onSnapToClock={offset => reanchor(true, offset)} onPressAlarm={pressAlarm} onMuteForIterations={timer.muteForIterations} onMuteForMinutes={timer.muteForMinutes} onClearMute={timer.clearMute} masterVolume={timerState.settings.masterVolume} onMasterVolumeChange={masterVolume => changeTimerState({ ...timerState, settings: { ...timerState.settings, masterVolume } })} onCueVolumeChange={changeCueVolume} focusEnabled={timerState.settings.focusAutomationEnabled} focusActive={focusState.actual === 'active' && !timer.activeHoursPaused} focusPolicyAccess={focusState.policyAccess} onToggleFocus={() => setFocusAutomation(!timerState.settings.focusAutomationEnabled)} />}
+    {appState === 'config' ? <TimerV2ConfigScreen state={timerState} onChange={changeTimerState} onStart={start} focusState={focusState} onFocusAutomationChange={setFocusAutomation} onOpenFocusSettings={ChandasTimerService.openNotificationPolicySettings} androidAccess={androidAccess} onOpenExactAlarmSettings={ChandasTimerService.openExactAlarmSettings} onRequestCallMuteAccess={() => void requestCallMuteAccess()} onRequestNotificationAccess={() => void requestNotificationAccess()} /> : <TimerV2RunningScreen program={program} mainCountdown={timer.mainCountdown} nextCueCountdown={timer.nextCueCountdown} nextCueLabel={timer.nextCueLabel} progress={timer.progress} position={timer.position} eventPulse={timer.eventPulse} activeHoursPaused={timer.activeHoursPaused} activeHoursResumeAt={timer.activeHoursResumeAt} mute={timer.mute} alarmBehavior={timer.alarmBehavior} onStop={stop} onRestartUnsynced={() => reanchor(false)} onSnapToClock={offset => reanchor(true, offset)} onPressAlarm={pressAlarm} onMuteForIterations={timer.muteForIterations} onMuteForMinutes={timer.muteForMinutes} onClearMute={timer.clearMute} masterVolume={timerState.settings.masterVolume} onMasterVolumeChange={masterVolume => changeTimerState({ ...timerState, settings: { ...timerState.settings, masterVolume } })} onCueVolumeChange={changeCueVolume} focusEnabled={timerState.settings.focusAutomationEnabled} focusActive={focusState.actual === 'active' && !timer.activeHoursPaused} focusPolicyAccess={focusState.policyAccess} focusReason={focusState.reason} onToggleFocus={focusState.reason === 'paused-by-android' ? resumeFocusAutomation : () => setFocusAutomation(!timerState.settings.focusAutomationEnabled)} onOpenFocusSettings={ChandasTimerService.openNotificationPolicySettings} />}
     {timer.isAlarmRinging && <AlarmRingingScreen onDismiss={timer.dismissAlarm} />}
   </View>
 }

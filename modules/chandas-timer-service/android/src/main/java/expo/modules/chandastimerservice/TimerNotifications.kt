@@ -20,6 +20,12 @@ object TimerNotifications {
   const val EVENT_CHANNEL = "chandas-events"
   const val ALARM_CHANNEL = "chandas-alarm"
 
+  /** Prefer Expo's monochrome notification resource; never assume an adaptive launcher icon is valid here. */
+  fun smallIcon(context: Context): Int {
+    val generated = context.resources.getIdentifier("notification_icon", "drawable", context.packageName)
+    return if (generated != 0) generated else context.applicationInfo.icon
+  }
+
   fun ensureChannels(context: Context) {
     val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     manager.createNotificationChannel(NotificationChannel(
@@ -80,7 +86,7 @@ object TimerNotifications {
       NotificationCompat.Builder(context, RUNNING_CHANNEL)
         .setContentTitle("Chandas")
         .setContentText(content)
-        .setSmallIcon(context.applicationInfo.icon)
+        .setSmallIcon(smallIcon(context))
         .setOngoing(true)
         .setOnlyAlertOnce(true)
         .setContentIntent(contentIntent)
@@ -109,7 +115,7 @@ object TimerNotifications {
       NotificationCompat.Builder(context, EVENT_CHANNEL)
         .setContentTitle("Chandas $label")
         .setContentText("Timer interval reached")
-        .setSmallIcon(context.applicationInfo.icon)
+        .setSmallIcon(smallIcon(context))
         .setAutoCancel(true)
         .setTimeoutAfter(8_000L)
         .setContentIntent(contentIntent)

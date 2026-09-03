@@ -1,9 +1,10 @@
-import { useState } from 'react'
-import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import { type ComponentProps, useEffect, useState } from 'react'
+import { Alert, Animated, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import Slider from '@react-native-community/slider'
 import * as Haptics from 'expo-haptics'
+import Reanimated, { LinearTransition, useReducedMotion } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import type { CueSettings, PatternTrack, TimerV2State } from '../types'
+import type { CueSettings, PatternTrack, SoundRef, TimerV2State } from '../types'
 import type { NativeFocusState } from '../native/ChandasTimerService'
 import { ActiveHoursConfig } from '../components/ActiveHoursConfig'
 import { Chip } from '../components/Chip'
@@ -16,6 +17,7 @@ import { PresetLibrarySheet } from '../components/timer-v2/PresetLibrarySheet'
 import { ReorderHandle } from '../components/timer-v2/ReorderHandle'
 import { SoundPickerSheet } from '../components/timer-v2/SoundPickerSheet'
 import { TimerHelpSheet } from '../components/timer-v2/TimerHelpSheet'
+import { SoundName } from '../components/timer-v2/SoundName'
 import {
   addPatternTrack, addSequenceStep, chooseProgramMode, duplicateSequenceStep, patchPatternTrack, patchSequenceStep,
   removePatternTrack, removeSequenceStep, reorderPatternTracks, reorderSequenceSteps,
@@ -24,6 +26,8 @@ import {
 import { soundTitle } from '../lib/soundLibrary'
 import { validOffsets } from '../lib/timerV2'
 import { useTheme } from '../theme/ThemeContext'
+import { useSoundAvailability } from '../hooks/use-sound-availability'
+import { ChandasTimerService } from '../native/ChandasTimerService'
 
 const MAIN_PRESETS = [10, 15, 30] as const
 const STEP_PRESETS = [5, 15, 25] as const
@@ -39,9 +43,13 @@ interface Props {
   focusState: NativeFocusState
   onFocusAutomationChange: (enabled: boolean) => void
   onOpenFocusSettings: () => void
+  androidAccess: { exactAlarms: boolean; callMute: boolean; notifications: boolean }
+  onOpenExactAlarmSettings: () => void
+  onRequestCallMuteAccess: () => void
+  onRequestNotificationAccess: () => void
 }
 
-export function TimerV2ConfigScreen({ state, onChange, onStart, focusState, onFocusAutomationChange, onOpenFocusSettings }: Props) {
+export function TimerV2ConfigScreen({ state, onChange, onStart, focusState, onFocusAutomationChange, onOpenFocusSettings, androidAccess, onOpenExactAlarmSettings, onRequestCallMuteAccess, onRequestNotificationAccess }: Props) {
   const { tokens } = useTheme()
   const insets = useSafeAreaInsets()
   const [cueTarget, setCueTarget] = useState<CueTarget | null>(null)
@@ -71,7 +79,7 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, focusState, onFo
       <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.content, { paddingTop: insets.top + 22, paddingBottom: insets.bottom + 116 }]}>
         <View style={styles.header}>
           <View><Text style={[styles.eyebrow, { color: tokens.accent }]}>CHANDAS</Text><Text style={[styles.screenTitle, { color: tokens.text }]}>Interval timer</Text></View>
-          <Pressable onPress={() => setHelpOpen(true)} style={[styles.question, { borderColor: tokens.border }]} accessibilityRole="button" accessibilityLabel="Timer help"><Text style={[styles.questionText, { color: tokens.accent }]}>?</Text></Pressable>
+          <Pressable hitSlop={4} onPress={() => setHelpOpen(true)} style={[styles.question, { borderColor: tokens.border }]} accessibilityRole="button" accessibilityLabel="Timer help"><Text style={[styles.questionText, { color: tokens.accent }]}>?</Text></Pressable>
         </View>
 
         <View style={[styles.modeTabs, { borderColor: tokens.border }]} accessibilityRole="tablist">
@@ -79,7 +87,7 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, focusState, onFo
         </View>
 
         <Pressable onPress={() => setPresetsOpen(true)} style={[styles.summaryBar, { backgroundColor: tokens.surface, borderColor: tokens.border }]} accessibilityLabel="Save or load configurations">
-          <View style={styles.flex}><Text style={[styles.eyebrow, { color: tokens.textMuted }]}>CONFIGURATION</Text><Text style={[styles.summaryTitle, { color: tokens.text }]}>{state.workingPrograms.sourcePreset?.deleted ? 'Working copy · source deleted' : state.workingPrograms.sourcePreset?.name ?? 'Working copy'}</Text></View>
+          <View style={styles.flex}><Text style={[styles.eyebrow, { color: tokens.textMuted }]}>CONFIGURATION</Text><Text style={[styles.summaryTitle, { color: tokens.text }]}>{state.workingPrograms.sourcePreset?.deleted ? 'Working copy · source deleted' : state.workingPrograms.sourcePreset ? `Loaded from ${state.workingPrograms.sourcePreset.name}` : 'Working copy'}</Text></View>
           <Text style={[styles.link, { color: tokens.accent }]}>Save / load</Text>
         </Pressable>
 
@@ -94,7 +102,9 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, focusState, onFo
           <ActiveHoursConfig enabled={settings.activeHoursEnabled} startMinutes={settings.activeHoursStart} endMinutes={settings.activeHoursEnd} days={settings.activeHoursDays} onToggle={activeHoursEnabled => changeSettings({ activeHoursEnabled })} onStartChange={activeHoursStart => changeSettings({ activeHoursStart })} onEndChange={activeHoursEnd => changeSettings({ activeHoursEnd })} onDaysChange={activeHoursDays => changeSettings({ activeHoursDays })} />
         </View>
 
-        {Platform.OS === 'android' ? <FocusCard state={focusState} enabled={settings.focusAutomationEnabled} onChange={onFocusAutomationChange} onOpenSettings={onOpenFocusSettings} /> : null}
+        {Platform.OS === 'android' ? <SystemAccessCard access={androidAccess} onOpenExactAlarmSettings={onOpenExactAlarmSettings} onRequestCallMuteAccess={onRequestCallMuteAccess} onRequestNotificationAccess={onRequestNotificationAccess} /> : null}
+
+        {Platform.OS === 'android' ? <FocusCard state={focusState} enabled={settings.focusAutomationEnabled} onChange={onFocusAutomationChange} onResume={() => { onFocusAutomationChange(false); onFocusAutomationChange(true) }} onOpenSettings={onOpenFocusSettings} /> : null}
       </ScrollView>
 
       <View style={[styles.bottom, { backgroundColor: tokens.bg, paddingBottom: insets.bottom + 16 }]}>
@@ -105,10 +115,16 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, focusState, onFo
       {cue ? <SoundPickerSheet visible title={cueTitle} cue={cue} masterVolume={settings.masterVolume} onChange={patchCue} onClose={() => setCueTarget(null)} /> : null}
       <MixerSheet visible={mixerOpen} state={state} onChange={onChange} onEditCue={target => { setMixerOpen(false); setCueTarget(target) }} onClose={() => setMixerOpen(false)} />
       <PresetLibrarySheet visible={presetsOpen} state={state} onChange={onChange} onClose={() => setPresetsOpen(false)} />
-      <TimerHelpSheet visible={helpOpen} onClose={() => setHelpOpen(false)} />
+      <TimerHelpSheet visible={helpOpen} onClose={() => setHelpOpen(false)} onOpenFocusSettings={onOpenFocusSettings} />
       {customSnapOpen && state.workingPrograms.pattern.alignment.kind === 'local-clock' ? <CustomMinutePicker title="Clock offset" initial={state.workingPrograms.pattern.alignment.offsetMinutes} min={0} max={59} onConfirm={offsetMinutes => { onChange(updatePattern(state, value => ({ ...value, alignment: { kind: 'local-clock', offsetMinutes } }))); setCustomSnapOpen(false) }} onClose={() => setCustomSnapOpen(false)} /> : null}
     </View>
   )
+}
+
+function SystemAccessCard({ access, onOpenExactAlarmSettings, onRequestCallMuteAccess, onRequestNotificationAccess }: { access: Props['androidAccess']; onOpenExactAlarmSettings: () => void; onRequestCallMuteAccess: () => void; onRequestNotificationAccess: () => void }) {
+  const { tokens } = useTheme()
+  const row = (label: string, ready: boolean, action: string, onPress: () => void) => <View style={styles.accessRow}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>{label}</Text><Text style={[styles.helper, { color: ready ? tokens.textMuted : tokens.accent }]}>{ready ? 'Ready' : 'Permission needed'}</Text></View>{!ready ? <Pressable onPress={onPress} style={[styles.accessAction, { borderColor: tokens.accent }]}><Text style={[styles.link, { color: tokens.accent }]}>{action}</Text></Pressable> : <Text style={[styles.readyMark, { color: tokens.textMuted }]}>ON</Text>}</View>
+  return <View style={[styles.sectionCard, { borderColor: tokens.border }]}><Text style={[styles.eyebrow, { color: tokens.textMuted }]}>SYSTEM ACCESS</Text>{row('Exact timer timing', access.exactAlarms, 'Open', onOpenExactAlarmSettings)}{row('Auto-mute during calls', access.callMute, 'Allow', onRequestCallMuteAccess)}{row('Timer notifications', access.notifications, 'Allow', onRequestNotificationAccess)}</View>
 }
 
 function PatternEditor({ state, onChange, onEditCue, onEditTrack, onAdd, onCustomSnap }: { state: TimerV2State; onChange: (state: TimerV2State) => void; onEditCue: (target: CueTarget) => void; onEditTrack: (id: string) => void; onAdd: () => void; onCustomSnap: () => void }) {
@@ -118,7 +134,7 @@ function PatternEditor({ state, onChange, onEditCue, onEditTrack, onAdd, onCusto
     <View style={styles.section}>
       <View><Text style={[styles.eyebrow, { color: tokens.textMuted }]}>MAIN INTERVAL</Text><Text style={[styles.sectionValue, { color: tokens.text }]}>{program.mainMinutes} minutes</Text></View>
       <DurationSelector value={program.mainMinutes} presets={MAIN_PRESETS} onChange={minutes => changeMainMinutes(state, minutes, onChange)} label="QUICK SELECT" />
-      <CueRow title="Main gong" detail={`${soundTitle(program.mainCue.sound)} · ${Math.round(program.mainCue.volume * 100)}%`} onPress={() => onEditCue({ kind: 'main' })} />
+      <CueRow title="Main gong" detail={`${soundTitle(program.mainCue.sound)} · ${Math.round(program.mainCue.volume * 100)}%`} sound={program.mainCue.sound} onPress={() => onEditCue({ kind: 'main' })} />
       <View style={styles.settingRow}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Align to clock</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>Keep the pattern on a local wall-clock rhythm.</Text></View><Toggle value={program.alignment.kind === 'local-clock'} onChange={enabled => onChange(updatePattern(state, value => ({ ...value, alignment: enabled ? { kind: 'local-clock', offsetMinutes: 0 } : { kind: 'elapsed' } })))} accessibilityLabel="Align pattern to clock" /></View>
       {program.alignment.kind === 'local-clock' ? <View style={styles.chips}>{SNAP_PRESETS.map(offset => <Chip key={offset} label={`:${String(offset).padStart(2, '0')}`} compact active={program.alignment.kind === 'local-clock' && program.alignment.offsetMinutes === offset} onPress={() => onChange(updatePattern(state, value => ({ ...value, alignment: { kind: 'local-clock', offsetMinutes: offset } })))} />)}<Chip label={SNAP_PRESETS.includes(program.alignment.offsetMinutes as 0 | 10 | 15) ? 'Custom' : `:${String(program.alignment.offsetMinutes).padStart(2, '0')}`} compact active={!SNAP_PRESETS.includes(program.alignment.offsetMinutes as 0 | 10 | 15)} onPress={onCustomSnap} /></View> : null}
     </View>
@@ -126,15 +142,8 @@ function PatternEditor({ state, onChange, onEditCue, onEditTrack, onAdd, onCusto
     <View style={styles.section}>
       <View><Text style={[styles.eyebrow, { color: tokens.textMuted }]}>SUB-BELLS</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{program.tracks.length} of 5 tracks · highest row wins an overlap</Text></View>
       {program.tracks.length > 0 ? <PatternTimelinePreview tracks={program.tracks} mainMinutes={program.mainMinutes} /> : <View style={[styles.empty, { borderColor: tokens.border }]}><Text style={[styles.rowTitle, { color: tokens.text }]}>No sub-bells</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>The main gong will still repeat on its own.</Text></View>}
-      {program.tracks.map((track, index) => {
-        const overlapCount = overlapOffsetsFor(program.tracks, track.id).size
-        return <View key={track.id} style={[styles.trackSummary, { borderColor: track.enabled ? tokens.border : tokens.surfaceHi, opacity: track.enabled ? 1 : 0.5 }]}>
-          <ReorderHandle index={index} itemCount={program.tracks.length} onMove={(from, to) => onChange(reorderPatternTracks(state, from, to))} label={`Reorder ${soundTitle(track.sound)} priority`} />
-          <Pressable style={styles.flex} onPress={() => onEditTrack(track.id)} accessibilityLabel={`Edit ${soundTitle(track.sound)} sub-bell`}><View style={styles.titleInline}><Text style={[styles.priority, { color: tokens.accent }]}>{String(index + 1).padStart(2, '0')}</Text><Text numberOfLines={1} style={[styles.rowTitle, { color: tokens.text }]}>{soundTitle(track.sound)}</Text></View><Text style={[styles.helper, { color: tokens.textMuted }]}>{track.cadenceMinutes}m grid · {track.selectedOffsetsMinutes.length} selected{overlapCount ? ` · ${overlapCount} overlap${overlapCount === 1 ? '' : 's'}` : ''}</Text></Pressable>
-          <Toggle value={track.enabled} onChange={enabled => onChange(patchPatternTrack(state, track.id, { enabled }))} accessibilityLabel={`Enable ${soundTitle(track.sound)}`} />
-        </View>
-      })}
-      {program.tracks.length < 5 ? <Pressable onPress={onAdd} style={[styles.add, { borderColor: tokens.accent }]}><Text style={[styles.addText, { color: tokens.accent }]}>+ Add sub-bell</Text></Pressable> : null}
+      {program.tracks.map((track, index) => <PatternTrackRow key={track.id} state={state} track={track} index={index} onChange={onChange} onEdit={() => onEditTrack(track.id)} />)}
+      <Pressable disabled={program.tracks.length >= 5} onPress={onAdd} style={[styles.add, { borderColor: program.tracks.length >= 5 ? tokens.border : tokens.accent, opacity: program.tracks.length >= 5 ? 0.45 : 1 }]}><Text style={[styles.addText, { color: program.tracks.length >= 5 ? tokens.textMuted : tokens.accent }]}>{program.tracks.length >= 5 ? '5 track limit reached' : '+ Add sub-bell'}</Text></Pressable>
     </View>
   </>
 }
@@ -145,14 +154,45 @@ function SequenceEditor({ state, onChange, onEditCue, onAdd }: { state: TimerV2S
   const total = program.steps.reduce((sum, step) => sum + step.durationMinutes, 0)
   return <View style={styles.section}>
     <View><Text style={[styles.eyebrow, { color: tokens.textMuted }]}>CYCLE</Text><Text style={[styles.sectionValue, { color: tokens.text }]}>{formatMinutes(total)}</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{program.steps.length} step{program.steps.length === 1 ? '' : 's'} · repeats</Text></View>
-    {program.steps.map((step, index) => <View key={step.id} style={[styles.sequenceCard, { borderColor: tokens.border, backgroundColor: tokens.surface }]}>
-      <View style={styles.sequenceHead}><ReorderHandle index={index} itemCount={program.steps.length} rowHeight={116} onMove={(from, to) => onChange(reorderSequenceSteps(state, from, to))} label={`Reorder ${step.label}`} /><Text style={[styles.priority, { color: tokens.accent }]}>{String(index + 1).padStart(2, '0')}</Text><TextInput value={step.label} maxLength={60} selectTextOnFocus onChangeText={label => onChange(patchSequenceStep(state, step.id, { label }))} style={[styles.stepInput, { color: tokens.text, borderBottomColor: tokens.border }]} accessibilityLabel={`Step ${index + 1} name`} /></View>
-      <DurationSelector compact value={step.durationMinutes} presets={STEP_PRESETS} onChange={durationMinutes => onChange(patchSequenceStep(state, step.id, { durationMinutes }))} />
-      <CueRow compact title={soundTitle(step.sound)} detail={`${Math.round(step.volume * 100)}%`} onPress={() => onEditCue({ kind: 'step', id: step.id })} />
-      <View style={styles.inlineActions}><Pressable disabled={program.steps.length >= 20} onPress={() => onChange(duplicateSequenceStep(state, step.id))}><Text style={[styles.remove, { color: tokens.textMuted, opacity: program.steps.length >= 20 ? 0.35 : 1 }]}>Duplicate</Text></Pressable>{program.steps.length > 1 ? <Pressable onPress={() => confirmRemove(step.label, () => onChange(removeSequenceStep(state, step.id)))}><Text style={[styles.remove, { color: tokens.textMuted }]}>Remove</Text></Pressable> : null}</View>
-    </View>)}
+    {program.steps.map((step, index) => <SequenceStepRow key={step.id} state={state} stepId={step.id} index={index} onChange={onChange} onEditCue={() => onEditCue({ kind: 'step', id: step.id })} />)}
     {program.steps.length < 20 ? <Pressable onPress={onAdd} style={[styles.add, { borderColor: tokens.accent }]}><Text style={[styles.addText, { color: tokens.accent }]}>+ Add step</Text></Pressable> : null}
   </View>
+}
+
+function PatternTrackRow({ state, track, index, onChange, onEdit }: { state: TimerV2State; track: PatternTrack; index: number; onChange: (state: TimerV2State) => void; onEdit: () => void }) {
+  const { tokens } = useTheme()
+  const translation = useState(() => new Animated.Value(0))[0]
+  const [dragging, setDragging] = useState(false)
+  const [rowHeight, setRowHeight] = useState(87)
+  const reducedMotion = useReducedMotion()
+  const count = state.workingPrograms.pattern.tracks.length
+  const overlapCount = overlapOffsetsFor(state.workingPrograms.pattern.tracks, track.id).size
+  return <Reanimated.View layout={reducedMotion ? undefined : LinearTransition.duration(160)}>
+    <Animated.View onLayout={event => { if (!dragging) setRowHeight(event.nativeEvent.layout.height + 13) }} style={[styles.trackSummary, dragging && styles.dragging, { borderColor: track.enabled ? tokens.border : tokens.surfaceHi, opacity: track.enabled ? dragging ? 0.92 : 1 : 0.5, transform: [{ translateY: translation }, { scale: dragging && !reducedMotion ? 1.015 : 1 }] }]}>
+      <ReorderHandle index={index} itemCount={count} rowHeight={rowHeight} rowTranslation={translation} onDragStateChange={setDragging} onMove={(from, to) => onChange(reorderPatternTracks(state, from, to))} label={`Reorder ${soundTitle(track.sound)} priority`} />
+      <Pressable style={styles.flex} onPress={onEdit} accessibilityLabel={`Edit ${soundTitle(track.sound)} sub-bell`}><View style={styles.titleInline}><Text style={[styles.priority, { color: tokens.accent }]}>{String(index + 1).padStart(2, '0')}</Text><SoundName sound={track.sound} style={styles.rowTitle} /></View><Text style={[styles.helper, { color: tokens.textMuted }]}>{track.cadenceMinutes}m grid · {track.selectedOffsetsMinutes.length} selected · {Math.round(track.volume * 100)}%{overlapCount ? ` · ${overlapCount} overlap${overlapCount === 1 ? '' : 's'}` : ''}</Text></Pressable>
+      <Toggle value={track.enabled} onChange={enabled => onChange(patchPatternTrack(state, track.id, { enabled }))} accessibilityLabel={`Enable ${soundTitle(track.sound)}`} />
+    </Animated.View>
+  </Reanimated.View>
+}
+
+function SequenceStepRow({ state, stepId, index, onChange, onEditCue }: { state: TimerV2State; stepId: string; index: number; onChange: (state: TimerV2State) => void; onEditCue: () => void }) {
+  const { tokens } = useTheme()
+  const translation = useState(() => new Animated.Value(0))[0]
+  const [dragging, setDragging] = useState(false)
+  const [rowHeight, setRowHeight] = useState(190)
+  const reducedMotion = useReducedMotion()
+  const program = state.workingPrograms.sequence
+  const step = program.steps.find(value => value.id === stepId)
+  if (!step) return null
+  return <Reanimated.View layout={reducedMotion ? undefined : LinearTransition.duration(160)}>
+    <Animated.View onLayout={event => { if (!dragging) setRowHeight(event.nativeEvent.layout.height + 13) }} style={[styles.sequenceCard, dragging && styles.dragging, { borderColor: tokens.border, backgroundColor: tokens.surface, opacity: dragging ? 0.92 : 1, transform: [{ translateY: translation }, { scale: dragging && !reducedMotion ? 1.015 : 1 }] }]}>
+      <View style={styles.sequenceHead}><ReorderHandle index={index} itemCount={program.steps.length} rowHeight={rowHeight} rowTranslation={translation} onDragStateChange={setDragging} onMove={(from, to) => onChange(reorderSequenceSteps(state, from, to))} label={`Reorder ${step.label}`} /><Text style={[styles.priority, { color: tokens.accent }]}>{String(index + 1).padStart(2, '0')}</Text><StepLabelInput value={step.label} onCommit={label => onChange(patchSequenceStep(state, step.id, { label }))} style={[styles.stepInput, { color: tokens.text, borderBottomColor: tokens.border }]} accessibilityLabel={`Step ${index + 1} name`} /></View>
+      <DurationSelector compact value={step.durationMinutes} presets={STEP_PRESETS} onChange={durationMinutes => onChange(patchSequenceStep(state, step.id, { durationMinutes }))} />
+      <CueRow compact title={soundTitle(step.sound)} detail={`${Math.round(step.volume * 100)}%`} sound={step.sound} onPress={onEditCue} />
+      <View style={styles.inlineActions}><Pressable disabled={program.steps.length >= 20} onPress={() => onChange(duplicateSequenceStep(state, step.id))}><Text style={[styles.remove, { color: tokens.textMuted, opacity: program.steps.length >= 20 ? 0.35 : 1 }]}>Duplicate</Text></Pressable>{program.steps.length > 1 ? <Pressable onPress={() => removeSequenceStepWithConfirmation(state, step.id, index, onChange)}><Text style={[styles.remove, { color: tokens.textMuted }]}>Remove</Text></Pressable> : null}</View>
+    </Animated.View>
+  </Reanimated.View>
 }
 
 function TrackEditorSheet({ state, trackId, onChange, onEditCue, onClose }: { state: TimerV2State; trackId: string; onChange: (state: TimerV2State) => void; onEditCue: () => void; onClose: () => void }) {
@@ -164,11 +204,11 @@ function TrackEditorSheet({ state, trackId, onChange, onEditCue, onClose }: { st
   const overlaps = overlapOffsetsFor(program.tracks, trackId)
   const conflicts = conflictMapFor(program.tracks, trackId)
   const index = program.tracks.findIndex(value => value.id === trackId)
-  return <BottomSheet visible eyebrow={`SUB-BELL ${index + 1} OF ${program.tracks.length}`} title={soundTitle(track.sound)} onClose={onClose}>
+  return <BottomSheet visible eyebrow={`SUB-BELL ${index + 1} OF ${program.tracks.length}${track.enabled ? '' : ' · OFF'}`} title={soundTitle(track.sound)} onClose={onClose}>
     <View style={styles.settingRow}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Enabled</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>Disabled tracks keep their selections.</Text></View><Toggle value={track.enabled} onChange={enabled => onChange(patchPatternTrack(state, track.id, { enabled }))} accessibilityLabel="Enable sub-bell" /></View>
-    <DurationSelector value={track.cadenceMinutes} presets={CADENCE_PRESETS} min={1} max={Math.max(1, program.mainMinutes - 1)} onChange={minutes => onChange(setTrackCadence(state, track.id, minutes))} label="TRIGGER GRID" />
-    <CueRow title="Sound & level" detail={`${soundTitle(track.sound)} · ${Math.round(track.volume * 100)}%`} onPress={onEditCue} />
-    <View style={styles.gridHeading}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Cue positions</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>Minutes after the main gong. Tap or drag to paint.</Text></View><View style={styles.inlineActions}><Pressable onPress={() => onChange(setTrackOffsets(state, track.id, []))}><Text style={[styles.link, { color: tokens.accent }]}>Clear all</Text></Pressable><Pressable onPress={() => onChange(setTrackOffsets(state, track.id, offsets))}><Text style={[styles.link, { color: tokens.accent }]}>Select all</Text></Pressable></View></View>
+    <DurationSelector value={track.cadenceMinutes} presets={CADENCE_PRESETS} min={1} max={240} onChange={minutes => onChange(setTrackCadence(state, track.id, minutes))} label="TRIGGER GRID" />
+    <CueRow title="Sound & level" detail={`${soundTitle(track.sound)} · ${Math.round(track.volume * 100)}%`} sound={track.sound} onPress={onEditCue} />
+    <View style={styles.gridHeading}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Cue positions</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{overlaps.size ? `${overlaps.size} overlap${overlaps.size === 1 ? '' : 's'} · higher tracks win. ` : ''}Minutes after the main gong. Tap or drag to paint.</Text></View><View style={styles.inlineActions}><Pressable onPress={() => onChange(setTrackOffsets(state, track.id, []))}><Text style={[styles.link, { color: tokens.accent }]}>Clear all</Text></Pressable><Pressable onPress={() => onChange(setTrackOffsets(state, track.id, offsets))}><Text style={[styles.link, { color: tokens.accent }]}>Select all</Text></Pressable></View></View>
     <OffsetGrid offsets={offsets} selected={track.selectedOffsetsMinutes} conflicts={conflicts} onChange={selectedOffsetsMinutes => onChange(setTrackOffsets(state, track.id, selectedOffsetsMinutes))} />
     {overlaps.size ? <Text style={[styles.helper, { color: tokens.textMuted }]}>Overlap cells are shared with another track. Track order decides which sound plays; the highest track wins.</Text> : null}
     <Pressable onPress={() => confirmRemove('this sub-bell', () => { onChange(removePatternTrack(state, track.id)); onClose() })}><Text style={[styles.destructive, { color: tokens.accent }]}>Remove sub-bell</Text></Pressable>
@@ -178,25 +218,28 @@ function TrackEditorSheet({ state, trackId, onChange, onEditCue, onClose }: { st
 function MixerSheet({ visible, state, onChange, onEditCue, onClose }: { visible: boolean; state: TimerV2State; onChange: (state: TimerV2State) => void; onEditCue: (target: CueTarget) => void; onClose: () => void }) {
   const { tokens } = useTheme()
   const program = state.workingPrograms[state.workingPrograms.selectedMode]
-  const row = (key: string, title: string, cue: CueSettings, target: CueTarget, patch: (volume: number) => TimerV2State) => <View key={key} style={styles.mixerRow}><Pressable style={styles.mixerLabel} onPress={() => onEditCue(target)}><Text numberOfLines={1} style={[styles.rowTitle, { color: tokens.text }]}>{title}</Text><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>{soundTitle(cue.sound)}</Text></Pressable><Slider style={styles.mixerSlider} minimumValue={0} maximumValue={1} step={0.05} value={cue.volume} onValueChange={volume => onChange(patch(volume))} minimumTrackTintColor={tokens.accent} maximumTrackTintColor={tokens.surfaceHi} thumbTintColor={tokens.accent} accessibilityLabel={`${title} volume`} /><Text style={[styles.volumeValue, { color: tokens.text }]}>{Math.round(cue.volume * 100)}</Text></View>
-  return <BottomSheet visible={visible} eyebrow="ALARM STREAM" title="Mixer" onClose={onClose}>
+  const row = (key: string, title: string, cue: CueSettings, target: CueTarget, patch: (volume: number) => TimerV2State) => <View key={key} style={styles.mixerRow}><Pressable style={styles.mixerLabel} onPress={() => onEditCue(target)}><Text numberOfLines={1} style={[styles.rowTitle, { color: tokens.text }]}>{title}</Text><SoundName sound={cue.sound} style={styles.helper} /></Pressable><Pressable hitSlop={7} onPress={() => void ChandasTimerService.previewSound(cue.sound, state.settings.masterVolume * cue.volume)} style={[styles.previewMini, { borderColor: tokens.border }]} accessibilityLabel={`Preview ${title}`}><Text style={[styles.previewGlyph, { color: tokens.accent }]}>▶</Text></Pressable><Slider style={styles.mixerSlider} minimumValue={0} maximumValue={1} step={0.05} value={cue.volume} onValueChange={volume => onChange(patch(volume))} minimumTrackTintColor={tokens.accent} maximumTrackTintColor={tokens.surfaceHi} thumbTintColor={tokens.accent} accessibilityLabel={`${title} volume`} accessibilityValue={{ min: 0, max: 100, now: Math.round(cue.volume * 100), text: `${Math.round(cue.volume * 100)} percent` }} /><Text style={[styles.volumeValue, { color: tokens.text }]}>{Math.round(cue.volume * 100)}</Text></View>
+  const close = () => { ChandasTimerService.stopSoundPreview(); onClose() }
+  return <BottomSheet visible={visible} eyebrow="ALARM STREAM" title="Mixer" onClose={close}>
     <Text style={[styles.helper, { color: tokens.textMuted }]}>Master volume scales every cue. Individual levels and mute state remain independent, so nothing is lost when you silence the timer.</Text>
-    <View style={styles.mixerRow}><View style={styles.mixerLabel}><Text style={[styles.rowTitle, { color: tokens.text }]}>Master</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>All timer sounds</Text></View><Slider style={styles.mixerSlider} minimumValue={0} maximumValue={1} step={0.05} value={state.settings.masterVolume} onValueChange={masterVolume => onChange({ ...state, settings: { ...state.settings, masterVolume } })} minimumTrackTintColor={tokens.accent} maximumTrackTintColor={tokens.surfaceHi} thumbTintColor={tokens.accent} accessibilityLabel="Master timer volume" /><Text style={[styles.volumeValue, { color: tokens.text }]}>{Math.round(state.settings.masterVolume * 100)}</Text></View>
+    <View style={styles.mixerRow}><View style={styles.mixerLabel}><Text style={[styles.rowTitle, { color: tokens.text }]}>Master</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>All timer sounds</Text></View><Slider style={styles.mixerSlider} minimumValue={0} maximumValue={1} step={0.05} value={state.settings.masterVolume} onValueChange={masterVolume => onChange({ ...state, settings: { ...state.settings, masterVolume } })} minimumTrackTintColor={tokens.accent} maximumTrackTintColor={tokens.surfaceHi} thumbTintColor={tokens.accent} accessibilityLabel="Master timer volume" accessibilityValue={{ min: 0, max: 100, now: Math.round(state.settings.masterVolume * 100), text: `${Math.round(state.settings.masterVolume * 100)} percent` }} /><Text style={[styles.volumeValue, { color: tokens.text }]}>{Math.round(state.settings.masterVolume * 100)}</Text></View>
     <View style={[styles.divider, { backgroundColor: tokens.border }]} />
     {program.mode === 'pattern' ? <>{row('main', 'Main gong', program.mainCue, { kind: 'main' }, volume => updatePattern(state, value => ({ ...value, mainCue: { ...value.mainCue, volume } })))}{program.tracks.map(track => row(track.id, `${track.cadenceMinutes}m · ${soundTitle(track.sound)}`, track, { kind: 'track', id: track.id }, volume => patchPatternTrack(state, track.id, { volume })))}</> : program.steps.map((step, index) => row(step.id, `${index + 1}. ${step.label}`, step, { kind: 'step', id: step.id }, volume => patchSequenceStep(state, step.id, { volume })))}
     <Text style={[styles.helper, { color: tokens.textDisabled }]}>Final output is also multiplied by your phone’s Alarm volume.</Text>
   </BottomSheet>
 }
 
-function FocusCard({ state, enabled, onChange, onOpenSettings }: { state: NativeFocusState; enabled: boolean; onChange: (enabled: boolean) => void; onOpenSettings: () => void }) {
+function FocusCard({ state, enabled, onChange, onResume, onOpenSettings }: { state: NativeFocusState; enabled: boolean; onChange: (enabled: boolean) => void; onResume: () => void; onOpenSettings: () => void }) {
   const { tokens } = useTheme()
-  const description = !enabled ? 'Optional. Let Chandas manage its own Android DND rule while the timer runs.' : !state.policyAccess ? 'DND access is required before Android can activate the Chandas rule.' : state.actual === 'active' ? 'Chandas Focus is active. Alarms remain allowed.' : state.reason === 'paused-by-android' || state.reason === 'rule-disabled' ? 'Paused in Android. Turn it on here to resume automation.' : 'Ready. It activates while the timer is running and within active hours.'
-  return <View style={[styles.sectionCard, { borderColor: state.actual === 'active' ? tokens.accent : tokens.border }]}><View style={styles.settingRow}><View style={styles.flex}><Text style={[styles.eyebrow, { color: tokens.textMuted }]}>FOCUS / DND</Text><Text style={[styles.rowTitle, { color: tokens.text }]}>{state.actual === 'active' ? 'Chandas Focus active' : enabled ? 'Focus automation on' : 'Focus automation off'}</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{description}</Text></View><Toggle value={enabled} onChange={onChange} accessibilityLabel="Chandas Focus automation" /></View>{enabled && !state.policyAccess ? <Pressable onPress={onOpenSettings} style={[styles.outline, { borderColor: tokens.accent }]}><Text style={[styles.link, { color: tokens.accent }]}>Grant DND access</Text></Pressable> : null}</View>
+  const paused = state.reason === 'paused-by-android'
+  const description = !enabled ? 'Optional. Let Chandas manage its own Android DND rule while the timer runs.' : !state.policyAccess ? 'DND access is required before Android can activate the Chandas rule.' : state.actual === 'active' ? 'Chandas Focus is active. Alarms remain allowed.' : paused ? 'Paused from Android. Resume when you want Chandas to request this Focus session again.' : 'Ready. It activates while the timer is running and within active hours.'
+  return <View style={[styles.sectionCard, { borderColor: state.actual === 'active' || paused ? tokens.accent : tokens.border }]}><View style={styles.settingRow}><View style={styles.flex}><Text style={[styles.eyebrow, { color: tokens.textMuted }]}>FOCUS / DND</Text><Text style={[styles.rowTitle, { color: tokens.text }]}>{state.actual === 'active' ? 'Chandas Focus active' : paused ? 'Paused in Android' : enabled ? 'Focus automation ready' : state.reason === 'rule-disabled' ? 'Focus rule disabled' : 'Focus automation off'}</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{description}</Text></View><Toggle value={enabled} onChange={onChange} accessibilityLabel="Chandas Focus automation" /></View>{enabled && !state.policyAccess ? <Pressable onPress={onOpenSettings} style={[styles.outline, { borderColor: tokens.accent }]}><Text style={[styles.link, { color: tokens.accent }]}>Grant DND access</Text></Pressable> : paused ? <Pressable onPress={onResume} style={[styles.outline, { borderColor: tokens.accent }]}><Text style={[styles.link, { color: tokens.accent }]}>Resume Chandas Focus</Text></Pressable> : null}</View>
 }
 
-function CueRow({ title, detail, onPress, compact = false }: { title: string; detail: string; onPress: () => void; compact?: boolean }) {
+function CueRow({ title, detail, sound, onPress, compact = false }: { title: string; detail: string; sound?: SoundRef; onPress: () => void; compact?: boolean }) {
   const { tokens } = useTheme()
-  return <Pressable onPress={onPress} style={[styles.cueRow, compact && styles.cueCompact, { borderColor: tokens.border, backgroundColor: tokens.surface }]} accessibilityRole="button"><View style={styles.flex}><Text numberOfLines={1} style={[styles.rowTitle, { color: tokens.text }]}>{title}</Text><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>{detail}</Text></View><Text style={[styles.link, { color: tokens.accent }]}>Edit</Text></Pressable>
+  const available = useSoundAvailability(sound ?? { kind: 'builtin', id: 'clear-bell' })
+  return <Pressable onPress={onPress} style={[styles.cueRow, compact && styles.cueCompact, { borderColor: available ? tokens.border : tokens.accent, backgroundColor: tokens.surface }]} accessibilityRole="button"><View style={styles.flex}><Text numberOfLines={1} style={[styles.rowTitle, { color: tokens.text }]}>{title}</Text><Text numberOfLines={1} style={[styles.helper, { color: available ? tokens.textMuted : tokens.accent }]}>{detail}{available ? '' : ' · Unavailable'}</Text></View><Text style={[styles.link, { color: tokens.accent }]}>{available ? 'Edit' : 'Replace'}</Text></Pressable>
 }
 
 function cueForTarget(state: TimerV2State, target: CueTarget): CueSettings | null {
@@ -226,10 +269,20 @@ function conflictMapFor(tracks: PatternTrack[], trackId: string): Map<number, { 
 }
 
 function changeMainMinutes(state: TimerV2State, minutes: number, onChange: (state: TimerV2State) => void) {
-  const removed = state.workingPrograms.pattern.tracks.reduce((count, track) => count + track.selectedOffsetsMinutes.filter(offset => offset >= minutes).length, 0)
-  const apply = () => onChange(updatePatternMainMinutes(state, minutes))
+  const nextState = updatePatternMainMinutes(state, minutes)
+  const nextByTrack = new Map(nextState.workingPrograms.pattern.tracks.map(track => [track.id, new Set(track.selectedOffsetsMinutes)]))
+  const removed = state.workingPrograms.pattern.tracks.reduce((count, track) => count + track.selectedOffsetsMinutes.filter(offset => !nextByTrack.get(track.id)?.has(offset)).length, 0)
+  const apply = () => onChange(nextState)
   if (removed === 0) apply()
   else Alert.alert('Shorten main interval?', `${removed} selected cue${removed === 1 ? '' : 's'} outside the new interval will be removed.`, [{ text: 'Cancel', style: 'cancel' }, { text: 'Continue', onPress: apply }])
+}
+
+/** Keeps whitespace typeable while normalizing only when editing finishes. */
+function StepLabelInput({ value, onCommit, style, accessibilityLabel }: { value: string; onCommit: (value: string) => void; style: ComponentProps<typeof TextInput>['style']; accessibilityLabel: string }) {
+  const [draft, setDraft] = useState(value)
+  useEffect(() => setDraft(value), [value])
+  const commit = () => onCommit(draft)
+  return <TextInput value={draft} maxLength={120} selectTextOnFocus onChangeText={setDraft} onBlur={commit} onSubmitEditing={commit} returnKeyType="done" style={style} accessibilityLabel={accessibilityLabel} />
 }
 
 function PatternTimelinePreview({ tracks, mainMinutes }: { tracks: PatternTrack[]; mainMinutes: number }) {
@@ -258,6 +311,15 @@ function confirmRemove(label: string, remove: () => void) {
   Alert.alert('Remove?', `Remove ${label}?`, [{ text: 'Cancel', style: 'cancel' }, { text: 'Remove', style: 'destructive', onPress: remove }])
 }
 
+function removeSequenceStepWithConfirmation(state: TimerV2State, stepId: string, index: number, onChange: (state: TimerV2State) => void) {
+  const step = state.workingPrograms.sequence.steps.find(value => value.id === stepId)
+  if (!step) return
+  const remove = () => onChange(removeSequenceStep(state, stepId))
+  const untouched = step.durationMinutes === 5 && step.volume === 0.8 && step.sound.kind === 'builtin' && step.sound.id === 'clear-bell' && step.label === `Step ${index + 1}`
+  if (untouched) remove()
+  else confirmRemove(step.label, remove)
+}
+
 const styles = StyleSheet.create({
   screen: { flex: 1 }, content: { width: '100%', maxWidth: 620, alignSelf: 'center', paddingHorizontal: 20, gap: 23 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, eyebrow: { fontSize: 11, fontWeight: '700', letterSpacing: 1.4 }, screenTitle: { fontSize: 28, fontWeight: '600', marginTop: 3 },
@@ -270,8 +332,11 @@ const styles = StyleSheet.create({
   trackSummary: { minHeight: 74, borderWidth: 1.5, borderRadius: 14, padding: 11, flexDirection: 'row', alignItems: 'center', gap: 10 }, titleInline: { flexDirection: 'row', alignItems: 'center', gap: 8 }, priority: { fontFamily: 'JetBrainsMono-Regular', fontSize: 11 },
   empty: { padding: 15, borderWidth: 1.5, borderStyle: 'dashed', borderRadius: 13, gap: 4 }, add: { minHeight: 52, borderWidth: 1.5, borderStyle: 'dashed', borderRadius: 13, alignItems: 'center', justifyContent: 'center' }, addText: { fontSize: 13, fontWeight: '700' },
   sequenceCard: { borderWidth: 1.5, borderRadius: 15, padding: 13, gap: 11 }, sequenceHead: { flexDirection: 'row', alignItems: 'center', gap: 9 }, stepInput: { flex: 1, minWidth: 0, borderBottomWidth: 1, fontSize: 15, fontWeight: '700', paddingVertical: 5 }, remove: { fontSize: 11, textDecorationLine: 'underline' },
+  dragging: { zIndex: 20, elevation: 5, shadowColor: '#000', shadowOpacity: 0.24, shadowRadius: 7, shadowOffset: { width: 0, height: 3 } },
   gridHeading: { gap: 10 }, inlineActions: { flexDirection: 'row', alignItems: 'center', gap: 14 }, destructive: { fontSize: 12, fontWeight: '700', textAlign: 'center', paddingVertical: 8 },
   timeline: { height: 48, borderWidth: 1, borderRadius: 11, position: 'relative', overflow: 'hidden', paddingHorizontal: 8 }, timelineLine: { position: 'absolute', left: 8, right: 8, top: 20, height: 1 }, timelineBoundary: { position: 'absolute', top: 14, width: 2, height: 13 }, timelineCue: { position: 'absolute', width: 5, height: 5, marginLeft: -2.5, borderRadius: 3 }, timelineStart: { position: 'absolute', left: 7, bottom: 4, fontSize: 8 }, timelineEnd: { position: 'absolute', right: 7, bottom: 4, fontSize: 8 },
   mixerRow: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 9 }, mixerLabel: { width: 118, gap: 2 }, mixerSlider: { flex: 1, height: 34 }, volumeValue: { width: 28, fontFamily: 'JetBrainsMono-Regular', fontSize: 11, textAlign: 'right' }, divider: { height: 1 },
+  previewMini: { width: 30, height: 30, borderWidth: 1, borderRadius: 15, alignItems: 'center', justifyContent: 'center' }, previewGlyph: { fontSize: 9 },
   outline: { alignSelf: 'flex-start', borderWidth: 1.5, borderRadius: 99, paddingHorizontal: 13, paddingVertical: 9 }, bottom: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 20 }, start: { width: '100%', maxWidth: 580, alignSelf: 'center', borderRadius: 99, paddingVertical: 17, alignItems: 'center' }, startText: { color: '#fff', fontSize: 14, fontWeight: '800', letterSpacing: 1.1, textTransform: 'uppercase' },
+  accessRow: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 12 }, accessAction: { minWidth: 60, minHeight: 40, paddingHorizontal: 12, borderWidth: 1.5, borderRadius: 99, alignItems: 'center', justifyContent: 'center' }, readyMark: { fontSize: 9, fontWeight: '800', letterSpacing: 1.1 },
 })

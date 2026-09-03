@@ -5,9 +5,11 @@
 // continuous alarm is actively ringing. When the native module isn't present,
 // callers fall back to
 // the JS-only foreground timer (see useTimer.ts).
-import { Platform } from 'react-native'
+import { AppState, Platform } from 'react-native'
 import { requireOptionalNativeModule } from 'expo-modules-core'
+import { createAudioPlayer, type AudioPlayer } from 'expo-audio'
 import type { BuiltInSoundId, SoundRef } from '../types'
+import { sourceForSound } from '../lib/soundLibrary'
 
 export interface NativeTimerConfig {
   mainMs: number
@@ -122,6 +124,7 @@ interface ChandasTimerServiceModule {
   pickAudioDocument(): Promise<{ uri: string; title: string; mimeType?: string } | null>
   previewSound(soundId: string, fallbackSoundId: BuiltInSoundId, volume: number): Promise<boolean>
   stopSoundPreview(): void
+  isSoundAvailable(soundId: string): boolean
   addListener(eventName: 'onAlarmStateChanged', listener: (event: AlarmStateEvent) => void): EventSubscription
   addListener(eventName: 'onControlStateChanged', listener: (event: NativeControlState) => void): EventSubscription
   addListener(eventName: 'onTimerEventFired', listener: (event: NativeTimerEvent) => void): EventSubscription
@@ -133,6 +136,13 @@ const native = Platform.OS === 'android'
   : null
 
 export const isNativeServiceAvailable = native !== null
+let fallbackPreview: AudioPlayer | null = null
+AppState.addEventListener('change', state => {
+  if (state === 'active') return
+  native?.stopSoundPreview()
+  fallbackPreview?.remove()
+  fallbackPreview = null
+})
 
 export const ChandasTimerService = {
   start(config: NativeTimerConfig) {
@@ -207,10 +217,25 @@ export const ChandasTimerService = {
   },
   async previewSound(sound: SoundRef, volume: number, fallbackSoundId: BuiltInSoundId = 'clear-bell'): Promise<boolean> {
     const soundId = sound.kind === 'builtin' ? sound.id : sound.uri
-    return native?.previewSound(soundId, fallbackSoundId, volume) ?? sound.kind === 'builtin'
+    if (native) return native.previewSound(soundId, fallbackSoundId, volume)
+    fallbackPreview?.remove()
+    fallbackPreview = null
+    const source = sourceForSound(sound)
+    if (!source) return false
+    const player = createAudioPlayer(source)
+    player.volume = Math.max(0, Math.min(1, volume))
+    player.play()
+    fallbackPreview = player
+    return true
   },
   stopSoundPreview() {
     native?.stopSoundPreview()
+    fallbackPreview?.remove()
+    fallbackPreview = null
+  },
+  isSoundAvailable(sound: SoundRef): boolean {
+    if (sound.kind === 'builtin') return true
+    return native?.isSoundAvailable(sound.uri) ?? false
   },
   // Live updates while the app is open — the counterpart to isRinging() above.
   addAlarmListener(listener: (ringing: boolean) => void): EventSubscription | null {

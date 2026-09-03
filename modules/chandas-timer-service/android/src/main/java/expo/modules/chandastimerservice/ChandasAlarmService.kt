@@ -18,6 +18,7 @@ import android.os.Looper
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
+import androidx.core.content.ContextCompat
 
 class ChandasAlarmService : Service() {
   companion object {
@@ -28,6 +29,19 @@ class ChandasAlarmService : Service() {
     const val EXTRA_CUE_VOLUME = "cueVolume"
     const val EXTRA_SOUND_ID = "soundId"
     const val EXTRA_DURATION_SECONDS = "durationSeconds"
+    @Volatile private var live = false
+
+    /** Repairs a ringing alarm after process recreation without restarting a live player. */
+    fun ensureRunning(context: Context, config: TimerConfig) {
+      if (live || !TimerStateStore.isRinging(context)) return
+      val sound = config.timerV2Program?.let(TimerV2Timeline::mainCueSound) ?: "temple-gong"
+      val cue = config.timerV2Program?.let(TimerV2Timeline::mainCueVolume) ?: 1f
+      ContextCompat.startForegroundService(context, Intent(context, ChandasAlarmService::class.java).apply {
+        action = ACTION_START
+        putExtra(EXTRA_SOUND_ID, sound)
+        putExtra(EXTRA_CUE_VOLUME, cue)
+      })
+    }
   }
 
   private var player: MediaPlayer? = null
@@ -47,11 +61,17 @@ class ChandasAlarmService : Service() {
 
   override fun onBind(intent: Intent?): IBinder? = null
 
+  override fun onCreate() {
+    super.onCreate()
+    live = true
+  }
+
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     when (intent?.action) {
       ACTION_STOP -> dismissAndResume()
       ACTION_UPDATE_VOLUME -> {
         val volume = intent.getFloatExtra(EXTRA_VOLUME, 0.8f).coerceIn(0f, 1f)
+        cueVolume = intent.getFloatExtra(EXTRA_CUE_VOLUME, cueVolume).coerceIn(0f, 1f)
         val duration = intent.getIntExtra(EXTRA_DURATION_SECONDS, 60).coerceIn(5, 3_600)
         if (player == null && TimerStateStore.isRinging(this)) {
           startRinging()
@@ -181,7 +201,7 @@ class ChandasAlarmService : Service() {
     val builder = NotificationCompat.Builder(this, TimerNotifications.ALARM_CHANNEL)
       .setContentTitle("Chandas - Time's up")
       .setContentText("Alarm is ringing")
-      .setSmallIcon(applicationInfo.icon)
+      .setSmallIcon(TimerNotifications.smallIcon(this))
       .setOngoing(true)
       .setCategory(NotificationCompat.CATEGORY_ALARM)
       .setPriority(NotificationCompat.PRIORITY_MAX)
@@ -211,7 +231,7 @@ class ChandasAlarmService : Service() {
   private fun requestAudioFocus(attributes: AudioAttributes): Boolean {
     val manager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
     val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-      audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
+      audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
         .setAudioAttributes(attributes)
         .setOnAudioFocusChangeListener(audioFocusListener)
         .build()
@@ -221,7 +241,7 @@ class ChandasAlarmService : Service() {
       manager.requestAudioFocus(
         audioFocusListener,
         AudioManager.STREAM_ALARM,
-        AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE,
+        AudioManager.AUDIOFOCUS_GAIN_TRANSIENT,
       )
     }
     return result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
@@ -239,6 +259,7 @@ class ChandasAlarmService : Service() {
   }
 
   override fun onDestroy() {
+    live = false
     handler.removeCallbacks(autoSilence)
     player?.release()
     player = null

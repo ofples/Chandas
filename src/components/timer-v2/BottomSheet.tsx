@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { useReducedMotion } from 'react-native-reanimated'
 import { useTheme } from '../../theme/ThemeContext'
 
 interface Props {
@@ -17,12 +18,13 @@ interface Props {
 export function BottomSheet({ visible, title, eyebrow, onClose, children, scroll = true, footer }: Props) {
   const { tokens } = useTheme()
   const insets = useSafeAreaInsets()
+  const reducedMotion = useReducedMotion()
   const body = scroll
     ? <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={styles.body}>{children}</ScrollView>
     : <View style={styles.body}>{children}</View>
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
+    <Modal visible={visible} transparent animationType={reducedMotion ? 'fade' : 'slide'} onRequestClose={onClose} statusBarTranslucent>
       <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <Pressable style={styles.backdrop} onPress={onClose} accessibilityRole="button" accessibilityLabel="Close">
           <Pressable

@@ -56,7 +56,7 @@ export function createProgramId(): string {
 
 export function validOffsets(mainMinutes: number, cadenceMinutes: number): number[] {
   const main = clampDuration(mainMinutes, 30)
-  const cadence = clamp(whole(cadenceMinutes, 1), 1, Math.max(1, main - 1))
+  const cadence = clampDuration(cadenceMinutes, 1)
   const offsets: number[] = []
   for (let offset = cadence; offset < main; offset += cadence) offsets.push(offset)
   return offsets
@@ -147,7 +147,7 @@ export function normalizeSoundRef(value: unknown, fallback: SoundRef): SoundRef 
 
 export function normalizeTrack(track: Partial<PatternTrack>, mainMinutes: number): PatternTrack {
   const main = clampDuration(mainMinutes, 30)
-  const cadence = clamp(whole(track.cadenceMinutes, 1), 1, Math.max(1, main - 1))
+  const cadence = clampDuration(track.cadenceMinutes, 1)
   const selected = Array.isArray(track.selectedOffsetsMinutes) ? track.selectedOffsetsMinutes : []
   const selectedOffsetsMinutes = [...new Set(selected
     .map(value => whole(value, -1))
@@ -197,7 +197,7 @@ export function normalizeSequenceProgram(value: Partial<SequenceProgram> | undef
 
 export function normalizeLabel(value: unknown, fallback: string): string {
   const label = typeof value === 'string' ? value.trim() : ''
-  return (label || fallback).slice(0, 60)
+  return [...(label || fallback)].slice(0, 60).join('')
 }
 
 export function normalizePreset(value: Partial<ProgramPreset>): ProgramPreset | null {
@@ -210,7 +210,7 @@ export function normalizePreset(value: Partial<ProgramPreset>): ProgramPreset | 
   if (!program) return null
   return {
     id: typeof value.id === 'string' && value.id.length > 0 ? value.id : createProgramId(),
-    name: value.name.trim().slice(0, 80),
+    name: [...value.name.trim()].slice(0, 80).join(''),
     createdAt: typeof value.createdAt === 'number' && Number.isFinite(value.createdAt) ? value.createdAt : Date.now(),
     program,
   }

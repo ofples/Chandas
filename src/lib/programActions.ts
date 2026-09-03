@@ -32,7 +32,7 @@ function withWorkingProgram(state: TimerV2State, mode: TimerMode, program: Timer
       ...state.workingPrograms,
       selectedMode: mode,
       [mode]: program,
-      sourcePreset: undefined,
+      sourcePreset: state.workingPrograms.selectedMode === mode ? state.workingPrograms.sourcePreset : undefined,
     } as WorkingProgramState,
   }
 }
@@ -54,7 +54,6 @@ export function updatePatternMainMinutes(state: TimerV2State, minutes: number): 
       mainMinutes,
       tracks: program.tracks.map(track => ({
         ...track,
-        cadenceMinutes: Math.min(track.cadenceMinutes, Math.max(1, mainMinutes - 1)),
         selectedOffsetsMinutes: track.selectedOffsetsMinutes.filter(offset => offset > 0 && offset < mainMinutes),
       })),
     }
@@ -64,7 +63,7 @@ export function updatePatternMainMinutes(state: TimerV2State, minutes: number): 
 export function addPatternTrack(state: TimerV2State): TimerV2State {
   return updatePattern(state, program => {
     if (program.tracks.length >= MAX_PATTERN_TRACKS) return program
-    const cadenceMinutes = Math.min(5, Math.max(1, program.mainMinutes - 1))
+    const cadenceMinutes = 5
     const track: PatternTrack = {
       id: createProgramId(),
       enabled: true,
@@ -93,7 +92,7 @@ export function setTrackCadence(state: TimerV2State, trackId: string, cadenceMin
     ...program,
     tracks: program.tracks.map(track => {
       if (track.id !== trackId) return track
-      const cadence = Math.max(1, Math.min(program.mainMinutes - 1, Math.round(cadenceMinutes)))
+      const cadence = clampDuration(cadenceMinutes, track.cadenceMinutes)
       return { ...track, cadenceMinutes: cadence, selectedOffsetsMinutes: track.selectedOffsetsMinutes.filter(offset => offset % cadence === 0) }
     }),
   }))
@@ -185,12 +184,16 @@ export function reorderSequenceSteps(state: TimerV2State, from: number, to: numb
 
 /** Presets are immutable snapshots. Editing always happens in working state. */
 export function saveProgramPreset(state: TimerV2State, name: string, now = Date.now()): TimerV2State {
-  const trimmed = name.trim().slice(0, 80)
+  const trimmed = [...name.trim()].slice(0, 80).join('')
   if (!trimmed) return state
   const program = selectedProgram(state)
   const snapshot = program.mode === 'pattern' ? normalizePatternProgram(program) : normalizeSequenceProgram(program)
   const preset: ProgramPreset = { id: createProgramId(), name: trimmed, createdAt: now, program: snapshot }
-  return { ...state, presets: [preset, ...state.presets] }
+  return {
+    ...state,
+    presets: [preset, ...state.presets],
+    workingPrograms: { ...state.workingPrograms, sourcePreset: { id: preset.id, name: preset.name, createdAt: preset.createdAt } },
+  }
 }
 
 export function loadProgramPreset(state: TimerV2State, presetId: string): TimerV2State {

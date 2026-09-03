@@ -9,12 +9,16 @@ interface Props {
   rowHeight?: number
   onMove: (from: number, to: number) => void
   label: string
+  /** When supplied, the caller applies this value to the whole row. */
+  rowTranslation?: Animated.Value
+  onDragStateChange?: (dragging: boolean) => void
 }
 
 /** Drag handle that can cross several fixed-height rows, with an accessible increment/decrement fallback. */
-export function ReorderHandle({ index, itemCount, rowHeight = 72, onMove, label }: Props) {
+export function ReorderHandle({ index, itemCount, rowHeight = 72, onMove, label, rowTranslation, onDragStateChange }: Props) {
   const { tokens } = useTheme()
-  const translation = useRef(new Animated.Value(0)).current
+  const internalTranslation = useRef(new Animated.Value(0)).current
+  const translation = rowTranslation ?? internalTranslation
   const originRef = useRef(index)
   const latestTargetRef = useRef(index)
   const responder = useMemo(() => PanResponder.create({
@@ -24,6 +28,7 @@ export function ReorderHandle({ index, itemCount, rowHeight = 72, onMove, label 
       originRef.current = index
       latestTargetRef.current = index
       translation.setValue(0)
+      onDragStateChange?.(true)
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => undefined)
     },
     onPanResponderMove: (_, gesture) => {
@@ -36,11 +41,18 @@ export function ReorderHandle({ index, itemCount, rowHeight = 72, onMove, label 
     },
     onPanResponderRelease: () => {
       const target = latestTargetRef.current
-      Animated.spring(translation, { toValue: 0, useNativeDriver: true, speed: 24, bounciness: 4 }).start()
-      if (target !== originRef.current) onMove(originRef.current, target)
+      translation.setValue(0)
+      if (target !== originRef.current) {
+        onMove(originRef.current, target)
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined)
+      }
+      onDragStateChange?.(false)
     },
-    onPanResponderTerminate: () => Animated.spring(translation, { toValue: 0, useNativeDriver: true }).start(),
-  }), [index, itemCount, onMove, rowHeight, translation])
+    onPanResponderTerminate: () => {
+      Animated.spring(translation, { toValue: 0, useNativeDriver: true }).start()
+      onDragStateChange?.(false)
+    },
+  }), [index, itemCount, onDragStateChange, onMove, rowHeight, translation])
 
   const adjust = (direction: 'increment' | 'decrement') => {
     const target = Math.max(0, Math.min(itemCount - 1, index + (direction === 'increment' ? 1 : -1)))
@@ -53,7 +65,7 @@ export function ReorderHandle({ index, itemCount, rowHeight = 72, onMove, label 
   return (
     <Animated.View
       {...responder.panHandlers}
-      style={[styles.handle, { transform: [{ translateY: translation }], backgroundColor: tokens.surfaceHi }]}
+      style={[styles.handle, !rowTranslation && { transform: [{ translateY: translation }] }, { backgroundColor: tokens.surfaceHi }]}
       accessible
       accessibilityRole="adjustable"
       accessibilityLabel={label}
@@ -67,6 +79,6 @@ export function ReorderHandle({ index, itemCount, rowHeight = 72, onMove, label 
 }
 
 const styles = StyleSheet.create({
-  handle: { width: 34, height: 38, borderRadius: 10, alignItems: 'center', justifyContent: 'center', zIndex: 10 },
+  handle: { width: 44, height: 44, borderRadius: 11, alignItems: 'center', justifyContent: 'center', zIndex: 10 },
   glyph: { fontSize: 20, lineHeight: 21 },
 })

@@ -2,12 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { AppState, PermissionsAndroid, Platform } from 'react-native'
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake'
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio'
+import * as Haptics from 'expo-haptics'
 import type { AlarmBehavior, AppTimerSettings, TimerProgram } from '../types'
 import { isWithinActiveHours, nextActiveHoursStart } from '../lib/activeHours'
 import { formatCountdown } from '../lib/snapLogic'
 import { sourceForSound, soundTitle } from '../lib/soundLibrary'
 import { nextProgramEvent, timelinePosition, type TimelinePosition } from '../lib/timeline'
-import { emptyRuntimeMute, gateProgramAudio, iterationMuteFor, type RuntimeMuteState } from '../lib/runtimeV2'
+import { alarmBehaviorAfterGesture, emptyRuntimeMute, gateProgramAudio, iterationMuteFor, muteAfterScheduleChange, type RuntimeMuteState } from '../lib/runtimeV2'
 import { clearTimerV2Session, saveTimerV2Session } from '../lib/storage'
 import { ChandasTimerService, isNativeServiceAvailable, type NativeTimerConfig } from '../native/ChandasTimerService'
 
@@ -128,7 +129,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
   const settingsRef = useRef(settings)
   const muteRef = useRef(mute)
   const alarmBehaviorRef = useRef<AlarmBehavior>('off')
-  const lastAlarmPressRef = useRef(0)
+  const alarmTapTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => { programRef.current = program }, [program])
   useEffect(() => { settingsRef.current = settings }, [settings])
@@ -303,6 +304,8 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     if (timeoutRef.current) clearTimeout(timeoutRef.current)
     if (rafRef.current) cancelAnimationFrame(rafRef.current)
     if (nativeUpdateRef.current) clearTimeout(nativeUpdateRef.current)
+    if (alarmTapTimeoutRef.current) clearTimeout(alarmTapTimeoutRef.current)
+    alarmTapTimeoutRef.current = null
     timeoutRef.current = null
     rafRef.current = null
     dismissAlarm()
@@ -314,22 +317,34 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     setDisplay({ mainCountdown: '--:--', nextCueCountdown: '--:--', nextCueLabel: '', progress: 0, position: null, activeHoursPaused: false, activeHoursResumeAt: 0 })
   }, [dismissAlarm])
 
-  const pressAlarm = useCallback(() => {
-    const now = Date.now()
-    const current = alarmBehaviorRef.current
-    const next: AlarmBehavior = current === 'once' && now - lastAlarmPressRef.current < 400
-      ? 'locked'
-      : current === 'off'
-        ? 'once'
-        : 'off'
-    lastAlarmPressRef.current = now
+  const applyAlarmBehavior = useCallback((current: AlarmBehavior, next: AlarmBehavior) => {
     updateRuntimeState(muteRef.current, next)
     if (isNativeServiceAvailable && runningRef.current) {
-      if (current === 'once') ChandasTimerService.toggleAlarmOnce()
+      if ((current === 'once') !== (next === 'once')) ChandasTimerService.toggleAlarmOnce()
       ChandasTimerService.update({ alarmModeEnabled: next === 'locked' })
-      if (next === 'once' && current === 'off') ChandasTimerService.toggleAlarmOnce()
     }
+    const feedback = next === 'locked' ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light
+    void Haptics.impactAsync(feedback).catch(() => undefined)
   }, [updateRuntimeState])
+
+  const pressAlarm = useCallback(() => {
+    if (alarmTapTimeoutRef.current) {
+      clearTimeout(alarmTapTimeoutRef.current)
+      alarmTapTimeoutRef.current = null
+      const current = alarmBehaviorRef.current
+      applyAlarmBehavior(current, alarmBehaviorAfterGesture(current, 'double'))
+      return
+    }
+
+    const startedFrom = alarmBehaviorRef.current
+    alarmTapTimeoutRef.current = setTimeout(() => {
+      alarmTapTimeoutRef.current = null
+      // A native main boundary may have consumed Once during the gesture
+      // window. Never overwrite that newer authoritative transition.
+      if (alarmBehaviorRef.current !== startedFrom) return
+      applyAlarmBehavior(startedFrom, alarmBehaviorAfterGesture(startedFrom, 'single'))
+    }, 400)
+  }, [applyAlarmBehavior])
 
   const muteForIterations = useCallback((count: number) => {
     const next = { mutedUntil: 0, iteration: iterationMuteFor(programRef.current, anchorRef.current, Date.now(), count) }
@@ -354,9 +369,9 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     if (isNativeServiceAvailable && !ChandasTimerService.canScheduleExactAlarms()) return false
     const anchor = alignToClock ? alignedAnchorForStart(nextProgram, Date.now()) : Date.now()
     const currentMute = muteRef.current
-    const nextMute: RuntimeMuteState = currentMute.iteration
-      ? { mutedUntil: currentMute.mutedUntil, iteration: iterationMuteFor(nextProgram, anchor, Date.now(), currentMute.iteration.iterations) }
-      : currentMute
+    // Reanchoring changes cycle identities. Preserve timestamp mute, but clear
+    // cycle mute so its promised final boundary cannot silently move.
+    const nextMute = muteAfterScheduleChange(currentMute)
     const nextAlarm = alarmBehaviorRef.current
     const config = nativeConfigFor(nextProgram, settingsRef.current, anchor, nextAlarm === 'locked')
     config.alarmOnceArmed = nextAlarm === 'once'
@@ -442,6 +457,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     if (timeoutRef.current) clearTimeout(timeoutRef.current)
     if (rafRef.current) cancelAnimationFrame(rafRef.current)
     if (nativeUpdateRef.current) clearTimeout(nativeUpdateRef.current)
+    if (alarmTapTimeoutRef.current) clearTimeout(alarmTapTimeoutRef.current)
     playerRef.current?.remove()
     alarmPlayerRef.current?.remove()
   }, [])

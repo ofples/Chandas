@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import type { AlarmBehavior, AppTimerSettings, ProgramPreset, TimerConfig, TimerProgram, TimerV2State, WorkingProgramState } from '../types'
 import type { RuntimeMuteState } from './runtimeV2'
 import {
+  createProgramId,
   defaultTimerV2State,
   migrateLegacyConfig,
   normalizePatternProgram,
@@ -159,7 +160,7 @@ function normalizeWorkingPrograms(value: Partial<WorkingProgramState> | null): W
     sourcePreset: value.sourcePreset && typeof value.sourcePreset.id === 'string' && typeof value.sourcePreset.name === 'string'
       ? {
           id: value.sourcePreset.id,
-          name: value.sourcePreset.name.slice(0, 80),
+          name: [...value.sourcePreset.name].slice(0, 80).join(''),
           createdAt: typeof value.sourcePreset.createdAt === 'number' ? value.sourcePreset.createdAt : Date.now(),
           deleted: value.sourcePreset.deleted === true,
         }
@@ -188,7 +189,12 @@ function normalizeSettings(value: Partial<AppTimerSettings> | null): AppTimerSet
 
 function normalizePresets(value: unknown): ProgramPreset[] {
   if (!Array.isArray(value)) return []
-  return value.map(preset => normalizePreset(preset as Partial<ProgramPreset>)).filter((preset): preset is ProgramPreset => preset !== null)
+  const ids = new Set<string>()
+  return value.map(preset => normalizePreset(preset as Partial<ProgramPreset>)).filter((preset): preset is ProgramPreset => preset !== null).map(preset => {
+    const id = ids.has(preset.id) ? createProgramId() : preset.id
+    ids.add(id)
+    return id === preset.id ? preset : { ...preset, id }
+  })
 }
 
 async function saveV2Records(state: TimerV2State, recordMigration: boolean): Promise<void> {

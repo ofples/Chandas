@@ -85,6 +85,7 @@ object FocusModeController {
     if (enabled) {
       setRuleWasRemoved(context, false)
       setPausedByAndroid(context, false)
+      enableOwnedRule(context)
     }
     TimerStateStore.load(context)?.let { TimerStateStore.save(context, it.copy(focusModeEnabled = enabled)) }
     reconcile(context)
@@ -122,14 +123,25 @@ object FocusModeController {
 
   private fun queryInternal(context: Context): NativeFocusState {
     val access = hasPolicyAccess(context)
-    val automation = automationEnabled(context)
+    var automation = automationEnabled(context)
     val config = TimerStateStore.load(context)
     if (!access) return NativeFocusState(false, automation, false, false, "unknown", if (automation) "access-required" else "off")
 
     val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     val id = storedRuleId(context)
     val rule = id?.let { runCatching { manager.getAutomaticZenRule(it) }.getOrNull() }
-    if (id != null && rule == null) clearStoredRule(context)
+    if (id != null && rule == null) {
+      clearStoredRule(context)
+      setRuleWasRemoved(context, true)
+      disableAutomationFromAndroid(context)
+      automation = false
+    } else if (rule != null && !rule.isEnabled && automation) {
+      // Status broadcasts are not guaranteed to reach a process that was not
+      // alive. Foreground querying repairs the app-side preference without
+      // changing Android's rule or publishing a condition.
+      disableAutomationFromAndroid(context)
+      automation = false
+    }
     val exists = rule != null
     val enabled = rule?.isEnabled == true
     val actual = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM && id != null && enabled) {
@@ -193,6 +205,17 @@ object FocusModeController {
     if (runCatching { manager.getAutomaticZenRule(id) }.getOrNull() != null) return id
     clearStoredRule(context)
     return null
+  }
+
+  /** Re-enable only our rule after an explicit in-app On action; preserve all user-edited policy fields. */
+  private fun enableOwnedRule(context: Context) {
+    if (!hasPolicyAccess(context)) return
+    val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    val id = storedRuleId(context) ?: return
+    val rule = runCatching { manager.getAutomaticZenRule(id) }.getOrNull() ?: return
+    if (rule.isEnabled) return
+    rule.isEnabled = true
+    runCatching { manager.updateAutomaticZenRule(id, rule) }
   }
 
   @Suppress("DEPRECATION")

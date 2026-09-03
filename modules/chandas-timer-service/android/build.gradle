@@ -15,8 +15,13 @@ android {
   lintOptions {
     abortOnError false
   }
+  sourceSets {
+    test.resources.srcDir file("../../../fixtures")
+  }
 }
 
 dependencies {
   implementation "androidx.core:core-ktx:1.13.1"
+  testImplementation "junit:junit:4.13.2"
+  testImplementation "org.json:json:20250517"
 }

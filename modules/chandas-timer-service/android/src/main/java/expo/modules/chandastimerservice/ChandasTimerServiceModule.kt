@@ -127,6 +127,9 @@ class ChandasTimerServiceModule : Module() {
           "mutedIterationsRemaining" to 0,
         )
       } else {
+        if (TimerStateStore.isRinging(context) && TimerStateStore.isAlarmVisible(context)) {
+          ChandasAlarmService.ensureRunning(context, config)
+        }
         val controls = TimerStateStore.getControlState(context)
         bundleOf(
           "active" to true,
@@ -225,6 +228,11 @@ class ChandasTimerServiceModule : Module() {
 
     Function("stopSoundPreview") {
       TimerSoundPlayer.stopPreview()
+    }
+
+    Function("isSoundAvailable") { soundId: String ->
+      val context = appContext.reactContext ?: return@Function false
+      TimerSoundPlayer.canOpen(context, soundId)
     }
 
     Function("canScheduleExactAlarms") {
@@ -356,7 +364,8 @@ class ChandasTimerServiceModule : Module() {
         return@OnActivityResult
       }
       runCatching {
-        context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        val grantedFlags = data.flags and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        context.contentResolver.takePersistableUriPermission(uri, grantedFlags and Intent.FLAG_GRANT_READ_URI_PERMISSION)
       }
       val title = runCatching {
         context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->

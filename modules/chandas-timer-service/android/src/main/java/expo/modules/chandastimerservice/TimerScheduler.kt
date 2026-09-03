@@ -41,9 +41,11 @@ object TimerScheduler {
     TimerStateStore.save(context, config)
     FocusModeController.reconcile(context, config)
     if (TimerStateStore.isRinging(context)) {
+      val cueVolume = config.timerV2Program?.let(TimerV2Timeline::mainCueVolume) ?: 1f
       context.startService(Intent(context, ChandasAlarmService::class.java).apply {
         action = ChandasAlarmService.ACTION_UPDATE_VOLUME
         putExtra(ChandasAlarmService.EXTRA_VOLUME, config.volume)
+        putExtra(ChandasAlarmService.EXTRA_CUE_VOLUME, cueVolume)
         putExtra(ChandasAlarmService.EXTRA_DURATION_SECONDS, config.alarmDurationSeconds)
       })
     }
@@ -94,6 +96,9 @@ object TimerScheduler {
     }
 
     val now = System.currentTimeMillis()
+    val isPatternMain = event.boundary == TimerV2Boundary.PATTERN_MAIN
+    val controls = TimerStateStore.getControlState(context, now)
+    val continuousAlarmRequested = isPatternMain && (config.alarmModeEnabled || controls.alarmOnceArmed)
     val active = reconcileLocalClock(context, initial, now).config
     val v2Event = active.timerV2Program?.let { TimerV2Timeline.next(it, active.timerV2Anchor, now) }
     val nextMain = TimerMath.nextTick(now, active.mainMs, active.phase)
@@ -177,7 +182,9 @@ object TimerScheduler {
       handleV2Triggered(context, config, triggerAt, onFinished)
       return
     }
-    if (CallState.isActive(context)) {
+    // A user-armed continuous alarm still follows Android alarm/audio-focus
+    // policy; it is not downgraded into an ordinary call-muted chime.
+    if (CallState.isActive(context) && !continuousAlarmRequested) {
       scheduleNext(context, config)
       onFinished()
       return
@@ -244,7 +251,6 @@ object TimerScheduler {
       onFinished()
       return
     }
-    val isPatternMain = event.boundary == TimerV2Boundary.PATTERN_MAIN
     val alarmOnce = isPatternMain && TimerStateStore.consumeAlarmOnce(context)
     if (isPatternMain && (config.alarmModeEnabled || alarmOnce)) {
       scheduleNext(context, config)
@@ -269,7 +275,6 @@ object TimerScheduler {
       resourceForV2Sound(event.winner.soundId),
       (config.volume * event.winner.volume).coerceIn(0f, 1f),
       onFinished,
-      event.winner.soundId.takeIf { it.contains("://") },
     )
   }
 
@@ -305,11 +310,9 @@ object TimerScheduler {
     val next = config.copy(timerV2Anchor = aligned)
     TimerStateStore.save(context, next)
     if (controls.mutedIterationEndId != null && controls.mutedIterationEndAt > 0L) {
-      val remaining = ((controls.mutedIterationEndAt - now + duration - 1L) / duration)
-        .coerceIn(1L, controls.mutedIterationsRemaining.coerceAtLeast(1).toLong())
-        .toInt()
-      val ending = TimerV2Timeline.iterationEnd(program, aligned, now, remaining)
-      TimerStateStore.restoreControls(context, controls.alarmOnceArmed, controls.mutedUntil, ending?.logicalId, ending?.at ?: 0L, remaining)
+      // Realignment gives cycle boundaries new logical identities. Clear only
+      // cycle mute; timestamp mute and Alarm Once remain meaningful.
+      TimerStateStore.restoreControls(context, controls.alarmOnceArmed, controls.mutedUntil, null, 0L, 1)
     }
     return LocalClockResult(next, true)
   }

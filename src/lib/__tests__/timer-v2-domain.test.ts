@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { PatternProgram, SequenceProgram } from '../../types'
-import { deleteProgramPreset, chooseProgramMode, loadProgramPreset } from '../programActions'
-import { gateProgramAudio, iterationMuteFor } from '../runtimeV2'
-import { defaultTimerV2State, normalizeSoundRef, parseTimerProgram } from '../timerV2'
+import { chooseProgramMode, deleteProgramPreset, loadProgramPreset, patchSequenceStep, saveProgramPreset, updatePatternMainMinutes } from '../programActions'
+import { alarmBehaviorAfterGesture, gateProgramAudio, iterationMuteFor, muteAfterScheduleChange } from '../runtimeV2'
+import { defaultTimerV2State, normalizePatternProgram, normalizeSequenceProgram, normalizeSoundRef, parseTimerProgram } from '../timerV2'
 import { nextPatternEvent, nextSequenceEvent } from '../timeline'
+import timelineFixtures from '../../../fixtures/timer-v2-timeline.json'
 
 const minute = 60_000
 
@@ -33,6 +34,21 @@ function sequence(): SequenceProgram {
 }
 
 describe('timer v2 timeline contracts', () => {
+  it('matches the shared native Pattern collision fixture', () => {
+    const fixture = timelineFixtures.patternCollision
+    const event = nextPatternEvent(fixture.program as PatternProgram, fixture.anchor, fixture.now)
+    expect({ at: event.at, logicalId: event.logicalId, winnerCueId: event.winner.cueId, boundary: event.boundary, collision: event.collision }).toEqual(fixture.expected)
+  })
+
+  it('matches every shared native Sequence boundary fixture', () => {
+    const fixture = timelineFixtures.sequence
+    for (const query of fixture.queries) {
+      const event = nextSequenceEvent(fixture.program as SequenceProgram, fixture.anchor, query.now)
+      expect(event.at).toBeGreaterThan(query.now)
+      expect({ at: event.at, logicalId: event.logicalId, winnerCueId: event.winner.cueId, boundary: event.boundary }).toEqual({ at: query.at, logicalId: query.logicalId, winnerCueId: query.winnerCueId, boundary: query.boundary })
+    }
+  })
+
   it('uses track order as the sole overlap priority', () => {
     const event = nextPatternEvent(pattern(), 0, 9 * minute)
     expect(event.collision).toBe(true)
@@ -50,6 +66,20 @@ describe('timer v2 timeline contracts', () => {
 })
 
 describe('timer v2 audio gate', () => {
+  it('implements the full exclusive single/double alarm gesture table', () => {
+    expect(alarmBehaviorAfterGesture('off', 'single')).toBe('once')
+    expect(alarmBehaviorAfterGesture('off', 'double')).toBe('locked')
+    expect(alarmBehaviorAfterGesture('once', 'single')).toBe('off')
+    expect(alarmBehaviorAfterGesture('once', 'double')).toBe('locked')
+    expect(alarmBehaviorAfterGesture('locked', 'single')).toBe('off')
+    expect(alarmBehaviorAfterGesture('locked', 'double')).toBe('off')
+  })
+
+  it('clears only cycle mute when a schedule identity changes', () => {
+    expect(muteAfterScheduleChange({ mutedUntil: 123, iteration: { endsAtLogicalId: 'old', endsAt: 456, iterations: 2 } })).toEqual({ mutedUntil: 123 })
+    expect(muteAfterScheduleChange({ mutedUntil: 123 })).toEqual({ mutedUntil: 123 })
+  })
+
   it('rings and then consumes Alarm Once at a Pattern main boundary', () => {
     const event = nextPatternEvent(pattern(), 0, 29 * minute)
     const result = gateProgramAudio({ event, now: event.at, masterVolume: 1, mute: { mutedUntil: 0 }, alarmBehavior: 'once', callActive: false })
@@ -88,6 +118,18 @@ describe('timer v2 audio gate', () => {
 })
 
 describe('timer v2 validation and presets', () => {
+  it('repairs duplicate persisted cue identifiers deterministically', () => {
+    const duplicateTracks = pattern()
+    duplicateTracks.tracks[1] = { ...duplicateTracks.tracks[1], id: duplicateTracks.tracks[0].id }
+    const normalizedPattern = normalizePatternProgram(duplicateTracks)
+    expect(new Set(normalizedPattern.tracks.map(track => track.id)).size).toBe(normalizedPattern.tracks.length)
+
+    const duplicateSteps = sequence()
+    duplicateSteps.steps[1] = { ...duplicateSteps.steps[1], id: duplicateSteps.steps[0].id }
+    const normalizedSequence = normalizeSequenceProgram(duplicateSteps)
+    expect(new Set(normalizedSequence.steps.map(step => step.id)).size).toBe(normalizedSequence.steps.length)
+  })
+
   it('rejects malformed and unknown sound references', () => {
     const fallback = { kind: 'builtin', id: 'clear-bell' } as const
     expect(normalizeSoundRef({ kind: 'builtin', id: 'not-real' }, fallback)).toEqual(fallback)
@@ -118,5 +160,32 @@ describe('timer v2 validation and presets', () => {
     const initial = defaultTimerV2State()
     const withSource = { ...initial, workingPrograms: { ...initial.workingPrograms, sourcePreset: { id: 'p', name: 'P', createdAt: 1 } } }
     expect(chooseProgramMode(withSource, 'sequence').workingPrograms.sourcePreset).toBeUndefined()
+  })
+
+  it('records Save As provenance while keeping later edits in the working copy', () => {
+    const initial = chooseProgramMode(defaultTimerV2State(), 'sequence')
+    const saved = saveProgramPreset(initial, 'Deep work', 456)
+    expect(saved.presets).toHaveLength(1)
+    expect(saved.workingPrograms.sourcePreset).toMatchObject({ name: 'Deep work', createdAt: 456 })
+    const presetSnapshot = saved.presets[0].program
+    const edited = patchSequenceStep(saved, saved.workingPrograms.sequence.steps[0].id, { label: 'Changed working copy' })
+    expect(edited.workingPrograms.sourcePreset?.id).toBe(saved.presets[0].id)
+    expect(edited.presets[0].program).toEqual(presetSnapshot)
+    expect(edited.workingPrograms.sequence.steps[0].label).toBe('Changed working copy')
+  })
+
+  it('retains track cadence while shortening a Pattern and drops only invalid offsets', () => {
+    const initial = defaultTimerV2State()
+    const track = initial.workingPrograms.pattern.tracks[0]
+    const configured = {
+      ...initial,
+      workingPrograms: {
+        ...initial.workingPrograms,
+        pattern: { ...initial.workingPrograms.pattern, tracks: [{ ...track, cadenceMinutes: 15, selectedOffsetsMinutes: [15] }] },
+      },
+    }
+    const shortened = updatePatternMainMinutes(configured, 10)
+    expect(shortened.workingPrograms.pattern.tracks[0].cadenceMinutes).toBe(15)
+    expect(shortened.workingPrograms.pattern.tracks[0].selectedOffsetsMinutes).toEqual([])
   })
 })
