@@ -78,7 +78,7 @@ export function SoundPickerSheet({ visible, title, cue, masterVolume, onChange, 
             <Text style={[styles.optionTitle, { color: tokens.text }]}>{sound.name}</Text>
             <Text style={[styles.helper, { color: tokens.textMuted }]}>{sound.description}</Text>
           </Pressable>
-          <Pressable onPress={() => void preview(ref)} style={[styles.preview, { borderColor: tokens.border }]} accessibilityLabel={`${playing ? 'Stop' : 'Preview'} ${sound.name}`}>
+          <Pressable onPress={() => void preview(ref)} style={[styles.preview, { borderColor: tokens.border }]} accessibilityRole="button" accessibilityLabel={`${playing ? 'Stop' : 'Preview'} ${sound.name}`}>
             <Text style={[styles.previewText, { color: tokens.accent }]}>{playing ? '■' : '▶'}</Text>
           </Pressable>
         </View>
@@ -86,24 +86,24 @@ export function SoundPickerSheet({ visible, title, cue, masterVolume, onChange, 
 
       {tab === 'android' ? <View style={styles.sourcePanel}>
         <Text style={[styles.helper, { color: tokens.textMuted }]}>Choose from the sounds managed by Android. Chandas remembers the system sound URI and falls back safely if it later disappears.</Text>
-        <Pressable disabled={!isNativeServiceAvailable || picking} onPress={() => void pickAndroid('alarm')} style={[styles.sourceButton, { borderColor: tokens.border, opacity: !isNativeServiceAvailable || picking ? 0.45 : 1 }]}>
-          <View><Text style={[styles.optionTitle, { color: tokens.text }]}>Alarm sounds</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>Designed to be heard through Do Not Disturb</Text></View><Text style={[styles.choose, { color: tokens.accent }]}>Choose</Text>
+        <Pressable disabled={!isNativeServiceAvailable || picking} onPress={() => void pickAndroid('alarm')} style={[styles.sourceButton, { borderColor: tokens.border, opacity: !isNativeServiceAvailable || picking ? 0.45 : 1 }]} accessibilityRole="button">
+          <View><Text style={[styles.optionTitle, { color: tokens.text }]}>Alarm sounds</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>Uses Android’s Alarm stream and your DND alarm setting</Text></View><Text style={[styles.choose, { color: tokens.accent }]}>Choose</Text>
         </Pressable>
-        <Pressable disabled={!isNativeServiceAvailable || picking} onPress={() => void pickAndroid('notification')} style={[styles.sourceButton, { borderColor: tokens.border, opacity: !isNativeServiceAvailable || picking ? 0.45 : 1 }]}>
+        <Pressable disabled={!isNativeServiceAvailable || picking} onPress={() => void pickAndroid('notification')} style={[styles.sourceButton, { borderColor: tokens.border, opacity: !isNativeServiceAvailable || picking ? 0.45 : 1 }]} accessibilityRole="button">
           <View><Text style={[styles.optionTitle, { color: tokens.text }]}>Notification sounds</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>Also played on the Alarm audio stream</Text></View><Text style={[styles.choose, { color: tokens.accent }]}>Choose</Text>
         </Pressable>
       </View> : null}
 
       {tab === 'device' ? <View style={styles.sourcePanel}>
         <Text style={[styles.helper, { color: tokens.textMuted }]}>Select an audio file from your device or a connected storage provider. Access is retained across restarts when Android permits it.</Text>
-        <Pressable disabled={!isNativeServiceAvailable || picking} onPress={() => void pickDocument()} style={[styles.sourceButton, { borderColor: tokens.border, opacity: !isNativeServiceAvailable || picking ? 0.45 : 1 }]}>
+        <Pressable disabled={!isNativeServiceAvailable || picking} onPress={() => void pickDocument()} style={[styles.sourceButton, { borderColor: tokens.border, opacity: !isNativeServiceAvailable || picking ? 0.45 : 1 }]} accessibilityRole="button">
           <View><Text style={[styles.optionTitle, { color: tokens.text }]}>Choose audio file</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>MP3, M4A, OGG, WAV and other supported audio</Text></View><Text style={[styles.choose, { color: tokens.accent }]}>Browse</Text>
         </Pressable>
       </View> : null}
 
       <View style={[styles.selected, { backgroundColor: tokens.surfaceHi }]}>
         <View style={styles.optionCopy}><Text style={[styles.label, { color: selectedAvailable ? tokens.textMuted : tokens.accent }]}>{selectedAvailable ? 'SELECTED' : 'UNAVAILABLE · CHOOSE A REPLACEMENT'}</Text><Text numberOfLines={1} style={[styles.optionTitle, { color: tokens.text }]}>{soundTitle(cue.sound)}</Text></View>
-        <Pressable onPress={() => void preview(cue.sound)} accessibilityLabel="Preview selected sound"><Text style={[styles.choose, { color: tokens.accent }]}>Preview</Text></Pressable>
+        <Pressable onPress={() => void preview(cue.sound)} accessibilityRole="button" accessibilityLabel="Preview selected sound"><Text style={[styles.choose, { color: tokens.accent }]}>Preview</Text></Pressable>
       </View>
       <View style={styles.volumeHeader}><Text style={[styles.label, { color: tokens.textMuted }]}>CUE VOLUME</Text><Text style={[styles.value, { color: tokens.text }]}>{Math.round(cue.volume * 100)}%</Text></View>
       <Slider minimumValue={0} maximumValue={1} step={0.05} value={cue.volume} onSlidingStart={stopPreview} onValueChange={volume => onChange({ volume })} minimumTrackTintColor={tokens.accent} maximumTrackTintColor={tokens.surfaceHi} thumbTintColor={tokens.accent} accessibilityLabel={`${title} volume`} accessibilityValue={{ min: 0, max: 100, now: Math.round(cue.volume * 100), text: `${Math.round(cue.volume * 100)} percent` }} />

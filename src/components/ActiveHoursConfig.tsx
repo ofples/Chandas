@@ -84,6 +84,7 @@ export function ActiveHoursConfig({
               ><Text style={[styles.dayText, { color: selected ? tokens.accent : tokens.textMuted }]}>{day.label}</Text></Pressable>
             })}
           </View>
+          {startMinutes === endMinutes ? <Text style={[styles.allDay, { color: tokens.textMuted }]}>Same start and end means all day on the selected days.</Text> : null}
           {days === 0 ? <Text style={[styles.warning, { color: tokens.accent }]}>Choose at least one active day.</Text> : null}
         </View>
       )}
@@ -114,6 +115,7 @@ const styles = StyleSheet.create({
   day: { width: 44, height: 44, borderWidth: 1.5, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
   dayText: { fontSize: 11, fontWeight: '700' },
   warning: { fontSize: 11, fontWeight: '600' },
+  allDay: { fontSize: 11, lineHeight: 16 },
   time: {
     minWidth: 84,
     minHeight: 44,

@@ -67,9 +67,9 @@ object TimerNotifications {
     }
     ensureChannels(context)
     val now = System.currentTimeMillis()
-    val content = if (ActiveHours.isActive(config, now)) {
-      val next = config.timerV2Program?.let { TimerV2Timeline.next(it, config.timerV2Anchor, now)?.at }
-        ?: TimerMath.nextTick(now, config.mainMs, config.phase)
+    val next = config.timerV2Program?.let { TimerV2Timeline.next(it, config.timerV2Anchor, now)?.at }
+      ?: TimerMath.nextTick(now, config.mainMs, config.phase)
+    val content = if (ActiveHours.isActive(config, now) && ActiveHours.isActive(config, next)) {
       "Next cue at ${formatTime(next)}"
     } else {
       "Resumes at ${formatTime(ActiveHours.nextStart(config, now))}"

@@ -10,7 +10,7 @@ import android.view.WindowManager
  * Makes MainActivity wake the screen and show over the lock screen when it was
  * launched/resumed for a ringing alarm — the same behavior a real alarm-clock
  * app uses. Called from a small injected snippet in MainActivity.kt (see this
- * module's config plugin, plugin/withAlarmMainActivity.js) so the generated
+ * module's config plugin, app.plugin.js) so the generated
  * MainActivity itself only needs two one-line calls out to here.
  */
 object AlarmWindowHelper {

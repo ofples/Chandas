@@ -226,6 +226,18 @@ describe('active hours civil-time semantics', () => {
     expect(new Date(nextActiveHoursStart(sundayOnly, fromFriday)).getDay()).toBe(0)
     expect(new Date(nextActiveHoursStart(sundayOnly, fromFriday)).getHours()).toBe(8)
   })
+
+  it('treats equal endpoints as a full selected civil day beginning at midnight', () => {
+    const sundayAllDay = { ...base, activeHoursStart: 8 * 60, activeHoursEnd: 8 * 60, activeHoursDays: 1 }
+    const sundayMorning = local(2026, 8, 6, 3)
+    const mondayMorning = local(2026, 8, 7, 3)
+    expect(isWithinActiveHours(sundayAllDay, sundayMorning)).toBe(true)
+    expect(isWithinActiveHours(sundayAllDay, mondayMorning)).toBe(false)
+    const next = new Date(nextActiveHoursStart(sundayAllDay, mondayMorning))
+    expect(next.getDay()).toBe(0)
+    expect(next.getHours()).toBe(0)
+    expect(next.getMinutes()).toBe(0)
+  })
 })
 
 describe('timer v2 validation and presets', () => {

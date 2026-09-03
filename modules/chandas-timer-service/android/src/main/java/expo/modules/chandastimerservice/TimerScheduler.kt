@@ -10,6 +10,7 @@ import kotlin.math.min
 
 object TimerScheduler {
   private const val TIMER_REQUEST = 8201
+  private const val MAX_NATIVE_INTERVAL_MS = 80L * 60L * 60L * 1_000L
 
   fun canScheduleExactAlarms(context: Context): Boolean {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
@@ -39,6 +40,10 @@ object TimerScheduler {
 
   fun update(context: Context, config: TimerConfig) {
     if (TimerStateStore.load(context) == null) return
+    // Never replace a valid persisted schedule with a malformed program. The
+    // JavaScript editor validates too, but the native service is the runtime
+    // authority and must defend its own recovery state.
+    if (!isValidConfig(config)) return
     TimerStateStore.save(context, config)
     FocusModeController.reconcile(context, config)
     if (TimerStateStore.isRinging(context)) {
@@ -94,7 +99,7 @@ object TimerScheduler {
     val initial = config ?: return false
     if (!isValidConfig(initial)) return false
     if (!canScheduleExactAlarms(context)) {
-      suspendForExactAccess(context)
+      stopForExactAccess(context)
       return false
     }
 
@@ -143,7 +148,7 @@ object TimerScheduler {
         alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAt, operation)
       }
     } catch (_: SecurityException) {
-      suspendForExactAccess(context)
+      stopForExactAccess(context)
       return false
     }
     TimerNotifications.postRunning(context, active)
@@ -337,17 +342,28 @@ object TimerScheduler {
   }
 
   private fun isValidConfig(config: TimerConfig): Boolean {
+    if (config.mainMs !in 1L..MAX_NATIVE_INTERVAL_MS || config.subMs !in 1L..MAX_NATIVE_INTERVAL_MS) return false
     if (config.activeHoursEnabled && config.activeHoursDays.and(0x7f) == 0) return false
     val program = config.timerV2Program ?: return true
-    return config.timerV2Anchor > 0L && TimerV2Timeline.isValid(program)
+    if (!TimerV2Timeline.isValid(program)) return false
+    val duration = TimerV2Timeline.cycleDuration(program) ?: return false
+    return config.timerV2Anchor in 1L..(Long.MAX_VALUE - duration)
   }
 
-  private fun suspendForExactAccess(context: Context) {
-    TimerStateStore.clearNext(context)
+  private fun stopForExactAccess(context: Context) {
+    // A persisted `active` state without an exact PendingIntent is a limbo
+    // timer: the UI can reconnect to it after process death even though it can
+    // never ring. Exact-alarm access is a hard runtime requirement, so fail
+    // closed and make the inactive state authoritative everywhere.
+    cancelScheduledEvent(context)
+    TimerSoundPlayer.stopAll()
     FocusModeController.deactivate(context)
+    TimerStateStore.clear(context)
     TimerNotifications.cancelRunning(context)
-    val stored = TimerStateStore.load(context)
-    TimerStateRegistry.notify(TimerScheduleState(stored != null, stored?.timerV2Anchor ?: 0L, 0L, null, false))
+    TimerNotifications.cancelAlarm(context)
+    context.stopService(Intent(context, ChandasAlarmService::class.java))
+    AlarmStateRegistry.notify(false)
+    TimerStateRegistry.notify(TimerScheduleState(false, 0L, 0L, null, false))
   }
 
   fun cancelScheduledEvent(context: Context) {

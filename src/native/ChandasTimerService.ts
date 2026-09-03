@@ -124,6 +124,7 @@ interface ChandasTimerServiceModule {
   isFocusModeActive(): boolean
   getFocusState(): NativeFocusState
   openNotificationPolicySettings(): void
+  openFocusRuleSettings(): void
   refreshFocusMode(): void
   setFocusModeEnabled(enabled: boolean): void
   toggleAlarmOnce(): void
@@ -207,6 +208,9 @@ export const ChandasTimerService = {
   },
   openNotificationPolicySettings() {
     native?.openNotificationPolicySettings()
+  },
+  openFocusRuleSettings() {
+    native?.openFocusRuleSettings()
   },
   refreshFocusMode() {
     native?.refreshFocusMode()

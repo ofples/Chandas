@@ -252,14 +252,18 @@ object TimerStateStore {
       }
       return false
     }
-    val muted = state.mutedUntil > now || state.mutedIterationsRemaining > 0
+    if (state.mutedUntil > now) return true
     if (type == TimerEventType.MAIN && state.mutedIterationsRemaining > 0) {
       val remaining = state.mutedIterationsRemaining - 1
       context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
         .putInt(MUTED_ITERATIONS, remaining)
         .commit()
       TimerControlRegistry.notify(getControlState(context, now))
+      // The boundary that closes the final muted iteration remains audible.
+      // For count=1 this means all intervening sub-cues are quiet and the next
+      // main gong is heard, matching Timer v2's logical-boundary behavior.
+      return remaining > 0
     }
-    return muted
+    return state.mutedIterationsRemaining > 0
   }
 }

@@ -28,10 +28,14 @@ object ActiveHours {
 
   fun nextStart(config: TimerConfig, timestamp: Long = System.currentTimeMillis()): Long {
     val start = config.activeHoursStart.coerceIn(0, 1_439)
+    val end = config.activeHoursEnd.coerceIn(0, 1_439)
+    // Equal endpoints represent a full selected civil day. Its boundary is
+    // midnight, matching isActive() and currentWindowEnd().
+    val boundaryMinute = if (start == end) 0 else start
     val candidate = Calendar.getInstance().apply {
       timeInMillis = timestamp
-      set(Calendar.HOUR_OF_DAY, start / 60)
-      set(Calendar.MINUTE, start % 60)
+      set(Calendar.HOUR_OF_DAY, boundaryMinute / 60)
+      set(Calendar.MINUTE, boundaryMinute % 60)
       set(Calendar.SECOND, 0)
       set(Calendar.MILLISECOND, 0)
     }

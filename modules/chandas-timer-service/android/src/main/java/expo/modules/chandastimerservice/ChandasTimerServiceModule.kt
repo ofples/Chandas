@@ -2,21 +2,27 @@ package expo.modules.chandastimerservice
 
 import android.app.AlarmManager
 import android.app.Activity
-import android.media.RingtoneManager
 import android.app.NotificationManager
 import android.content.Intent
+import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.provider.Settings
 import android.provider.OpenableColumns
 import androidx.core.os.bundleOf
 import androidx.core.app.NotificationManagerCompat
+import expo.modules.kotlin.activityresult.AppContextActivityResultContract
+import expo.modules.kotlin.activityresult.AppContextActivityResultLauncher
+import expo.modules.kotlin.functions.Coroutine
+import expo.modules.kotlin.functions.Queues
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
-import expo.modules.kotlin.Promise
-import expo.modules.kotlin.functions.Queues
 import expo.modules.kotlin.records.Field
 import expo.modules.kotlin.records.Record
+import java.io.Serializable
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class TimerConfigRecord : Record {
   @Field var mainMs: Long? = null
@@ -42,7 +48,8 @@ class TimerConfigRecord : Record {
 }
 
 class ChandasTimerServiceModule : Module() {
-  private var soundPickerPromise: Promise? = null
+  private lateinit var soundPickerLauncher: AppContextActivityResultLauncher<SoundPickerRequest, SoundPickerResult>
+  private val soundPickerMutex = Mutex()
   private val ringingListener: (Boolean) -> Unit = { ringing ->
     if (!ringing) {
       appContext.activityProvider?.currentActivity?.let { activity ->
@@ -200,49 +207,41 @@ class ChandasTimerServiceModule : Module() {
       if (context != null) TimerStateStore.clearMute(context)
     }
 
-    AsyncFunction("pickDeviceSound") { kind: String, promise: Promise ->
-      val activity = appContext.activityProvider?.currentActivity
-      if (activity == null) {
-        promise.resolve(null)
-        return@AsyncFunction
+    RegisterActivityContracts {
+      soundPickerLauncher = registerForActivityResult(SoundPickerContract())
+    }
+
+    AsyncFunction("pickDeviceSound") Coroutine { kind: String ->
+      if (!::soundPickerLauncher.isInitialized || appContext.activityProvider?.currentActivity == null) {
+        return@Coroutine null
       }
-      soundPickerPromise?.resolve(null)
-      soundPickerPromise = promise
       val type = when (kind) {
         "alarm" -> RingtoneManager.TYPE_ALARM
         "notification" -> RingtoneManager.TYPE_NOTIFICATION
         else -> RingtoneManager.TYPE_ALL
       }
-      runCatching {
-        activity.startActivityForResult(Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
-          putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, type)
-          putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, false)
-          putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
-        }, DEVICE_SOUND_PICKER_REQUEST)
-      }.onFailure {
-        soundPickerPromise = null
-        promise.resolve(null)
+      val result = soundPickerMutex.withLock {
+        try {
+          soundPickerLauncher.launch(SoundPickerRequest(SOUND_SOURCE_RINGTONE, type))
+        } catch (_: Exception) {
+          null
+        }
       }
+      result?.let(::resolvePickedSound)
     }.runOnQueue(Queues.MAIN)
 
-    AsyncFunction("pickAudioDocument") { promise: Promise ->
-      val activity = appContext.activityProvider?.currentActivity
-      if (activity == null) {
-        promise.resolve(null)
-        return@AsyncFunction
+    AsyncFunction("pickAudioDocument") Coroutine { ->
+      if (!::soundPickerLauncher.isInitialized || appContext.activityProvider?.currentActivity == null) {
+        return@Coroutine null
       }
-      soundPickerPromise?.resolve(null)
-      soundPickerPromise = promise
-      runCatching {
-        activity.startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-          addCategory(Intent.CATEGORY_OPENABLE)
-          type = "audio/*"
-          addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
-        }, AUDIO_DOCUMENT_PICKER_REQUEST)
-      }.onFailure {
-        soundPickerPromise = null
-        promise.resolve(null)
+      val result = soundPickerMutex.withLock {
+        try {
+          soundPickerLauncher.launch(SoundPickerRequest(SOUND_SOURCE_DOCUMENT))
+        } catch (_: Exception) {
+          null
+        }
       }
+      result?.let(::resolvePickedSound)
     }.runOnQueue(Queues.MAIN)
 
     AsyncFunction("previewSound") { soundId: String, fallbackSoundId: String, volume: Float ->
@@ -335,6 +334,11 @@ class ChandasTimerServiceModule : Module() {
       if (context != null) FocusModeController.openPolicySettings(context)
     }
 
+    Function("openFocusRuleSettings") {
+      val context = appContext.reactContext
+      if (context != null) FocusModeController.openOwnedRuleSettings(context)
+    }
+
     Function("refreshFocusMode") {
       val context = appContext.reactContext
       if (context != null) FocusModeController.query(context)
@@ -385,50 +389,30 @@ class ChandasTimerServiceModule : Module() {
       FocusStateRegistry.remove(focusListener)
     }
 
-    OnActivityResult { _, result ->
-      if (result.requestCode != DEVICE_SOUND_PICKER_REQUEST && result.requestCode != AUDIO_DOCUMENT_PICKER_REQUEST) return@OnActivityResult
-      val promise = soundPickerPromise ?: return@OnActivityResult
-      soundPickerPromise = null
-      if (result.resultCode != Activity.RESULT_OK) {
-        promise.resolve(null)
-        return@OnActivityResult
-      }
-      if (result.requestCode == DEVICE_SOUND_PICKER_REQUEST) {
-        val uri = result.data?.getParcelableExtra<android.net.Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
-        if (uri == null) {
-          promise.resolve(null)
-          return@OnActivityResult
-        }
-        val context = appContext.reactContext
-        val title = context?.let { runCatching { RingtoneManager.getRingtone(it, uri)?.getTitle(it) }.getOrNull() } ?: "Device sound"
-        promise.resolve(bundleOf("uri" to uri.toString(), "title" to title))
-        return@OnActivityResult
-      }
-      val data = result.data
-      val uri = data?.data
-      val context = appContext.reactContext
-      if (uri == null || context == null) {
-        promise.resolve(null)
-        return@OnActivityResult
-      }
-      runCatching {
-        val grantedFlags = data.flags and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-        context.contentResolver.takePersistableUriPermission(uri, grantedFlags and Intent.FLAG_GRANT_READ_URI_PERMISSION)
-      }
-      val title = runCatching {
-        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-          if (cursor.moveToFirst()) cursor.getString(0) else null
-        }
-      }.getOrNull() ?: "Audio file"
-      val mimeType = runCatching { context.contentResolver.getType(uri) }.getOrNull()
-      promise.resolve(bundleOf("uri" to uri.toString(), "title" to title, "mimeType" to mimeType))
-    }
-
     OnDestroy {
-      soundPickerPromise?.resolve(null)
-      soundPickerPromise = null
       TimerSoundPlayer.stopPreview()
     }
+  }
+
+  private fun resolvePickedSound(result: SoundPickerResult): Bundle? {
+    if (!result.ok || result.uri == null) return null
+    val context = appContext.reactContext ?: return null
+    val uri = Uri.parse(result.uri)
+    if (result.source == SOUND_SOURCE_RINGTONE) {
+      val title = runCatching { RingtoneManager.getRingtone(context, uri)?.getTitle(context) }.getOrNull() ?: "Device sound"
+      return bundleOf("uri" to result.uri, "title" to title)
+    }
+    runCatching {
+      val grantedFlags = result.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION
+      if (grantedFlags != 0) context.contentResolver.takePersistableUriPermission(uri, grantedFlags)
+    }
+    val title = runCatching {
+      context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+        if (cursor.moveToFirst()) cursor.getString(0) else null
+      }
+    }.getOrNull() ?: "Audio file"
+    val mimeType = runCatching { context.contentResolver.getType(uri) }.getOrNull()
+    return bundleOf("uri" to result.uri, "title" to title, "mimeType" to mimeType)
   }
 
   private fun merge(record: TimerConfigRecord, previous: TimerConfig?): TimerConfig? {
@@ -474,7 +458,51 @@ class ChandasTimerServiceModule : Module() {
   )
 
   private companion object {
-    const val DEVICE_SOUND_PICKER_REQUEST = 8452
-    const val AUDIO_DOCUMENT_PICKER_REQUEST = 8453
+    const val SOUND_SOURCE_RINGTONE = "ringtone"
+    const val SOUND_SOURCE_DOCUMENT = "document"
+  }
+}
+
+private data class SoundPickerRequest(
+  val source: String,
+  val ringtoneType: Int = RingtoneManager.TYPE_ALL,
+) : Serializable
+
+private data class SoundPickerResult(
+  val source: String,
+  val ok: Boolean,
+  val uri: String?,
+  val flags: Int,
+)
+
+private class SoundPickerContract : AppContextActivityResultContract<SoundPickerRequest, SoundPickerResult> {
+  override fun createIntent(context: android.content.Context, input: SoundPickerRequest): Intent =
+    if (input.source == "ringtone") {
+      Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+        putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, input.ringtoneType)
+        putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, false)
+        putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
+      }
+    } else {
+      Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+        addCategory(Intent.CATEGORY_OPENABLE)
+        type = "audio/*"
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+      }
+    }
+
+  override fun parseResult(input: SoundPickerRequest, resultCode: Int, intent: Intent?): SoundPickerResult {
+    val uri = if (input.source == "ringtone") {
+      @Suppress("DEPRECATION")
+      intent?.getParcelableExtra<Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+    } else {
+      intent?.data
+    }
+    return SoundPickerResult(
+      source = input.source,
+      ok = resultCode == Activity.RESULT_OK,
+      uri = uri?.toString(),
+      flags = intent?.flags ?: 0,
+    )
   }
 }

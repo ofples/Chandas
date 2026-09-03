@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AppState } from 'react-native'
+import { AppState, Platform } from 'react-native'
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake'
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio'
 import * as Haptics from 'expo-haptics'
@@ -14,6 +14,23 @@ import { ChandasTimerService, isNativeServiceAvailable, type NativeTimerConfig }
 
 const KEEP_AWAKE_TAG = 'chandas-running-v2'
 const ALARM_SOURCE = require('../../assets/sounds/alarm.mp3')
+
+/**
+ * A wake lock improves the foreground experience, but it is never part of the
+ * timer's correctness contract. Web wake-lock requests can remain pending while
+ * a preview tab is hidden, and a platform may reject them for policy reasons.
+ * Android timing is owned by AlarmManager, so either outcome must not block a
+ * session from starting or recovering.
+ */
+async function activateDisplayWakeLock(): Promise<void> {
+  if (Platform.OS === 'web') return
+  await activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch(() => undefined)
+}
+
+function releaseDisplayWakeLock(): void {
+  if (Platform.OS === 'web') return
+  void deactivateKeepAwake(KEEP_AWAKE_TAG).catch(() => undefined)
+}
 
 export interface TimerV2Display {
   mainCountdown: string
@@ -236,7 +253,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     if (settingsRef.current.activeHoursEnabled && (settingsRef.current.activeHoursDays & 0b1111111) === 0) return false
     if (isNativeServiceAvailable && !ChandasTimerService.canScheduleExactAlarms()) return false
     await setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: false })
-    await activateKeepAwakeAsync(KEEP_AWAKE_TAG)
+    await activateDisplayWakeLock()
     const nativeConfig = nativeConfigFor(programRef.current, settingsRef.current, anchor, restored?.alarmBehavior === 'locked' || (!restored && alarmBehaviorRef.current === 'locked'))
     if (restored) {
       nativeConfig.alarmOnceArmed = restored.alarmBehavior === 'once'
@@ -246,7 +263,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
       nativeConfig.mutedIterationCount = restored.mute.iteration?.iterations
     }
     if (isNativeServiceAvailable && !ChandasTimerService.start(nativeConfig)) {
-      deactivateKeepAwake(KEEP_AWAKE_TAG)
+      releaseDisplayWakeLock()
       return false
     }
     anchorRef.current = anchor
@@ -268,7 +285,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     setIsRunning(true)
     setIsAlarmRinging(ChandasTimerService.isRinging())
     await setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: false })
-    await activateKeepAwakeAsync(KEEP_AWAKE_TAG)
+    await activateDisplayWakeLock()
     refreshDisplay()
     if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current)
     refreshIntervalRef.current = setInterval(refreshDisplay, 250)
@@ -287,7 +304,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     dismissAlarm()
     playerRef.current?.remove()
     playerRef.current = null
-    deactivateKeepAwake(KEEP_AWAKE_TAG)
+    releaseDisplayWakeLock()
     if (isNativeServiceAvailable) ChandasTimerService.stop()
     void clearTimerV2Session()
     setDisplay({ mainCountdown: '--:--', nextCueCountdown: '--:--', nextCueLabel: '', progress: 0, position: null, activeHoursPaused: false, activeHoursResumeAt: 0 })
@@ -439,7 +456,11 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
   }, [])
 
   useEffect(() => {
-    if (!runningRef.current || !isNativeServiceAvailable) return
+    if (!runningRef.current) return
+    // Keep the recoverable working program current even on the web fallback;
+    // native Android additionally receives the debounced authoritative update.
+    persistSession(muteRef.current, alarmBehaviorRef.current)
+    if (!isNativeServiceAvailable) return
     if (nativeUpdateRef.current) clearTimeout(nativeUpdateRef.current)
     nativeUpdateRef.current = setTimeout(() => {
       nativeUpdateRef.current = null
@@ -449,7 +470,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
       if (nativeUpdateRef.current) clearTimeout(nativeUpdateRef.current)
       nativeUpdateRef.current = null
     }
-  }, [program, settings])
+  }, [persistSession, program, settings])
 
   useEffect(() => () => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current)
@@ -458,6 +479,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     if (alarmTapTimeoutRef.current) clearTimeout(alarmTapTimeoutRef.current)
     playerRef.current?.remove()
     alarmPlayerRef.current?.remove()
+    releaseDisplayWakeLock()
   }, [])
 
   return {

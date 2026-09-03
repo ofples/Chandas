@@ -44,6 +44,38 @@ object FocusModeController {
     }
   }
 
+  /**
+   * Opens the narrowest Android surface available for the rule Chandas owns.
+   * Android 15 can make automatic rules fully user-managed; in that mode the
+   * platform explicitly asks apps to defer enable/disable and policy editing to
+   * this settings surface. Older releases fall back to the system DND screen.
+   */
+  fun openOwnedRuleSettings(context: Context) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+      val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+      val id = storedRuleId(context)
+      val userManaged = runCatching { manager.areAutomaticZenRulesUserManaged() }.getOrDefault(false)
+      if (id != null && userManaged) {
+        val opened = runCatching {
+          context.startActivity(Intent(Settings.ACTION_AUTOMATIC_ZEN_RULE_SETTINGS).apply {
+            putExtra(Settings.EXTRA_AUTOMATIC_ZEN_RULE_ID, id)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+          })
+          true
+        }.getOrDefault(false)
+        if (opened) return
+      }
+    }
+
+    val openedDnd = runCatching {
+      context.startActivity(Intent(Settings.ACTION_ZEN_MODE_SETTINGS).apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      })
+      true
+    }.getOrDefault(false)
+    if (!openedDnd) openPolicySettings(context)
+  }
+
   /** Read-only foreground/startup refresh. */
   fun query(context: Context): NativeFocusState = queryInternal(context).also(FocusStateRegistry::notify)
 

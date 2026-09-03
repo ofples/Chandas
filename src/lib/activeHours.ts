@@ -33,8 +33,12 @@ export function isWithinActiveHours(settings: ActiveHoursSettings, timestamp = D
 
 export function nextActiveHoursStart(settings: ActiveHoursSettings, timestamp = Date.now()): number {
   const start = ((settings.activeHoursStart % 1_440) + 1_440) % 1_440
+  // Equal endpoints mean the selected civil day is active for all 24 hours,
+  // so the next selected window begins at midnight rather than at an arbitrary
+  // (equal) endpoint minute.
+  const boundaryMinute = start === ((settings.activeHoursEnd % 1_440) + 1_440) % 1_440 ? 0 : start
   const candidate = new Date(timestamp)
-  candidate.setHours(Math.floor(start / 60), start % 60, 0, 0)
+  candidate.setHours(Math.floor(boundaryMinute / 60), boundaryMinute % 60, 0, 0)
   for (let offset = 0; offset <= 7; offset += 1) {
     if (candidate.getTime() > timestamp && isDayEnabled(settings, candidate.getDay())) {
       return candidate.getTime()
