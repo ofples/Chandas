@@ -1,11 +1,21 @@
 name: Publish Android preview update
 
 jobs:
+  validate:
+    name: Verify update
+    environment: preview
+    steps:
+      - uses: eas/checkout
+      - uses: eas/install_node_modules
+      - name: Type-check
+        run: npx tsc --noEmit
+      - name: Test
+        run: npm test
   publish_preview_update:
     name: Publish Android preview update
+    needs: [validate]
     type: update
     environment: preview
     params:
       platform: android
-      branch: preview
-      message: Simplify settings and improve timer controls
+      channel: preview

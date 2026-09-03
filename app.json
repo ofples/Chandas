@@ -2,7 +2,7 @@
   "expo": {
     "name": "Chandas",
     "slug": "chandas",
-    "version": "0.2.0",
+    "version": "2.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -76,7 +76,9 @@
       "url": "https://u.expo.dev/0a58141c-12a1-4e21-acb5-f4153b629fd7",
       "enabled": true,
       "checkAutomatically": "ON_LOAD",
-      "fallbackToCacheTimeout": 0
+      "fallbackToCacheTimeout": 0,
+      "useEmbeddedUpdate": true,
+      "enableBsdiffPatchSupport": true
     },
     "extra": {
       "eas": {

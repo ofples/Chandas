@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { StatusBar } from 'expo-status-bar'
+import * as Updates from 'expo-updates'
 import { AppState as NativeAppState, Linking, PermissionsAndroid, Platform, View } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { useFonts, JetBrainsMono_300Light, JetBrainsMono_400Regular } from '@expo-google-fonts/jetbrains-mono'
@@ -62,6 +63,7 @@ function settingsFromNative(current: AppTimerSettings, native: ReturnType<typeof
 function Root() {
   const { tokens, theme } = useTheme()
   const reducedMotion = useReducedMotion()
+  const updateState = Updates.useUpdates()
   const [timerState, setTimerState] = useState<TimerV2State | null>(null)
   const [appState, setAppState] = useState<AppState>('config')
   const [ready, setReady] = useState(false)
@@ -76,6 +78,9 @@ function Root() {
   const storageWarningShown = useRef(false)
   const fullScreenGuidanceShown = useRef(false)
   const handledCompletionPulse = useRef(0)
+  const deferredUpdateAnnounced = useRef(false)
+  const readyUpdateAnnounced = useRef(false)
+  const emergencyLaunchAnnounced = useRef(false)
   const program = timerState ? selectedProgram(timerState) : null
   const timer = useTimerV2(program ?? FALLBACK_PROGRAM, timerState?.settings ?? FALLBACK_SETTINGS)
 
@@ -84,6 +89,13 @@ function Root() {
     setNotice({ ...next, id: `notice-${noticeSequence.current}` })
   }, [])
   const dismissNotice = useCallback(() => setNotice(null), [])
+  const applyDownloadedUpdate = useCallback(() => {
+    showNotice({ title: 'Opening the latest Chandas…', message: 'Your timer setup is already saved.', tone: 'info', persistent: true })
+    void Updates.reloadAsync().catch(() => {
+      readyUpdateAnnounced.current = false
+      showNotice({ title: 'The update will wait', message: 'Nothing was lost. Chandas will try the new version again after a normal restart.', tone: 'attention' })
+    })
+  }, [showNotice])
   const safelyOpenSystemSetting = useCallback((open: () => void | Promise<void>) => {
     try {
       const result = open()
@@ -149,6 +161,26 @@ function Root() {
     }) : null
     return () => { subscription.remove(); focusSubscription?.remove() }
   }, [refreshAndroidAccess, refreshFocusState])
+
+  useEffect(() => {
+    if (!ready || Platform.OS === 'web' || !Updates.isEnabled) return
+
+    if (updateState.currentlyRunning.isEmergencyLaunch && !emergencyLaunchAnnounced.current) {
+      emergencyLaunchAnnounced.current = true
+      showNotice({ title: 'Chandas opened its safe built-in version', message: 'Your timer is ready. A newer update did not start cleanly, so it will be retried later.', tone: 'attention' })
+    }
+
+    if (!updateState.isUpdatePending) return
+    if (appState === 'running') {
+      if (deferredUpdateAnnounced.current) return
+      deferredUpdateAnnounced.current = true
+      showNotice({ title: 'A Chandas update is ready for later', message: 'It will wait until you finish—this timer will not be interrupted.', tone: 'info' })
+      return
+    }
+    if (readyUpdateAnnounced.current) return
+    readyUpdateAnnounced.current = true
+    showNotice({ title: 'A Chandas update is ready', message: 'Restart now to use it, or leave it for your next normal launch.', tone: 'info', actionLabel: 'Restart now', onAction: applyDownloadedUpdate, persistent: true })
+  }, [appState, applyDownloadedUpdate, ready, showNotice, updateState.currentlyRunning.isEmergencyLaunch, updateState.isUpdatePending])
 
   useEffect(() => {
     if (Platform.OS !== 'android' || appState !== 'running') return
