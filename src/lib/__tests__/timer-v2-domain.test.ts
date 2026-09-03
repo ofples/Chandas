@@ -65,6 +65,15 @@ describe('timer v2 timeline contracts', () => {
     expect(nextPatternEvent(reordered, 0, 9 * minute).winner.cueId).toBe('bottom')
   })
 
+  it('uses the same order-only rule when colliding tracks have equal cadence', () => {
+    const equal = pattern()
+    equal.tracks[0].cadenceMinutes = 2
+    const initial = defaultTimerV2State()
+    const configured = { ...initial, workingPrograms: { ...initial.workingPrograms, pattern: equal } }
+    expect(nextPatternEvent(equal, 0, 9 * minute).winner.cueId).toBe('top')
+    expect(nextPatternEvent(reorderPatternTracks(configured, 1, 0).workingPrograms.pattern, 0, 9 * minute).winner.cueId).toBe('bottom')
+  })
+
   it('ignores disabled tracks and keeps main boundaries independent', () => {
     const program = pattern()
     program.tracks[0].enabled = false
@@ -305,6 +314,19 @@ describe('timer v2 validation and presets', () => {
     expect(edited.workingPrograms.sourcePreset?.id).toBe(saved.presets[0].id)
     expect(edited.presets[0].program).toEqual(presetSnapshot)
     expect(edited.workingPrograms.sequence.steps[0].label).toBe('Changed working copy')
+  })
+
+  it('loads a deep working copy and permits duplicate names without ID reuse', () => {
+    const preset = { id: 'source', name: 'Morning', createdAt: 123, program: pattern() }
+    const initial = { ...defaultTimerV2State(), presets: [preset] }
+    const loaded = loadProgramPreset(initial, preset.id)
+    loaded.workingPrograms.pattern.tracks[0].selectedOffsetsMinutes.push(20)
+    expect((initial.presets[0].program as PatternProgram).tracks[0].selectedOffsetsMinutes).toEqual([10])
+
+    const once = saveProgramPreset(initial, 'Morning', 456)
+    const twice = saveProgramPreset(once, 'Morning', 456)
+    expect(twice.presets.filter(value => value.name === 'Morning')).toHaveLength(3)
+    expect(new Set(twice.presets.map(value => value.id)).size).toBe(3)
   })
 
   it('retains track cadence while shortening a Pattern and drops only invalid offsets', () => {
