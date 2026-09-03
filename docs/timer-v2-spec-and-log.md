@@ -728,13 +728,12 @@ interface TimelinePosition {
 
 At a Pattern timestamp with multiple enabled track candidates:
 
-1. Sort by `cadenceMinutes` descending.
-2. For equal cadence, sort by current track order ascending.
-3. The first candidate is the winner.
-4. Preserve every candidate in the scheduled event for UI explanation and test evidence.
-5. Play and notify only the winner.
+1. Sort by current track order ascending.
+2. The first candidate is the winner.
+3. Preserve every candidate in the scheduled event for UI explanation and test evidence.
+4. Play and notify only the winner.
 
-The scheduler must not flatten selections in a way that loses the candidate list.
+The scheduler must not flatten selections in a way that loses the candidate list. Track order is the sole tie-breaker; cadence does not affect it.
 
 ### 10.6 Active-hours gate
 
@@ -1327,6 +1326,33 @@ This section is append-only. Every implementation session should record scope, m
 - Compiled pure-domain check verified migration offsets/volume, top-track overlap priority, and Sequence next-step resolution.
 
 **Known gaps:** The app still renders and runs against the legacy flat configuration. Runtime playback, native Kotlin parity, and V2 UI wiring are subsequent slices.
+
+### 2026-09-03 — Runtime audio-gate semantics
+
+**Status:** Complete.
+
+**Scope:** Make the v2 mute, Alarm Once, and automatic-call-mute decisions pure and deterministic before integrating them into the JS and Android runtimes.
+
+**Decisions referenced:** D-013, D-023–D-025, D-031.
+
+**Files changed:**
+
+- `src/lib/runtimeV2.ts`
+
+**Behavior implemented:**
+
+- Iteration mute persists an ending logical-event identity and epoch rather than decrementing at each main event.
+- The selected ending main/cycle cue is audible and atomically clears iteration mute.
+- Timestamp mute respects boundary equality: the first event at or after its end is eligible to play.
+- Automatic call mute is a transient audio gate. It does not modify user volume, consume timed/iteration mute, or consume Alarm Once.
+- Alarm Once is consumed only for an eligible Pattern main event outside call suppression.
+
+**Verification:**
+
+- `npx tsc --noEmit` completed successfully.
+- Compiled pure-domain checks covered final-boundary iteration mute, timestamp mute, and call suppression preserving mute/alarm state.
+
+**Known gaps:** The existing `useTimer` and Kotlin scheduler do not consume this engine yet. Their migration is the next runtime-integration slice.
 
 ### Implementation-entry template
 
