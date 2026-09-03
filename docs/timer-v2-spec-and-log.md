@@ -8,7 +8,7 @@
 | Product | Chandas Android interval timer |
 | Scope | Timer v2 program model, advanced scheduling, audio, Focus/DND, presets, runtime controls, and help |
 | Primary platform | Android |
-| Specification version | 1.1 |
+| Specification version | 1.2 |
 | Created | 2026-09-02 |
 | Implementation rule | Deliver as one cohesive refactor; intermediate builds do not have to be usable |
 | Build rule | Never run a local native build, Gradle task, Expo native run, prebuild, or export. Remote EAS only when explicitly requested. |
@@ -1663,6 +1663,29 @@ This section is append-only. Every implementation session should record scope, m
 
 **Native/on-device verification still required:** Kotlin compilation/tests, manifest merge, and the Android API/OEM scenarios in section 19.4. Local native builds remain prohibited by repository policy.
 
+### 2026-09-03 — Calm interaction and feedback refinement
+
+**Status:** Complete in React Native source and verified in the live web surface; Android permission presentation remains part of the device matrix.
+
+**Scope:** Motion, loading, empty states, recoverable errors, permission guidance, tactile feedback, and secondary-flow polish without changing timer semantics.
+
+**Behavior implemented:**
+
+- Added a branded restoring state for font and persisted-state startup instead of a blank screen, plus a last-resort gentle UI error boundary.
+- Replaced recoverable operational alerts with accessible, non-blocking notices that support calm explanations, optional actions, persistence for required intervention, and automatic dismissal for transient confirmation.
+- Added explicit progress and success/decline/failure outcomes for exact timing, notification, DND, call-state, sound-picker, timer-start, and live realignment actions.
+- Kept optional permissions optional: declined call-state or notification access does not block the timer, while exact timing remains clearly identified as required to start reliably.
+- Made storage recovery observable without discarding usable data, serialized save failures visible without interrupting editing, and invalid saved records fall back safely.
+- Added reduced-motion-aware screen, mode, row, empty-state, active-hours, running-ring, next-cue, status, badge, tooltip, and sound-tab transitions, all kept below 300 ms.
+- Added restrained press feedback, selection/mute/stop haptics, live realignment busy state, inline preview failures, richer empty states, and safe wrappers around Android settings and sound availability.
+- Replaced newly exercised deprecated web shadow/pointer-event usage and verified that the refined surface emits no new runtime warnings.
+
+**Verification run:** `npx tsc --noEmit`; `npm test`; `git diff --check`; live React Native Web walkthrough at desktop and mobile viewport sizes, including mode switching, configuration-library empty/save states, sound-source guidance, Start, running Mixer, mute, Stop, and transient notice expiry.
+
+**Results:** Type checking passed, all 37 focused tests passed, whitespace validation passed, live interactions remained accessible through semantic roles, and no new UI runtime warning was emitted after reload.
+
+**Native/on-device verification still required:** Permission-dialog appearance and return paths, system-settings launch failures, reduced-motion behavior, TalkBack announcements, haptic intensity, and animation performance on representative low/mid/high-tier Android devices.
+
 ### Implementation-entry template
 
 ```md
@@ -1697,3 +1720,4 @@ This section is append-only. Every implementation session should record scope, m
 | --- | --- | --- |
 | 1.0 | 2026-09-02 | Initial detailed specification, implementation architecture, acceptance criteria, and append-only log structure. |
 | 1.1 | 2026-09-03 | Recorded the completed source implementation, exact-alarm/full-day/DND decisions, final audit remediation, and remaining remote/device release gate. |
+| 1.2 | 2026-09-03 | Added the calm interaction-refinement pass covering motion, loading, empty states, permissions, recoverable feedback, and storage/UI failure handling. |
