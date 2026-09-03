@@ -141,6 +141,9 @@ Timer v2 replaces these assumptions rather than layering special cases over them
 | D-041 | Android-only Focus, DND, and system-setting controls are hidden on web. A Focus control that needs setup opens the relevant Android setting without an error badge or a false active state. |
 | D-042 | The running Mixer opens with Master volume and cycle/minute mute controls. Per-sound levels remain available behind one explicit `Sound levels` disclosure. The cue sound picker keeps its selected-sound and cue-volume controls fixed while its sound library scrolls. |
 | D-043 | Alarm state changes optimistically on the first tap. The 400 ms gesture window exists only to distinguish a second tap and must never delay visible or native feedback for the first tap. |
+| D-044 | Routine Start, Stop, and successful live Reset/snap actions rely on immediate screen state, control state, and haptics for confirmation. Banners are reserved for completion, errors, permissions, recovery, and other outcomes the interface cannot show by itself. |
+| D-045 | Advanced editing uses progressive disclosure. Sequence steps stay as equal-height compact ordered rows and open a focused editor sheet; saved-configuration details replace the list while being inspected; technical sound, scheduling, and collision explanations stay in Help or documentation unless required to resolve a current problem. |
+| D-046 | Configuration summaries use one title, one useful value, and a chevron. `Sound levels` replaces user-facing `Mixer` terminology in setup, while the running sheet may retain `Mixer & mute` because it combines two live control groups. |
 
 ---
 
@@ -1337,6 +1340,8 @@ Do not edit old entries to reflect new conclusions. Add a superseding entry and 
 | 2026-09-03 | D-032 | Accepted | Treat exact timing as an invariant: do not leave an apparently running session after exact-alarm access disappears. |
 | 2026-09-03 | D-033 | Accepted | Define equal active-hours endpoints as a full selected civil day rather than an empty or ambiguous window. |
 | 2026-09-03 | D-034 | Accepted | State the Android DND limit accurately: alarm routing follows the Alarm stream and active DND alarm policy; Chandas Focus allows alarms without cloning other modes. |
+| 2026-09-03 | D-040–D-043 | Accepted | Apply the first annotated-feedback pass: plain mode names, platform-relevant controls, compact sound controls, and immediate Alarm feedback. |
+| 2026-09-03 | D-044–D-046 | Accepted | Extend the feedback direction across Timer v2 with quiet routine transitions, progressive disclosure, and consistent one-title/one-value navigation rows. |
 
 ### Decision-entry template
 
@@ -1854,6 +1859,32 @@ This section is append-only. Every implementation session should record scope, m
 
 **Risks or follow-ups:** The source paragraph ending in “tapping this just” is incomplete. No behavior was inferred from it; resolve it when the remaining feedback arrives.
 
+### 2026-09-03 — Whole-surface simplification pass
+
+**Status:** Source implementation complete; Android device review remains pending.
+
+**Scope:** Cycle and Sequence setup, step editing, run controls, sound levels, schedules, saved configurations, Android access/Focus summaries, numeric entry, running status, and routine feedback banners.
+
+**Decisions referenced:** D-027, D-040–D-046.
+
+**Behavior implemented:**
+
+- Collapsed Sequence steps into equal-height ordered rows with duration, sound, and level summaries. Tapping one opens a focused editor with its name, quick durations, sound, duplicate, and remove controls; drag handles remain visible and their geometry no longer changes during editing.
+- Turned saved configurations into a focused two-stage flow: save/list first, then one selected configuration’s details and Load/Delete actions. Removed duplicate Inspect/Delete controls and the repeated selected row.
+- Replaced the configuration Mixer card with a simple Sound levels row and reduced the sheet to Master plus cue channels. Removed multiplier explanations already covered by Help.
+- Simplified sub-bell terminology from trigger grids/cue positions to Repeat every/Bell times, shortened empty guidance, and stopped encoding collision winners into the small timeline preview.
+- Reduced Android access and Chandas Focus cards to current status plus the action needed now. Detailed DND behavior remains in Help.
+- Removed routine success banners from Start, Stop, Reset, and successful clock snapping. Their screen/control transitions and haptics now provide confirmation; failure and permission guidance remain explicit.
+- Shortened running mute and bounded-end status, simplified the clock sheet, and constrained custom-minute entry to a calm centered field on wide and narrow layouts.
+
+**Verification run:** `npx tsc --noEmit`; `npm test -- --run`; `git diff --check`; semantic and visual React Native Web walkthrough at 390 × 844 and desktop sizes.
+
+**Results:** Type checking passed, all 46 focused tests passed, whitespace validation passed, compact/expanded Sequence states and focused configuration details were exercised, and routine Start/Stop transitions completed without redundant banners.
+
+**Native/on-device verification still required:** Compact-row drag thresholds and haptics, Android permission/Focus states, keyboard avoidance in numeric entry, and TalkBack navigation order. Local native builds remain prohibited by repository policy.
+
+**Risks or follow-ups:** Representative device testing should confirm the feel of dragging compact rows and opening nested sound selection from the step editor.
+
 ### Implementation-entry template
 
 ```md
@@ -1891,3 +1922,4 @@ This section is append-only. Every implementation session should record scope, m
 | 1.2 | 2026-09-03 | Added the calm interaction-refinement pass covering motion, loading, empty states, permissions, recoverable feedback, and storage/UI failure handling. |
 | 1.3 | 2026-09-03 | Added bounded cycle/duration runs, exact terminal semantics, multi-window schedules, and the calendar-ready availability override contract. |
 | 1.4 | 2026-09-03 | Applied the first annotated-feedback pass: simpler Cycle/Sequence surfaces, immediate Alarm feedback, smoother nested rings, web-safe controls, compact Mixer, and sticky cue volume. |
+| 1.5 | 2026-09-03 | Extended the feedback direction across Timer v2 with compact Sequence rows, focused saved-configuration inspection, quiet routine transitions, and shorter setup/status language. |

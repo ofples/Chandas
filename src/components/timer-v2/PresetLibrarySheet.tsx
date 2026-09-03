@@ -64,10 +64,9 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedba
   ])
 
   return (
-    <BottomSheet visible={visible} eyebrow="CONFIGURATIONS" title="Save or load" onClose={onClose}>
-      <Text style={[styles.helper, { color: tokens.textMuted }]}>Saved configurations are immutable snapshots. Loading creates a working copy you can change and save under a new name.</Text>
-      <View style={[styles.current, { backgroundColor: tokens.surfaceHi }]}><Text style={[styles.miniLabel, { color: tokens.textMuted }]}>SAVING THIS WORKING COPY</Text><Text style={[styles.presetTitle, { color: tokens.text }]}>{state.workingPrograms.selectedMode === 'pattern' ? 'Cycle' : 'Sequence'}</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{summary({ id: '', name: '', createdAt: 0, program: state.workingPrograms[state.workingPrograms.selectedMode] })}</Text></View>
-      <View style={styles.saveRow}>
+    <BottomSheet visible={visible} eyebrow="SAVED SETUPS" title="Configurations" onClose={onClose}>
+      {!selected ? <View style={styles.current}><Text style={[styles.presetTitle, { color: tokens.text }]}>Save current {state.workingPrograms.selectedMode === 'pattern' ? 'Cycle' : 'Sequence'}</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{summary({ id: '', name: '', createdAt: 0, program: state.workingPrograms[state.workingPrograms.selectedMode] })}</Text></View> : null}
+      {!selected ? <View style={styles.saveRow}>
         <TextInput
           value={name}
           onChangeText={value => { setName([...value].slice(0, 80).join('')); setSavedName(null) }}
@@ -78,27 +77,28 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedba
           style={[styles.input, { color: tokens.text, borderColor: tokens.border, backgroundColor: tokens.surfaceHi }]}
           accessibilityLabel="New configuration name"
         />
-        <Pressable disabled={!canSave} onPress={save} style={[styles.save, { backgroundColor: tokens.accent, opacity: canSave ? 1 : 0.35 }]} accessibilityRole="button"><Text style={styles.saveText}>Save new</Text></Pressable>
-      </View>
-      {savedName ? <GentleNotice title="Configuration saved" message={`“${savedName}” is now available as an unchanged snapshot.`} tone="success" /> : null}
-      <View style={styles.filters} accessibilityRole="tablist">{([['all', 'All'], ['pattern', 'Cycle'], ['sequence', 'Sequence']] as const).map(([value, label]) => <Pressable key={value} onPress={() => setFilter(value)} style={[styles.filter, { borderColor: filter === value ? tokens.accent : tokens.border, backgroundColor: filter === value ? tokens.accentGlow : 'transparent' }]} accessibilityRole="tab" accessibilityState={{ selected: filter === value }}><Text style={[styles.filterText, { color: filter === value ? tokens.accent : tokens.textMuted }]}>{label}</Text></Pressable>)}</View>
+        <Pressable disabled={!canSave} onPress={save} style={[styles.save, { backgroundColor: tokens.accent, opacity: canSave ? 1 : 0.35 }]} accessibilityRole="button"><Text style={styles.saveText}>Save</Text></Pressable>
+      </View> : null}
+      {!selected && savedName ? <GentleNotice title="Configuration saved" message={`“${savedName}” is ready to load.`} tone="success" /> : null}
+      {!selected ? <View style={styles.filters} accessibilityRole="tablist">{([['all', 'All'], ['pattern', 'Cycle'], ['sequence', 'Sequence']] as const).map(([value, label]) => <Pressable key={value} onPress={() => setFilter(value)} style={[styles.filter, { borderColor: filter === value ? tokens.accent : tokens.border, backgroundColor: filter === value ? tokens.accentGlow : 'transparent' }]} accessibilityRole="tab" accessibilityState={{ selected: filter === value }}><Text style={[styles.filterText, { color: filter === value ? tokens.accent : tokens.textMuted }]}>{label}</Text></Pressable>)}</View> : null}
       {selected ? <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 130)} style={[styles.inspector, { borderColor: tokens.accent, backgroundColor: tokens.accentGlow }]}>
-        <View style={styles.copy}><Text style={[styles.miniLabel, { color: tokens.accent }]}>READY TO LOAD</Text><Text style={[styles.presetTitle, { color: tokens.text }]}>{selected.name}</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{selected.program.mode === 'pattern' ? `Cycle · ${summary(selected)}` : `Sequence · ${summary(selected)}`}</Text><Text style={[styles.date, { color: tokens.textMuted }]}>Saved {new Date(selected.createdAt).toLocaleString()}</Text><PresetDetails preset={selected} /><Text style={[styles.helper, { color: tokens.textMuted }]}>This replaces the current working copy. It does not start the timer.</Text></View>
-        <View style={styles.inspectorActions}><Pressable onPress={() => setSelectedId(null)} accessibilityRole="button"><Text style={[styles.action, { color: tokens.textMuted }]}>Cancel</Text></Pressable><Pressable onPress={() => { onChange(loadProgramPreset(state, selected.id)); setSelectedId(null); onClose(); onFeedback({ title: 'Working copy loaded', message: `“${selected.name}” is ready to adjust. The saved snapshot stays unchanged.`, tone: 'success' }) }} style={[styles.loadButton, { backgroundColor: tokens.accent }]} accessibilityRole="button"><Text style={styles.loadText}>Load copy</Text></Pressable></View>
+        <View style={styles.copy}><Text style={[styles.presetTitle, { color: tokens.text }]}>{selected.name}</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{selected.program.mode === 'pattern' ? `Cycle · ${summary(selected)}` : `Sequence · ${summary(selected)}`}</Text><Text style={[styles.date, { color: tokens.textMuted }]}>Saved {new Date(selected.createdAt).toLocaleString()}</Text><PresetDetails preset={selected} /><Text style={[styles.helper, { color: tokens.textMuted }]}>Loads as a new working copy.</Text></View>
+        <View style={styles.inspectorActions}><Pressable onPress={() => remove(selected)} accessibilityRole="button"><Text style={[styles.delete, { color: tokens.textMuted }]}>Delete</Text></Pressable><View style={styles.inspectorPrimary}><Pressable onPress={() => setSelectedId(null)} accessibilityRole="button"><Text style={[styles.action, { color: tokens.textMuted }]}>Cancel</Text></Pressable><Pressable onPress={() => { onChange(loadProgramPreset(state, selected.id)); setSelectedId(null); onClose(); onFeedback({ title: 'Configuration loaded', message: `“${selected.name}” is ready to adjust.`, tone: 'success' }) }} style={[styles.loadButton, { backgroundColor: tokens.accent }]} accessibilityRole="button"><Text style={styles.loadText}>Load</Text></Pressable></View></View>
       </Animated.View> : null}
-      <View style={styles.list}>
-        {presets.length === 0 ? <GentleNotice title={state.presets.length === 0 ? 'Your library is ready' : `No ${filter === 'pattern' ? 'Cycle' : 'Sequence'} configurations yet`} message={state.presets.length === 0 ? 'Name the working copy above to save your first reusable setup.' : 'Try All, or save the current working copy in this mode.'} /> : presets.map(preset => {
+      {!selected ? <View style={styles.list}>
+        {presets.length === 0 ? <GentleNotice title={state.presets.length === 0 ? 'No saved configurations yet' : `No ${filter === 'pattern' ? 'Cycle' : 'Sequence'} configurations`} message={state.presets.length === 0 ? 'Name the current setup above to save it.' : 'Try All or save the current setup.'} /> : presets.map(preset => {
           const loaded = state.workingPrograms.sourcePreset?.id === preset.id && !state.workingPrograms.sourcePreset.deleted
-          return <Animated.View key={preset.id} entering={FadeInDown.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 120)} layout={reducedMotion ? undefined : LinearTransition.duration(160)} style={[styles.preset, { borderColor: loaded ? tokens.accent : tokens.border, backgroundColor: loaded ? tokens.accentGlow : 'transparent' }]}>
-            <Pressable style={styles.copy} onPress={() => setSelectedId(preset.id)} accessibilityRole="button" accessibilityLabel={`Inspect ${preset.name}`}>
+          return <Animated.View key={preset.id} entering={FadeInDown.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 120)} layout={reducedMotion ? undefined : LinearTransition.duration(160)}>
+            <Pressable style={[styles.preset, { borderColor: loaded ? tokens.accent : tokens.border, backgroundColor: loaded ? tokens.accentGlow : 'transparent' }]} onPress={() => setSelectedId(preset.id)} accessibilityRole="button" accessibilityLabel={`Open ${preset.name}`}>
+              <View style={styles.copy}>
               <View style={styles.titleRow}><Text numberOfLines={1} style={[styles.presetTitle, { color: tokens.text }]}>{preset.name}</Text>{loaded ? <Text style={[styles.loaded, { color: tokens.accent }]}>LOADED</Text> : null}</View>
               <Text style={[styles.helper, { color: tokens.textMuted }]}>{summary(preset)}</Text>
               <Text style={[styles.date, { color: tokens.textDisabled }]}>Saved {new Date(preset.createdAt).toLocaleString()}</Text>
+              </View><Text style={[styles.chevron, { color: tokens.accent }]}>›</Text>
             </Pressable>
-            <View style={styles.actions}><Pressable onPress={() => setSelectedId(preset.id)} accessibilityRole="button" accessibilityLabel={`Inspect ${preset.name}`}><Text style={[styles.action, { color: tokens.accent }]}>Inspect</Text></Pressable><Pressable onPress={() => remove(preset)} accessibilityRole="button" accessibilityLabel={`Delete ${preset.name}`}><Text style={[styles.delete, { color: tokens.textMuted }]}>Delete</Text></Pressable></View>
           </Animated.View>
         })}
-      </View>
+      </View> : null}
     </BottomSheet>
   )
 }
@@ -122,7 +122,7 @@ function PresetDetails({ preset }: { preset: ProgramPreset }) {
 
 const styles = StyleSheet.create({
   helper: { fontSize: 12, lineHeight: 18 },
-  current: { padding: 13, borderRadius: 12, gap: 3 },
+  current: { gap: 3 },
   miniLabel: { fontSize: 9, fontWeight: '800', letterSpacing: 1.1 },
   saveRow: { flexDirection: 'row', gap: 8 },
   input: { flex: 1, minHeight: 45, borderWidth: 1.5, borderRadius: 11, paddingHorizontal: 12, fontSize: 14 },
@@ -140,13 +140,13 @@ const styles = StyleSheet.create({
   presetTitle: { flexShrink: 1, fontSize: 15, fontWeight: '700' },
   loaded: { fontSize: 8, letterSpacing: 1, fontWeight: '800' },
   date: { fontSize: 10, marginTop: 2 },
-  actions: { justifyContent: 'space-between', alignItems: 'flex-end' },
   action: { fontSize: 12, fontWeight: '700' },
   delete: { fontSize: 11, textDecorationLine: 'underline' },
   inspector: { borderWidth: 1.5, borderRadius: 14, padding: 14, gap: 12 },
   details: { borderTopWidth: 1, borderBottomWidth: 1, paddingVertical: 9, gap: 5 },
   detailLine: { fontSize: 11, lineHeight: 16 },
-  inspectorActions: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 16 },
+  inspectorActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 16 }, inspectorPrimary: { flexDirection: 'row', alignItems: 'center', gap: 16 },
   loadButton: { paddingHorizontal: 15, paddingVertical: 10, borderRadius: 10 },
   loadText: { color: '#fff', fontSize: 12, fontWeight: '800' },
+  chevron: { fontSize: 24, lineHeight: 26, fontWeight: '300' },
 })

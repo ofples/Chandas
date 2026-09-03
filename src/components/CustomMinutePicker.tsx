@@ -94,10 +94,11 @@ const styles = StyleSheet.create({
   inputRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 10,
   },
   input: {
-    flex: 1,
+    width: 170,
     borderWidth: 1.5,
     borderRadius: 10,
     fontFamily: 'JetBrainsMono-Light',
@@ -108,6 +109,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   unit: {
+    width: 28,
     fontSize: 13,
   },
   confirm: {

@@ -354,13 +354,6 @@ function Root() {
       if (started) {
         setAppState('running')
         refreshFocusState()
-        const run = program?.runPolicy
-        const boundedMessage = run?.kind === 'cycles'
-          ? `${run.cycleCount} ${program?.mode === 'sequence' ? 'rounds' : 'main cycles'}, then it will finish gently.`
-          : run?.kind === 'duration'
-            ? 'It will finish automatically at the duration you chose.'
-            : program?.mode === 'sequence' ? 'Your sequence will repeat until you stop it.' : 'Your pattern is anchored and ready.'
-        showNotice({ title: 'Timer is running', message: boundedMessage, tone: 'success' })
         return
       }
       showNotice({ title: 'Exact timing needs one setting', message: 'Allow Alarms & reminders so bells stay precise when the screen is off.', tone: 'attention', actionLabel: 'Open settings', onAction: openExactAlarmSettings, persistent: true })
@@ -382,7 +375,6 @@ function Root() {
     void timer.reanchor(nextProgram, alignToClock).then(started => {
       if (started) changeTimerState(nextState)
       else showNotice({ title: 'Alignment stayed unchanged', message: 'Exact timing is needed before Chandas can move this live pattern.', tone: 'attention', actionLabel: 'Open settings', onAction: openExactAlarmSettings })
-      if (started) showNotice({ title: alignToClock ? `Aligned to :${String(offsetMinutes).padStart(2, '0')}` : 'Restarted from now', message: 'The next bell schedule has been updated.', tone: 'success' })
     }).catch(() => showNotice({ title: 'Alignment stayed unchanged', message: 'The timer is still running on its previous schedule. You can try again.', tone: 'attention' }))
       .finally(() => setRealigning(false))
   }
@@ -413,7 +405,6 @@ function Root() {
     timer.stop()
     setAppState('config')
     refreshFocusState()
-    showNotice({ title: 'Timer stopped', message: 'Your configuration is ready whenever you want to begin again.', tone: 'info' })
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined)
   }
 
