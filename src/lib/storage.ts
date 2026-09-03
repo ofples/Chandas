@@ -22,8 +22,14 @@ const TIMER_V2_SESSION_KEY = 'chandas-timer-v2-session'
 // AsyncStorage calls can complete out of order under rapid slider/gesture input.
 // Keeping independent state and session queues makes the newest user action the
 // final durable value, including Stop racing an earlier session save.
-let stateWriteQueue: Promise<void> = Promise.resolve()
+let stateWriteQueue: Promise<boolean> = Promise.resolve(true)
 let sessionWriteQueue: Promise<void> = Promise.resolve()
+
+export interface TimerV2StateLoadResult {
+  state: TimerV2State
+  recovered: boolean
+  reason?: 'invalid-records' | 'storage-unavailable'
+}
 
 export const DEFAULT_CONFIG: TimerConfig = {
   mainInterval: 30,
@@ -210,7 +216,7 @@ async function saveV2Records(state: TimerV2State, recordMigration: boolean): Pro
  * Returns the v2 source of truth. A valid set of v2 records always wins;
  * otherwise the old flat config is migrated without deleting it.
  */
-export async function loadTimerV2State(): Promise<TimerV2State> {
+export async function loadTimerV2StateResult(): Promise<TimerV2StateLoadResult> {
   try {
     const [workingRaw, presetsRaw, settingsRaw] = await AsyncStorage.multiGet([
       WORKING_PROGRAMS_V2_KEY,
@@ -220,25 +226,37 @@ export async function loadTimerV2State(): Promise<TimerV2State> {
     const workingPrograms = normalizeWorkingPrograms(parseJson<WorkingProgramState>(workingRaw[1]))
     const settings = normalizeSettings(parseJson<AppTimerSettings>(settingsRaw[1]))
     if (workingPrograms && settings) {
-      return { schemaVersion: 2, workingPrograms, settings, presets: normalizePresets(parseJson<unknown>(presetsRaw[1])) }
+      return { state: { schemaVersion: 2, workingPrograms, settings, presets: normalizePresets(parseJson<unknown>(presetsRaw[1])) }, recovered: false }
     }
 
     const legacy = parseJson<Partial<TimerConfig>>(await AsyncStorage.getItem(CONFIG_KEY)) ?? {}
     const migrated = migrateLegacyConfig(legacy)
     // New records are written before the marker; the legacy key remains intact.
     await saveV2Records(migrated, true)
-    return migrated
+    const hadInvalidV2Records = Boolean(workingRaw[1] || presetsRaw[1] || settingsRaw[1])
+    return { state: migrated, recovered: hadInvalidV2Records, reason: hadInvalidV2Records ? 'invalid-records' : undefined }
   } catch {
-    return defaultTimerV2State()
+    return { state: defaultTimerV2State(), recovered: true, reason: 'storage-unavailable' }
   }
 }
 
-export async function saveTimerV2State(state: TimerV2State): Promise<void> {
+export async function loadTimerV2State(): Promise<TimerV2State> {
+  return (await loadTimerV2StateResult()).state
+}
+
+export async function saveTimerV2State(state: TimerV2State): Promise<boolean> {
   // Freeze serialization at call time; callers continue producing immutable
   // state while this snapshot waits behind earlier writes.
   const snapshot = JSON.parse(JSON.stringify(state)) as TimerV2State
-  stateWriteQueue = stateWriteQueue.catch(() => undefined).then(() => saveV2Records(snapshot, false))
-  try { await stateWriteQueue } catch { /* storage unavailable */ }
+  stateWriteQueue = stateWriteQueue.catch(() => false).then(async () => {
+    try {
+      await saveV2Records(snapshot, false)
+      return true
+    } catch {
+      return false
+    }
+  })
+  return stateWriteQueue
 }
 
 export async function saveWorkingProgramsV2(workingPrograms: WorkingProgramState): Promise<void> {

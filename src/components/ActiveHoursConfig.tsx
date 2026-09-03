@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
+import Animated, { FadeInDown, FadeOut, LinearTransition, useReducedMotion } from 'react-native-reanimated'
 import { useTheme } from '../theme/ThemeContext'
 import { TimeOfDayPicker } from './TimeOfDayPicker'
 import { Toggle } from './Toggle'
@@ -41,6 +42,7 @@ export function ActiveHoursConfig({
   onDaysChange,
 }: Props) {
   const { tokens } = useTheme()
+  const reducedMotion = useReducedMotion()
   const [editing, setEditing] = useState<'start' | 'end' | null>(null)
 
   return (
@@ -51,7 +53,7 @@ export function ActiveHoursConfig({
       </View>
 
       {enabled && (
-        <View style={styles.details}>
+        <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 120)} layout={reducedMotion ? undefined : LinearTransition.duration(150)} style={styles.details}>
           <View style={styles.range}>
             <Pressable
             onPress={() => setEditing('start')}
@@ -85,8 +87,8 @@ export function ActiveHoursConfig({
             })}
           </View>
           {startMinutes === endMinutes ? <Text style={[styles.allDay, { color: tokens.textMuted }]}>Same start and end means all day on the selected days.</Text> : null}
-          {days === 0 ? <Text style={[styles.warning, { color: tokens.accent }]}>Choose at least one active day.</Text> : null}
-        </View>
+          {days === 0 ? <Animated.Text entering={FadeInDown.duration(reducedMotion ? 80 : 160)} accessibilityRole="alert" style={[styles.warning, { color: tokens.warm }]}>Choose at least one day before starting. Your time range is already saved.</Animated.Text> : null}
+        </Animated.View>
       )}
 
       {editing && (

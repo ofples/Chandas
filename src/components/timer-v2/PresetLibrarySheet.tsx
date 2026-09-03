@@ -1,17 +1,20 @@
 import { useMemo, useState } from 'react'
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import * as Haptics from 'expo-haptics'
+import Animated, { FadeIn, FadeInDown, FadeOut, LinearTransition, useReducedMotion } from 'react-native-reanimated'
 import type { ProgramPreset, TimerMode, TimerV2State } from '../../types'
 import { deleteProgramPreset, loadProgramPreset, saveProgramPreset } from '../../lib/programActions'
 import { soundTitle } from '../../lib/soundLibrary'
 import { useTheme } from '../../theme/ThemeContext'
 import { BottomSheet } from './BottomSheet'
+import { GentleNotice, type AppNotice } from './experience-feedback'
 
 interface Props {
   visible: boolean
   state: TimerV2State
   onChange: (state: TimerV2State) => void
   onClose: () => void
+  onFeedback: (notice: Omit<AppNotice, 'id'>) => void
 }
 
 function summary(preset: ProgramPreset): string {
@@ -23,8 +26,9 @@ function summary(preset: ProgramPreset): string {
   return `${preset.program.mainMinutes} min main · ${preset.program.tracks.length} sub-bell${preset.program.tracks.length === 1 ? '' : 's'} · ${cueCount} cues`
 }
 
-export function PresetLibrarySheet({ visible, state, onChange, onClose }: Props) {
+export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedback }: Props) {
   const { tokens } = useTheme()
+  const reducedMotion = useReducedMotion()
   const [name, setName] = useState('')
   const [filter, setFilter] = useState<'all' | TimerMode>('all')
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -35,11 +39,13 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose }: Props)
   const save = () => {
     if (!canSave) return
     onChange(saveProgramPreset(state, name))
+    onFeedback({ title: 'Configuration saved', message: `“${name.trim()}” is now available as an unchanged snapshot.`, tone: 'success' })
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined)
     setName('')
   }
   const remove = (preset: ProgramPreset) => Alert.alert('Delete configuration?', `“${preset.name}”, saved ${new Date(preset.createdAt).toLocaleString()}, will be removed. Your current working copy will not change.`, [
     { text: 'Cancel', style: 'cancel' },
-    { text: 'Delete', style: 'destructive', onPress: () => { onChange(deleteProgramPreset(state, preset.id)); void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => undefined) } },
+    { text: 'Delete', style: 'destructive', onPress: () => { onChange(deleteProgramPreset(state, preset.id)); setSelectedId(current => current === preset.id ? null : current); onFeedback({ title: 'Configuration removed', message: 'Your current working copy was not changed.', tone: 'info' }); void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined) } },
   ])
 
   return (
@@ -60,21 +66,21 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose }: Props)
         <Pressable disabled={!canSave} onPress={save} style={[styles.save, { backgroundColor: tokens.accent, opacity: canSave ? 1 : 0.35 }]} accessibilityRole="button"><Text style={styles.saveText}>Save new</Text></Pressable>
       </View>
       <View style={styles.filters} accessibilityRole="tablist">{([['all', 'All'], ['pattern', 'Main + sub'], ['sequence', 'Sequence']] as const).map(([value, label]) => <Pressable key={value} onPress={() => setFilter(value)} style={[styles.filter, { borderColor: filter === value ? tokens.accent : tokens.border, backgroundColor: filter === value ? tokens.accentGlow : 'transparent' }]} accessibilityRole="tab" accessibilityState={{ selected: filter === value }}><Text style={[styles.filterText, { color: filter === value ? tokens.accent : tokens.textMuted }]}>{label}</Text></Pressable>)}</View>
-      {selected ? <View style={[styles.inspector, { borderColor: tokens.accent, backgroundColor: tokens.accentGlow }]}>
+      {selected ? <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 130)} style={[styles.inspector, { borderColor: tokens.accent, backgroundColor: tokens.accentGlow }]}>
         <View style={styles.copy}><Text style={[styles.miniLabel, { color: tokens.accent }]}>READY TO LOAD</Text><Text style={[styles.presetTitle, { color: tokens.text }]}>{selected.name}</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{selected.program.mode === 'pattern' ? `Main + sub-bells · ${summary(selected)}` : `Sequence / sets · ${summary(selected)}`}</Text><Text style={[styles.date, { color: tokens.textMuted }]}>Saved {new Date(selected.createdAt).toLocaleString()}</Text><PresetDetails preset={selected} /><Text style={[styles.helper, { color: tokens.textMuted }]}>This replaces the {selected.program.mode} working copy only. It does not start the timer.</Text></View>
-        <View style={styles.inspectorActions}><Pressable onPress={() => setSelectedId(null)} accessibilityRole="button"><Text style={[styles.action, { color: tokens.textMuted }]}>Cancel</Text></Pressable><Pressable onPress={() => { onChange(loadProgramPreset(state, selected.id)); setSelectedId(null); onClose() }} style={[styles.loadButton, { backgroundColor: tokens.accent }]} accessibilityRole="button"><Text style={styles.loadText}>Load copy</Text></Pressable></View>
-      </View> : null}
+        <View style={styles.inspectorActions}><Pressable onPress={() => setSelectedId(null)} accessibilityRole="button"><Text style={[styles.action, { color: tokens.textMuted }]}>Cancel</Text></Pressable><Pressable onPress={() => { onChange(loadProgramPreset(state, selected.id)); setSelectedId(null); onClose(); onFeedback({ title: 'Working copy loaded', message: `“${selected.name}” is ready to adjust. The saved snapshot stays unchanged.`, tone: 'success' }) }} style={[styles.loadButton, { backgroundColor: tokens.accent }]} accessibilityRole="button"><Text style={styles.loadText}>Load copy</Text></Pressable></View>
+      </Animated.View> : null}
       <View style={styles.list}>
-        {presets.length === 0 ? <View style={[styles.empty, { borderColor: tokens.border }]}><Text style={[styles.emptyTitle, { color: tokens.text }]}>No saved configurations here</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>Set up the timer above, give it a name, and save a reusable snapshot.</Text></View> : presets.map(preset => {
+        {presets.length === 0 ? <GentleNotice title={state.presets.length === 0 ? 'Your library is ready' : `No ${filter === 'pattern' ? 'main + sub' : 'sequence'} configurations yet`} message={state.presets.length === 0 ? 'Name the working copy above to save your first reusable setup.' : 'Try All, or save the current working copy in this mode.'} /> : presets.map(preset => {
           const loaded = state.workingPrograms.sourcePreset?.id === preset.id && !state.workingPrograms.sourcePreset.deleted
-          return <View key={preset.id} style={[styles.preset, { borderColor: loaded ? tokens.accent : tokens.border, backgroundColor: loaded ? tokens.accentGlow : 'transparent' }]}>
+          return <Animated.View key={preset.id} entering={FadeInDown.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 120)} layout={reducedMotion ? undefined : LinearTransition.duration(160)} style={[styles.preset, { borderColor: loaded ? tokens.accent : tokens.border, backgroundColor: loaded ? tokens.accentGlow : 'transparent' }]}>
             <Pressable style={styles.copy} onPress={() => setSelectedId(preset.id)} accessibilityRole="button" accessibilityLabel={`Inspect ${preset.name}`}>
               <View style={styles.titleRow}><Text numberOfLines={1} style={[styles.presetTitle, { color: tokens.text }]}>{preset.name}</Text>{loaded ? <Text style={[styles.loaded, { color: tokens.accent }]}>LOADED</Text> : null}</View>
               <Text style={[styles.helper, { color: tokens.textMuted }]}>{summary(preset)}</Text>
               <Text style={[styles.date, { color: tokens.textDisabled }]}>Saved {new Date(preset.createdAt).toLocaleString()}</Text>
             </Pressable>
             <View style={styles.actions}><Pressable onPress={() => setSelectedId(preset.id)} accessibilityRole="button" accessibilityLabel={`Inspect ${preset.name}`}><Text style={[styles.action, { color: tokens.accent }]}>Inspect</Text></Pressable><Pressable onPress={() => remove(preset)} accessibilityRole="button" accessibilityLabel={`Delete ${preset.name}`}><Text style={[styles.delete, { color: tokens.textMuted }]}>Delete</Text></Pressable></View>
-          </View>
+          </Animated.View>
         })}
       </View>
     </BottomSheet>
