@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import type { AppTimerSettings, ProgramPreset, TimerConfig, TimerV2State, WorkingProgramState } from '../types'
+import type { AlarmBehavior, AppTimerSettings, ProgramPreset, TimerConfig, TimerProgram, TimerV2State, WorkingProgramState } from '../types'
+import type { RuntimeMuteState } from './runtimeV2'
 import {
   defaultTimerV2State,
   migrateLegacyConfig,
@@ -15,6 +16,7 @@ const WORKING_PROGRAMS_V2_KEY = 'chandas-working-programs-v2'
 const PROGRAM_PRESETS_V2_KEY = 'chandas-program-presets-v1'
 const APP_TIMER_SETTINGS_V2_KEY = 'chandas-app-timer-settings-v2'
 const TIMER_V2_MIGRATION_KEY = 'chandas-timer-v2-migrated'
+const TIMER_V2_SESSION_KEY = 'chandas-timer-v2-session'
 
 export const DEFAULT_CONFIG: TimerConfig = {
   mainInterval: 30,
@@ -70,6 +72,14 @@ export interface TimerSession {
   subMs: number
 }
 
+export interface TimerV2Session {
+  schemaVersion: 2
+  anchor: number
+  program: TimerProgram
+  mute: RuntimeMuteState
+  alarmBehavior: AlarmBehavior
+}
+
 export async function saveSession(s: TimerSession): Promise<void> {
   try { await AsyncStorage.setItem(SESSION_KEY, JSON.stringify(s)) } catch { /* ignore */ }
 }
@@ -92,6 +102,43 @@ export async function hasTimerSession(): Promise<boolean> {
 function parseJson<T>(raw: string | null): T | null {
   if (!raw) return null
   try { return JSON.parse(raw) as T } catch { return null }
+}
+
+export async function saveTimerV2Session(session: TimerV2Session): Promise<void> {
+  try { await AsyncStorage.setItem(TIMER_V2_SESSION_KEY, JSON.stringify(session)) } catch { /* storage unavailable */ }
+}
+
+export async function loadTimerV2Session(): Promise<TimerV2Session | null> {
+  try {
+    const value = parseJson<Partial<TimerV2Session>>(await AsyncStorage.getItem(TIMER_V2_SESSION_KEY))
+    if (!value || value.schemaVersion !== 2 || typeof value.anchor !== 'number' || !Number.isFinite(value.anchor) || !value.program) return null
+    const program = value.program.mode === 'pattern'
+      ? normalizePatternProgram(value.program)
+      : value.program.mode === 'sequence'
+        ? normalizeSequenceProgram(value.program)
+        : null
+    if (!program) return null
+    return {
+      schemaVersion: 2,
+      anchor: value.anchor,
+      program,
+      mute: {
+        mutedUntil: typeof value.mute?.mutedUntil === 'number' ? Math.max(0, value.mute.mutedUntil) : 0,
+        iteration: value.mute?.iteration && typeof value.mute.iteration.endsAt === 'number' && typeof value.mute.iteration.endsAtLogicalId === 'string'
+          ? { endsAt: value.mute.iteration.endsAt, endsAtLogicalId: value.mute.iteration.endsAtLogicalId }
+          : undefined,
+      },
+      alarmBehavior: value.alarmBehavior === 'once' || value.alarmBehavior === 'locked' ? value.alarmBehavior : 'off',
+    }
+  } catch { return null }
+}
+
+export async function clearTimerV2Session(): Promise<void> {
+  try { await AsyncStorage.removeItem(TIMER_V2_SESSION_KEY) } catch { /* storage unavailable */ }
+}
+
+export async function hasTimerV2Session(): Promise<boolean> {
+  try { return (await AsyncStorage.getItem(TIMER_V2_SESSION_KEY)) !== null } catch { return false }
 }
 
 function normalizeWorkingPrograms(value: Partial<WorkingProgramState> | null): WorkingProgramState | null {

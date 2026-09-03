@@ -1375,6 +1375,30 @@ This section is append-only. Every implementation session should record scope, m
 
 - `npx tsc --noEmit` completed successfully.
 
+### 2026-09-03 — V2 JavaScript runtime and session
+
+**Status:** Complete for the JavaScript/web fallback; Android exact-alarm parity remains a native slice.
+
+**Files changed:**
+
+- `src/hooks/useTimerV2.ts`
+- `src/lib/storage.ts`
+- `src/lib/soundLibrary.ts`
+
+**Behavior implemented:**
+
+- Pattern and Sequence programs run from an absolute anchor and share the same deterministic timeline as the editor.
+- The fallback persists/restores the V2 program, anchor, mute boundary and alarm behavior; stopping removes only the V2 session.
+- Playback volume is master × cue volume. The five built-in library identities are already persistent, with deliberately reusable bundled placeholder audio pending final sound assets.
+- The alarm button is one-shot by default; a second tap within 400ms locks it on. Mute choices preserve stored volume and make the final selected cycle boundary audible.
+- Active-hours resume re-evaluates only future events and never catches up skipped cues.
+
+**Verification:**
+
+- `npx tsc --noEmit` completed successfully.
+
+**Known gaps:** The JS runtime cannot authoritatively observe Android call state and is foreground-only. The native exact-alarm implementation must consume the same V2 session and add call-state suppression.
+
 ### Implementation-entry template
 
 ```md
