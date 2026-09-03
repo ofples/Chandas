@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react'
 import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useReducedMotion } from 'react-native-reanimated'
 import { useTheme } from '../../theme/ThemeContext'
 
 interface Props {
@@ -18,13 +17,12 @@ interface Props {
 export function BottomSheet({ visible, title, eyebrow, onClose, children, scroll = true, footer }: Props) {
   const { tokens } = useTheme()
   const insets = useSafeAreaInsets()
-  const reducedMotion = useReducedMotion()
   const body = scroll
-    ? <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={styles.body}>{children}</ScrollView>
+    ? <ScrollView style={styles.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={styles.body}>{children}</ScrollView>
     : <View style={styles.body}>{children}</View>
 
   return (
-    <Modal visible={visible} transparent animationType={reducedMotion ? 'fade' : 'slide'} onRequestClose={onClose} statusBarTranslucent>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
       <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <Pressable style={styles.backdrop} onPress={onClose} accessible={false}>
           <Pressable
@@ -54,6 +52,7 @@ export function BottomSheet({ visible, title, eyebrow, onClose, children, scroll
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
+  scroll: { flexShrink: 1 },
   backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.58)' },
   sheet: { maxHeight: '92%', minHeight: 220, borderWidth: 1.5, borderBottomWidth: 0, borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 20, paddingTop: 10, gap: 16 },
   grabber: { width: 36, height: 4, borderRadius: 2, alignSelf: 'center', opacity: 0.55 },

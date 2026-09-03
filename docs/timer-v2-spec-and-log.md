@@ -127,7 +127,7 @@ Timer v2 replaces these assumptions rather than layering special cases over them
 | D-027 | Long press is reserved for a tooltip. All controls also appear in the Help sheet. |
 | D-028 | Overlapping Pattern selections are allowed and resolved entirely by track order. The highest enabled track containing that offset wins, regardless of cadence. Only the winner plays. Reordering therefore edits overlap priority directly. |
 | D-029 | Existing quick-select chips and cycle/minute mute are baseline functionality and must remain available in Timer v2. Main duration keeps `10`, `15`, `30`, and custom; snap keeps `:00`, `:10`, `:15`, and custom. Mute keeps `1×`, `2×`, `3×`, and custom minutes. |
-| D-030 | Pattern running uses an outer main-progress ring with inner sub-track progress rings. The center names the main countdown and only the next sub-bell. Collision-resolution explanations do not appear on the running screen. |
+| D-030 | Pattern running uses an outer main-progress ring with closely nested sub-track progress rings. The center shows the main countdown and, when applicable, only the next sub-bell countdown—without a sound name or redundant countdown label. Collision-resolution explanations do not appear on the running screen. Ring progress interpolates smoothly between scheduler refreshes. |
 | D-031 | Chandas automatically suppresses its own audible cues during an active phone call. This is a transient runtime gate: it does not change Master/cue volume, consume timed mute, change alarm behavior, or replay missed cues after the call. The next eligible future cue resumes normally. |
 | D-032 | Exact-alarm access is a hard Android runtime requirement. Start is blocked without it; loss stops and clears the native running session instead of silently degrading to inexact delivery. |
 | D-033 | Equal active-hours start/end values mean the selected civil day is active for all 24 hours, with midnight as the next window boundary. |
@@ -137,6 +137,10 @@ Timer v2 replaces these assumptions rather than layering special cases over them
 | D-037 | A bounded run ends exactly once. Its natural cue plays when a cycle bound or duration deadline coincides with a normal cue. A duration deadline between cues uses the Pattern main sound or the Sequence final-step sound as a one-shot completion cue. It never creates two overlapping sounds. |
 | D-038 | Continuous runs may be governed by multiple weekly active windows. A timestamp is active when it belongs to at least one enabled window; overlapping or adjacent windows are a union and never duplicate delivery. Cross-midnight attribution remains attached to the window's start day. |
 | D-039 | Scheduling is represented as an availability policy with weekly windows plus a currently empty list of resolved absolute-time overrides. A later calendar feature may populate `active` or `mute` overrides without changing timer, audio, or native scheduling contracts; mute overrides take precedence. No calendar permission or unfinished calendar UI ships in this slice. |
+| D-040 | The two user-facing mode names are `Cycle` and `Sequence`. Internal domain names may remain `pattern` and `sequence`, but product surfaces avoid exposing implementation vocabulary and collision arbitration details. Track order still determines collision priority. |
+| D-041 | Android-only Focus, DND, and system-setting controls are hidden on web. A Focus control that needs setup opens the relevant Android setting without an error badge or a false active state. |
+| D-042 | The running Mixer opens with Master volume and cycle/minute mute controls. Per-sound levels remain available behind one explicit `Sound levels` disclosure. The cue sound picker keeps its selected-sound and cue-volume controls fixed while its sound library scrolls. |
+| D-043 | Alarm state changes optimistically on the first tap. The 400 ms gesture window exists only to distinguish a second tap and must never delay visible or native feedback for the first tap. |
 
 ---
 
@@ -1822,6 +1826,34 @@ This section is append-only. Every implementation session should record scope, m
 
 **Risks or follow-ups:** Calendar selection/sync and permission UX are intentionally deferred; the override contract is present so they can be added without changing timer scheduling. Remote native verification should be completed before release.
 
+### 2026-09-03 — First annotated-feedback pass
+
+**Status:** Complete for every unambiguous item in the supplied first feedback document; one truncated comment remains intentionally unresolved pending the follow-up document.
+
+**Scope:** Nine embedded annotated screenshots covering configuration hierarchy, running-timer density, nested rings, tooltips, Alarm responsiveness, Focus/web visibility, Mixer disclosure, mode names, quick selections, sound-picker layout, and removal of technical collision copy.
+
+**Decisions referenced:** D-023, D-027–D-030, D-040–D-043.
+
+**Behavior implemented:**
+
+- Renamed the visible modes to Cycle and Sequence, removed the redundant Chandas/Interval timer masthead, and moved Configurations below the schedule with a clear navigation chevron.
+- Preserved quick duration, snap, and cycle/minute mute controls. Fixed web duration shortcuts that could appear inert when a native-only confirmation was required, and moved custom clock offset entry inline beneath its quick choices.
+- Reduced the running surface to the useful countdowns, moved nested rings closer together, and interpolated ring progress between timer refreshes.
+- Replaced confusing Reset, clock, and Alarm tooltip copy with direct descriptions. Alarm Once now appears immediately while a second quick tap promotes it to Every.
+- Hid Focus and Android DND help on web. Focus setup routes to the relevant Android setting without an exclamation badge or misleading active treatment.
+- Collapsed per-sound running controls behind Sound levels while retaining Master and all prior mute choices at the first level.
+- Kept cue volume and selected sound fixed at the bottom of the sound picker while its library scrolls; removed redundant Android/device instructions and level-formula copy.
+- Removed user-visible `wins`, `overlap`, and disabled-selection implementation notes while preserving track-order collision resolution in the domain model.
+- Changed bottom-sheet presentation to a fade so the dimmed backdrop no longer appears to slide with the sheet.
+
+**Verification run:** `npx tsc --noEmit`; `npm test -- --run`; `git diff --check`; live React Native Web walkthrough at desktop and 390 × 844 mobile sizes.
+
+**Results:** Type checking passed, all 46 focused tests passed, whitespace validation passed, quick duration changes updated immediately, Alarm Once and double-tap Every states updated correctly, Android-only controls were absent on web, and the configuration, running timer, Help, Mixer, cue grid, and sticky-volume sound picker were inspected visually.
+
+**Native/on-device verification still required:** Bottom-sheet fade behavior, haptics, Focus settings routing, Alarm single/double tap timing, sticky sound controls with the keyboard open, and ring animation performance on representative Android devices. Local native builds remain prohibited by repository policy.
+
+**Risks or follow-ups:** The source paragraph ending in “tapping this just” is incomplete. No behavior was inferred from it; resolve it when the remaining feedback arrives.
+
 ### Implementation-entry template
 
 ```md
@@ -1858,3 +1890,4 @@ This section is append-only. Every implementation session should record scope, m
 | 1.1 | 2026-09-03 | Recorded the completed source implementation, exact-alarm/full-day/DND decisions, final audit remediation, and remaining remote/device release gate. |
 | 1.2 | 2026-09-03 | Added the calm interaction-refinement pass covering motion, loading, empty states, permissions, recoverable feedback, and storage/UI failure handling. |
 | 1.3 | 2026-09-03 | Added bounded cycle/duration runs, exact terminal semantics, multi-window schedules, and the calendar-ready availability override contract. |
+| 1.4 | 2026-09-03 | Applied the first annotated-feedback pass: simpler Cycle/Sequence surfaces, immediate Alarm feedback, smoother nested rings, web-safe controls, compact Mixer, and sticky cue volume. |

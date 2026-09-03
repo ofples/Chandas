@@ -82,8 +82,17 @@ export function SoundPickerSheet({ visible, title, cue, masterVolume, onChange, 
     } finally { setPicking(false) }
   }
 
+  const volumeFooter = <View style={[styles.footer, { backgroundColor: tokens.surface, borderTopColor: tokens.border }]}>
+    <View style={[styles.selected, { backgroundColor: tokens.surfaceHi }]}>
+      <View style={styles.optionCopy}><Text style={[styles.label, { color: selectedAvailable ? tokens.textMuted : tokens.accent }]}>{selectedAvailable ? 'SELECTED' : 'UNAVAILABLE · CHOOSE A REPLACEMENT'}</Text><Text numberOfLines={1} style={[styles.optionTitle, { color: tokens.text }]}>{soundTitle(cue.sound)}</Text></View>
+      <Pressable onPress={() => void preview(cue.sound)} accessibilityRole="button" accessibilityLabel="Preview selected sound"><Text style={[styles.choose, { color: tokens.accent }]}>Preview</Text></Pressable>
+    </View>
+    <View style={styles.volumeHeader}><Text style={[styles.label, { color: tokens.textMuted }]}>CUE VOLUME</Text><Text style={[styles.value, { color: tokens.text }]}>{Math.round(cue.volume * 100)}%</Text></View>
+    <Slider minimumValue={0} maximumValue={1} step={0.05} value={cue.volume} onSlidingStart={stopPreview} onValueChange={volume => onChange({ volume })} minimumTrackTintColor={tokens.accent} maximumTrackTintColor={tokens.surfaceHi} thumbTintColor={tokens.accent} accessibilityLabel={`${title} volume`} accessibilityValue={{ min: 0, max: 100, now: Math.round(cue.volume * 100), text: `${Math.round(cue.volume * 100)} percent` }} />
+  </View>
+
   return (
-    <BottomSheet visible={visible} eyebrow="SOUND & LEVEL" title={title} onClose={close}>
+    <BottomSheet visible={visible} eyebrow="SOUND & LEVEL" title={title} onClose={close} footer={volumeFooter}>
       <View style={[styles.tabs, { borderColor: tokens.border }]}> 
         {([['built-in', 'Built-in'], ['android', 'Android'], ['device', 'Device']] as const).map(([value, label]) => (
           <Pressable key={value} onPress={() => { stopPreview(); setTab(value) }} accessibilityRole="tab" accessibilityState={{ selected: tab === value }} style={[styles.tab, tab === value && { backgroundColor: tokens.accent }]}>
@@ -111,7 +120,6 @@ export function SoundPickerSheet({ visible, title, cue, masterVolume, onChange, 
       })}</View> : null}
 
       {tab === 'android' ? <View style={styles.sourcePanel}>
-        <Text style={[styles.helper, { color: tokens.textMuted }]}>Choose from the sounds managed by Android. Chandas remembers the system sound URI and falls back safely if it later disappears.</Text>
         {!isNativeServiceAvailable ? <GentleNotice title="Available in the Android app" message="Built-in sounds can still be explored here. Device sound pickers open in an installed Chandas build." /> : null}
         <Pressable disabled={!isNativeServiceAvailable || picking} onPress={() => void pickAndroid('alarm')} style={[styles.sourceButton, { borderColor: tokens.border, opacity: !isNativeServiceAvailable || picking ? 0.45 : 1 }]} accessibilityRole="button" accessibilityState={{ disabled: !isNativeServiceAvailable || picking, busy: picking }}>
           <View style={styles.optionCopy}><Text style={[styles.optionTitle, { color: tokens.text }]}>Alarm sounds</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>Uses Android’s Alarm stream and your DND alarm setting</Text></View>{picking ? <ActivityIndicator color={tokens.accent} size="small" /> : <Text style={[styles.choose, { color: tokens.accent }]}>Choose</Text>}
@@ -122,21 +130,12 @@ export function SoundPickerSheet({ visible, title, cue, masterVolume, onChange, 
       </View> : null}
 
       {tab === 'device' ? <View style={styles.sourcePanel}>
-        <Text style={[styles.helper, { color: tokens.textMuted }]}>Select an audio file from your device or a connected storage provider. Access is retained across restarts when Android permits it.</Text>
         {!isNativeServiceAvailable ? <GentleNotice title="Available in the Android app" message="File browsing opens in an installed Chandas build. Your current sound remains selected here." /> : null}
         <Pressable disabled={!isNativeServiceAvailable || picking} onPress={() => void pickDocument()} style={[styles.sourceButton, { borderColor: tokens.border, opacity: !isNativeServiceAvailable || picking ? 0.45 : 1 }]} accessibilityRole="button">
           <View style={styles.optionCopy}><Text style={[styles.optionTitle, { color: tokens.text }]}>Choose audio file</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>MP3, M4A, OGG, WAV and other supported audio</Text></View>{picking ? <ActivityIndicator color={tokens.accent} size="small" /> : <Text style={[styles.choose, { color: tokens.accent }]}>Browse</Text>}
         </Pressable>
       </View> : null}
       </Animated.View>
-
-      <View style={[styles.selected, { backgroundColor: tokens.surfaceHi }]}>
-        <View style={styles.optionCopy}><Text style={[styles.label, { color: selectedAvailable ? tokens.textMuted : tokens.accent }]}>{selectedAvailable ? 'SELECTED' : 'UNAVAILABLE · CHOOSE A REPLACEMENT'}</Text><Text numberOfLines={1} style={[styles.optionTitle, { color: tokens.text }]}>{soundTitle(cue.sound)}</Text></View>
-        <Pressable onPress={() => void preview(cue.sound)} accessibilityRole="button" accessibilityLabel="Preview selected sound"><Text style={[styles.choose, { color: tokens.accent }]}>Preview</Text></Pressable>
-      </View>
-      <View style={styles.volumeHeader}><Text style={[styles.label, { color: tokens.textMuted }]}>CUE VOLUME</Text><Text style={[styles.value, { color: tokens.text }]}>{Math.round(cue.volume * 100)}%</Text></View>
-      <Slider minimumValue={0} maximumValue={1} step={0.05} value={cue.volume} onSlidingStart={stopPreview} onValueChange={volume => onChange({ volume })} minimumTrackTintColor={tokens.accent} maximumTrackTintColor={tokens.surfaceHi} thumbTintColor={tokens.accent} accessibilityLabel={`${title} volume`} accessibilityValue={{ min: 0, max: 100, now: Math.round(cue.volume * 100), text: `${Math.round(cue.volume * 100)} percent` }} />
-      <Text style={[styles.helper, { color: tokens.textMuted }]}>Effective level: master {Math.round(masterVolume * 100)}% × cue {Math.round(cue.volume * 100)}% × the phone’s Alarm volume.</Text>
     </BottomSheet>
   )
 }
@@ -156,6 +155,7 @@ const styles = StyleSheet.create({
   sourceButton: { minHeight: 70, padding: 14, borderWidth: 1.5, borderRadius: 13, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   choose: { fontSize: 12, fontWeight: '700' },
   selected: { padding: 13, borderRadius: 12, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  footer: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 12, gap: 9 },
   label: { fontSize: 10, letterSpacing: 1.2, fontWeight: '700' },
   volumeHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   value: { fontFamily: 'JetBrainsMono-Regular', fontSize: 13 },

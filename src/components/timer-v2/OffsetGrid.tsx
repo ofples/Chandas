@@ -11,11 +11,10 @@ interface Props {
   offsets: number[]
   selected: number[]
   onChange: (offsets: number[]) => void
-  conflicts?: ReadonlyMap<number, { winner: string; isWinner: boolean }>
 }
 
 /** Tap or paint over a deterministic minute grid; the initial cell decides select vs clear. */
-export function OffsetGrid({ offsets, selected, onChange, conflicts = new Map() }: Props) {
+export function OffsetGrid({ offsets, selected, onChange }: Props) {
   const { tokens } = useTheme()
   const reducedMotion = useReducedMotion()
   const [width, setWidth] = useState(0)
@@ -85,19 +84,18 @@ export function OffsetGrid({ offsets, selected, onChange, conflicts = new Map() 
         // Render from props so external Clear all / Select all / cadence changes
         // are visible immediately; the ref exists only for an in-flight paint.
         const active = renderedSelection.has(offset)
-        const conflict = conflicts.get(offset)
         return (
           <Pressable
             key={offset}
-            style={({ pressed }) => [styles.cell, { width: cellWidth, height: cellHeight, borderColor: active ? tokens.accent : tokens.border, backgroundColor: active && (!conflict || conflict.isWinner) ? tokens.accentGlow : 'transparent', opacity: pressed ? 0.78 : 1, transform: [{ scale: pressed && !reducedMotion ? 0.96 : 1 }] }]}
+            style={({ pressed }) => [styles.cell, { width: cellWidth, height: cellHeight, borderColor: active ? tokens.accent : tokens.border, backgroundColor: active ? tokens.accentGlow : 'transparent', opacity: pressed ? 0.78 : 1, transform: [{ scale: pressed && !reducedMotion ? 0.96 : 1 }] }]}
             accessible
             accessibilityRole="button"
-            accessibilityLabel={`${offset} minutes after start${conflict ? `, overlap, ${conflict.isWinner ? 'wins' : `loses to ${conflict.winner}`}` : ''}`}
+            accessibilityLabel={`${offset} minutes after start, ${active ? 'selected' : 'not selected'}`}
             accessibilityState={{ selected: active }}
             onPress={() => { toggleAccessible(offset); void Haptics.selectionAsync().catch(() => undefined) }}
           >
             <Text style={[styles.minute, { color: active ? tokens.text : tokens.textMuted }]}>{offset}m</Text>
-            <Text style={[styles.status, { color: conflict ? tokens.accent : tokens.textDisabled }]}>{conflict ? conflict.isWinner ? 'wins' : 'overlap' : active ? 'on' : 'off'}</Text>
+            <Text style={[styles.status, { color: tokens.textDisabled }]}>{active ? 'on' : 'off'}</Text>
           </Pressable>
         )
       })}

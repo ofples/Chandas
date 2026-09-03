@@ -170,6 +170,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
   const muteRef = useRef(mute)
   const alarmBehaviorRef = useRef<AlarmBehavior>('off')
   const alarmTapTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const alarmTapStartRef = useRef<AlarmBehavior | null>(null)
   const clearRuntimeInterruption = useCallback(() => setRuntimeInterruption(null), [])
 
   useEffect(() => { programRef.current = program }, [program])
@@ -372,6 +373,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     if (nativeUpdateRef.current) clearTimeout(nativeUpdateRef.current)
     if (alarmTapTimeoutRef.current) clearTimeout(alarmTapTimeoutRef.current)
     alarmTapTimeoutRef.current = null
+    alarmTapStartRef.current = null
     timeoutRef.current = null
     refreshIntervalRef.current = null
     dismissAlarm()
@@ -402,18 +404,19 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     if (alarmTapTimeoutRef.current) {
       clearTimeout(alarmTapTimeoutRef.current)
       alarmTapTimeoutRef.current = null
+      const startedFrom = alarmTapStartRef.current ?? alarmBehaviorRef.current
+      alarmTapStartRef.current = null
       const current = alarmBehaviorRef.current
-      applyAlarmBehavior(current, alarmBehaviorAfterGesture(current, 'double'))
+      applyAlarmBehavior(current, alarmBehaviorAfterGesture(startedFrom, 'double'))
       return
     }
 
     const startedFrom = alarmBehaviorRef.current
+    alarmTapStartRef.current = startedFrom
+    applyAlarmBehavior(startedFrom, alarmBehaviorAfterGesture(startedFrom, 'single'))
     alarmTapTimeoutRef.current = setTimeout(() => {
       alarmTapTimeoutRef.current = null
-      // A native main boundary may have consumed Once during the gesture
-      // window. Never overwrite that newer authoritative transition.
-      if (alarmBehaviorRef.current !== startedFrom) return
-      applyAlarmBehavior(startedFrom, alarmBehaviorAfterGesture(startedFrom, 'single'))
+      alarmTapStartRef.current = null
     }, 400)
   }, [applyAlarmBehavior])
 
@@ -563,6 +566,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current)
     if (nativeUpdateRef.current) clearTimeout(nativeUpdateRef.current)
     if (alarmTapTimeoutRef.current) clearTimeout(alarmTapTimeoutRef.current)
+    alarmTapStartRef.current = null
     playerRef.current?.remove()
     alarmPlayerRef.current?.remove()
     releaseDisplayWakeLock()
