@@ -50,4 +50,36 @@ class TimerV2TimelineTest {
     duplicate.getJSONArray("steps").getJSONObject(1).put("id", "prepare")
     assertFalse(TimerV2Timeline.isValid(duplicate.toString()))
   }
+
+  @Test fun boundedCycleEndsOnOneNaturalBoundary() {
+    val root = JSONObject(fixtures.getJSONObject("patternCollision").getJSONObject("program").toString())
+    root.put("runPolicy", JSONObject().put("kind", "cycles").put("cycleCount", 2).put("durationSeconds", 1_800))
+    val endAt = requireNotNull(TimerV2Timeline.runEndAt(root.toString(), 1_000L, 12 * 60_000L + 1_000L))
+    assertEquals(60 * 60_000L + 1_000L, endAt)
+    val event = requireNotNull(TimerV2Timeline.next(root.toString(), 1_000L, endAt - 1L, 12 * 60_000L + 1_000L, endAt))
+    assertEquals(TimerV2Boundary.PATTERN_MAIN, event.boundary)
+    assertTrue(event.completesRun)
+    assertEquals(null, TimerV2Timeline.next(root.toString(), 1_000L, endAt, 12 * 60_000L + 1_000L, endAt))
+  }
+
+  @Test fun boundedDurationCreatesSyntheticCompletionBetweenCues() {
+    val root = JSONObject(fixtures.getJSONObject("sequence").getJSONObject("program").toString())
+    root.put("runPolicy", JSONObject().put("kind", "duration").put("cycleCount", 1).put("durationSeconds", 90))
+    val event = requireNotNull(TimerV2Timeline.next(root.toString(), 1_000L, 1_000L, 1_000L, 91_000L))
+    assertEquals(91_000L, event.at)
+    assertEquals(TimerV2Boundary.RUN_COMPLETE, event.boundary)
+    assertEquals("run-complete", event.winner.kind)
+    assertTrue(event.completesRun)
+  }
+
+  @Test fun fixedCycleDeadlineSurvivesLocalPhaseRealignment() {
+    val root = JSONObject(fixtures.getJSONObject("patternCollision").getJSONObject("program").toString())
+    root.put("runPolicy", JSONObject().put("kind", "cycles").put("cycleCount", 2).put("durationSeconds", 1_800))
+    val startedAt = 12 * 60_000L
+    val fixedEnd = requireNotNull(TimerV2Timeline.runEndAt(root.toString(), 0L, startedAt))
+    val event = requireNotNull(TimerV2Timeline.next(root.toString(), 7 * 60_000L, fixedEnd - 1L, startedAt, fixedEnd))
+    assertEquals(fixedEnd, event.at)
+    assertEquals(TimerV2Boundary.RUN_COMPLETE, event.boundary)
+    assertTrue(event.completesRun)
+  }
 }

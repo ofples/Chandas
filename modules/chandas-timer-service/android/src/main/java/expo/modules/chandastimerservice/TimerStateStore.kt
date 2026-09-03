@@ -35,9 +35,12 @@ object TimerStateStore {
       .putInt("activeHoursStart", config.activeHoursStart)
       .putInt("activeHoursEnd", config.activeHoursEnd)
       .putInt("activeHoursDays", config.activeHoursDays)
+      .putString("availabilityPolicy", config.availabilityPolicy)
       .putInt("alarmDurationSeconds", config.alarmDurationSeconds)
       .putString("timerV2Program", config.timerV2Program)
       .putLong("timerV2Anchor", config.timerV2Anchor)
+      .putLong("timerV2StartedAt", config.timerV2StartedAt)
+      .putLong("timerV2EndsAt", config.timerV2EndsAt)
       .putLong(WALL_CLOCK_SAMPLE, System.currentTimeMillis())
       .putLong(ELAPSED_CLOCK_SAMPLE, SystemClock.elapsedRealtime())
       .commit()
@@ -62,9 +65,12 @@ object TimerStateStore {
       activeHoursStart = prefs.getInt("activeHoursStart", 480).coerceIn(0, 1_439),
       activeHoursEnd = prefs.getInt("activeHoursEnd", 1_320).coerceIn(0, 1_439),
       activeHoursDays = prefs.getInt("activeHoursDays", 0x7f).and(0x7f),
+      availabilityPolicy = prefs.getString("availabilityPolicy", null),
       alarmDurationSeconds = prefs.getInt("alarmDurationSeconds", 60).coerceIn(5, 3_600),
       timerV2Program = prefs.getString("timerV2Program", null),
       timerV2Anchor = prefs.getLong("timerV2Anchor", 0L),
+      timerV2StartedAt = prefs.getLong("timerV2StartedAt", prefs.getLong("timerV2Anchor", 0L)),
+      timerV2EndsAt = prefs.getLong("timerV2EndsAt", 0L),
     )
   }
 

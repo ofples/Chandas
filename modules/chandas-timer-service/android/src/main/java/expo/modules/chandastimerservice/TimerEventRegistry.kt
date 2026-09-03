@@ -10,6 +10,7 @@ data class TimerEventSignal(
   val collision: Boolean,
   val suppressed: Boolean,
   val suppressionReason: String,
+  val completesRun: Boolean,
 )
 
 object TimerEventRegistry {

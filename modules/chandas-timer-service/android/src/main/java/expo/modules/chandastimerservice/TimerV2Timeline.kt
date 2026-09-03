@@ -12,6 +12,7 @@ data class TimerV2Event(
   val boundary: TimerV2Boundary,
   val candidates: List<TimerV2Candidate>,
   val winner: TimerV2Candidate,
+  val completesRun: Boolean = false,
 )
 
 data class TimerV2IterationEnd(val logicalId: String, val at: Long)
@@ -21,6 +22,7 @@ enum class TimerV2Boundary(val value: String) {
   PATTERN_OFFSET("pattern-offset"),
   SEQUENCE_STEP("sequence-step"),
   SEQUENCE_CYCLE("sequence-cycle"),
+  RUN_COMPLETE("run-complete"),
 }
 
 data class TimerV2Candidate(
@@ -38,6 +40,8 @@ object TimerV2Timeline {
   private const val MAX_TRACKS = 5
   private const val MAX_STEPS = 20
   private const val MAX_DURATION_MINUTES = 240
+  private const val MAX_RUN_CYCLES = 999
+  private const val MAX_RUN_DURATION_SECONDS = 1_295_999L
   private const val MAX_PROGRAM_CHARACTERS = 262_144
   private const val MAX_ID_CHARACTERS = 200
   private const val MAX_URI_CHARACTERS = 8_192
@@ -54,13 +58,30 @@ object TimerV2Timeline {
     }
   }.getOrDefault(false)
 
-  fun next(serialized: String, anchor: Long, now: Long): TimerV2Event? = runCatching {
+  fun next(serialized: String, anchor: Long, now: Long, startedAt: Long = anchor, fixedEndsAt: Long = 0L): TimerV2Event? = runCatching {
     val root = JSONObject(serialized)
-    when (root.optString("mode")) {
+    val endAt = fixedEndsAt.takeIf { it > 0L } ?: runEndAt(root, anchor, startedAt)
+    if (endAt != null && now >= endAt) return@runCatching null
+    val natural = when (root.optString("mode")) {
       "pattern" -> nextPattern(root, anchor, now)
       "sequence" -> nextSequence(root, anchor, now)
       else -> null
     }
+    if (natural == null || endAt == null || natural.at < endAt) return@runCatching natural
+    if (natural.at == endAt) return@runCatching natural.copy(completesRun = true)
+    val winner = completionCandidate(root) ?: return@runCatching null
+    TimerV2Event(
+      at = endAt,
+      logicalId = "${root.optString("mode")}:$anchor:complete:$startedAt:$endAt",
+      boundary = TimerV2Boundary.RUN_COMPLETE,
+      candidates = listOf(winner),
+      winner = winner,
+      completesRun = true,
+    )
+  }.getOrNull()
+
+  fun runEndAt(serialized: String, anchor: Long, startedAt: Long): Long? = runCatching {
+    runEndAt(JSONObject(serialized), anchor, startedAt)
   }.getOrNull()
 
   fun iterationEnd(serialized: String, anchor: Long, now: Long, count: Int): TimerV2IterationEnd? = runCatching {
@@ -212,6 +233,41 @@ object TimerV2Timeline {
     fun toPublic() = TimerV2Candidate(cueId, kind, soundId, volume, trackOrder.takeUnless { main })
   }
 
+  private fun runEndAt(root: JSONObject, anchor: Long, startedAt: Long): Long? {
+    val policy = root.optJSONObject("runPolicy") ?: return null
+    return when (policy.optString("kind", "continuous")) {
+      "duration" -> {
+        val seconds = policy.optLong("durationSeconds", 0L)
+        if (seconds !in 1L..MAX_RUN_DURATION_SECONDS || startedAt <= 0L || startedAt > Long.MAX_VALUE - seconds * 1_000L) null else startedAt + seconds * 1_000L
+      }
+      "cycles" -> {
+        val count = policy.optInt("cycleCount", 0)
+        val duration = when (root.optString("mode")) {
+          "pattern" -> root.optInt("mainMinutes", 0).toLong() * MINUTE
+          "sequence" -> sequenceDuration(root.optJSONArray("steps") ?: return null)
+          else -> return null
+        }
+        if (count !in 1..MAX_RUN_CYCLES || duration <= 0L || startedAt <= 0L) return null
+        val firstIndex = Math.floorDiv(startedAt - anchor, duration) + 1L
+        val terminalIndex = firstIndex + count - 1L
+        if (terminalIndex < 0L || terminalIndex > (Long.MAX_VALUE - anchor) / duration) null else anchor + terminalIndex * duration
+      }
+      else -> null
+    }
+  }
+
+  private fun completionCandidate(root: JSONObject): TimerV2Candidate? {
+    return when (root.optString("mode")) {
+      "pattern" -> TimerV2Candidate("completion", "run-complete", cueSound(root.optJSONObject("mainCue")), cueVolume(root.optJSONObject("mainCue")))
+      "sequence" -> {
+        val steps = root.optJSONArray("steps") ?: return null
+        val step = steps.optJSONObject(steps.length() - 1) ?: return null
+        TimerV2Candidate("completion", "run-complete", cueSound(step), cueVolume(step))
+      }
+      else -> null
+    }
+  }
+
   private fun validatePattern(root: JSONObject): Boolean {
     val mainMinutes = root.optInt("mainMinutes", -1)
     if (mainMinutes !in 1..MAX_DURATION_MINUTES || !validCue(root.optJSONObject("mainCue"))) return false
@@ -233,11 +289,12 @@ object TimerV2Timeline {
       }
     }
     val alignment = root.optJSONObject("alignment") ?: return false
-    return when (alignment.optString("kind")) {
+    val alignmentValid = when (alignment.optString("kind")) {
       "elapsed" -> true
       "local-clock" -> alignment.optInt("offsetMinutes", -1) in 0..59
       else -> false
     }
+    return alignmentValid && validRunPolicy(root)
   }
 
   private fun validateSequence(root: JSONObject): Boolean {
@@ -250,7 +307,15 @@ object TimerV2Timeline {
       val label = step.optString("label")
       if (id.isBlank() || id.length > MAX_ID_CHARACTERS || !stepIds.add(id) || label.isBlank() || label.codePointCount(0, label.length) > 60 || step.optInt("durationMinutes", -1) !in 1..MAX_DURATION_MINUTES || !validCue(step)) return false
     }
-    return true
+    return validRunPolicy(root)
+  }
+
+  private fun validRunPolicy(root: JSONObject): Boolean {
+    val policy = root.optJSONObject("runPolicy") ?: return true // pre-feature V2 sessions are continuous
+    val cycleCount = policy.optInt("cycleCount", -1)
+    val durationSeconds = policy.optLong("durationSeconds", -1L)
+    if (cycleCount !in 1..MAX_RUN_CYCLES || durationSeconds !in 1L..MAX_RUN_DURATION_SECONDS) return false
+    return policy.optString("kind") in setOf("continuous", "cycles", "duration")
   }
 
   private fun validCue(cue: JSONObject?): Boolean {

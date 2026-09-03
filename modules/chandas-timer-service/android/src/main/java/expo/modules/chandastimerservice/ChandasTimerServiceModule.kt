@@ -37,9 +37,12 @@ class TimerConfigRecord : Record {
   @Field var activeHoursStart: Int? = null
   @Field var activeHoursEnd: Int? = null
   @Field var activeHoursDays: Int? = null
+  @Field var availabilityPolicy: String? = null
   @Field var alarmDurationSeconds: Int? = null
   @Field var timerV2Program: String? = null
   @Field var timerV2Anchor: Long? = null
+  @Field var timerV2StartedAt: Long? = null
+  @Field var timerV2EndsAt: Long? = null
   @Field var alarmOnceArmed: Boolean? = null
   @Field var mutedUntil: Long? = null
   @Field var mutedIterationEndId: String? = null
@@ -70,6 +73,7 @@ class ChandasTimerServiceModule : Module() {
       "winnerCueId" to event.winnerCueId,
       "collision" to event.collision,
       "suppressed" to event.suppressed,
+      "completesRun" to event.completesRun,
       "suppressionReason" to event.suppressionReason,
     ))
   }
@@ -171,9 +175,12 @@ class ChandasTimerServiceModule : Module() {
           "activeHoursStart" to config.activeHoursStart,
           "activeHoursEnd" to config.activeHoursEnd,
           "activeHoursDays" to config.activeHoursDays,
+          "availabilityPolicy" to config.availabilityPolicy,
           "alarmDurationSeconds" to config.alarmDurationSeconds,
           "timerV2Program" to config.timerV2Program,
           "timerV2Anchor" to config.timerV2Anchor,
+          "timerV2StartedAt" to config.timerV2StartedAt,
+          "timerV2EndsAt" to config.timerV2EndsAt,
           "alarmOnceArmed" to controls.alarmOnceArmed,
           "mutedUntil" to controls.mutedUntil,
           "mutedIterationsRemaining" to controls.mutedIterationsRemaining,
@@ -429,10 +436,13 @@ class ChandasTimerServiceModule : Module() {
       activeHoursEnd = (record.activeHoursEnd ?: previous?.activeHoursEnd ?: 1_320).coerceIn(0, 1_439),
       activeHoursDays = (record.activeHoursDays ?: previous?.activeHoursDays ?: 0x7f)
         .and(0x7f),
+      availabilityPolicy = record.availabilityPolicy ?: previous?.availabilityPolicy,
       alarmDurationSeconds = (record.alarmDurationSeconds ?: previous?.alarmDurationSeconds ?: 60)
         .coerceIn(5, 3_600),
       timerV2Program = record.timerV2Program ?: previous?.timerV2Program,
       timerV2Anchor = record.timerV2Anchor ?: previous?.timerV2Anchor ?: 0L,
+      timerV2StartedAt = record.timerV2StartedAt ?: previous?.timerV2StartedAt ?: record.timerV2Anchor ?: 0L,
+      timerV2EndsAt = record.timerV2EndsAt ?: previous?.timerV2EndsAt ?: 0L,
     )
   }
 

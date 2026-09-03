@@ -67,12 +67,17 @@ object TimerNotifications {
     }
     ensureChannels(context)
     val now = System.currentTimeMillis()
-    val next = config.timerV2Program?.let { TimerV2Timeline.next(it, config.timerV2Anchor, now)?.at }
-      ?: TimerMath.nextTick(now, config.mainMs, config.phase)
-    val content = if (ActiveHours.isActive(config, now) && ActiveHours.isActive(config, next)) {
-      "Next cue at ${formatTime(next)}"
-    } else {
-      "Resumes at ${formatTime(ActiveHours.nextStart(config, now))}"
+    val event = config.timerV2Program?.let { TimerV2Timeline.next(it, config.timerV2Anchor, now, config.timerV2StartedAt, config.timerV2EndsAt) }
+    val next = event?.at ?: TimerMath.nextTick(now, config.mainMs, config.phase)
+    val activeNow = ActiveHours.isActive(config, now)
+    val activeAtNext = ActiveHours.isActive(config, next)
+    val resumesAt = if (!activeNow || !activeAtNext) ActiveHours.nextStart(config, if (activeNow) next else now) else 0L
+    val endsBeforeResume = config.timerV2EndsAt > 0L && resumesAt > 0L && resumesAt >= config.timerV2EndsAt
+    val content = when {
+      event?.completesRun == true -> "Session ends at ${formatTime(next)}"
+      endsBeforeResume -> "Session ends at ${formatTime(config.timerV2EndsAt)}"
+      activeNow && activeAtNext -> "Next cue at ${formatTime(next)}"
+      else -> "Resumes at ${formatTime(resumesAt)}"
     }
     val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
     val contentIntent = launchIntent?.let {

@@ -20,6 +20,7 @@ class ActiveHoursTimelineTest {
     start: Int,
     end: Int,
     days: Int,
+    availabilityPolicy: String? = null,
   ) = TimerConfig(
     mainMs = 30 * 60_000L,
     subMs = 5 * 60_000L,
@@ -33,6 +34,7 @@ class ActiveHoursTimelineTest {
     activeHoursStart = start,
     activeHoursEnd = end,
     activeHoursDays = days,
+    availabilityPolicy = availabilityPolicy,
     alarmDurationSeconds = 60,
   )
 
@@ -60,6 +62,36 @@ class ActiveHoursTimelineTest {
     assertTrue(ActiveHours.isActive(fridayOnly, localTime(2026, Calendar.SEPTEMBER, 4, 23)))
     assertTrue(ActiveHours.isActive(fridayOnly, localTime(2026, Calendar.SEPTEMBER, 5, 1)))
     assertFalse(ActiveHours.isActive(fridayOnly, localTime(2026, Calendar.SEPTEMBER, 5, 3)))
+  }
+
+  @Test fun multipleWindowsFormAUnionAndMuteOverrideWins() = withTimeZone("Asia/Kolkata") {
+    val noon = localTime(2026, Calendar.SEPTEMBER, 4, 12)
+    val policy = JSONObject()
+      .put("enabled", true)
+      .put("weeklyWindows", org.json.JSONArray()
+        .put(JSONObject().put("id", "morning").put("enabled", true).put("startMinutes", 8 * 60).put("endMinutes", 10 * 60).put("days", 0x7f))
+        .put(JSONObject().put("id", "evening").put("enabled", true).put("startMinutes", 17 * 60).put("endMinutes", 20 * 60).put("days", 0x7f)))
+      .put("overrides", org.json.JSONArray()
+        .put(JSONObject().put("id", "open").put("source", "calendar").put("behavior", "active").put("startAt", noon).put("endAt", noon + 60 * 60_000L))
+        .put(JSONObject().put("id", "mute").put("source", "calendar").put("behavior", "mute").put("startAt", noon).put("endAt", noon + 30 * 60_000L)))
+    val scheduled = config(0, 0, 0, policy.toString())
+    assertTrue(ActiveHours.isValid(scheduled))
+    assertFalse(ActiveHours.isActive(scheduled, noon))
+    assertTrue(ActiveHours.isActive(scheduled, noon + 30 * 60_000L))
+    assertTrue(ActiveHours.isActive(scheduled, localTime(2026, Calendar.SEPTEMBER, 4, 18)))
+  }
+
+  @Test fun connectedWindowEndSkipsInternalOverlapBoundary() = withTimeZone("Asia/Kolkata") {
+    val policy = JSONObject()
+      .put("enabled", true)
+      .put("weeklyWindows", org.json.JSONArray()
+        .put(JSONObject().put("id", "first").put("enabled", true).put("startMinutes", 8 * 60).put("endMinutes", 12 * 60).put("days", 0x7f))
+        .put(JSONObject().put("id", "second").put("enabled", true).put("startMinutes", 11 * 60).put("endMinutes", 14 * 60).put("days", 0x7f)))
+      .put("overrides", org.json.JSONArray())
+    val scheduled = config(0, 0, 0, policy.toString())
+    val end = Calendar.getInstance().apply { timeInMillis = requireNotNull(ActiveHours.currentWindowEnd(scheduled, localTime(2026, Calendar.SEPTEMBER, 4, 9))) }
+    assertEquals(14, end.get(Calendar.HOUR_OF_DAY))
+    assertEquals(0, end.get(Calendar.MINUTE))
   }
 
   @Test fun localClockAnchorUsesCivilTimeInAHalfHourZone() = withTimeZone("Asia/Kolkata") {

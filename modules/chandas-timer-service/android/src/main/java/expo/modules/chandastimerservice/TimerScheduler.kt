@@ -79,8 +79,14 @@ object TimerScheduler {
     }
     if (wallClockChanged) {
       val delta = TimerStateStore.wallClockDelta(context)
-      if (delta != 0L && stored.timerV2Program?.let(TimerV2Timeline::isLocalClock) != true) {
-        stored = stored.copy(phase = stored.phase + delta, timerV2Anchor = stored.timerV2Anchor + delta)
+      if (delta != 0L) {
+        val elapsedProgram = stored.timerV2Program?.let(TimerV2Timeline::isLocalClock) != true
+        stored = stored.copy(
+          phase = if (elapsedProgram) stored.phase + delta else stored.phase,
+          timerV2Anchor = if (elapsedProgram) stored.timerV2Anchor + delta else stored.timerV2Anchor,
+          timerV2StartedAt = stored.timerV2StartedAt + delta,
+          timerV2EndsAt = if (stored.timerV2EndsAt > 0L) stored.timerV2EndsAt + delta else 0L,
+        )
         TimerStateStore.save(context, stored)
       }
     }
@@ -105,14 +111,32 @@ object TimerScheduler {
 
     val now = System.currentTimeMillis()
     val active = reconcileLocalClock(context, initial, now).config
-    val v2Event = active.timerV2Program?.let { TimerV2Timeline.next(it, active.timerV2Anchor, now) }
+    var v2Event = active.timerV2Program?.let { TimerV2Timeline.next(it, active.timerV2Anchor, now, active.timerV2StartedAt, active.timerV2EndsAt) }
+    if (active.timerV2Program != null && v2Event == null) {
+      completeSession(context)
+      return false
+    }
     val nextMain = TimerMath.nextTick(now, active.mainMs, active.phase)
     val nextSub = if (active.subEnabled && active.subMs > 0L) TimerMath.nextSubTick(now, active.mainMs, active.subMs, active.phase) else Long.MAX_VALUE
-    var triggerAt = v2Event?.at ?: min(nextMain, nextSub)
+    val initialTriggerAt = v2Event?.at ?: min(nextMain, nextSub)
+    val activeNow = ActiveHours.isActive(active, now)
+    val waitsForAvailability = v2Event?.completesRun != true &&
+      (!activeNow || !ActiveHours.isActive(active, initialTriggerAt))
+    // If the current window is active but closes before the next cue, search
+    // from that skipped cue. Searching from now would return now and spin.
+    val resumesAt = if (waitsForAvailability) ActiveHours.nextStart(active, if (activeNow) initialTriggerAt else now) else 0L
+    if (v2Event?.completesRun != true && active.timerV2EndsAt > 0L && resumesAt >= active.timerV2EndsAt) {
+      // Weekly/calendar availability gates sound, never the terminal clock.
+      // Replace a skipped intermediate cue with the exact final event.
+      v2Event = active.timerV2Program?.let {
+        TimerV2Timeline.next(it, active.timerV2Anchor, active.timerV2EndsAt - 1L, active.timerV2StartedAt, active.timerV2EndsAt)
+      } ?: v2Event
+    }
+    var triggerAt = v2Event?.at ?: initialTriggerAt
     var type = if (v2Event != null) TimerEventType.V2 else if (triggerAt == nextMain) TimerEventType.MAIN else TimerEventType.SUB
     var logicalId = v2Event?.logicalId ?: "legacy:${type.value}:$triggerAt"
-    if (!ActiveHours.isActive(active, now) || !ActiveHours.isActive(active, triggerAt)) {
-      triggerAt = ActiveHours.nextStart(active, now)
+    if (v2Event?.completesRun != true && (!ActiveHours.isActive(active, now) || !ActiveHours.isActive(active, triggerAt))) {
+      triggerAt = resumesAt
       type = TimerEventType.ACTIVE_START
       logicalId = "active-start:$triggerAt"
     }
@@ -179,11 +203,6 @@ object TimerScheduler {
     }
     val config = realignment.config
     val now = System.currentTimeMillis()
-    if (!ActiveHours.isActive(config, now)) {
-      scheduleNext(context, config)
-      onFinished()
-      return
-    }
     if (type == TimerEventType.ACTIVE_START) {
       FocusModeController.reconcile(context, config)
       scheduleNext(context, config)
@@ -192,6 +211,11 @@ object TimerScheduler {
     }
     if (type == TimerEventType.V2) {
       handleV2Triggered(context, config, triggerAt, onFinished)
+      return
+    }
+    if (!ActiveHours.isActive(config, now)) {
+      scheduleNext(context, config)
+      onFinished()
       return
     }
     val controls = TimerStateStore.getControlState(context, now)
@@ -242,7 +266,7 @@ object TimerScheduler {
   }
 
   private fun handleV2Triggered(context: Context, config: TimerConfig, triggerAt: Long, onFinished: () -> Unit) {
-    val event = config.timerV2Program?.let { TimerV2Timeline.next(it, config.timerV2Anchor, triggerAt - 1L) }
+    val event = config.timerV2Program?.let { TimerV2Timeline.next(it, config.timerV2Anchor, triggerAt - 1L, config.timerV2StartedAt, config.timerV2EndsAt) }
     if (event == null || event.at != triggerAt) {
       scheduleNext(context, config)
       onFinished()
@@ -250,13 +274,19 @@ object TimerScheduler {
     }
     val now = System.currentTimeMillis()
     val isPatternMain = event.boundary == TimerV2Boundary.PATTERN_MAIN
+    if (!ActiveHours.isActive(config, now)) {
+      if (event.completesRun) completeSession(context) else scheduleNext(context, config)
+      emitV2Event(event, suppressed = true, reason = "outside-active-hours")
+      onFinished()
+      return
+    }
     val controls = TimerStateStore.getControlState(context, now)
-    val continuousAlarmRequested = isPatternMain &&
+    val continuousAlarmRequested = isPatternMain && !event.completesRun &&
       (config.alarmModeEnabled || controls.alarmOnceArmed)
     // Phone calls are an external, transient mute gate. They do not consume
     // one-shot alarm or timed/cycle mute state, and no missed cue is replayed.
     if (CallState.isActive(context) && !continuousAlarmRequested) {
-      scheduleNext(context, config)
+      if (event.completesRun) completeSession(context) else scheduleNext(context, config)
       emitV2Event(event, suppressed = true, reason = "call-active")
       onFinished()
       return
@@ -265,13 +295,13 @@ object TimerScheduler {
     val muted = config.volume <= 0f || temporarilyMuted
     TimerNotifications.postEvent(context, config, TimerEventType.V2)
     if (muted) {
-      scheduleNext(context, config)
+      if (event.completesRun) completeSession(context) else scheduleNext(context, config)
       emitV2Event(event, suppressed = true, reason = if (config.volume <= 0f) "master-muted" else "user-mute")
       onFinished()
       return
     }
-    val alarmOnce = isPatternMain && TimerStateStore.consumeAlarmOnce(context)
-    if (isPatternMain && (config.alarmModeEnabled || alarmOnce)) {
+    val alarmOnce = isPatternMain && !event.completesRun && TimerStateStore.consumeAlarmOnce(context)
+    if (isPatternMain && !event.completesRun && (config.alarmModeEnabled || alarmOnce)) {
       scheduleNext(context, config)
       TimerStateStore.setRinging(context, true)
       TimerStateStore.setAlarmVisible(context, true)
@@ -286,7 +316,7 @@ object TimerScheduler {
       onFinished()
       return
     }
-    scheduleNext(context, config)
+    if (event.completesRun) completeSession(context) else scheduleNext(context, config)
     emitV2Event(event, suppressed = false, reason = "none")
     TimerSoundPlayer.play(
       context,
@@ -308,6 +338,7 @@ object TimerScheduler {
         collision = event.candidates.size > 1,
         suppressed = suppressed,
         suppressionReason = reason,
+        completesRun = event.completesRun,
       ),
     )
   }
@@ -344,11 +375,29 @@ object TimerScheduler {
 
   private fun isValidConfig(config: TimerConfig): Boolean {
     if (config.mainMs !in 1L..MAX_NATIVE_INTERVAL_MS || config.subMs !in 1L..MAX_NATIVE_INTERVAL_MS) return false
-    if (config.activeHoursEnabled && config.activeHoursDays.and(0x7f) == 0) return false
+    if (!ActiveHours.isValid(config) || !ActiveHours.hasPotentialAvailability(config)) return false
     val program = config.timerV2Program ?: return true
     if (!TimerV2Timeline.isValid(program)) return false
     val duration = TimerV2Timeline.cycleDuration(program) ?: return false
-    return config.timerV2Anchor in 1L..(Long.MAX_VALUE - duration)
+    if (config.timerV2Anchor !in 1L..(Long.MAX_VALUE - duration)) return false
+    if (config.timerV2StartedAt <= 0L) return false
+    if (config.timerV2EndsAt > 0L && config.timerV2EndsAt <= config.timerV2StartedAt) return false
+    val derivedEnd = TimerV2Timeline.runEndAt(program, config.timerV2Anchor, config.timerV2StartedAt)
+    if ((derivedEnd != null) != (config.timerV2EndsAt > 0L)) return false
+    return true
+  }
+
+  /** Durably ends a bounded session before its final one-shot begins. */
+  private fun completeSession(context: Context) {
+    cancelScheduledEvent(context)
+    TimerSoundPlayer.stopAll()
+    FocusModeController.deactivate(context)
+    TimerStateStore.clear(context)
+    TimerNotifications.cancelRunning(context)
+    TimerNotifications.cancelAlarm(context)
+    context.stopService(Intent(context, ChandasAlarmService::class.java))
+    AlarmStateRegistry.notify(false)
+    TimerStateRegistry.notify(TimerScheduleState(false, 0L, 0L, null, canScheduleExactAlarms(context)))
   }
 
   private fun stopForExactAccess(context: Context) {

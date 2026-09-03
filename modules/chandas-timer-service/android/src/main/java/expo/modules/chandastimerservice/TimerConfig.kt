@@ -13,10 +13,15 @@ data class TimerConfig(
   val activeHoursStart: Int,
   val activeHoursEnd: Int,
   val activeHoursDays: Int,
+  /** V2 availability policy JSON. Legacy active-hours fields remain as fallback. */
+  val availabilityPolicy: String? = null,
   val alarmDurationSeconds: Int,
   /** Serialized V2 Pattern/Sequence program. Null keeps the legacy scheduler path. */
   val timerV2Program: String? = null,
   val timerV2Anchor: Long = 0L,
+  val timerV2StartedAt: Long = 0L,
+  /** Fixed terminal epoch. Zero means continuous. */
+  val timerV2EndsAt: Long = 0L,
 )
 
 enum class TimerEventType(val value: String) {
