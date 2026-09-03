@@ -193,6 +193,7 @@ object TimerScheduler {
     val sound = if (type == TimerEventType.MAIN) R.raw.gong else R.raw.bell
     TimerSoundPlayer.play(
       context,
+      if (type == TimerEventType.MAIN) "temple-gong" else "clear-bell",
       sound,
       config.volume,
       onFinished,
@@ -233,7 +234,11 @@ object TimerScheduler {
       AlarmStateRegistry.notify(true)
       TimerNotifications.cancelRunning(context)
       emitV2Event(event, suppressed = false, reason = "none")
-      ContextCompat.startForegroundService(context, Intent(context, ChandasAlarmService::class.java).setAction(ChandasAlarmService.ACTION_START))
+      ContextCompat.startForegroundService(context, Intent(context, ChandasAlarmService::class.java).apply {
+        action = ChandasAlarmService.ACTION_START
+        putExtra(ChandasAlarmService.EXTRA_SOUND_ID, event.winner.soundId)
+        putExtra(ChandasAlarmService.EXTRA_CUE_VOLUME, event.winner.volume)
+      })
       onFinished()
       return
     }
@@ -241,6 +246,7 @@ object TimerScheduler {
     emitV2Event(event, suppressed = false, reason = "none")
     TimerSoundPlayer.play(
       context,
+      event.winner.soundId,
       resourceForV2Sound(event.winner.soundId),
       (config.volume * event.winner.volume).coerceIn(0f, 1f),
       onFinished,

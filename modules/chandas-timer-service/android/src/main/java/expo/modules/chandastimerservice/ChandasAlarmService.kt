@@ -25,15 +25,25 @@ class ChandasAlarmService : Service() {
     const val ACTION_STOP = "expo.modules.chandastimerservice.action.STOP_ALARM"
     const val ACTION_UPDATE_VOLUME = "expo.modules.chandastimerservice.action.UPDATE_ALARM_VOLUME"
     const val EXTRA_VOLUME = "volume"
+    const val EXTRA_CUE_VOLUME = "cueVolume"
+    const val EXTRA_SOUND_ID = "soundId"
     const val EXTRA_DURATION_SECONDS = "durationSeconds"
   }
 
   private var player: MediaPlayer? = null
   private var audioFocusRequest: AudioFocusRequest? = null
-  private val audioFocusListener = AudioManager.OnAudioFocusChangeListener { }
+  private val audioFocusListener = AudioManager.OnAudioFocusChangeListener { change ->
+    when (change) {
+      AudioManager.AUDIOFOCUS_GAIN -> runCatching { player?.start() }
+      AudioManager.AUDIOFOCUS_LOSS_TRANSIENT, AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> runCatching { player?.pause() }
+      AudioManager.AUDIOFOCUS_LOSS -> silenceAndResume()
+    }
+  }
   private val handler = Handler(Looper.getMainLooper())
   private val autoSilence = Runnable { silenceAndResume() }
   private var stopHandled = false
+  private var soundId = "temple-gong"
+  private var cueVolume = 1f
 
   override fun onBind(intent: Intent?): IBinder? = null
 
@@ -46,11 +56,16 @@ class ChandasAlarmService : Service() {
         if (player == null && TimerStateStore.isRinging(this)) {
           startRinging()
         } else {
-          player?.setVolume(volume, volume)
+          val effective = (volume * cueVolume).coerceIn(0f, 1f)
+          player?.setVolume(effective, effective)
           scheduleAutoSilence(duration)
         }
       }
-      ACTION_START -> startRinging()
+      ACTION_START -> {
+        soundId = intent.getStringExtra(EXTRA_SOUND_ID) ?: "temple-gong"
+        cueVolume = intent.getFloatExtra(EXTRA_CUE_VOLUME, 1f).coerceIn(0f, 1f)
+        startRinging()
+      }
       else -> stopSelf()
     }
     return START_NOT_STICKY
@@ -74,20 +89,30 @@ class ChandasAlarmService : Service() {
         .setUsage(AudioAttributes.USAGE_ALARM)
         .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
         .build()
-      requestAudioFocus(alarmAttributes)
+      if (!requestAudioFocus(alarmAttributes)) {
+        silenceAndResume()
+        return
+      }
       player?.release()
       player = MediaPlayer().apply {
         setAudioAttributes(alarmAttributes)
         setWakeMode(applicationContext, PowerManager.PARTIAL_WAKE_LOCK)
-        val afd = resources.openRawResourceFd(R.raw.alarm)
-        setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
-        afd.close()
+        runCatching { TimerSoundPlayer.setDataSource(this@ChandasAlarmService, this, soundId) }
+          .getOrElse { TimerSoundPlayer.setDataSource(this@ChandasAlarmService, this, "builtin:${R.raw.alarm}") }
         isLooping = true
-        val volume = config.volume.coerceIn(0f, 1f)
+        val volume = (config.volume * cueVolume).coerceIn(0f, 1f)
         setVolume(volume, volume)
         setOnPreparedListener { it.start() }
         setOnErrorListener { _, _, _ ->
-          silenceAndResume()
+          if (soundId.contains("://")) {
+            player?.release()
+            player = null
+            abandonAudioFocus()
+            soundId = "builtin:${R.raw.alarm}"
+            startRinging()
+          } else {
+            silenceAndResume()
+          }
           true
         }
         prepareAsync()
@@ -183,9 +208,9 @@ class ChandasAlarmService : Service() {
     }
   }
 
-  private fun requestAudioFocus(attributes: AudioAttributes) {
+  private fun requestAudioFocus(attributes: AudioAttributes): Boolean {
     val manager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+    val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
       audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
         .setAudioAttributes(attributes)
         .setOnAudioFocusChangeListener(audioFocusListener)
@@ -199,6 +224,7 @@ class ChandasAlarmService : Service() {
         AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE,
       )
     }
+    return result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
   }
 
   private fun abandonAudioFocus() {
@@ -219,6 +245,9 @@ class ChandasAlarmService : Service() {
     abandonAudioFocus()
     if (!stopHandled && TimerStateStore.isRinging(this)) {
       TimerStateStore.setRinging(this, false)
+      TimerStateStore.setAlarmVisible(this, false)
+      AlarmStateRegistry.notify(false)
+      TimerNotifications.cancelAlarm(this)
     }
     super.onDestroy()
   }

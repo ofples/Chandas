@@ -7,6 +7,7 @@
 // the JS-only foreground timer (see useTimer.ts).
 import { Platform } from 'react-native'
 import { requireOptionalNativeModule } from 'expo-modules-core'
+import type { BuiltInSoundId, SoundRef } from '../types'
 
 export interface NativeTimerConfig {
   mainMs: number
@@ -117,6 +118,9 @@ interface ChandasTimerServiceModule {
   muteForMinutes(minutes: number): void
   clearMute(): void
   pickDeviceSound(kind: 'alarm' | 'notification' | 'unknown'): Promise<{ uri: string; title: string } | null>
+  pickAudioDocument(): Promise<{ uri: string; title: string; mimeType?: string } | null>
+  previewSound(soundId: string, fallbackSoundId: BuiltInSoundId, volume: number): Promise<boolean>
+  stopSoundPreview(): void
   addListener(eventName: 'onAlarmStateChanged', listener: (event: AlarmStateEvent) => void): EventSubscription
   addListener(eventName: 'onControlStateChanged', listener: (event: NativeControlState) => void): EventSubscription
   addListener(eventName: 'onTimerEventFired', listener: (event: NativeTimerEvent) => void): EventSubscription
@@ -196,6 +200,16 @@ export const ChandasTimerService = {
   },
   async pickDeviceSound(kind: 'alarm' | 'notification' | 'unknown'): Promise<{ uri: string; title: string } | null> {
     return native?.pickDeviceSound(kind) ?? null
+  },
+  async pickAudioDocument(): Promise<{ uri: string; title: string; mimeType?: string } | null> {
+    return native?.pickAudioDocument() ?? null
+  },
+  async previewSound(sound: SoundRef, volume: number, fallbackSoundId: BuiltInSoundId = 'clear-bell'): Promise<boolean> {
+    const soundId = sound.kind === 'builtin' ? sound.id : sound.uri
+    return native?.previewSound(soundId, fallbackSoundId, volume) ?? sound.kind === 'builtin'
+  },
+  stopSoundPreview() {
+    native?.stopSoundPreview()
   },
   // Live updates while the app is open — the counterpart to isRinging() above.
   addAlarmListener(listener: (ringing: boolean) => void): EventSubscription | null {

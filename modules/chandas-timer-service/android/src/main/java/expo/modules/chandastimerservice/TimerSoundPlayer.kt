@@ -7,58 +7,106 @@ import android.net.Uri
 import android.os.PowerManager
 import java.util.concurrent.atomic.AtomicBoolean
 
+/** Single alarm-routed one-shot and preview player with safe URI fallback. */
 object TimerSoundPlayer {
   private val players = mutableSetOf<MediaPlayer>()
+  private var stopPreviewPlayback: (() -> Unit)? = null
 
   fun play(
     context: Context,
-    resId: Int,
+    soundId: String,
+    fallbackResId: Int,
     volume: Float,
     onFinished: () -> Unit,
-    sourceUri: String? = null,
-  ) {
+  ): () -> Unit {
     if (volume <= 0f) {
       onFinished()
-      return
+      return {}
     }
 
-    val player = MediaPlayer()
-    val released = AtomicBoolean(false)
-    synchronized(players) { players.add(player) }
+    val finished = AtomicBoolean(false)
+    var current: MediaPlayer? = null
 
-    fun release() {
-      if (!released.compareAndSet(false, true)) return
-      synchronized(players) { players.remove(player) }
-      runCatching { player.release() }
-      onFinished()
+    fun finish() {
+      val player = current
+      current = null
+      if (player != null) {
+        synchronized(players) { players.remove(player) }
+        runCatching { player.release() }
+      }
+      if (finished.compareAndSet(false, true)) onFinished()
     }
 
-    try {
-      player.setAudioAttributes(
-        AudioAttributes.Builder()
-          .setUsage(AudioAttributes.USAGE_ALARM)
-          .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-          .build(),
-      )
-      player.setWakeMode(context.applicationContext, PowerManager.PARTIAL_WAKE_LOCK)
-      if (sourceUri != null) {
-        player.setDataSource(context, Uri.parse(sourceUri))
-      } else {
-        val afd = context.resources.openRawResourceFd(resId)
-        player.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
-        afd.close()
+    fun start(source: String, mayFallback: Boolean) {
+      if (finished.get()) return
+      val player = MediaPlayer()
+      current = player
+      synchronized(players) { players.add(player) }
+
+      fun fail() {
+        synchronized(players) { players.remove(player) }
+        runCatching { player.release() }
+        if (current === player) current = null
+        if (mayFallback) start("builtin:$fallbackResId", false) else finish()
       }
-      val level = volume.coerceIn(0f, 1f)
-      player.setVolume(level, level)
-      player.setOnCompletionListener { release() }
-      player.setOnErrorListener { _, _, _ ->
-        release()
-        true
+
+      try {
+        player.setAudioAttributes(alarmAttributes())
+        player.setWakeMode(context.applicationContext, PowerManager.PARTIAL_WAKE_LOCK)
+        setDataSource(context, player, source)
+        val level = volume.coerceIn(0f, 1f)
+        player.setVolume(level, level)
+        player.setOnCompletionListener { finish() }
+        player.setOnErrorListener { _, _, _ -> fail(); true }
+        player.setOnPreparedListener { it.start() }
+        player.prepareAsync()
+      } catch (_: Exception) {
+        fail()
       }
-      player.setOnPreparedListener { it.start() }
-      player.prepareAsync()
-    } catch (_: Exception) {
-      release()
+    }
+
+    start(soundId, soundId.contains("://"))
+    return { finish() }
+  }
+
+  @Synchronized
+  fun preview(context: Context, soundId: String, fallbackResId: Int, volume: Float) {
+    stopPreviewPlayback?.invoke()
+    stopPreviewPlayback = play(context, soundId, fallbackResId, volume) {
+      synchronized(this) { stopPreviewPlayback = null }
+    }
+  }
+
+  @Synchronized
+  fun stopPreview() {
+    stopPreviewPlayback?.invoke()
+    stopPreviewPlayback = null
+  }
+
+  fun canOpen(context: Context, soundId: String): Boolean = runCatching {
+    if (!soundId.contains("://")) return@runCatching builtInResource(soundId) != null
+    context.contentResolver.openAssetFileDescriptor(Uri.parse(soundId), "r")?.use { true } ?: false
+  }.getOrDefault(false)
+
+  fun builtInResource(soundId: String): Int? = when (soundId.removePrefix("builtin:")) {
+    "temple-gong" -> R.raw.gong
+    "clear-bell", "soft-bowl", "wood-block", "bright-chime" -> R.raw.bell
+    else -> soundId.removePrefix("builtin:").toIntOrNull()
+  }
+
+  fun alarmAttributes(): AudioAttributes = AudioAttributes.Builder()
+    .setUsage(AudioAttributes.USAGE_ALARM)
+    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+    .build()
+
+  fun setDataSource(context: Context, player: MediaPlayer, soundId: String) {
+    val resource = builtInResource(soundId)
+    if (resource != null) {
+      context.resources.openRawResourceFd(resource).use { descriptor ->
+        player.setDataSource(descriptor.fileDescriptor, descriptor.startOffset, descriptor.length)
+      }
+    } else {
+      player.setDataSource(context, Uri.parse(soundId))
     }
   }
 }

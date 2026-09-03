@@ -8,6 +8,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.provider.OpenableColumns
 import androidx.core.os.bundleOf
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
@@ -197,6 +198,33 @@ class ChandasTimerServiceModule : Module() {
       }, DEVICE_SOUND_PICKER_REQUEST)
     }.runOnQueue(Queues.MAIN)
 
+    AsyncFunction("pickAudioDocument") { promise: Promise ->
+      val activity = appContext.activityProvider?.currentActivity
+      if (activity == null) {
+        promise.resolve(null)
+        return@AsyncFunction
+      }
+      soundPickerPromise?.resolve(null)
+      soundPickerPromise = promise
+      activity.startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+        addCategory(Intent.CATEGORY_OPENABLE)
+        type = "audio/*"
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+      }, AUDIO_DOCUMENT_PICKER_REQUEST)
+    }.runOnQueue(Queues.MAIN)
+
+    AsyncFunction("previewSound") { soundId: String, fallbackSoundId: String, volume: Float ->
+      val context = appContext.reactContext ?: return@AsyncFunction false
+      val available = TimerSoundPlayer.canOpen(context, soundId)
+      val fallback = TimerSoundPlayer.builtInResource(fallbackSoundId) ?: R.raw.bell
+      TimerSoundPlayer.preview(context, soundId, fallback, volume.coerceIn(0f, 1f))
+      available
+    }
+
+    Function("stopSoundPreview") {
+      TimerSoundPlayer.stopPreview()
+    }
+
     Function("canScheduleExactAlarms") {
       val context = appContext.reactContext
       if (context == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
@@ -300,17 +328,46 @@ class ChandasTimerServiceModule : Module() {
     }
 
     OnActivityResult { _, result ->
-      if (result.requestCode != DEVICE_SOUND_PICKER_REQUEST) return@OnActivityResult
+      if (result.requestCode != DEVICE_SOUND_PICKER_REQUEST && result.requestCode != AUDIO_DOCUMENT_PICKER_REQUEST) return@OnActivityResult
       val promise = soundPickerPromise ?: return@OnActivityResult
       soundPickerPromise = null
-      val uri = result.data?.getParcelableExtra<android.net.Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
-      if (result.resultCode != Activity.RESULT_OK || uri == null) {
+      if (result.resultCode != Activity.RESULT_OK) {
         promise.resolve(null)
-      } else {
+        return@OnActivityResult
+      }
+      if (result.requestCode == DEVICE_SOUND_PICKER_REQUEST) {
+        val uri = result.data?.getParcelableExtra<android.net.Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+        if (uri == null) {
+          promise.resolve(null)
+          return@OnActivityResult
+        }
         val context = appContext.reactContext
         val title = context?.let { RingtoneManager.getRingtone(it, uri)?.getTitle(it) } ?: "Device sound"
         promise.resolve(bundleOf("uri" to uri.toString(), "title" to title))
+        return@OnActivityResult
       }
+      val data = result.data
+      val uri = data?.data
+      val context = appContext.reactContext
+      if (uri == null || context == null) {
+        promise.resolve(null)
+        return@OnActivityResult
+      }
+      runCatching {
+        context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+      }
+      val title = runCatching {
+        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+          if (cursor.moveToFirst()) cursor.getString(0) else null
+        }
+      }.getOrNull() ?: "Audio file"
+      promise.resolve(bundleOf("uri" to uri.toString(), "title" to title, "mimeType" to context.contentResolver.getType(uri)))
+    }
+
+    OnDestroy {
+      soundPickerPromise?.resolve(null)
+      soundPickerPromise = null
+      TimerSoundPlayer.stopPreview()
     }
   }
 
@@ -359,5 +416,6 @@ class ChandasTimerServiceModule : Module() {
 
   private companion object {
     const val DEVICE_SOUND_PICKER_REQUEST = 8452
+    const val AUDIO_DOCUMENT_PICKER_REQUEST = 8453
   }
 }
