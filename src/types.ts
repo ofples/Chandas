@@ -39,6 +39,14 @@ export interface CueSettings {
   volume: number
 }
 
+export interface RunPolicy {
+  kind: 'continuous' | 'cycles' | 'duration'
+  /** Preserved even while another kind is selected. */
+  cycleCount: number
+  /** Preserved even while another kind is selected. */
+  durationSeconds: number
+}
+
 export interface PatternTrack extends CueSettings {
   id: string
   enabled: boolean
@@ -53,6 +61,7 @@ export interface PatternProgram {
   mainCue: CueSettings
   tracks: PatternTrack[]
   alignment: { kind: 'elapsed' } | { kind: 'local-clock'; offsetMinutes: number }
+  runPolicy: RunPolicy
 }
 
 export interface SequenceStep extends CueSettings {
@@ -65,6 +74,7 @@ export interface SequenceProgram {
   schemaVersion: 2
   mode: 'sequence'
   steps: SequenceStep[]
+  runPolicy: RunPolicy
 }
 
 export type TimerProgram = PatternProgram | SequenceProgram
@@ -83,13 +93,37 @@ export interface WorkingProgramState {
   sourcePreset?: { id: string; name: string; createdAt: number; deleted?: boolean }
 }
 
+export interface WeeklyAvailabilityWindow {
+  id: string
+  enabled: boolean
+  startMinutes: number
+  endMinutes: number
+  days: number
+}
+
+/**
+ * Calendar integrations resolve external events into these small, native-safe
+ * records. The timer scheduler never needs direct calendar access.
+ */
+export interface AvailabilityOverride {
+  id: string
+  startAt: number
+  endAt: number
+  behavior: 'active' | 'mute'
+  source: 'calendar'
+  sourceId?: string
+}
+
+export interface AvailabilityPolicy {
+  enabled: boolean
+  weeklyWindows: WeeklyAvailabilityWindow[]
+  overrides: AvailabilityOverride[]
+}
+
 export interface AppTimerSettings {
   masterVolume: number
   notificationsEnabled: boolean
-  activeHoursEnabled: boolean
-  activeHoursStart: number
-  activeHoursEnd: number
-  activeHoursDays: number
+  availability: AvailabilityPolicy
   focusAutomationEnabled: boolean
   alarmDurationSeconds: number
 }

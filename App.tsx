@@ -9,7 +9,7 @@ import { ThemeProvider, useTheme } from './src/theme/ThemeContext'
 import type { AppState, AppTimerSettings, TimerV2State } from './src/types'
 import { useTimerV2 } from './src/hooks/useTimerV2'
 import { clearTimerV2Session, loadTimerV2Session, loadTimerV2StateResult, saveTimerV2Session, saveTimerV2State, type TimerV2Session } from './src/lib/storage'
-import { defaultTimerV2State, parseTimerProgram, replaceWorkingProgram, selectedProgram } from './src/lib/timerV2'
+import { defaultTimerV2State, normalizeAvailabilityPolicy, parseTimerProgram, replaceWorkingProgram, selectedProgram } from './src/lib/timerV2'
 import { patchPatternTrack, patchSequenceStep, updatePattern } from './src/lib/programActions'
 import { TimerV2ConfigScreen } from './src/screens/TimerV2ConfigScreen'
 import { TimerV2RunningScreen } from './src/screens/TimerV2RunningScreen'
@@ -21,8 +21,9 @@ import { AppErrorBoundary } from './src/components/timer-v2/app-error-boundary'
 const FALLBACK_PROGRAM = {
   schemaVersion: 2 as const, mode: 'pattern' as const, mainMinutes: 30,
   mainCue: { sound: { kind: 'builtin' as const, id: 'temple-gong' as const }, volume: 1 }, tracks: [], alignment: { kind: 'elapsed' as const },
+  runPolicy: { kind: 'continuous' as const, cycleCount: 1, durationSeconds: 30 * 60 },
 }
-const FALLBACK_SETTINGS = { masterVolume: 0.8, notificationsEnabled: true, activeHoursEnabled: false, activeHoursStart: 480, activeHoursEnd: 1320, activeHoursDays: 127, focusAutomationEnabled: false, alarmDurationSeconds: 60 }
+const FALLBACK_SETTINGS = { masterVolume: 0.8, notificationsEnabled: true, availability: { enabled: false, weeklyWindows: [], overrides: [] }, focusAutomationEnabled: false, alarmDurationSeconds: 60 }
 const DEFAULT_FOCUS_STATE: NativeFocusState = { policyAccess: false, automationEnabled: false, ruleExists: false, ruleEnabled: false, actual: 'unknown', reason: 'off' }
 
 interface PendingRestore {
@@ -39,13 +40,14 @@ interface AndroidAccessState {
 }
 
 function settingsFromNative(current: AppTimerSettings, native: ReturnType<typeof ChandasTimerService.getState>): AppTimerSettings {
+  let availability = current.availability
+  if (native.availabilityPolicy) {
+    try { availability = normalizeAvailabilityPolicy(JSON.parse(native.availabilityPolicy) as AppTimerSettings['availability']) } catch { /* retain the safely loaded app policy */ }
+  }
   return {
     masterVolume: native.volume ?? current.masterVolume,
     notificationsEnabled: native.notificationsEnabled ?? current.notificationsEnabled,
-    activeHoursEnabled: native.activeHoursEnabled ?? current.activeHoursEnabled,
-    activeHoursStart: native.activeHoursStart ?? current.activeHoursStart,
-    activeHoursEnd: native.activeHoursEnd ?? current.activeHoursEnd,
-    activeHoursDays: native.activeHoursDays ?? current.activeHoursDays,
+    availability,
     focusAutomationEnabled: native.focusModeEnabled ?? current.focusAutomationEnabled,
     alarmDurationSeconds: native.alarmDurationSeconds ?? current.alarmDurationSeconds,
   }
@@ -170,6 +172,7 @@ function Root() {
           const nativeSession: TimerV2Session = {
             schemaVersion: 2,
             anchor: native.timerV2Anchor,
+            startedAt: native.timerV2StartedAt ?? native.timerV2Anchor,
             program: nativeProgram,
             mute: native.mutedIterationEndId && native.mutedIterationEndAt
               ? { mutedUntil: native.mutedUntil ?? 0, iteration: { endsAtLogicalId: native.mutedIterationEndId, endsAt: native.mutedIterationEndAt, iterations: Math.max(1, native.mutedIterationsRemaining ?? 1) } }
@@ -335,7 +338,13 @@ function Root() {
       if (started) {
         setAppState('running')
         refreshFocusState()
-        showNotice({ title: 'Timer is running', message: program?.mode === 'sequence' ? 'Your sequence will repeat until you stop it.' : 'Your pattern is anchored and ready.', tone: 'success' })
+        const run = program?.runPolicy
+        const boundedMessage = run?.kind === 'cycles'
+          ? `${run.cycleCount} ${program?.mode === 'sequence' ? 'rounds' : 'main cycles'}, then it will finish gently.`
+          : run?.kind === 'duration'
+            ? 'It will finish automatically at the duration you chose.'
+            : program?.mode === 'sequence' ? 'Your sequence will repeat until you stop it.' : 'Your pattern is anchored and ready.'
+        showNotice({ title: 'Timer is running', message: boundedMessage, tone: 'success' })
         return
       }
       showNotice({ title: 'Exact timing needs one setting', message: 'Allow Alarms & reminders so bells stay precise when the screen is off.', tone: 'attention', actionLabel: 'Open settings', onAction: openExactAlarmSettings, persistent: true })
@@ -402,7 +411,7 @@ function Root() {
       accessibilityElementsHidden={timer.isAlarmRinging}
     >
       <Reanimated.View key={appState} style={{ flex: 1 }} entering={FadeIn.duration(reducedMotion ? 80 : 220)} exiting={FadeOut.duration(reducedMotion ? 70 : 150)}>
-        {appState === 'config' ? <TimerV2ConfigScreen state={timerState} onChange={changeTimerState} onStart={start} starting={starting} focusState={focusState} onFocusAutomationChange={setFocusAutomation} onOpenFocusSettings={openNotificationPolicySettings} onOpenFocusRuleSettings={openFocusRuleSettings} androidAccess={androidAccess} onOpenExactAlarmSettings={openExactAlarmSettings} onRequestCallMuteAccess={() => void requestCallMuteAccess()} onRequestNotificationAccess={() => void requestNotificationAccess()} onFeedback={showNotice} /> : <TimerV2RunningScreen program={program} mainCountdown={timer.mainCountdown} nextCueCountdown={timer.nextCueCountdown} nextCueLabel={timer.nextCueLabel} progress={timer.progress} position={timer.position} eventPulse={timer.eventPulse} activeHoursPaused={timer.activeHoursPaused} activeHoursResumeAt={timer.activeHoursResumeAt} mute={timer.mute} alarmBehavior={timer.alarmBehavior} realigning={realigning} onStop={stop} onRestartUnsynced={() => reanchor(false)} onSnapToClock={offset => reanchor(true, offset)} onPressAlarm={pressAlarm} onMuteForIterations={timer.muteForIterations} onMuteForMinutes={timer.muteForMinutes} onClearMute={timer.clearMute} masterVolume={timerState.settings.masterVolume} onMasterVolumeChange={masterVolume => changeTimerState({ ...timerState, settings: { ...timerState.settings, masterVolume } })} onCueVolumeChange={changeCueVolume} focusEnabled={timerState.settings.focusAutomationEnabled} focusActive={focusState.actual === 'active' && !timer.activeHoursPaused} focusPolicyAccess={focusState.policyAccess} focusReason={focusState.reason} onToggleFocus={focusState.reason === 'paused-by-android' ? resumeFocusAutomation : () => setFocusAutomation(!timerState.settings.focusAutomationEnabled)} onOpenFocusSettings={focusState.reason === 'rule-disabled' ? openFocusRuleSettings : openNotificationPolicySettings} />}
+        {appState === 'config' ? <TimerV2ConfigScreen state={timerState} onChange={changeTimerState} onStart={start} starting={starting} focusState={focusState} onFocusAutomationChange={setFocusAutomation} onOpenFocusSettings={openNotificationPolicySettings} onOpenFocusRuleSettings={openFocusRuleSettings} androidAccess={androidAccess} onOpenExactAlarmSettings={openExactAlarmSettings} onRequestCallMuteAccess={() => void requestCallMuteAccess()} onRequestNotificationAccess={() => void requestNotificationAccess()} onFeedback={showNotice} /> : <TimerV2RunningScreen program={program} mainCountdown={timer.mainCountdown} nextCueCountdown={timer.nextCueCountdown} nextCueLabel={timer.nextCueLabel} progress={timer.progress} position={timer.position} eventPulse={timer.eventPulse} activeHoursPaused={timer.activeHoursPaused} activeHoursResumeAt={timer.activeHoursResumeAt} runEndsAt={timer.runEndsAt} runRemainingMs={timer.runRemainingMs} mute={timer.mute} alarmBehavior={timer.alarmBehavior} realigning={realigning} onStop={stop} onRestartUnsynced={() => reanchor(false)} onSnapToClock={offset => reanchor(true, offset)} onPressAlarm={pressAlarm} onMuteForIterations={timer.muteForIterations} onMuteForMinutes={timer.muteForMinutes} onClearMute={timer.clearMute} masterVolume={timerState.settings.masterVolume} onMasterVolumeChange={masterVolume => changeTimerState({ ...timerState, settings: { ...timerState.settings, masterVolume } })} onCueVolumeChange={changeCueVolume} focusEnabled={timerState.settings.focusAutomationEnabled} focusActive={focusState.actual === 'active' && !timer.activeHoursPaused} focusPolicyAccess={focusState.policyAccess} focusReason={focusState.reason} onToggleFocus={focusState.reason === 'paused-by-android' ? resumeFocusAutomation : () => setFocusAutomation(!timerState.settings.focusAutomationEnabled)} onOpenFocusSettings={focusState.reason === 'rule-disabled' ? openFocusRuleSettings : openNotificationPolicySettings} />}
       </Reanimated.View>
     </View>
     {timer.isAlarmRinging && <AlarmRingingScreen onDismiss={timer.dismissAlarm} />}

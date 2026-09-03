@@ -6,7 +6,6 @@ import Reanimated, { FadeIn, FadeInDown, FadeOut, LinearTransition, useReducedMo
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import type { CueSettings, PatternTrack, SoundRef, TimerV2State } from '../types'
 import type { NativeFocusState } from '../native/ChandasTimerService'
-import { ActiveHoursConfig } from '../components/ActiveHoursConfig'
 import { Chip } from '../components/Chip'
 import { CustomMinutePicker } from '../components/CustomMinutePicker'
 import { Toggle } from '../components/Toggle'
@@ -18,6 +17,8 @@ import { ReorderHandle } from '../components/timer-v2/ReorderHandle'
 import { SoundPickerSheet } from '../components/timer-v2/SoundPickerSheet'
 import { TimerHelpSheet } from '../components/timer-v2/TimerHelpSheet'
 import { SoundName } from '../components/timer-v2/SoundName'
+import { RunLengthConfig } from '../components/timer-v2/RunLengthConfig'
+import { ScheduleConfig } from '../components/timer-v2/ScheduleConfig'
 import {
   addPatternTrack, addSequenceStep, chooseProgramMode, duplicateSequenceStep, patchPatternTrack, patchSequenceStep,
   removePatternTrack, removeSequenceStep, reorderPatternTracks, reorderSequenceSteps,
@@ -29,6 +30,7 @@ import { useTheme } from '../theme/ThemeContext'
 import { useSoundAvailability } from '../hooks/use-sound-availability'
 import { ChandasTimerService } from '../native/ChandasTimerService'
 import { GentleNotice, type AppNotice } from '../components/timer-v2/experience-feedback'
+import { hasAvailableTime } from '../lib/activeHours'
 
 const MAIN_PRESETS = [10, 15, 30] as const
 const STEP_PRESETS = [5, 15, 25] as const
@@ -77,7 +79,7 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
   }
   const addTrack = () => { void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined); onChange(addPatternTrack(state)) }
   const addStep = () => { void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined); onChange(addSequenceStep(state)) }
-  const validToStart = !settings.activeHoursEnabled || settings.activeHoursDays !== 0
+  const validToStart = hasAvailableTime(settings.availability)
   const exactTimingNeedsSetup = Platform.OS === 'android' && !androidAccess.checking && !androidAccess.exactAlarms
   const selectMode = (mode: 'pattern' | 'sequence') => {
     if (state.workingPrograms.selectedMode === mode) return
@@ -106,13 +108,24 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
           {program.mode === 'pattern' ? <PatternEditor state={state} onChange={onChange} onEditCue={setCueTarget} onEditTrack={setTrackId} onAdd={addTrack} onCustomSnap={() => setCustomSnapOpen(true)} /> : <SequenceEditor state={state} onChange={onChange} onEditCue={setCueTarget} onAdd={addStep} />}
         </Reanimated.View>
 
+        <View style={[styles.sectionCard, { borderColor: tokens.border }]}>
+          <RunLengthConfig
+            mode={program.mode}
+            value={program.runPolicy}
+            cycleDurationSeconds={(program.mode === 'pattern' ? program.mainMinutes : program.steps.reduce((sum, step) => sum + step.durationMinutes, 0)) * 60}
+            onChange={runPolicy => onChange(program.mode === 'pattern'
+              ? updatePattern(state, value => ({ ...value, runPolicy }))
+              : { ...state, workingPrograms: { ...state.workingPrograms, sequence: { ...state.workingPrograms.sequence, runPolicy } } })}
+          />
+        </View>
+
         <Pressable onPress={() => setMixerOpen(true)} style={({ pressed }) => [styles.summaryBar, { backgroundColor: tokens.surface, borderColor: tokens.border, opacity: pressed ? 0.78 : 1, transform: [{ scale: pressed && !reducedMotion ? 0.99 : 1 }] }]} accessibilityRole="button" accessibilityLabel="Open mixer">
           <View style={styles.flex}><Text style={[styles.eyebrow, { color: tokens.textMuted }]}>MIXER</Text><Text style={[styles.summaryTitle, { color: tokens.text }]}>Master {Math.round(settings.masterVolume * 100)}%</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>Fine-tune every cue in one place</Text></View>
           <Text style={[styles.link, { color: tokens.accent }]}>Mix</Text>
         </Pressable>
 
         <View style={[styles.sectionCard, { borderColor: tokens.border }]}>
-          <ActiveHoursConfig enabled={settings.activeHoursEnabled} startMinutes={settings.activeHoursStart} endMinutes={settings.activeHoursEnd} days={settings.activeHoursDays} onToggle={activeHoursEnabled => changeSettings({ activeHoursEnabled })} onStartChange={activeHoursStart => changeSettings({ activeHoursStart })} onEndChange={activeHoursEnd => changeSettings({ activeHoursEnd })} onDaysChange={activeHoursDays => changeSettings({ activeHoursDays })} />
+          <ScheduleConfig value={settings.availability} onChange={availability => changeSettings({ availability })} />
         </View>
 
         {Platform.OS === 'android' ? <SystemAccessCard access={androidAccess} onOpenExactAlarmSettings={onOpenExactAlarmSettings} onRequestCallMuteAccess={onRequestCallMuteAccess} onRequestNotificationAccess={onRequestNotificationAccess} /> : null}
@@ -123,7 +136,7 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
       <View style={[styles.bottom, { backgroundColor: tokens.bg, paddingBottom: insets.bottom + 16 }]}>
         <Pressable disabled={!validToStart || starting} onPress={onStart} style={({ pressed }) => [styles.start, { backgroundColor: tokens.accent, opacity: !validToStart || starting ? 0.48 : pressed ? 0.76 : 1, transform: [{ scale: pressed && !starting && !reducedMotion ? 0.985 : 1 }] }]} accessibilityRole="button" accessibilityState={{ disabled: !validToStart || starting, busy: starting }}>
           {starting ? <ActivityIndicator color="#fff" size="small" /> : null}
-          <Text style={styles.startText}>{starting ? 'Anchoring timer…' : !validToStart ? 'Choose an active day' : exactTimingNeedsSetup ? 'Set up exact timing' : 'Start timer'}</Text>
+          <Text style={styles.startText}>{starting ? 'Anchoring timer…' : !validToStart ? 'Add an active time' : exactTimingNeedsSetup ? 'Set up exact timing' : 'Start timer'}</Text>
         </Pressable>
       </View>
 

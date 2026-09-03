@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest'
 import type { PatternProgram, SequenceProgram } from '../../types'
 import { chooseProgramMode, deleteProgramPreset, loadProgramPreset, patchSequenceStep, reorderPatternTracks, saveProgramPreset, updatePatternMainMinutes } from '../programActions'
 import { alarmBehaviorAfterGesture, gateProgramAudio, isFreshScheduledEvent, iterationMuteFor, muteAfterScheduleChange, shouldSurfaceTimerSignal } from '../runtimeV2'
-import { defaultTimerV2State, migrateLegacyConfig, normalizePatternProgram, normalizeSequenceProgram, normalizeSoundRef, parseTimerProgram, validOffsets } from '../timerV2'
-import { nextPatternEvent, nextSequenceEvent, timelinePosition } from '../timeline'
-import { isWithinActiveHours, nextActiveHoursStart } from '../activeHours'
+import { defaultTimerV2State, migrateLegacyConfig, normalizeAvailabilityPolicy, normalizePatternProgram, normalizeSequenceProgram, normalizeSoundRef, parseTimerProgram, validOffsets } from '../timerV2'
+import { nextPatternEvent, nextProgramEvent, nextSequenceEvent, runEndAt, timelinePosition } from '../timeline'
+import { hasAvailableTime, isWithinActiveHours, nextActiveHoursStart, windowsOverlap } from '../activeHours'
 import timelineFixtures from '../../../fixtures/timer-v2-timeline.json'
 
 const minute = 60_000
@@ -20,6 +20,7 @@ function pattern(): PatternProgram {
       { id: 'bottom', enabled: true, cadenceMinutes: 2, selectedOffsetsMinutes: [10], sound: { kind: 'builtin', id: 'clear-bell' }, volume: 0.7 },
     ],
     alignment: { kind: 'elapsed' },
+    runPolicy: { kind: 'continuous', cycleCount: 1, durationSeconds: 30 * 60 },
   }
 }
 
@@ -31,6 +32,7 @@ function sequence(): SequenceProgram {
       { id: 'work', label: 'Work', durationMinutes: 5, sound: { kind: 'builtin', id: 'clear-bell' }, volume: 0.8 },
       { id: 'rest', label: 'Rest', durationMinutes: 2, sound: { kind: 'builtin', id: 'soft-bowl' }, volume: 0.6 },
     ],
+    runPolicy: { kind: 'continuous', cycleCount: 1, durationSeconds: 30 * 60 },
   }
 }
 
@@ -97,7 +99,7 @@ describe('timer v2 timeline contracts', () => {
     expect(position.currentStepIndex).toBe(1)
     expect(position.stepProgress).toBeCloseTo(0.5)
     expect(position.cycleIndex).toBe(0)
-    expect(position.nextEvent.at).toBe(1_000 + 7 * minute)
+    expect(position.nextEvent?.at).toBe(1_000 + 7 * minute)
   })
 
   it('distinguishes a Sequence cycle boundary from a Pattern main boundary', () => {
@@ -259,6 +261,71 @@ describe('active hours civil-time semantics', () => {
   })
 })
 
+describe('bounded runs and availability policies', () => {
+  const local = (year: number, month: number, day: number, hour: number, minutes = 0) => new Date(year, month, day, hour, minutes, 0, 0).getTime()
+  const window = (id: string, startMinutes: number, endMinutes: number, days = 0b1111111) => ({ id, enabled: true, startMinutes, endMinutes, days })
+
+  it('ends a cycle-bounded Pattern on exactly the requested future main boundary', () => {
+    const program = { ...pattern(), runPolicy: { kind: 'cycles', cycleCount: 2, durationSeconds: 30 * 60 } as const }
+    const anchor = 0
+    const startedAt = 12 * minute
+    expect(runEndAt(program, anchor, startedAt)).toBe(60 * minute)
+    const first = nextProgramEvent(program, anchor, 29 * minute, startedAt)
+    expect(first).toMatchObject({ at: 30 * minute, completesRun: false })
+    const final = nextProgramEvent(program, anchor, 59 * minute, startedAt)
+    expect(final).toMatchObject({ at: 60 * minute, boundary: 'pattern-main', completesRun: true })
+    expect(nextProgramEvent(program, anchor, 60 * minute, startedAt)).toBeNull()
+  })
+
+  it('creates one terminal cue when an elapsed duration ends between normal cues', () => {
+    const program = { ...sequence(), runPolicy: { kind: 'duration', cycleCount: 1, durationSeconds: 90 } as const }
+    const event = nextProgramEvent(program, 1_000, 1_000, 1_000)
+    expect(event).toMatchObject({ at: 91_000, boundary: 'run-complete', completesRun: true, winner: { kind: 'run-complete', sound: program.steps.at(-1)!.sound } })
+  })
+
+  it('deduplicates a duration deadline that lands on a normal cue', () => {
+    const program = { ...pattern(), runPolicy: { kind: 'duration', cycleCount: 1, durationSeconds: 30 * 60 } as const }
+    const event = nextProgramEvent(program, 0, 29 * minute, 0)
+    expect(event).toMatchObject({ at: 30 * minute, boundary: 'pattern-main', completesRun: true })
+    expect(event?.candidates).toHaveLength(1)
+  })
+
+  it('treats multiple weekly windows as a union and finds the next one', () => {
+    const policy = { enabled: true, weeklyWindows: [window('morning', 8 * 60, 10 * 60), window('evening', 17 * 60, 20 * 60)], overrides: [] }
+    expect(isWithinActiveHours(policy, local(2026, 8, 4, 9))).toBe(true)
+    expect(isWithinActiveHours(policy, local(2026, 8, 4, 12))).toBe(false)
+    const next = new Date(nextActiveHoursStart(policy, local(2026, 8, 4, 12)))
+    expect([next.getHours(), next.getMinutes()]).toEqual([17, 0])
+  })
+
+  it('lets mute overrides win and active overrides open a closed weekly base', () => {
+    const atNoon = local(2026, 8, 4, 12)
+    const base = { enabled: true, weeklyWindows: [window('morning', 8 * 60, 10 * 60)], overrides: [] }
+    const active = { id: 'calendar-active', source: 'calendar', behavior: 'active', startAt: atNoon, endAt: atNoon + 60 * minute } as const
+    const mute = { id: 'calendar-mute', source: 'calendar', behavior: 'mute', startAt: atNoon, endAt: atNoon + 30 * minute } as const
+    expect(isWithinActiveHours({ ...base, overrides: [active] }, atNoon)).toBe(true)
+    expect(isWithinActiveHours({ ...base, overrides: [active, mute] }, atNoon)).toBe(false)
+    expect(isWithinActiveHours({ ...base, overrides: [active, mute] }, atNoon + 30 * minute)).toBe(true)
+  })
+
+  it('detects cross-window overlap and rejects an empty enabled schedule', () => {
+    expect(windowsOverlap(window('late', 22 * 60, 2 * 60, 1 << 5), window('early', 1 * 60, 3 * 60, 1 << 6))).toBe(true)
+    expect(hasAvailableTime({ enabled: true, weeklyWindows: [], overrides: [] })).toBe(false)
+  })
+
+  it('normalizes bounds, duplicate window ids, expired overrides, and maximum payload sizes', () => {
+    const now = 10_000
+    const policy = normalizeAvailabilityPolicy({
+      enabled: true,
+      weeklyWindows: [window('same', -1, 2_000), window('same', 60, 120)],
+      overrides: [{ id: 'old', source: 'calendar', behavior: 'mute', startAt: 0, endAt: 5_000 }],
+    }, now)
+    expect(policy.weeklyWindows[0]).toMatchObject({ startMinutes: 0, endMinutes: 1_439 })
+    expect(new Set(policy.weeklyWindows.map(value => value.id)).size).toBe(2)
+    expect(policy.overrides).toEqual([])
+  })
+})
+
 describe('timer v2 validation and presets', () => {
   it('repairs duplicate persisted cue identifiers deterministically', () => {
     const duplicateTracks = pattern()
@@ -355,7 +422,7 @@ describe('timer v2 validation and presets', () => {
     const migrated = migrateLegacyConfig({ mainInterval: 45, subInterval: 9, subEnabled: false, snapEnabled: true, snapOffset: 17, volume: 0.35, activeHoursEnabled: true, activeHoursDays: 0b0101010, focusModeEnabled: true })
     expect(migrated.workingPrograms.pattern).toMatchObject({ mainMinutes: 45, alignment: { kind: 'local-clock', offsetMinutes: 17 } })
     expect(migrated.workingPrograms.pattern.tracks[0]).toMatchObject({ enabled: false, cadenceMinutes: 9, selectedOffsetsMinutes: [9, 18, 27, 36] })
-    expect(migrated.settings).toMatchObject({ masterVolume: 0.35, activeHoursEnabled: true, activeHoursDays: 0b0101010, focusAutomationEnabled: true })
+    expect(migrated.settings).toMatchObject({ masterVolume: 0.35, availability: { enabled: true, weeklyWindows: [{ days: 0b0101010 }] }, focusAutomationEnabled: true })
   })
 
   it('repairs corrupt duration, volume, labels, offsets, and overlong arrays', () => {

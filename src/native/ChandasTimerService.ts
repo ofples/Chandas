@@ -24,11 +24,15 @@ export interface NativeTimerConfig {
   activeHoursStart: number
   activeHoursEnd: number
   activeHoursDays: number
+  /** Serialized availability policy; legacy active-hours fields remain as fallback. */
+  availabilityPolicy?: string
   alarmDurationSeconds: number
   /** Serialized V2 Pattern/Sequence program. Native keeps this opaque until scheduling. */
   timerV2Program?: string
   /** Absolute V2 timeline anchor in epoch milliseconds. */
   timerV2Anchor?: number
+  /** Accepted Start time, distinct from a snapped Pattern's phase anchor. */
+  timerV2StartedAt?: number
   alarmOnceArmed?: boolean
   mutedUntil?: number
   mutedIterationEndId?: string
@@ -63,9 +67,11 @@ export interface NativeTimerState {
   activeHoursStart?: number
   activeHoursEnd?: number
   activeHoursDays?: number
+  availabilityPolicy?: string
   alarmDurationSeconds?: number
   timerV2Program?: string
   timerV2Anchor?: number
+  timerV2StartedAt?: number
   alarmOnceArmed?: boolean
   mutedUntil?: number
   mutedIterationsRemaining?: number
@@ -80,10 +86,11 @@ export interface NativeTimerEvent {
   at: number
   firedAt?: number
   logicalId: string
-  boundary: 'pattern-main' | 'pattern-offset' | 'sequence-step' | 'sequence-cycle'
+  boundary: 'pattern-main' | 'pattern-offset' | 'sequence-step' | 'sequence-cycle' | 'run-complete'
   winnerCueId: string
   collision: boolean
   suppressed: boolean
+  completesRun?: boolean
   suppressionReason: 'none' | 'call-active' | 'master-muted' | 'user-mute'
 }
 

@@ -5,6 +5,7 @@ import {
   createProgramId,
   defaultTimerV2State,
   migrateLegacyConfig,
+  normalizeAvailabilityPolicy,
   normalizePatternProgram,
   normalizePreset,
   normalizeSequenceProgram,
@@ -88,6 +89,7 @@ export interface TimerSession {
 export interface TimerV2Session {
   schemaVersion: 2
   anchor: number
+  startedAt: number
   program: TimerProgram
   mute: RuntimeMuteState
   alarmBehavior: AlarmBehavior
@@ -136,6 +138,7 @@ export async function loadTimerV2Session(): Promise<TimerV2Session | null> {
     return {
       schemaVersion: 2,
       anchor: value.anchor,
+      startedAt: typeof value.startedAt === 'number' && Number.isFinite(value.startedAt) && value.startedAt > 0 ? value.startedAt : value.anchor,
       program,
       mute: {
         mutedUntil: typeof value.mute?.mutedUntil === 'number' ? Math.max(0, value.mute.mutedUntil) : 0,
@@ -177,15 +180,31 @@ function normalizeWorkingPrograms(value: Partial<WorkingProgramState> | null): W
 function normalizeSettings(value: Partial<AppTimerSettings> | null): AppTimerSettings | null {
   if (!value) return null
   const defaults = defaultTimerV2State().settings
+  const legacy = value as Partial<AppTimerSettings> & {
+    activeHoursEnabled?: boolean
+    activeHoursStart?: number
+    activeHoursEnd?: number
+    activeHoursDays?: number
+  }
+  const availability = value.availability
+    ? normalizeAvailabilityPolicy(value.availability)
+    : normalizeAvailabilityPolicy({
+        enabled: legacy.activeHoursEnabled === true,
+        weeklyWindows: [{
+          id: createProgramId(),
+          enabled: true,
+          startMinutes: typeof legacy.activeHoursStart === 'number' ? legacy.activeHoursStart : 8 * 60,
+          endMinutes: typeof legacy.activeHoursEnd === 'number' ? legacy.activeHoursEnd : 22 * 60,
+          days: typeof legacy.activeHoursDays === 'number' ? legacy.activeHoursDays : 0b1111111,
+        }],
+        overrides: [],
+      })
   return {
     masterVolume: typeof value.masterVolume === 'number' && Number.isFinite(value.masterVolume)
       ? Math.max(0, Math.min(1, value.masterVolume))
       : defaults.masterVolume,
     notificationsEnabled: value.notificationsEnabled !== false,
-    activeHoursEnabled: value.activeHoursEnabled === true,
-    activeHoursStart: typeof value.activeHoursStart === 'number' ? Math.max(0, Math.min(1439, Math.round(value.activeHoursStart))) : defaults.activeHoursStart,
-    activeHoursEnd: typeof value.activeHoursEnd === 'number' ? Math.max(0, Math.min(1439, Math.round(value.activeHoursEnd))) : defaults.activeHoursEnd,
-    activeHoursDays: typeof value.activeHoursDays === 'number' ? Math.max(0, Math.min(0b1111111, Math.round(value.activeHoursDays))) : defaults.activeHoursDays,
+    availability,
     focusAutomationEnabled: value.focusAutomationEnabled === true,
     alarmDurationSeconds: typeof value.alarmDurationSeconds === 'number'
       ? Math.max(5, Math.min(3_600, Math.round(value.alarmDurationSeconds)))

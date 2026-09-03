@@ -1,10 +1,13 @@
 import type {
   AppTimerSettings,
+  AvailabilityOverride,
+  AvailabilityPolicy,
   BuiltInSoundId,
   CueSettings,
   PatternProgram,
   PatternTrack,
   ProgramPreset,
+  RunPolicy,
   SequenceProgram,
   SequenceStep,
   SoundRef,
@@ -13,6 +16,7 @@ import type {
   TimerProgram,
   TimerV2State,
   WorkingProgramState,
+  WeeklyAvailabilityWindow,
 } from '../types'
 
 export const TIMER_V2_SCHEMA_VERSION = 2 as const
@@ -20,6 +24,10 @@ export const MAX_PATTERN_TRACKS = 5
 export const MAX_SEQUENCE_STEPS = 20
 export const MIN_DURATION_MINUTES = 1
 export const MAX_DURATION_MINUTES = 240
+export const MAX_RUN_CYCLES = 999
+export const MAX_RUN_DURATION_SECONDS = 359 * 3_600 + 59 * 60 + 59
+export const MAX_WEEKLY_WINDOWS = 16
+export const MAX_AVAILABILITY_OVERRIDES = 256
 
 const builtIn = (id: BuiltInSoundId): SoundRef => ({ kind: 'builtin', id })
 const defaultCue = (id: BuiltInSoundId): CueSettings => ({ sound: builtIn(id), volume: 1 })
@@ -43,6 +51,14 @@ export function clampDuration(value: unknown, fallback: number): number {
 
 export function clampSnapOffset(value: unknown, fallback = 0): number {
   return clamp(whole(value, fallback), 0, 59)
+}
+
+export function normalizeRunPolicy(value: Partial<RunPolicy> | undefined): RunPolicy {
+  return {
+    kind: value?.kind === 'cycles' || value?.kind === 'duration' ? value.kind : 'continuous',
+    cycleCount: clamp(whole(value?.cycleCount, 1), 1, MAX_RUN_CYCLES),
+    durationSeconds: clamp(whole(value?.durationSeconds, 30 * 60), 1, MAX_RUN_DURATION_SECONDS),
+  }
 }
 
 /** RFC-4122-shaped ID generator without a platform-specific dependency. */
@@ -78,6 +94,7 @@ export function defaultPatternProgram(): PatternProgram {
       ...defaultCue('clear-bell'),
     }],
     alignment: { kind: 'elapsed' },
+    runPolicy: normalizeRunPolicy(undefined),
   }
 }
 
@@ -93,6 +110,21 @@ export function defaultSequenceProgram(): SequenceProgram {
       step(25, 'Deep work', 'temple-gong', 0.85),
       step(2, 'Reset', 'soft-bowl', 0.55),
     ],
+    runPolicy: normalizeRunPolicy(undefined),
+  }
+}
+
+export function defaultAvailabilityPolicy(): AvailabilityPolicy {
+  return {
+    enabled: false,
+    weeklyWindows: [{
+      id: createProgramId(),
+      enabled: true,
+      startMinutes: 8 * 60,
+      endMinutes: 22 * 60,
+      days: 0b1111111,
+    }],
+    overrides: [],
   }
 }
 
@@ -100,10 +132,7 @@ export function defaultAppTimerSettings(): AppTimerSettings {
   return {
     masterVolume: 0.8,
     notificationsEnabled: true,
-    activeHoursEnabled: false,
-    activeHoursStart: 8 * 60,
-    activeHoursEnd: 22 * 60,
-    activeHoursDays: 0b1111111,
+    availability: defaultAvailabilityPolicy(),
     focusAutomationEnabled: false,
     alarmDurationSeconds: 60,
   }
@@ -182,6 +211,7 @@ export function normalizePatternProgram(value: Partial<PatternProgram> | undefin
     mainCue: normalizeCue(value?.mainCue, defaultCue('temple-gong')),
     tracks,
     alignment: offset === undefined ? { kind: 'elapsed' } : { kind: 'local-clock', offsetMinutes: offset },
+    runPolicy: normalizeRunPolicy(value?.runPolicy),
   }
 }
 
@@ -194,7 +224,55 @@ export function normalizeSequenceProgram(value: Partial<SequenceProgram> | undef
     stepIds.add(id)
     return { id, durationMinutes: clampDuration(step.durationMinutes, 5), label: normalizeLabel(step.label, `Step ${index + 1}`), ...normalizeCue(step, defaultCue('clear-bell')) }
   })
-  return { schemaVersion: TIMER_V2_SCHEMA_VERSION, mode: 'sequence', steps: steps.length > 0 ? steps : defaultSequenceProgram().steps }
+  return { schemaVersion: TIMER_V2_SCHEMA_VERSION, mode: 'sequence', steps: steps.length > 0 ? steps : defaultSequenceProgram().steps, runPolicy: normalizeRunPolicy(value?.runPolicy) }
+}
+
+export function normalizeWeeklyWindow(value: Partial<WeeklyAvailabilityWindow>, fallback?: WeeklyAvailabilityWindow): WeeklyAvailabilityWindow {
+  const defaults = fallback ?? defaultAvailabilityPolicy().weeklyWindows[0]
+  return {
+    id: typeof value.id === 'string' && value.id.length > 0 && value.id.length <= MAX_ID_CHARACTERS ? value.id : createProgramId(),
+    enabled: value.enabled !== false,
+    startMinutes: clamp(whole(value.startMinutes, defaults.startMinutes), 0, 1_439),
+    endMinutes: clamp(whole(value.endMinutes, defaults.endMinutes), 0, 1_439),
+    days: clamp(whole(value.days, defaults.days), 0, 0b1111111),
+  }
+}
+
+function normalizeAvailabilityOverride(value: Partial<AvailabilityOverride>, now: number): AvailabilityOverride | null {
+  if (value.source !== 'calendar' || (value.behavior !== 'active' && value.behavior !== 'mute')) return null
+  if (typeof value.startAt !== 'number' || !Number.isFinite(value.startAt) || typeof value.endAt !== 'number' || !Number.isFinite(value.endAt) || value.endAt <= value.startAt || value.endAt <= now) return null
+  return {
+    id: typeof value.id === 'string' && value.id.length > 0 && value.id.length <= MAX_ID_CHARACTERS ? value.id : createProgramId(),
+    startAt: value.startAt,
+    endAt: value.endAt,
+    behavior: value.behavior,
+    source: 'calendar',
+    ...(typeof value.sourceId === 'string' && value.sourceId.length > 0 && value.sourceId.length <= MAX_ID_CHARACTERS ? { sourceId: value.sourceId } : {}),
+  }
+}
+
+export function normalizeAvailabilityPolicy(value: Partial<AvailabilityPolicy> | undefined, now = Date.now()): AvailabilityPolicy {
+  const defaults = defaultAvailabilityPolicy()
+  const ids = new Set<string>()
+  const weeklyWindows = (Array.isArray(value?.weeklyWindows) ? value.weeklyWindows : defaults.weeklyWindows)
+    .slice(0, MAX_WEEKLY_WINDOWS)
+    .map(window => {
+      const normalized = normalizeWeeklyWindow(window)
+      if (ids.has(normalized.id)) normalized.id = createProgramId()
+      ids.add(normalized.id)
+      return normalized
+    })
+  const overrideIds = new Set<string>()
+  const overrides = (Array.isArray(value?.overrides) ? value.overrides : [])
+    .slice(0, MAX_AVAILABILITY_OVERRIDES)
+    .map(override => normalizeAvailabilityOverride(override, now))
+    .filter((override): override is AvailabilityOverride => override !== null)
+    .map(override => {
+      const id = overrideIds.has(override.id) ? createProgramId() : override.id
+      overrideIds.add(id)
+      return id === override.id ? override : { ...override, id }
+    })
+  return { enabled: value?.enabled === true, weeklyWindows, overrides }
 }
 
 export function normalizeLabel(value: unknown, fallback: string): string {
@@ -249,6 +327,7 @@ export function migrateLegacyConfig(legacy: Partial<TimerConfig>): TimerV2State 
       ...defaultCue('clear-bell'),
     }],
     alignment: legacy.snapEnabled ? { kind: 'local-clock', offsetMinutes: clampSnapOffset(legacy.snapOffset) } : { kind: 'elapsed' },
+    runPolicy: normalizeRunPolicy(undefined),
   }
   const defaults = defaultAppTimerSettings()
   return {
@@ -257,10 +336,17 @@ export function migrateLegacyConfig(legacy: Partial<TimerConfig>): TimerV2State 
     settings: {
       masterVolume: clampVolume(legacy.volume, defaults.masterVolume),
       notificationsEnabled: legacy.notificationsEnabled !== false,
-      activeHoursEnabled: legacy.activeHoursEnabled === true,
-      activeHoursStart: clamp(whole(legacy.activeHoursStart, defaults.activeHoursStart), 0, 1439),
-      activeHoursEnd: clamp(whole(legacy.activeHoursEnd, defaults.activeHoursEnd), 0, 1439),
-      activeHoursDays: clamp(whole(legacy.activeHoursDays, defaults.activeHoursDays), 0, 0b1111111),
+      availability: {
+        enabled: legacy.activeHoursEnabled === true,
+        weeklyWindows: [{
+          id: createProgramId(),
+          enabled: true,
+          startMinutes: clamp(whole(legacy.activeHoursStart, 8 * 60), 0, 1439),
+          endMinutes: clamp(whole(legacy.activeHoursEnd, 22 * 60), 0, 1439),
+          days: clamp(whole(legacy.activeHoursDays, 0b1111111), 0, 0b1111111),
+        }],
+        overrides: [],
+      },
       focusAutomationEnabled: legacy.focusModeEnabled === true,
       alarmDurationSeconds: clamp(whole(legacy.alarmDurationSeconds, defaults.alarmDurationSeconds), 5, 3600),
     },

@@ -2,7 +2,7 @@ import type { PatternProgram, SequenceProgram, SoundRef, TimerMode, TimerProgram
 
 export interface TimelineCueCandidate {
   cueId: string
-  kind: 'pattern-main' | 'pattern-track' | 'sequence-step'
+  kind: 'pattern-main' | 'pattern-track' | 'sequence-step' | 'run-complete'
   sound: SoundRef
   volume: number
   cadenceMinutes?: number
@@ -13,10 +13,11 @@ export interface ScheduledProgramEvent {
   at: number
   logicalId: string
   cycleIndex: number
-  boundary: 'pattern-main' | 'pattern-offset' | 'sequence-step' | 'sequence-cycle'
+  boundary: 'pattern-main' | 'pattern-offset' | 'sequence-step' | 'sequence-cycle' | 'run-complete'
   candidates: TimelineCueCandidate[]
   winner: TimelineCueCandidate
   collision: boolean
+  completesRun: boolean
 }
 
 export interface TimelinePosition {
@@ -25,7 +26,7 @@ export interface TimelinePosition {
   cycleProgress: number
   currentStepIndex?: number
   stepProgress?: number
-  nextEvent: ScheduledProgramEvent
+  nextEvent: ScheduledProgramEvent | null
 }
 
 const MINUTE_MS = 60_000
@@ -82,6 +83,7 @@ export function nextPatternEvent(program: PatternProgram, anchor: number, now = 
         candidates,
         winner,
         collision: candidates.length > 1,
+        completesRun: false,
       }
     }
     cycleIndex += 1
@@ -108,18 +110,56 @@ export function nextSequenceEvent(program: SequenceProgram, anchor: number, now 
         candidates: [winner],
         winner,
         collision: false,
+        completesRun: false,
       }
     }
     cycleIndex += 1
   }
 }
 
-export function nextProgramEvent(program: TimerProgram, anchor: number, now = Date.now()): ScheduledProgramEvent {
-  return program.mode === 'pattern' ? nextPatternEvent(program, anchor, now) : nextSequenceEvent(program, anchor, now)
+export function programCycleDurationMs(program: TimerProgram): number {
+  return program.mode === 'pattern'
+    ? program.mainMinutes * MINUTE_MS
+    : program.steps.reduce((total, step) => total + step.durationMinutes * MINUTE_MS, 0)
 }
 
-export function timelinePosition(program: TimerProgram, anchor: number, now = Date.now()): TimelinePosition {
-  const nextEvent = nextProgramEvent(program, anchor, now)
+export function runEndAt(program: TimerProgram, anchor: number, startedAt: number): number | null {
+  if (program.runPolicy.kind === 'continuous') return null
+  if (program.runPolicy.kind === 'duration') return startedAt + program.runPolicy.durationSeconds * 1_000
+  const duration = programCycleDurationMs(program)
+  // A snapped Pattern can have a phase anchor before Start. Count only cycle
+  // boundaries strictly after the accepted start timestamp.
+  const firstBoundary = anchor + (Math.floor((startedAt - anchor) / duration) + 1) * duration
+  return firstBoundary + (program.runPolicy.cycleCount - 1) * duration
+}
+
+function completionCandidate(program: TimerProgram): TimelineCueCandidate {
+  const cue = program.mode === 'pattern' ? program.mainCue : program.steps.at(-1)!
+  return { cueId: 'completion', kind: 'run-complete', sound: cue.sound, volume: cue.volume }
+}
+
+/** Returns null once a bounded run has reached or passed its terminal instant. */
+export function nextProgramEvent(program: TimerProgram, anchor: number, now = Date.now(), startedAt = anchor): ScheduledProgramEvent | null {
+  const endAt = runEndAt(program, anchor, startedAt)
+  if (endAt !== null && now >= endAt) return null
+  const next = program.mode === 'pattern' ? nextPatternEvent(program, anchor, now) : nextSequenceEvent(program, anchor, now)
+  if (endAt === null || next.at < endAt) return next
+  if (next.at === endAt) return { ...next, completesRun: true }
+  const winner = completionCandidate(program)
+  return {
+    at: endAt,
+    logicalId: `${program.mode}:${anchor}:complete:${startedAt}:${endAt}`,
+    cycleIndex: Math.max(0, Math.floor((endAt - anchor) / programCycleDurationMs(program))),
+    boundary: 'run-complete',
+    candidates: [winner],
+    winner,
+    collision: false,
+    completesRun: true,
+  }
+}
+
+export function timelinePosition(program: TimerProgram, anchor: number, now = Date.now(), startedAt = anchor): TimelinePosition {
+  const nextEvent = nextProgramEvent(program, anchor, now, startedAt)
   if (program.mode === 'pattern') {
     const duration = program.mainMinutes * MINUTE_MS
     const cycleIndex = cycleIndexAt(now, anchor, duration)

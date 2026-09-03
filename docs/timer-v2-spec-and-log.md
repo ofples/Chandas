@@ -563,10 +563,11 @@ interface CueSettings {
   volume: number // normalized 0..1
 }
 
-type RunPolicy =
-  | { kind: 'continuous' }
-  | { kind: 'cycles'; count: number }
-  | { kind: 'duration'; seconds: number }
+interface RunPolicy {
+  kind: 'continuous' | 'cycles' | 'duration'
+  cycleCount: number // preserved while another kind is selected
+  durationSeconds: number // preserved while another kind is selected
+}
 
 interface PatternTrack extends CueSettings {
   id: string

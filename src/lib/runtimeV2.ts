@@ -101,9 +101,9 @@ export function gateProgramAudio(options: {
     ? { mutedUntil: 0, iteration: mute.iteration }
     : mute
   const isMain = event.boundary === 'pattern-main'
-  const continuousAlarmRequested = isMain && alarmBehavior !== 'off'
-  const consumesOnce = isMain && alarmBehavior === 'once'
-  const consumedAlarmBehavior: AlarmBehavior = consumesOnce ? 'off' : alarmBehavior
+  const continuousAlarmRequested = isMain && !event.completesRun && alarmBehavior !== 'off'
+  const consumesOnce = isMain && !event.completesRun && alarmBehavior === 'once'
+  const consumedAlarmBehavior: AlarmBehavior = event.completesRun ? 'off' : consumesOnce ? 'off' : alarmBehavior
 
   // A call is a temporary external gate. It must not consume or clear the
   // user's timed mute or alarm state, and the missed event is never replayed.
@@ -122,13 +122,13 @@ export function gateProgramAudio(options: {
     if (event.logicalId === iteration.endsAtLogicalId || event.at > iteration.endsAt) {
       // At the requested final boundary the cue is audible. If process delay
       // moved past it, clear safely and resume only at this future event.
-      return { shouldPlay: true, disposition: isMain && alarmBehavior !== 'off' ? 'continuous-alarm' : 'one-shot', reason: 'none', nextMute: { mutedUntil: 0 }, nextAlarmBehavior: consumedAlarmBehavior, consumeAlarmOnce: consumesOnce }
+      return { shouldPlay: true, disposition: continuousAlarmRequested ? 'continuous-alarm' : 'one-shot', reason: 'none', nextMute: { mutedUntil: 0 }, nextAlarmBehavior: consumedAlarmBehavior, consumeAlarmOnce: consumesOnce }
     }
     return { shouldPlay: false, disposition: 'suppressed', reason: 'iteration-mute', nextMute: normalizedMute, nextAlarmBehavior: alarmBehavior, consumeAlarmOnce: false }
   }
   return {
     shouldPlay: true,
-    disposition: isMain && alarmBehavior !== 'off' ? 'continuous-alarm' : 'one-shot',
+    disposition: continuousAlarmRequested ? 'continuous-alarm' : 'one-shot',
     reason: 'none',
     nextMute: normalizedMute,
     nextAlarmBehavior: consumedAlarmBehavior,
