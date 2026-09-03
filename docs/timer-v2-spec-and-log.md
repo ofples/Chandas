@@ -1354,6 +1354,27 @@ This section is append-only. Every implementation session should record scope, m
 
 **Known gaps:** The existing `useTimer` and Kotlin scheduler do not consume this engine yet. Their migration is the next runtime-integration slice.
 
+### 2026-09-03 — Program editor operations
+
+**Status:** Complete.
+
+**Scope:** Add the immutable operations consumed by the V2 editor before rendering its flows.
+
+**Files changed:**
+
+- `src/lib/programActions.ts`
+
+**Behavior implemented:**
+
+- Pattern tracks support adding/removing (up to five), cadence changes, clear/select/toggle grid offsets, and deterministic reordering.
+- Main-duration changes retain only valid in-range cues; normalization validates final cadence/offset relationships.
+- Sequence steps support adding/removing (never zero), editing and deterministic reordering.
+- Saving creates an immutable snapshot; loading copies a snapshot into working state; later edits never change the saved item; deletion only removes the saved snapshot.
+
+**Verification:**
+
+- `npx tsc --noEmit` completed successfully.
+
 ### Implementation-entry template
 
 ```md
