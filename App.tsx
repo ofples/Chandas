@@ -6,7 +6,7 @@ import { useFonts, JetBrainsMono_300Light, JetBrainsMono_400Regular } from '@exp
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext'
 import type { AppState, TimerV2State } from './src/types'
 import { useTimerV2 } from './src/hooks/useTimerV2'
-import { loadTimerV2Session, loadTimerV2State, saveTimerV2State } from './src/lib/storage'
+import { loadTimerV2Session, loadTimerV2State, saveTimerV2State, type TimerV2Session } from './src/lib/storage'
 import { selectedProgram } from './src/lib/timerV2'
 import { TimerV2ConfigScreen } from './src/screens/TimerV2ConfigScreen'
 import { TimerV2RunningScreen } from './src/screens/TimerV2RunningScreen'
@@ -26,6 +26,7 @@ function Root() {
   const [ready, setReady] = useState(false)
   const [focusPolicyAccess, setFocusPolicyAccess] = useState(false)
   const [focusModeActive, setFocusModeActive] = useState(false)
+  const [restoreSession, setRestoreSession] = useState<TimerV2Session | null>(null)
   const program = timerState ? selectedProgram(timerState) : null
   const timer = useTimerV2(program ?? FALLBACK_PROGRAM, timerState?.settings ?? FALLBACK_SETTINGS)
 
@@ -48,13 +49,19 @@ function Root() {
       setTimerState(stored)
       if (session) {
         setAppState('running')
-        void timer.start(session)
+        setRestoreSession(session)
       }
       setReady(true)
     })()
     // The hook is intentionally stable during the one-time async restore.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    if (!restoreSession || !timerState) return
+    void timer.start(restoreSession)
+    setRestoreSession(null)
+  }, [restoreSession, timer, timerState])
 
   const changeTimerState = (next: TimerV2State) => {
     setTimerState(next)
