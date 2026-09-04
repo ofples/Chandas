@@ -9,6 +9,9 @@ import { useTheme } from '../../theme/ThemeContext'
 import { BottomSheet } from './BottomSheet'
 import { GentleNotice, type AppNotice } from './experience-feedback'
 import { formatDuration } from './run-length-config'
+import { SegmentedControl } from './SegmentedControl'
+
+const FILTERS = [{ value: 'all', label: 'All' }, { value: 'pattern', label: 'Cycle' }, { value: 'sequence', label: 'Sequence' }] as const
 
 interface Props {
   visible: boolean
@@ -81,7 +84,7 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedba
         <Pressable disabled={!canSave} onPress={save} style={[styles.save, { backgroundColor: tokens.accent, opacity: canSave ? 1 : 0.35 }]} accessibilityRole="button"><Text style={styles.saveText}>Save</Text></Pressable>
       </View> : null}
       {!selected && savedName ? <GentleNotice title="Configuration saved" message={`“${savedName}” is ready to load.`} tone="success" /> : null}
-      {!selected ? <View style={styles.filters} accessibilityRole="tablist">{([['all', 'All'], ['pattern', 'Cycle'], ['sequence', 'Sequence']] as const).map(([value, label]) => <Pressable key={value} onPress={() => setFilter(value)} style={[styles.filter, { borderColor: filter === value ? tokens.accent : tokens.border, backgroundColor: filter === value ? tokens.accentGlow : 'transparent' }]} accessibilityRole="tab" accessibilityState={{ selected: filter === value }}><Text style={[styles.filterText, { color: filter === value ? tokens.accent : tokens.textMuted }]}>{label}</Text></Pressable>)}</View> : null}
+      {!selected ? <SegmentedControl items={FILTERS} value={filter} onChange={setFilter} accessibilityLabel="Configuration type" /> : null}
       {selected ? <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 130)} style={[styles.inspector, { borderColor: tokens.accent, backgroundColor: tokens.accentGlow }]}>
         <View style={styles.copy}><Text style={[styles.presetTitle, { color: tokens.text }]}>{selected.name}</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{selected.program.mode === 'pattern' ? `Cycle · ${summary(selected)}` : `Sequence · ${summary(selected)}`}</Text><Text style={[styles.date, { color: tokens.textMuted }]}>Saved {new Date(selected.createdAt).toLocaleString()}</Text><PresetDetails preset={selected} /><Text style={[styles.helper, { color: tokens.textMuted }]}>Loads as a new working copy.</Text></View>
         <View style={styles.inspectorActions}><Pressable onPress={() => remove(selected)} accessibilityRole="button"><Text style={[styles.delete, { color: tokens.textMuted }]}>Delete</Text></Pressable><View style={styles.inspectorPrimary}><Pressable onPress={() => setSelectedId(null)} accessibilityRole="button"><Text style={[styles.action, { color: tokens.textMuted }]}>Cancel</Text></Pressable><Pressable onPress={() => { onChange(loadProgramPreset(state, selected.id)); setSelectedId(null); onClose(); onFeedback({ title: 'Configuration loaded', message: `“${selected.name}” is ready to adjust.`, tone: 'success' }) }} style={[styles.loadButton, { backgroundColor: tokens.accent }]} accessibilityRole="button"><Text style={styles.loadText}>Load</Text></Pressable></View></View>
@@ -130,9 +133,6 @@ const styles = StyleSheet.create({
   input: { flex: 1, minHeight: 45, borderWidth: 1.5, borderRadius: 11, paddingHorizontal: 12, fontSize: 14 },
   save: { borderRadius: 11, justifyContent: 'center', paddingHorizontal: 15 },
   saveText: { color: '#fff', fontSize: 12, fontWeight: '700' },
-  filters: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
-  filter: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 99, borderWidth: 1.5 },
-  filterText: { fontSize: 11, fontWeight: '700' },
   list: { gap: 9 },
   empty: { padding: 18, borderWidth: 1.5, borderStyle: 'dashed', borderRadius: 13, gap: 4 },
   emptyTitle: { fontSize: 14, fontWeight: '700' },

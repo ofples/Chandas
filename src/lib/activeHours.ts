@@ -1,4 +1,4 @@
-import type { AvailabilityOverride, AvailabilityPolicy, WeeklyAvailabilityWindow } from '../types'
+import type { AvailabilityOverride, AvailabilityPolicy, TimerProgram, WeeklyAvailabilityWindow } from '../types'
 
 /** Compatibility shape used only by the v1 screen/runtime during migration. */
 export interface ActiveHoursSettings {
@@ -9,6 +9,11 @@ export interface ActiveHoursSettings {
 }
 
 export type AvailabilitySettings = AvailabilityPolicy | ActiveHoursSettings
+
+/** Bounded runs are intentionally uninterrupted; saved schedules remain available for Continuous mode. */
+export function effectiveAvailabilityForProgram(program: Pick<TimerProgram, 'runPolicy'>, availability: AvailabilityPolicy): AvailabilityPolicy {
+  return program.runPolicy.kind === 'continuous' ? availability : { enabled: false, weeklyWindows: [], overrides: [] }
+}
 
 const DAY_MS = 86_400_000
 

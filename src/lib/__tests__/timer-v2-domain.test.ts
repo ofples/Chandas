@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { PatternProgram, SequenceProgram } from '../../types'
-import { chooseProgramMode, deleteProgramPreset, loadProgramPreset, patchSequenceStep, saveProgramPreset, setPatternSubBellsEnabled, updatePatternMainMinutes } from '../programActions'
+import { chooseProgramMode, deleteProgramPreset, loadProgramPreset, patchSequenceStep, saveProgramPreset, setPatternSubBellsEnabled, setTrackCadence, updatePatternMainMinutes } from '../programActions'
 import { alarmBehaviorAfterGesture, gateProgramAudio, isFreshScheduledEvent, iterationMuteFor, muteAfterScheduleChange, shouldSurfaceTimerSignal } from '../runtimeV2'
 import { defaultTimerV2State, migrateLegacyConfig, normalizeAvailabilityPolicy, normalizePatternProgram, normalizeSequenceProgram, normalizeSoundRef, parseTimerProgram, validOffsets } from '../timerV2'
 import { nextPatternEvent, nextProgramEvent, nextSequenceEvent, runEndAt, timelinePosition } from '../timeline'
-import { hasAvailableTime, isWithinActiveHours, nextActiveHoursStart, windowsOverlap } from '../activeHours'
+import { effectiveAvailabilityForProgram, hasAvailableTime, isWithinActiveHours, nextActiveHoursStart, windowsOverlap } from '../activeHours'
 import timelineFixtures from '../../../fixtures/timer-v2-timeline.json'
 
 const minute = 60_000
@@ -463,6 +463,44 @@ describe('timer v2 validation and presets', () => {
     const shortened = updatePatternMainMinutes(configured, 10)
     expect(shortened.workingPrograms.pattern.tracks[0].cadenceMinutes).toBe(15)
     expect(shortened.workingPrograms.pattern.tracks[0].selectedOffsetsMinutes).toEqual([])
+  })
+
+  it('repeats a partial sub-bell selection pattern when the main interval grows', () => {
+    const initial = defaultTimerV2State()
+    const track = initial.workingPrograms.pattern.tracks[0]
+    const configured = {
+      ...initial,
+      workingPrograms: {
+        ...initial.workingPrograms,
+        pattern: { ...initial.workingPrograms.pattern, mainMinutes: 10, tracks: [{ ...track, cadenceMinutes: 2, selectedOffsetsMinutes: [2, 6] }] },
+      },
+    }
+    const expanded = updatePatternMainMinutes(configured, 30)
+    expect(expanded.workingPrograms.pattern.tracks[0].selectedOffsetsMinutes).toEqual([2, 6, 10, 14, 18, 22, 26])
+  })
+
+  it('keeps every occurrence selected when duration or cadence changes', () => {
+    const initial = defaultTimerV2State()
+    const track = initial.workingPrograms.pattern.tracks[0]
+    const configured = {
+      ...initial,
+      workingPrograms: {
+        ...initial.workingPrograms,
+        pattern: { ...initial.workingPrograms.pattern, mainMinutes: 10, tracks: [{ ...track, cadenceMinutes: 2, selectedOffsetsMinutes: [2, 4, 6, 8] }] },
+      },
+    }
+    const expanded = updatePatternMainMinutes(configured, 30)
+    expect(expanded.workingPrograms.pattern.tracks[0].selectedOffsetsMinutes).toEqual(validOffsets(30, 2))
+    const recadenced = setTrackCadence(configured, track.id, 5)
+    expect(recadenced.workingPrograms.pattern.tracks[0].selectedOffsetsMinutes).toEqual([5])
+  })
+
+  it('preserves schedules for continuous runs and ignores them for bounded runs', () => {
+    const availability = defaultTimerV2State().settings.availability
+    const continuous = effectiveAvailabilityForProgram(pattern(), availability)
+    const bounded = effectiveAvailabilityForProgram({ ...pattern(), runPolicy: { kind: 'duration', cycleCount: 1, durationSeconds: 3_600 } }, availability)
+    expect(continuous).toBe(availability)
+    expect(bounded).toEqual({ enabled: false, weeklyWindows: [], overrides: [] })
   })
 
   it('allows a cadence longer than the main interval as an empty selectable lattice', () => {

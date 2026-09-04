@@ -52,10 +52,15 @@ export function updatePatternMainMinutes(state: TimerV2State, minutes: number): 
     return {
       ...program,
       mainMinutes,
-      tracks: program.tracks.map(track => ({
-        ...track,
-        selectedOffsetsMinutes: track.selectedOffsetsMinutes.filter(offset => offset > 0 && offset < mainMinutes),
-      })),
+      tracks: program.tracks.map(track => {
+        const previousOffsets = validOffsets(program.mainMinutes, track.cadenceMinutes)
+        const nextOffsets = validOffsets(mainMinutes, track.cadenceMinutes)
+        if (mainMinutes <= program.mainMinutes) return { ...track, selectedOffsetsMinutes: track.selectedOffsetsMinutes.filter(offset => nextOffsets.includes(offset)) }
+        const selected = new Set(track.selectedOffsetsMinutes)
+        if (previousOffsets.length === 0 || previousOffsets.every(offset => selected.has(offset))) return { ...track, selectedOffsetsMinutes: nextOffsets }
+        const selectedPattern = previousOffsets.map(offset => selected.has(offset))
+        return { ...track, selectedOffsetsMinutes: nextOffsets.filter((_, index) => selectedPattern[index % selectedPattern.length]) }
+      }),
     }
   })
 }
@@ -102,7 +107,12 @@ export function setTrackCadence(state: TimerV2State, trackId: string, cadenceMin
     tracks: program.tracks.map(track => {
       if (track.id !== trackId) return track
       const cadence = clampDuration(cadenceMinutes, track.cadenceMinutes)
-      return { ...track, cadenceMinutes: cadence, selectedOffsetsMinutes: track.selectedOffsetsMinutes.filter(offset => offset % cadence === 0) }
+      const previousOffsets = validOffsets(program.mainMinutes, track.cadenceMinutes)
+      const selected = new Set(track.selectedOffsetsMinutes)
+      const selectedOffsetsMinutes = previousOffsets.length === 0 || previousOffsets.every(offset => selected.has(offset))
+        ? validOffsets(program.mainMinutes, cadence)
+        : track.selectedOffsetsMinutes.filter(offset => offset % cadence === 0)
+      return { ...track, cadenceMinutes: cadence, selectedOffsetsMinutes }
     }),
   }))
 }

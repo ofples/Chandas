@@ -4,6 +4,7 @@ import Animated, { FadeInDown, FadeOut, LinearTransition, useReducedMotion } fro
 import type { RunPolicy, TimerMode } from '../../types'
 import { MAX_RUN_CYCLES, MAX_RUN_DURATION_SECONDS } from '../../lib/timerV2'
 import { useTheme } from '../../theme/ThemeContext'
+import { SegmentedControl } from './SegmentedControl'
 
 interface Props {
   mode: TimerMode
@@ -13,9 +14,9 @@ interface Props {
 }
 
 const choices = [
-  { kind: 'continuous', label: 'Continuous' },
-  { kind: 'cycles', label: 'Cycles' },
-  { kind: 'duration', label: 'Duration' },
+  { value: 'continuous', label: 'Continuous' },
+  { value: 'cycles', label: 'Cycles' },
+  { value: 'duration', label: 'Duration' },
 ] as const
 
 export function RunLengthConfig({ mode, value, cycleDurationSeconds, onChange }: Props) {
@@ -30,38 +31,31 @@ export function RunLengthConfig({ mode, value, cycleDurationSeconds, onChange }:
 
   return <View style={styles.section}>
     <View style={styles.heading}><Text style={[styles.eyebrow, { color: tokens.textMuted }]}>RUN LENGTH</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{summary}</Text></View>
-    <View style={[styles.segmented, { borderColor: tokens.border }]} accessibilityRole="tablist">
-      {choices.map(choice => {
-        const selected = value.kind === choice.kind
-        return <Pressable key={choice.kind} onPress={() => onChange({ ...value, kind: choice.kind })} accessibilityRole="tab" accessibilityState={{ selected }} style={({ pressed }) => [styles.segment, selected && { backgroundColor: tokens.accentGlow }, { opacity: pressed ? 0.74 : 1 }]}><Text style={[styles.segmentText, { color: selected ? tokens.accent : tokens.textMuted }]}>{choice.label}</Text></Pressable>
-      })}
-    </View>
+    <SegmentedControl items={choices} value={value.kind} onChange={kind => onChange({ ...value, kind })} accessibilityLabel="Run length" />
     {value.kind !== 'continuous' ? <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 170)} exiting={FadeOut.duration(reducedMotion ? 70 : 110)} layout={reducedMotion ? undefined : LinearTransition.duration(150)}>
       {value.kind === 'cycles'
-        ? <View style={styles.valueRow}><StepButton label="Decrease cycles" glyph="−" disabled={value.cycleCount <= 1} onPress={() => onChange({ ...value, cycleCount: value.cycleCount - 1 })} /><NumberField label={mode === 'sequence' ? 'Rounds' : 'Main cycles'} value={value.cycleCount} max={MAX_RUN_CYCLES} onCommit={cycleCount => onChange({ ...value, cycleCount })} /><StepButton label="Increase cycles" glyph="+" disabled={value.cycleCount >= MAX_RUN_CYCLES} onPress={() => onChange({ ...value, cycleCount: value.cycleCount + 1 })} /></View>
+        ? <View style={styles.stepper}><View style={styles.valueRow}><StepButton label="Decrease cycles" glyph="−" disabled={value.cycleCount <= 1} onPress={() => onChange({ ...value, cycleCount: value.cycleCount - 1 })} /><NumberField label={mode === 'sequence' ? 'Rounds' : 'Main cycles'} value={value.cycleCount} max={MAX_RUN_CYCLES} onCommit={cycleCount => onChange({ ...value, cycleCount })} hideLabel /><StepButton label="Increase cycles" glyph="+" disabled={value.cycleCount >= MAX_RUN_CYCLES} onPress={() => onChange({ ...value, cycleCount: value.cycleCount + 1 })} /></View><Text style={[styles.fieldLabel, { color: tokens.textMuted }]}>{mode === 'sequence' ? 'ROUNDS' : 'MAIN CYCLES'}</Text></View>
         : <DurationFields seconds={value.durationSeconds} onChange={durationSeconds => onChange({ ...value, durationSeconds })} />}
     </Animated.View> : null}
   </View>
 }
 
 function DurationFields({ seconds, onChange }: { seconds: number; onChange: (seconds: number) => void }) {
-  const hours = Math.floor(seconds / 3_600)
-  const minutes = Math.floor(seconds % 3_600 / 60)
-  const rest = seconds % 60
-  const update = (nextHours: number, nextMinutes: number, nextSeconds: number) => {
-    const total = Math.max(1, Math.min(MAX_RUN_DURATION_SECONDS, nextHours * 3_600 + nextMinutes * 60 + nextSeconds))
+  const totalMinutes = Math.max(1, Math.round(seconds / 60))
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  const update = (nextHours: number, nextMinutes: number) => {
+    const total = Math.max(60, Math.min(MAX_RUN_DURATION_SECONDS, nextHours * 3_600 + nextMinutes * 60))
     onChange(total)
   }
   return <View style={styles.durationRow}>
-    <NumberField label="Hours" value={hours} max={359} onCommit={value => update(value, minutes, rest)} />
+    <NumberField label="Hours" value={hours} max={359} onCommit={value => update(value, minutes)} />
     <Text style={styles.colon}>:</Text>
-    <NumberField label="Minutes" value={minutes} max={59} onCommit={value => update(hours, value, rest)} />
-    <Text style={styles.colon}>:</Text>
-    <NumberField label="Seconds" value={rest} max={59} onCommit={value => update(hours, minutes, value)} />
+    <NumberField label="Minutes" value={minutes} max={59} onCommit={value => update(hours, value)} />
   </View>
 }
 
-function NumberField({ label, value, max, onCommit }: { label: string; value: number; max: number; onCommit: (value: number) => void }) {
+function NumberField({ label, value, max, onCommit, hideLabel = false }: { label: string; value: number; max: number; onCommit: (value: number) => void; hideLabel?: boolean }) {
   const { tokens } = useTheme()
   const [draft, setDraft] = useState(String(value))
   useEffect(() => setDraft(String(value)), [value])
@@ -71,7 +65,7 @@ function NumberField({ label, value, max, onCommit }: { label: string; value: nu
     onCommit(next)
     setDraft(String(next))
   }
-  return <View style={styles.fieldWrap}><TextInput value={draft} onChangeText={text => setDraft(text.replace(/\D/g, '').slice(0, 3))} onBlur={commit} onSubmitEditing={commit} keyboardType="number-pad" selectTextOnFocus accessibilityLabel={label} style={[styles.field, { color: tokens.text, borderColor: tokens.border, backgroundColor: tokens.surface }]} /><Text style={[styles.fieldLabel, { color: tokens.textMuted }]}>{label}</Text></View>
+  return <View style={styles.fieldWrap}><TextInput value={draft} onChangeText={text => setDraft(text.replace(/\D/g, '').slice(0, 3))} onBlur={commit} onSubmitEditing={commit} keyboardType="number-pad" selectTextOnFocus accessibilityLabel={label} style={[styles.field, { color: tokens.text, borderColor: tokens.border, backgroundColor: tokens.surface }]} />{hideLabel ? null : <Text style={[styles.fieldLabel, { color: tokens.textMuted }]}>{label}</Text>}</View>
 }
 
 function StepButton({ label, glyph, disabled, onPress }: { label: string; glyph: string; disabled: boolean; onPress: () => void }) {
@@ -89,7 +83,6 @@ export function formatDuration(seconds: number): string {
 
 const styles = StyleSheet.create({
   section: { gap: 12 }, heading: { gap: 4 }, eyebrow: { fontSize: 11, fontWeight: '700', letterSpacing: 1.3 }, helper: { fontSize: 12, lineHeight: 17 },
-  segmented: { flexDirection: 'row', borderWidth: 1.5, borderRadius: 13, padding: 3, gap: 3 }, segment: { flex: 1, minHeight: 39, borderRadius: 9, alignItems: 'center', justifyContent: 'center' }, segmentText: { fontSize: 12, fontWeight: '700' },
-  valueRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12 }, step: { width: 42, height: 42, borderWidth: 1.5, borderRadius: 21, alignItems: 'center', justifyContent: 'center' }, stepGlyph: { fontSize: 22, lineHeight: 24 },
+  stepper: { alignItems: 'center', gap: 5 }, valueRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12 }, step: { width: 44, height: 44, borderWidth: 1.5, borderRadius: 22, alignItems: 'center', justifyContent: 'center' }, stepGlyph: { fontSize: 22, lineHeight: 24, textAlignVertical: 'center' },
   durationRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'center', gap: 8 }, colon: { fontFamily: 'JetBrainsMono-Regular', fontSize: 24, paddingTop: 8 }, fieldWrap: { alignItems: 'center', gap: 5 }, field: { width: 70, minHeight: 44, borderWidth: 1.5, borderRadius: 12, textAlign: 'center', fontFamily: 'JetBrainsMono-Regular', fontSize: 19, fontVariant: ['tabular-nums'], paddingHorizontal: 5 }, fieldLabel: { fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.6 },
 })

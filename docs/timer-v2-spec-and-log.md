@@ -8,7 +8,7 @@
 | Product | Chandas Android interval timer |
 | Scope | Timer v2 program model, advanced scheduling, audio, Focus/DND, presets, runtime controls, and help |
 | Primary platform | Android |
-| Specification version | 1.7 |
+| Specification version | 1.8 |
 | Created | 2026-09-02 |
 | Implementation rule | Deliver as one cohesive refactor; intermediate builds do not have to be usable |
 | Build rule | Never run a local native build, Gradle task, Expo native run, prebuild, or export. Remote EAS only when explicitly requested. |
@@ -150,6 +150,12 @@ Timer v2 replaces these assumptions rather than layering special cases over them
 | D-050 | Sub-bells are one progressively disclosed layer with a single top-level switch. Fresh configurations keep the layer Off while preserving a ready first sub-bell; enabling reveals that sub-bell and Add, disabling hides and suppresses the layer without destroying its settings. |
 | D-051 | Interval names are edited in place by tapping the displayed title. Editors do not repeat the same name in a separate field. Main duration is represented only by quick choices and a Custom chip; a selected custom value replaces the word Custom and carries a pencil affordance. |
 | D-052 | Configuration uses one visual indentation level. Cue selection, volume, sub-bell rows, and schedule ranges use flat rows rather than nested cards. Master volume remains directly visible; sound selection and the full channel list follow as secondary actions. |
+| D-053 | The Cycle main interval has the fixed visible name `Main interval`; its stored legacy label remains compatibility data and is no longer editable or shown. Sub-bell and Sequence names remain tap-to-edit, indicated by a quiet dotted underline rather than a pencil icon. This supersedes the main-name and pencil portions of D-047 and D-051. |
+| D-054 | Main-duration shortcuts are `5`, `10`, `15`, `30`, `45`, and `60` minutes in a horizontal strip with Custom fixed at the trailing edge. A selected custom value appears without an edit icon. Clock-alignment shortcuts use the same layout and five-minute phases derived from the main interval; Custom opens the same minute-entry modal pattern. This supersedes D-029's narrower main/snap lists. |
+| D-055 | New tracks select every valid occurrence. A track summary says `N occurrences` when all are selected and `N/M selected` only after a user deselects occurrences. Growing the main interval repeats the existing occurrence-selection mask forward; an all-selected mask stays all selected. Shortening still removes only cues outside the new interval. |
+| D-056 | Run length belongs inside each mode editor, immediately after the interval structure it bounds. Bounded runs ignore Schedule completely and run uninterrupted for their chosen cycles or elapsed duration; the saved Schedule remains intact and reappears when Continuous is selected. Duration entry exposes hours and minutes only and stores whole-minute bounds, superseding the input granularity in D-035 while retaining its seconds-based storage contract. |
+| D-057 | Every segmented tab control uses one shared component and the Cycle/Sequence selected treatment: solid accent fill with white text. Add-sub-bell, Add-step, and Add-time-range actions likewise share one component. |
+| D-058 | The running audio sheet is titled only `Sound`. Its master slider has no redundant heading, per-cue controls use a flat `Sound levels` disclosure, and selected-sound preview uses the same circular play/stop control as library rows. |
 
 ---
 
@@ -191,12 +197,12 @@ The base configuration screen remains a single centered column with a fixed Star
    - `Load` and `Save as` actions.
 2. Mode selector.
 3. Mode summary:
-   - Pattern: an in-place editable title, quick-duration chips, and an optional compact list of automatically ordered sub-bells.
+   - Pattern: a fixed `Main interval` title, quick-duration choices, and an optional compact list of automatically ordered sub-bells.
    - Sequence: total cycle duration and ordered step summaries; the active step editor uses the same quick-choice pattern.
 4. Sound section with visible Master volume, the primary sound choice, and a secondary full sound-levels action.
-5. Snap settings for Pattern only, including the legacy `:00`, `:10`, `:15`, and custom quick choices.
-6. Run length containing Continuous and bounded Cycle/Duration choices.
-7. Schedule containing one or more weekly active windows, collapsed behind a simple toggle when unused.
+5. Snap settings for Pattern only, with five-minute phase choices derived from the current main interval and a fixed trailing Custom action.
+6. Run length directly beneath the Pattern main settings or Sequence step list, containing Continuous and bounded Cycle/Duration choices.
+7. Schedule containing one or more weekly active windows, shown only for Continuous runs and collapsed behind a simple toggle when unused.
 8. Advanced settings containing Chandas Focus and platform access.
 9. Start.
 
@@ -262,7 +268,7 @@ The Pattern editor contains:
 
 Tracks are normalized into descending cadence order. When two or more enabled tracks select the same offset, the track with the longer repeat interval wins; equal cadences retain stable source order. This makes the visible list match the collision rule without a separate priority control.
 
-The main-duration control retains the existing quick choices `10`, `15`, and `30` minutes plus Custom, without a duplicate numeric field. Track cadence and Sequence step duration editors use the same chip pattern with context-appropriate values plus Custom. When a custom duration is active, its value and pencil replace the Custom label. Pattern snap retains `:00`, `:10`, `:15`, and Custom.
+The main-duration control provides `5`, `10`, `15`, `30`, `45`, and `60` minutes in a horizontally scrollable shortcut strip, with Custom fixed at the trailing edge and no duplicate numeric field. Track cadence and Sequence step duration editors use the same pattern with context-appropriate values. A selected custom value replaces the Custom label without an icon. Pattern snap derives five-minute phase shortcuts from the current main interval and uses the same fixed Custom/modal behavior.
 
 Disabling a track preserves all settings and selections but removes it from scheduling and collision calculations.
 
@@ -271,7 +277,7 @@ Changing the main duration:
 - Retains track cadence.
 - Drops selected offsets that are no longer strictly inside the main duration.
 - Shows a confirmation when at least one selected offset would be removed.
-- Recomputes overlap annotations.
+- When growing, repeats the existing occurrence-selection mask forward. An all-selected or previously empty lattice selects every newly available occurrence.
 
 ### 7.3 Track editor and trigger grid
 
@@ -324,7 +330,7 @@ Run length is configured independently for Pattern and Sequence and is included 
 - `Cycles` accepts a whole number from 1–999.
   - Pattern copy uses `main cycles`.
   - Sequence copy uses `rounds`, with `cycle` retained in Help as the formal term.
-- `Duration` accepts hours, minutes, and seconds and normalizes them to a total of 1 second through 359:59:59.
+- `Duration` accepts hours and minutes and normalizes them to a whole-minute total from 1 minute through 359:59. The domain/native representation remains seconds for compatibility, always as a multiple of 60 when edited by this UI.
 - Switching between choices preserves the most recently entered valid cycle count and duration so experimentation is reversible; only the selected policy is scheduled.
 - The setup summary states the concrete outcome, for example `Ends after 6 main cycles · 3:00:00` or `Ends after 45:00`.
 - Start is unavailable only while the selected bound is invalid. Validation is local, calm, and specific; it never erases the user's last valid value.
@@ -335,7 +341,7 @@ Bound semantics:
 - Start derives and persists a fixed `endsAt`. Timezone/DST realignment may move a snapped Pattern's cue phase but never silently lengthens or shortens the promised session; if a former cycle terminal no longer coincides with a realigned main boundary, it becomes the same one-shot synthetic completion event used by a duration bound.
 - A cycle bound ends after the requested number of natural cycle boundaries strictly following Start. It includes exactly the requested number of newly completed Pattern main intervals or Sequence rounds; a snapped boundary coincident with the Start tap is not counted retroactively.
 - A duration bound ends at `startedAt + durationSeconds × 1000`.
-- Schedule windows, Focus state, calls, and user mute gate sound but never extend the deadline.
+- Focus state, calls, and user mute may gate sound but never extend the deadline. Schedule is not applied to a bounded run.
 - At an exact collision between the deadline and a normal event, the event is marked `completesRun` and is delivered once.
 - At a between-cue deadline, a synthetic `run-complete` event uses the Pattern main cue or Sequence final-step cue.
 - A delivery recovered after the deadline clears the run without replaying a stale completion cue.
@@ -345,6 +351,7 @@ Bound semantics:
 
 The schedule card is intentionally lightweight:
 
+- It is available only when the selected run length is Continuous. Choosing a bounded run hides and ignores it without deleting any saved ranges.
 - Off means always available.
 - On reveals an ordered list of weekly windows plus `Add time range`.
 - Each window has a concise day summary, start/end times, and an enabled switch.
@@ -1348,6 +1355,7 @@ Do not edit old entries to reflect new conclusions. Add a superseding entry and 
 | 2026-09-03 | D-044–D-046 | Accepted | Extend the feedback direction across Timer v2 with quiet routine transitions, progressive disclosure, and consistent one-title/one-value navigation rows. |
 | 2026-09-04 | D-049 | Accepted | Restore the cadence-first overlap rule and automatic longest-first sorting. This supersedes manual Pattern priority from D-028 and removes a control that does not change the interval structure. |
 | 2026-09-04 | D-050–D-052 | Accepted | Apply the third feedback round as progressive disclosure, title-based editing, visible Master volume, and one flat indentation level. The explicitly excluded custom ending-gong idea remains deferred under D-048. |
+| 2026-09-04 | D-053–D-058 | Accepted | Apply the fourth annotated-feedback round: remove the main-name and pencil affordances, expand and align quick choices, repeat cue masks on growth, keep schedules Continuous-only, unify segmented/Add controls, and simplify the live Sound sheet. |
 
 ### Decision-entry template
 
@@ -1942,6 +1950,37 @@ This section is append-only. Every implementation session should record scope, m
 
 **Risks or follow-ups:** The source-compatible group switch is deliberately serialized as disabled per-track native input so it remains safe for OTA delivery to the current binary.
 
+### 2026-09-04 — Fourth annotated-feedback consistency pass
+
+**Status:** Complete in source and compatible with the existing Android runtime.
+
+**Scope:** Forty-four written/image document blocks and eleven embedded screenshots from `feedback 4.docx`, covering edit affordances, main/snap shortcuts, sub-bell selection behavior, shared segmented controls, run-length placement and input, Schedule semantics, sound preview, add controls, Help alignment, and the running Sound sheet.
+
+**Decisions referenced:** D-053–D-058; D-048 and D-049 remain unchanged.
+
+**Behavior implemented:**
+
+- Removed main-interval renaming from the product surface and removed pencil glyphs everywhere. Sub-bell and Sequence names remain editable through their title, with a restrained dotted underline and accessibility hint.
+- Expanded main shortcuts to 5/10/15/30/45/60 minutes. Presets scroll independently while Custom stays fixed at the trailing edge. Clock alignment now uses the same layout and modal interaction; a 10-minute main offers `:00`, `:05`, `:10`, while a 30-minute main offers `:00` through `:25` in five-minute steps.
+- Made all valid sub-bell occurrences selected by default. Summaries now say `N occurrences` for an untouched complete selection and `N/M selected` after specific omissions. When the main interval grows, the prior occurrence mask repeats forward instead of leaving new positions empty; shortening retains its destructive-change confirmation.
+- Replaced independently styled mode, run-length, sound-source, and configuration-filter tabs with one shared solid-accent segmented control. Sub-bell, Sequence-step, and schedule-range Add actions now share one control as well.
+- Moved Run length into each mode editor. Duration entry now uses aligned Hours/Minutes fields with no seconds. Cycle steppers share a centerline and place their label beneath the whole control.
+- Hid and disabled Schedule semantics for bounded runs while preserving every saved window. Both JavaScript playback and the existing Android payload receive an always-available effective policy for bounded runs, so the behavior remains correct after backgrounding or process death without native changes.
+- Simplified the running sheet to `Sound`, an unlabeled master slider, a flat Sound levels disclosure, and existing cycle/minute mute choices. The selected-sound footer now uses the same circular play/stop control as sound-library rows.
+- Centered Help icons on their title line and retained the app’s muted-label/bright-value hierarchy, with `Align to clock` brought into that convention.
+
+**Native time selector decision:** Android and React Native do not provide a built-in duration picker. The existing schedule time-of-day modal remains dependency-free and OTA-compatible; adding a community/native time picker would require a new native binary while providing the wrong semantics for durations longer than 24 hours. This round therefore standardizes the current modal instead of adding a native dependency.
+
+**Migration impact:** None. Stored main labels and second-based duration fields remain readable for compatibility. UI-edited duration bounds are whole-minute multiples. Saved availability records are never rewritten when a bounded policy is selected.
+
+**Verification run:** `npx tsc --noEmit`; focused Vitest suite; `git diff --check`; interactive React Native Web review at 390×844 and 1280×800 covering Cycle/Sequence tabs, bounded schedule suppression, cycle-stepper alignment, hour/minute duration entry, dynamic clock phases, occurrence summaries, running Sound controls, and selected-sound preview.
+
+**Results:** Type checking passed, all 53 focused tests passed, and the reviewed surfaces remained semantically accessible. The 10-minute and 30-minute clock choices match the annotated examples, and Schedule disappears immediately for both Cycle- and duration-bounded runs.
+
+**Native/on-device verification still required:** TalkBack focus order, title-edit affordance discovery, slider and switch feel, modal keyboard behavior, haptics, and background bounded-run behavior on a representative Android device. Local native builds remain prohibited by repository policy.
+
+**Risks or follow-ups:** If a future calendar feature adds resolved availability overrides, it should continue to use the existing policy boundary; bounded runs deliberately ignore weekly and calendar-derived availability alike.
+
 ### Implementation-entry template
 
 ```md
@@ -1982,3 +2021,4 @@ This section is append-only. Every implementation session should record scope, m
 | 1.5 | 2026-09-03 | Extended the feedback direction across Timer v2 with compact Sequence rows, focused saved-configuration inspection, quiet routine transitions, and shorter setup/status language. |
 | 1.6 | 2026-09-04 | Added renameable Cycle intervals while deferring opening/ending gong overrides so the change remains compatible with the existing native binary. |
 | 1.7 | 2026-09-04 | Applied the third annotated-feedback pass: tap-to-edit titles, quick-only main duration, a progressive Sub-bells layer, cadence-first automatic priority, visible Master volume, and flatter setup/schedule rows. |
+| 1.8 | 2026-09-04 | Applied the fourth annotated-feedback pass: unified controls, expanded fixed-Custom shortcuts, repeating occurrence masks, Continuous-only schedules, hour/minute bounds, and a quieter live Sound sheet. |

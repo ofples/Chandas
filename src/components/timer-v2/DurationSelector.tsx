@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { ScrollView, StyleSheet, Text, View } from 'react-native'
 import { Chip } from '../Chip'
 import { CustomMinutePicker } from '../CustomMinutePicker'
 import { useTheme } from '../../theme/ThemeContext'
@@ -21,10 +21,12 @@ export function DurationSelector({ value, presets, onChange, label, min = 1, max
   return (
     <View style={styles.wrap}>
       {label ? <Text style={[styles.label, { color: tokens.textMuted }]}>{label}</Text> : null}
-      <View style={styles.chips}>
-        {presets.map(minutes => <Chip key={minutes} label={`${minutes}m`} active={value === minutes} onPress={() => onChange(minutes)} compact={compact} />)}
+      <View style={styles.choiceRow}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.scroller} contentContainerStyle={styles.presets}>
+          {presets.map(minutes => <Chip key={minutes} label={`${minutes}m`} active={value === minutes} onPress={() => onChange(minutes)} compact={compact} />)}
+        </ScrollView>
         <Chip
-          label={isPreset ? 'Custom' : `${value}m  ✎`}
+          label={isPreset ? 'Custom' : `${value}m`}
           active={!isPreset}
           onPress={() => setCustomOpen(true)}
           compact={compact}
@@ -39,5 +41,7 @@ export function DurationSelector({ value, presets, onChange, label, min = 1, max
 const styles = StyleSheet.create({
   wrap: { gap: 9 },
   label: { fontSize: 11, fontWeight: '700', letterSpacing: 1.25 },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  choiceRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  scroller: { flex: 1, minWidth: 0 },
+  presets: { gap: 8, paddingRight: 2 },
 })

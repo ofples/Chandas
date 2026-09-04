@@ -10,8 +10,10 @@ import { useTheme } from '../../theme/ThemeContext'
 import { BottomSheet } from './BottomSheet'
 import { useSoundAvailability } from '../../hooks/use-sound-availability'
 import { GentleNotice, type AppNotice } from './experience-feedback'
+import { SegmentedControl } from './SegmentedControl'
 
 type SoundTab = 'built-in' | 'android' | 'device'
+const SOUND_TABS = [{ value: 'built-in', label: 'Built-in' }, { value: 'android', label: 'Android' }, { value: 'device', label: 'Device' }] as const
 
 interface Props {
   visible: boolean
@@ -31,6 +33,7 @@ export function SoundPickerSheet({ visible, title, cue, masterVolume, onChange, 
   const [picking, setPicking] = useState(false)
   const [message, setMessage] = useState<{ title: string; detail: string } | null>(null)
   const selectedAvailable = useSoundAvailability(cue.sound)
+  const selectedKey = cue.sound.kind === 'builtin' ? cue.sound.id : cue.sound.uri
 
   useEffect(() => () => ChandasTimerService.stopSoundPreview(), [])
   useEffect(() => {
@@ -85,7 +88,7 @@ export function SoundPickerSheet({ visible, title, cue, masterVolume, onChange, 
   const volumeFooter = <View style={[styles.footer, { backgroundColor: tokens.surface, borderTopColor: tokens.border }]}>
     <View style={[styles.selected, { backgroundColor: tokens.surfaceHi }]}>
       <View style={styles.optionCopy}><Text style={[styles.label, { color: selectedAvailable ? tokens.textMuted : tokens.accent }]}>{selectedAvailable ? 'SELECTED' : 'UNAVAILABLE · CHOOSE A REPLACEMENT'}</Text><Text numberOfLines={1} style={[styles.optionTitle, { color: tokens.text }]}>{soundTitle(cue.sound)}</Text></View>
-      <Pressable onPress={() => void preview(cue.sound)} accessibilityRole="button" accessibilityLabel="Preview selected sound"><Text style={[styles.choose, { color: tokens.accent }]}>Preview</Text></Pressable>
+      <Pressable onPress={() => void preview(cue.sound)} style={[styles.preview, { borderColor: tokens.border }]} accessibilityRole="button" accessibilityLabel={`${previewing === selectedKey ? 'Stop' : 'Preview'} selected sound`}><Text style={[styles.previewText, { color: tokens.accent }]}>{previewing === selectedKey ? '■' : '▶'}</Text></Pressable>
     </View>
     <View style={styles.volumeHeader}><Text style={[styles.label, { color: tokens.textMuted }]}>CUE VOLUME</Text><Text style={[styles.value, { color: tokens.text }]}>{Math.round(cue.volume * 100)}%</Text></View>
     <Slider minimumValue={0} maximumValue={1} step={0.05} value={cue.volume} onSlidingStart={stopPreview} onValueChange={volume => onChange({ volume })} minimumTrackTintColor={tokens.accent} maximumTrackTintColor={tokens.surfaceHi} thumbTintColor={tokens.accent} accessibilityLabel={`${title} volume`} accessibilityValue={{ min: 0, max: 100, now: Math.round(cue.volume * 100), text: `${Math.round(cue.volume * 100)} percent` }} />
@@ -93,13 +96,7 @@ export function SoundPickerSheet({ visible, title, cue, masterVolume, onChange, 
 
   return (
     <BottomSheet visible={visible} eyebrow="SOUND & LEVEL" title={title} onClose={close} footer={volumeFooter}>
-      <View style={[styles.tabs, { borderColor: tokens.border }]}> 
-        {([['built-in', 'Built-in'], ['android', 'Android'], ['device', 'Device']] as const).map(([value, label]) => (
-          <Pressable key={value} onPress={() => { stopPreview(); setTab(value) }} accessibilityRole="tab" accessibilityState={{ selected: tab === value }} style={[styles.tab, tab === value && { backgroundColor: tokens.accent }]}>
-            <Text style={[styles.tabText, { color: tab === value ? '#fff' : tokens.textMuted }]}>{label}</Text>
-          </Pressable>
-        ))}
-      </View>
+      <SegmentedControl items={SOUND_TABS} value={tab} onChange={value => { stopPreview(); setTab(value) }} accessibilityLabel="Sound source" />
 
       {message ? <GentleNotice title={message.title} message={message.detail} tone="attention" /> : null}
 
@@ -141,9 +138,6 @@ export function SoundPickerSheet({ visible, title, cue, masterVolume, onChange, 
 }
 
 const styles = StyleSheet.create({
-  tabs: { flexDirection: 'row', borderWidth: 1.5, borderRadius: 12, padding: 3, gap: 3 },
-  tab: { flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: 9 },
-  tabText: { fontSize: 12, fontWeight: '700' },
   list: { gap: 8 },
   option: { minHeight: 66, borderWidth: 1.5, borderRadius: 13, flexDirection: 'row', alignItems: 'center', padding: 12, gap: 12 },
   optionCopy: { flex: 1, gap: 3 },

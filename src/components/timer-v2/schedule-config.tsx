@@ -7,6 +7,7 @@ import { useTheme } from '../../theme/ThemeContext'
 import { TimeOfDayPicker } from '../TimeOfDayPicker'
 import { Toggle } from '../Toggle'
 import { formatTimeOfDay } from '../ActiveHoursConfig'
+import { AddRowButton } from './AddRowButton'
 
 interface Props {
   value: AvailabilityPolicy
@@ -57,7 +58,7 @@ export function ScheduleConfig({ value, onChange }: Props) {
           </Animated.View> : null}
         </Animated.View>
       })}
-      <Pressable disabled={value.weeklyWindows.length >= MAX_WEEKLY_WINDOWS} onPress={addWindow} accessibilityRole="button" style={[styles.add, { borderColor: value.weeklyWindows.length >= MAX_WEEKLY_WINDOWS ? tokens.border : tokens.accent, opacity: value.weeklyWindows.length >= MAX_WEEKLY_WINDOWS ? 0.4 : 1 }]}><Text style={[styles.addText, { color: value.weeklyWindows.length >= MAX_WEEKLY_WINDOWS ? tokens.textMuted : tokens.accent }]}>{value.weeklyWindows.length >= MAX_WEEKLY_WINDOWS ? '16 range limit reached' : '+ Add time range'}</Text></Pressable>
+      <AddRowButton disabled={value.weeklyWindows.length >= MAX_WEEKLY_WINDOWS} onPress={addWindow} title={value.weeklyWindows.length >= MAX_WEEKLY_WINDOWS ? '16 range limit reached' : '+ Add time range'} />
     </Animated.View> : null}
     {timePicker ? <TimeOfDayPicker title={timePicker.edge === 'start' ? 'Starts at' : 'Ends at'} initial={(value.weeklyWindows.find(window => window.id === timePicker.id)?.[timePicker.edge === 'start' ? 'startMinutes' : 'endMinutes']) ?? 0} onConfirm={minutes => { patchWindow(timePicker.id, timePicker.edge === 'start' ? { startMinutes: minutes } : { endMinutes: minutes }); setTimePicker(null) }} onClose={() => setTimePicker(null)} /> : null}
   </View>
@@ -90,5 +91,5 @@ const styles = StyleSheet.create({
   windowList: { gap: 0 }, window: { paddingVertical: 10, gap: 12 }, windowHead: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 12 }, editor: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: 'rgba(127,127,127,0.25)', paddingTop: 12, gap: 12 },
   range: { flexDirection: 'row', alignItems: 'center', gap: 9 }, time: { minWidth: 92, minHeight: 42, borderWidth: 1.5, borderRadius: 99, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 }, timeText: { fontFamily: 'JetBrainsMono-Regular', fontSize: 13, fontVariant: ['tabular-nums'] }, to: { fontSize: 12 },
   days: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 }, day: { width: 40, height: 40, borderWidth: 1.5, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }, dayText: { fontSize: 10, fontWeight: '700' }, remove: { fontSize: 11, textDecorationLine: 'underline', paddingVertical: 3 },
-  empty: { paddingVertical: 9, gap: 4 }, add: { minHeight: 47, borderWidth: 1.5, borderStyle: 'dashed', borderRadius: 13, alignItems: 'center', justifyContent: 'center', marginTop: 8 }, addText: { fontSize: 12, fontWeight: '700' },
+  empty: { paddingVertical: 9, gap: 4 },
 })

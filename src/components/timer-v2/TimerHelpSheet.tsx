@@ -8,7 +8,7 @@ export function TimerHelpSheet({ visible, onClose, onOpenFocusSettings }: { visi
   const { tokens } = useTheme()
   const item = (icon: ReactNode, title: string, body: string) => <View style={styles.item}><View style={[styles.icon, { borderColor: tokens.border }]}>{icon}</View><View style={styles.copy}><Text style={[styles.title, { color: tokens.text }]}>{title}</Text><Text style={[styles.body, { color: tokens.textMuted }]}>{body}</Text></View></View>
   return <BottomSheet visible={visible} eyebrow="HOW IT WORKS" title="Timer help" onClose={onClose}>
-    {item(<BellIcon on color={tokens.accent} />, 'Cycle', 'One named main interval repeats. Turn on up to five named sub-bells at selected points, each with its own sound and level. If two meet, the longer repeat interval sounds.')}
+    {item(<BellIcon on color={tokens.accent} />, 'Cycle', 'One main interval repeats. Turn on up to five named sub-bells at selected points, each with its own sound and level. If two meet, the longer repeat interval sounds.')}
     {item(<RestartIcon color={tokens.accent} />, 'Sequence', 'Steps run in order and repeat. Each step has its own duration, label, sound and level.')}
     {item(<ClockIcon color={tokens.accent} />, 'Run length', 'Keep going until you stop, or finish after a chosen number of cycles or an exact duration.')}
     {item(<ClockIcon color={tokens.accent} />, 'Schedule', 'Add weekly active times. Overnight ranges belong to the day on which they start; missed bells are not replayed.')}
@@ -24,9 +24,9 @@ export function TimerHelpSheet({ visible, onClose, onOpenFocusSettings }: { visi
 
 const styles = StyleSheet.create({
   item: { flexDirection: 'row', alignItems: 'flex-start', gap: 11 },
-  icon: { width: 32, height: 32, borderWidth: 1.5, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+  icon: { width: 28, height: 28, marginTop: -4, borderWidth: 1.5, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   copy: { flex: 1, gap: 3 },
-  title: { fontSize: 14, fontWeight: '700' },
+  title: { fontSize: 14, lineHeight: 20, fontWeight: '700' },
   body: { fontSize: 12, lineHeight: 18 },
   action: { alignSelf: 'flex-start', borderWidth: 1.5, borderRadius: 99, paddingHorizontal: 13, paddingVertical: 9 },
   actionText: { fontSize: 12, fontWeight: '700' },

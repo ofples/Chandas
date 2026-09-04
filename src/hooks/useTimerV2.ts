@@ -4,7 +4,7 @@ import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake'
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio'
 import * as Haptics from 'expo-haptics'
 import type { AlarmBehavior, AppTimerSettings, TimerProgram } from '../types'
-import { hasAvailableTime, isWithinActiveHours, nextActiveHoursStart } from '../lib/activeHours'
+import { effectiveAvailabilityForProgram, hasAvailableTime, isWithinActiveHours, nextActiveHoursStart } from '../lib/activeHours'
 import { formatCountdown } from '../lib/snapLogic'
 import { sourceForSound, soundTitle } from '../lib/soundLibrary'
 import { nextProgramEvent, runEndAt, timelinePosition, type TimelinePosition } from '../lib/timeline'
@@ -65,7 +65,8 @@ export interface UseTimerV2Return extends TimerV2Display {
 }
 
 function displayFor(program: TimerProgram, settings: AppTimerSettings, anchor: number, startedAt: number, terminalAt: number | null, now: number): TimerV2Display {
-  const active = isWithinActiveHours(settings.availability, now)
+  const availability = effectiveAvailabilityForProgram(program, settings.availability)
+  const active = isWithinActiveHours(availability, now)
   const endAt = terminalAt ?? 0
   if (!active) {
     return {
@@ -75,7 +76,7 @@ function displayFor(program: TimerProgram, settings: AppTimerSettings, anchor: n
       progress: 0,
       position: null,
       activeHoursPaused: true,
-      activeHoursResumeAt: nextActiveHoursStart(settings.availability, now),
+      activeHoursResumeAt: nextActiveHoursStart(availability, now),
       runEndsAt: endAt,
       runRemainingMs: endAt ? Math.max(0, endAt - now) : 0,
     }
@@ -96,7 +97,7 @@ function displayFor(program: TimerProgram, settings: AppTimerSettings, anchor: n
     mainCountdown,
     nextCueCountdown: formatCountdown(next.at - now),
     nextCueLabel: program.mode === 'pattern'
-      ? next.winner.kind === 'pattern-main' ? program.label : program.tracks.find(track => track.id === next.winner.cueId)?.label ?? soundTitle(next.winner.sound)
+      ? next.winner.kind === 'pattern-main' ? 'Main gong' : program.tracks.find(track => track.id === next.winner.cueId)?.label ?? soundTitle(next.winner.sound)
       : program.steps.find(step => step.id === next.winner.cueId)?.label ?? soundTitle(next.winner.sound),
     progress: position.cycleProgress,
     position,
@@ -117,6 +118,7 @@ function nativeConfigFor(program: TimerProgram, settings: AppTimerSettings, anch
   const mainMs = program.mode === 'pattern'
     ? program.mainMinutes * 60_000
     : program.steps.reduce((sum, step) => sum + step.durationMinutes * 60_000, 0)
+  const availability = effectiveAvailabilityForProgram(program, settings.availability)
   return {
     mainMs,
     subMs: 60_000,
@@ -126,11 +128,11 @@ function nativeConfigFor(program: TimerProgram, settings: AppTimerSettings, anch
     notificationsEnabled: settings.notificationsEnabled,
     focusModeEnabled: settings.focusAutomationEnabled,
     alarmModeEnabled,
-    activeHoursEnabled: settings.availability.enabled,
-    activeHoursStart: settings.availability.weeklyWindows[0]?.startMinutes ?? 480,
-    activeHoursEnd: settings.availability.weeklyWindows[0]?.endMinutes ?? 1_320,
-    activeHoursDays: settings.availability.weeklyWindows[0]?.days ?? 0,
-    availabilityPolicy: JSON.stringify(settings.availability),
+    activeHoursEnabled: availability.enabled,
+    activeHoursStart: availability.weeklyWindows[0]?.startMinutes ?? 480,
+    activeHoursEnd: availability.weeklyWindows[0]?.endMinutes ?? 1_320,
+    activeHoursDays: availability.weeklyWindows[0]?.days ?? 0,
+    availabilityPolicy: JSON.stringify(availability),
     alarmDurationSeconds: settings.alarmDurationSeconds,
     timerV2Program: JSON.stringify(nativeProgram),
     timerV2Anchor: anchor,
@@ -291,12 +293,13 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
       finishJsRun()
       return
     }
-    const activeNow = isWithinActiveHours(activeSettings.availability, now)
-    const activeAtEvent = isWithinActiveHours(activeSettings.availability, event.at)
+    const availability = effectiveAvailabilityForProgram(activeProgram, activeSettings.availability)
+    const activeNow = isWithinActiveHours(availability, now)
+    const activeAtEvent = isWithinActiveHours(availability, event.at)
     // When we are active now but the cue itself is outside the window, search
     // from that skipped cue. Searching from `now` would simply return `now`
     // and create an immediate rescheduling loop.
-    const resumesAt = nextActiveHoursStart(activeSettings.availability, activeNow ? event.at : now)
+    const resumesAt = nextActiveHoursStart(availability, activeNow ? event.at : now)
     if (!event.completesRun && (!activeNow || !activeAtEvent) && endsAtRef.current !== null && resumesAt >= endsAtRef.current) {
       // Availability only gates sound. It must never postpone a bounded run's
       // terminal event beyond its fixed deadline.
@@ -306,7 +309,8 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     timeoutRef.current = setTimeout(() => {
       if (!runningRef.current) return
       const firedAt = Date.now()
-      const availableWhenFired = event.completesRun ? isWithinActiveHours(settingsRef.current.availability, firedAt) : activeNow && activeAtEvent
+      const firedAvailability = effectiveAvailabilityForProgram(programRef.current, settingsRef.current.availability)
+      const availableWhenFired = event.completesRun ? isWithinActiveHours(firedAvailability, firedAt) : activeNow && activeAtEvent
       const shouldPlay = availableWhenFired && isFreshScheduledEvent(event.at, firedAt)
       const completed = shouldPlay ? playEvent(event.at) : event.completesRun
       if (completed) {
@@ -327,7 +331,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     const anchor = typeof restore === 'number' ? restore : restored?.anchor ?? alignedAnchorForStart(programRef.current, acceptedAt)
     const startedAt = restored?.startedAt ?? (typeof restore === 'number' ? restore : acceptedAt)
     const endsAt = restored?.endsAt && restored.endsAt > 0 ? restored.endsAt : runEndAt(programRef.current, anchor, startedAt)
-    if (!hasAvailableTime(settingsRef.current.availability, acceptedAt)) return false
+    if (!hasAvailableTime(effectiveAvailabilityForProgram(programRef.current, settingsRef.current.availability), acceptedAt)) return false
     if (nextProgramEvent(programRef.current, anchor, acceptedAt, startedAt, endsAt) === null) return false
     if (isNativeServiceAvailable && !ChandasTimerService.canScheduleExactAlarms()) return false
     await setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: false })

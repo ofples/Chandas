@@ -6,9 +6,10 @@ import Reanimated, { FadeIn, FadeInDown, FadeOut, LinearTransition, useReducedMo
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import type { CueSettings, PatternTrack, SoundRef, TimerV2State } from '../types'
 import type { NativeFocusState } from '../native/ChandasTimerService'
-import { Chip } from '../components/Chip'
 import { Toggle } from '../components/Toggle'
 import { BottomSheet } from '../components/timer-v2/BottomSheet'
+import { AddRowButton } from '../components/timer-v2/AddRowButton'
+import { ClockSnapSelector } from '../components/timer-v2/ClockSnapSelector'
 import { DurationSelector } from '../components/timer-v2/DurationSelector'
 import { OffsetGrid } from '../components/timer-v2/OffsetGrid'
 import { PresetLibrarySheet } from '../components/timer-v2/PresetLibrarySheet'
@@ -18,6 +19,7 @@ import { TimerHelpSheet } from '../components/timer-v2/TimerHelpSheet'
 import { SoundName } from '../components/timer-v2/SoundName'
 import { RunLengthConfig } from '../components/timer-v2/run-length-config'
 import { ScheduleConfig } from '../components/timer-v2/schedule-config'
+import { SegmentedControl } from '../components/timer-v2/SegmentedControl'
 import {
   addPatternTrack, addSequenceStep, chooseProgramMode, duplicateSequenceStep, patchPatternTrack, patchSequenceStep,
   removePatternTrack, removeSequenceStep, reorderSequenceSteps, setPatternSubBellsEnabled,
@@ -31,10 +33,10 @@ import { ChandasTimerService } from '../native/ChandasTimerService'
 import { GentleNotice, type AppNotice } from '../components/timer-v2/experience-feedback'
 import { hasAvailableTime } from '../lib/activeHours'
 
-const MAIN_PRESETS = [10, 15, 30] as const
+const MAIN_PRESETS = [5, 10, 15, 30, 45, 60] as const
 const STEP_PRESETS = [5, 15, 25] as const
 const CADENCE_PRESETS = [1, 2, 5] as const
-const SNAP_PRESETS = [0, 10, 15] as const
+const MODE_CHOICES = [{ value: 'pattern', label: 'Cycle' }, { value: 'sequence', label: 'Sequence' }] as const
 
 type CueTarget = { kind: 'main' } | { kind: 'track'; id: string } | { kind: 'step'; id: string }
 
@@ -77,7 +79,7 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
   }
   const addTrack = () => { void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined); onChange(addPatternTrack(state)) }
   const addStep = () => { void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined); onChange(addSequenceStep(state)) }
-  const validToStart = hasAvailableTime(settings.availability)
+  const validToStart = program.runPolicy.kind !== 'continuous' || hasAvailableTime(settings.availability)
   const exactTimingNeedsSetup = Platform.OS === 'android' && !androidAccess.checking && !androidAccess.exactAlarms
   const selectMode = (mode: 'pattern' | 'sequence') => {
     if (state.workingPrograms.selectedMode === mode) return
@@ -89,9 +91,7 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
     <View style={[styles.screen, { backgroundColor: tokens.bg }]}>
       <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.content, { paddingTop: insets.top + 22, paddingBottom: insets.bottom + 116 }]}>
         <View style={styles.modeRow}>
-          <View style={[styles.modeTabs, { borderColor: tokens.border }]} accessibilityRole="tablist">
-            {([['pattern', 'Cycle'], ['sequence', 'Sequence']] as const).map(([mode, label]) => <Pressable key={mode} onPress={() => selectMode(mode)} accessibilityRole="tab" accessibilityState={{ selected: state.workingPrograms.selectedMode === mode }} style={({ pressed }) => [styles.modeTab, state.workingPrograms.selectedMode === mode && { backgroundColor: tokens.accent }, { opacity: pressed ? 0.78 : 1, transform: [{ scale: pressed && !reducedMotion ? 0.985 : 1 }] }]}><Text style={[styles.modeTabText, { color: state.workingPrograms.selectedMode === mode ? '#fff' : tokens.textMuted }]}>{label}</Text></Pressable>)}
-          </View>
+          <SegmentedControl items={MODE_CHOICES} value={state.workingPrograms.selectedMode} onChange={selectMode} accessibilityLabel="Timer mode" style={styles.modeTabs} />
           <Pressable hitSlop={4} onPress={() => setHelpOpen(true)} style={[styles.question, { borderColor: tokens.border }]} accessibilityRole="button" accessibilityLabel="Timer help"><Text style={[styles.questionText, { color: tokens.accent }]}>?</Text></Pressable>
         </View>
 
@@ -100,26 +100,15 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
         </Reanimated.View>
 
         <View style={styles.section}>
-          <RunLengthConfig
-            mode={program.mode}
-            value={program.runPolicy}
-            cycleDurationSeconds={(program.mode === 'pattern' ? program.mainMinutes : program.steps.reduce((sum, step) => sum + step.durationMinutes, 0)) * 60}
-            onChange={runPolicy => onChange(program.mode === 'pattern'
-              ? updatePattern(state, value => ({ ...value, runPolicy }))
-              : { ...state, workingPrograms: { ...state.workingPrograms, sequence: { ...state.workingPrograms.sequence, runPolicy } } })}
-          />
-        </View>
-
-        <View style={styles.section}>
           <Text style={[styles.eyebrow, { color: tokens.textMuted }]}>SOUND</Text>
           <VolumeControl label="Master volume" detail="All timer sounds" value={settings.masterVolume} onChange={masterVolume => changeSettings({ masterVolume })} />
           {program.mode === 'pattern' ? <CueRow title="Main gong" detail={soundTitle(program.mainCue.sound)} sound={program.mainCue.sound} onPress={() => setCueTarget({ kind: 'main' })} /> : null}
           <ActionRow title="All sound levels" detail={program.mode === 'pattern' ? `${program.tracks.length + 1} channels` : `${program.steps.length} channels`} onPress={() => setMixerOpen(true)} accessibilityLabel="Open all sound levels" />
         </View>
 
-        <View style={styles.section}>
+        {program.runPolicy.kind === 'continuous' ? <View style={styles.section}>
           <ScheduleConfig value={settings.availability} onChange={availability => changeSettings({ availability })} />
-        </View>
+        </View> : null}
 
         <ActionRow title="Configurations" detail={state.workingPrograms.sourcePreset?.deleted ? 'Working copy · source removed' : state.workingPrograms.sourcePreset ? `Loaded from ${state.workingPrograms.sourcePreset.name}` : 'Working copy'} onPress={() => setPresetsOpen(true)} accessibilityLabel="Open saved configurations" />
 
@@ -154,36 +143,35 @@ function SystemAccessCard({ access, onOpenExactAlarmSettings, onRequestCallMuteA
   return <View style={[styles.sectionCard, { borderColor: tokens.border }]}><Text style={[styles.rowTitle, { color: tokens.text }]}>Android access</Text>{row('exact', 'Exact timing', 'precise with the screen off', access.exactAlarms, 'Set up', onOpenExactAlarmSettings, true)}{row('call-mute', 'Mute during calls', 'optional', access.callMute, 'Allow', onRequestCallMuteAccess)}{row('notifications', 'Timer notifications', 'optional', access.notifications, 'Allow', onRequestNotificationAccess)}</View>
 }
 
+function ProgramRunLength({ state, mode, onChange }: { state: TimerV2State; mode: 'pattern' | 'sequence'; onChange: (state: TimerV2State) => void }) {
+  if (mode === 'pattern') {
+    const program = state.workingPrograms.pattern
+    return <RunLengthConfig mode="pattern" value={program.runPolicy} cycleDurationSeconds={program.mainMinutes * 60} onChange={runPolicy => onChange(updatePattern(state, value => ({ ...value, runPolicy })))} />
+  }
+  const program = state.workingPrograms.sequence
+  return <RunLengthConfig mode="sequence" value={program.runPolicy} cycleDurationSeconds={program.steps.reduce((sum, step) => sum + step.durationMinutes, 0) * 60} onChange={runPolicy => onChange({ ...state, workingPrograms: { ...state.workingPrograms, sequence: { ...program, runPolicy } } })} />
+}
+
 function PatternEditor({ state, onChange, onEditTrack, onAdd }: { state: TimerV2State; onChange: (state: TimerV2State) => void; onEditTrack: (id: string) => void; onAdd: () => void }) {
   const { tokens } = useTheme()
   const program = state.workingPrograms.pattern
   const snapOffset = program.alignment.kind === 'local-clock' ? program.alignment.offsetMinutes : 0
-  const [customSnapOpen, setCustomSnapOpen] = useState(false)
-  const [customSnapDraft, setCustomSnapDraft] = useState(String(snapOffset))
-  useEffect(() => {
-    if (program.alignment.kind === 'local-clock') setCustomSnapDraft(String(program.alignment.offsetMinutes))
-    else setCustomSnapOpen(false)
-  }, [program.alignment])
-  const confirmCustomSnap = () => {
-    const offsetMinutes = Math.max(0, Math.min(59, Number.parseInt(customSnapDraft, 10) || 0))
-    onChange(updatePattern(state, value => ({ ...value, alignment: { kind: 'local-clock', offsetMinutes } })))
-    setCustomSnapOpen(false)
-  }
   return <>
     <View style={styles.section}>
-      <View style={styles.headingBlock}><Text style={[styles.eyebrow, { color: tokens.textMuted }]}>MAIN INTERVAL</Text><EditableTitle value={program.label} onCommit={label => onChange(updatePattern(state, value => ({ ...value, label })))} accessibilityLabel="Main interval name" /></View>
+      <View style={styles.headingBlock}><Text style={[styles.eyebrow, { color: tokens.textMuted }]}>MAIN INTERVAL</Text><Text style={[styles.fixedTitle, { color: tokens.text }]}>Main interval</Text></View>
       <DurationSelector value={program.mainMinutes} presets={MAIN_PRESETS} onChange={minutes => changeMainMinutes(state, minutes, onChange)} />
-      <View style={styles.settingRow}><Text style={[styles.rowTitle, styles.flex, { color: tokens.text }]}>Align to clock</Text><Toggle value={program.alignment.kind === 'local-clock'} onChange={enabled => onChange(updatePattern(state, value => ({ ...value, alignment: enabled ? { kind: 'local-clock', offsetMinutes: 0 } : { kind: 'elapsed' } })))} accessibilityLabel="Align pattern to clock" /></View>
-      {program.alignment.kind === 'local-clock' ? <><View style={styles.chips}>{SNAP_PRESETS.map(offset => <Chip key={offset} label={`:${String(offset).padStart(2, '0')}`} compact active={snapOffset === offset} onPress={() => { setCustomSnapOpen(false); onChange(updatePattern(state, value => ({ ...value, alignment: { kind: 'local-clock', offsetMinutes: offset } }))) }} />)}<Chip label={SNAP_PRESETS.includes(snapOffset as 0 | 10 | 15) ? 'Custom' : `:${String(snapOffset).padStart(2, '0')}`} compact active={!SNAP_PRESETS.includes(snapOffset as 0 | 10 | 15)} onPress={() => setCustomSnapOpen(value => !value)} /></View>{customSnapOpen ? <Reanimated.View entering={FadeInDown.duration(140)} exiting={FadeOut.duration(100)} style={styles.customSnapRow}><TextInput autoFocus value={customSnapDraft} onChangeText={text => setCustomSnapDraft(text.replace(/\D/g, '').slice(0, 2))} onSubmitEditing={confirmCustomSnap} keyboardType="number-pad" returnKeyType="done" selectTextOnFocus accessibilityLabel="Custom clock minute offset" style={[styles.customSnapInput, { color: tokens.text, borderColor: tokens.border, backgroundColor: tokens.surface }]} /><Pressable onPress={confirmCustomSnap} style={[styles.customSnapSet, { borderColor: tokens.accent }]} accessibilityRole="button"><Text style={[styles.link, { color: tokens.accent }]}>Set</Text></Pressable></Reanimated.View> : null}</> : null}
+      <View style={styles.settingRow}><Text style={[styles.settingLabel, styles.flex, { color: tokens.textMuted }]}>Align to clock</Text><Toggle value={program.alignment.kind === 'local-clock'} onChange={enabled => onChange(updatePattern(state, value => ({ ...value, alignment: enabled ? { kind: 'local-clock', offsetMinutes: 0 } : { kind: 'elapsed' } })))} accessibilityLabel="Align pattern to clock" /></View>
+      {program.alignment.kind === 'local-clock' ? <ClockSnapSelector mainMinutes={program.mainMinutes} value={snapOffset} compact onChange={offsetMinutes => onChange(updatePattern(state, value => ({ ...value, alignment: { kind: 'local-clock', offsetMinutes } })))} /> : null}
+      <ProgramRunLength state={state} mode="pattern" onChange={onChange} />
     </View>
 
     <View style={styles.section}>
-      <View style={styles.settingRow}><View style={styles.flex}><Text style={[styles.eyebrow, { color: tokens.textMuted }]}>SUB-BELLS</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{program.subBellsEnabled ? `${program.tracks.length} sub-bell${program.tracks.length === 1 ? '' : 's'}` : 'Off'}</Text></View><Toggle value={program.subBellsEnabled} onChange={enabled => onChange(setPatternSubBellsEnabled(state, enabled))} accessibilityLabel="Sub-bells" /></View>
+      <View style={styles.settingRow}><Text style={[styles.eyebrow, styles.flex, { color: tokens.textMuted }]}>SUB-BELLS</Text><Toggle value={program.subBellsEnabled} onChange={enabled => onChange(setPatternSubBellsEnabled(state, enabled))} accessibilityLabel="Sub-bells" /></View>
       {program.subBellsEnabled ? <Reanimated.View entering={FadeInDown.duration(180)} exiting={FadeOut.duration(120)} style={styles.subBellBody}>
         <PatternTimelinePreview tracks={program.tracks} mainMinutes={program.mainMinutes} />
         {!program.tracks.some(track => track.enabled && track.selectedOffsetsMinutes.length > 0) ? <GentleNotice title="No sub-bell cues are active" message="The main gong will still play. Turn on a sub-bell and select cue positions whenever you want more detail." /> : null}
         {program.tracks.map((track, index) => <PatternTrackRow key={track.id} state={state} track={track} index={index} onChange={onChange} onEdit={() => onEditTrack(track.id)} />)}
-        <Pressable disabled={program.tracks.length >= 5} onPress={onAdd} style={[styles.add, { borderColor: program.tracks.length >= 5 ? tokens.border : tokens.accent, opacity: program.tracks.length >= 5 ? 0.45 : 1 }]} accessibilityRole="button"><Text style={[styles.addText, { color: program.tracks.length >= 5 ? tokens.textMuted : tokens.accent }]}>{program.tracks.length >= 5 ? '5 sub-bell limit reached' : '+ Add sub-bell'}</Text></Pressable>
+        <AddRowButton disabled={program.tracks.length >= 5} onPress={onAdd} title={program.tracks.length >= 5 ? '5 sub-bell limit reached' : '+ Add sub-bell'} />
       </Reanimated.View> : null}
     </View>
   </>
@@ -197,7 +185,8 @@ function SequenceEditor({ state, onChange, onEditCue, onAdd }: { state: TimerV2S
   return <View style={styles.section}>
     <View><Text style={[styles.eyebrow, { color: tokens.textMuted }]}>SEQUENCE</Text><Text style={[styles.sectionValue, { color: tokens.text }]}>{formatMinutes(total)}</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{program.steps.length} step{program.steps.length === 1 ? '' : 's'} · repeats</Text></View>
     {program.steps.map((step, index) => <SequenceStepRow key={step.id} state={state} stepId={step.id} index={index} onEdit={() => setEditingStepId(step.id)} onChange={onChange} />)}
-    {program.steps.length < 20 ? <Pressable onPress={onAdd} style={[styles.add, { borderColor: tokens.accent }]} accessibilityRole="button"><Text style={[styles.addText, { color: tokens.accent }]}>+ Add step</Text></Pressable> : null}
+    {program.steps.length < 20 ? <AddRowButton onPress={onAdd} title="+ Add step" /> : null}
+    <ProgramRunLength state={state} mode="sequence" onChange={onChange} />
     {editingStepId ? <SequenceStepEditorSheet state={state} stepId={editingStepId} onChange={onChange} onEditCue={() => onEditCue({ kind: 'step', id: editingStepId })} onClose={() => setEditingStepId(null)} /> : null}
   </View>
 }
@@ -205,9 +194,11 @@ function SequenceEditor({ state, onChange, onEditCue, onAdd }: { state: TimerV2S
 function PatternTrackRow({ state, track, index, onChange, onEdit }: { state: TimerV2State; track: PatternTrack; index: number; onChange: (state: TimerV2State) => void; onEdit: () => void }) {
   const { tokens } = useTheme()
   const reducedMotion = useReducedMotion()
+  const occurrenceCount = validOffsets(state.workingPrograms.pattern.mainMinutes, track.cadenceMinutes).length
+  const selectionSummary = track.selectedOffsetsMinutes.length === occurrenceCount ? `${occurrenceCount} occurrence${occurrenceCount === 1 ? '' : 's'}` : `${track.selectedOffsetsMinutes.length}/${occurrenceCount} selected`
   return <Reanimated.View entering={reducedMotion ? FadeIn.duration(80) : FadeInDown.duration(190)} exiting={FadeOut.duration(reducedMotion ? 70 : 130)} layout={reducedMotion ? undefined : LinearTransition.duration(160)}>
     <View style={[styles.trackSummary, index > 0 && { borderTopColor: tokens.border, borderTopWidth: StyleSheet.hairlineWidth }, { opacity: track.enabled ? 1 : 0.5 }]}>
-      <Pressable style={styles.flex} onPress={onEdit} accessibilityRole="button" accessibilityLabel={`Edit ${track.label}`}><Text numberOfLines={1} style={[styles.rowTitle, { color: tokens.text }]}>{track.label}</Text><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>Every {track.cadenceMinutes}m · {soundTitle(track.sound)} · {track.selectedOffsetsMinutes.length} selected</Text></Pressable>
+      <Pressable style={styles.flex} onPress={onEdit} accessibilityRole="button" accessibilityLabel={`Edit ${track.label}`}><Text numberOfLines={1} style={[styles.rowTitle, { color: tokens.text }]}>{track.label}</Text><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>Every {track.cadenceMinutes}m · {soundTitle(track.sound)} · {selectionSummary}</Text></Pressable>
       <Toggle value={track.enabled} onChange={enabled => onChange(patchPatternTrack(state, track.id, { enabled }))} accessibilityLabel={`Enable ${track.label}`} />
     </View>
   </Reanimated.View>
@@ -278,7 +269,7 @@ function MixerSheet({ visible, state, onChange, onEditCue, onClose, onFeedback }
   return <BottomSheet visible={visible} eyebrow="VOLUME" title="Sound levels" onClose={close}>
     <View style={styles.mixerRow}><View style={styles.mixerLabel}><Text style={[styles.rowTitle, { color: tokens.text }]}>Master</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>All timer sounds</Text></View><Slider style={styles.mixerSlider} minimumValue={0} maximumValue={1} step={0.05} value={state.settings.masterVolume} onValueChange={masterVolume => onChange({ ...state, settings: { ...state.settings, masterVolume } })} minimumTrackTintColor={tokens.accent} maximumTrackTintColor={tokens.surfaceHi} thumbTintColor={tokens.accent} accessibilityLabel="Master timer volume" accessibilityValue={{ min: 0, max: 100, now: Math.round(state.settings.masterVolume * 100), text: `${Math.round(state.settings.masterVolume * 100)} percent` }} /><Text style={[styles.volumeValue, { color: tokens.text }]}>{Math.round(state.settings.masterVolume * 100)}</Text></View>
     <View style={[styles.divider, { backgroundColor: tokens.border }]} />
-    {program.mode === 'pattern' ? <>{row('main', program.label, program.mainCue, { kind: 'main' }, volume => updatePattern(state, value => ({ ...value, mainCue: { ...value.mainCue, volume } })))}{program.tracks.map(track => row(track.id, track.label, track, { kind: 'track', id: track.id }, volume => patchPatternTrack(state, track.id, { volume })))}</> : program.steps.map((step, index) => row(step.id, `${index + 1}. ${step.label}`, step, { kind: 'step', id: step.id }, volume => patchSequenceStep(state, step.id, { volume })))}
+    {program.mode === 'pattern' ? <>{row('main', 'Main gong', program.mainCue, { kind: 'main' }, volume => updatePattern(state, value => ({ ...value, mainCue: { ...value.mainCue, volume } })))}{program.tracks.map(track => row(track.id, track.label, track, { kind: 'track', id: track.id }, volume => patchPatternTrack(state, track.id, { volume })))}</> : program.steps.map((step, index) => row(step.id, `${index + 1}. ${step.label}`, step, { kind: 'step', id: step.id }, volume => patchSequenceStep(state, step.id, { volume })))}
   </BottomSheet>
 }
 
@@ -329,7 +320,7 @@ function EditableTitle({ value, onCommit, accessibilityLabel, large = false }: {
   useEffect(() => setDraft(value), [value])
   const commit = () => { onCommit(draft); setEditing(false) }
   if (editing) return <TextInput autoFocus value={draft} selectTextOnFocus onChangeText={text => setDraft([...text].slice(0, 60).join(''))} onBlur={commit} onSubmitEditing={commit} returnKeyType="done" style={[styles.editableTitleInput, large && styles.editableTitleLarge, { color: tokens.text, borderBottomColor: tokens.accent }]} accessibilityLabel={accessibilityLabel} />
-  return <Pressable onPress={() => { setDraft(value); setEditing(true); void Haptics.selectionAsync().catch(() => undefined) }} style={styles.editableTitle} accessibilityRole="button" accessibilityLabel={`Edit ${accessibilityLabel}`}><Text numberOfLines={1} style={[styles.editableTitleText, large && styles.editableTitleTextLarge, { color: tokens.text }]}>{value}</Text><Text style={[styles.editPencil, { color: tokens.textMuted }]}>✎</Text></Pressable>
+  return <Pressable onPress={() => { setDraft(value); setEditing(true); void Haptics.selectionAsync().catch(() => undefined) }} style={[styles.editableTitle, { borderBottomColor: tokens.border }]} accessibilityRole="button" accessibilityLabel={`Edit ${accessibilityLabel}`} accessibilityHint="Tap to rename"><Text numberOfLines={1} style={[styles.editableTitleText, large && styles.editableTitleTextLarge, { color: tokens.text }]}>{value}</Text></Pressable>
 }
 
 function PatternTimelinePreview({ tracks, mainMinutes }: { tracks: PatternTrack[]; mainMinutes: number }) {
@@ -369,16 +360,14 @@ const styles = StyleSheet.create({
   screen: { flex: 1 }, content: { width: '100%', maxWidth: 620, alignSelf: 'center', paddingHorizontal: 20, gap: 23 }, modeContent: { gap: 23 },
   modeRow: { flexDirection: 'row', alignItems: 'center', gap: 10 }, eyebrow: { fontSize: 11, fontWeight: '700', letterSpacing: 1.4 },
   question: { width: 36, height: 36, borderWidth: 1.5, borderRadius: 18, alignItems: 'center', justifyContent: 'center' }, questionText: { fontSize: 17, fontWeight: '800' },
-  modeTabs: { flex: 1, flexDirection: 'row', borderWidth: 1.5, borderRadius: 14, padding: 3, gap: 3 }, modeTab: { flex: 1, paddingVertical: 11, borderRadius: 10, alignItems: 'center' }, modeTabText: { fontSize: 13, fontWeight: '700' },
+  modeTabs: { flex: 1 },
   chevron: { width: 22, textAlign: 'center', fontSize: 25, lineHeight: 27, fontWeight: '300' },
   section: { gap: 13 }, sectionCard: { borderWidth: 1.5, borderRadius: 15, padding: 15, gap: 12 }, sectionValue: { fontFamily: 'JetBrainsMono-Light', fontSize: 31, marginTop: 2 }, headingBlock: { gap: 3 }, subBellBody: { gap: 10 },
-  editableTitle: { alignSelf: 'flex-start', maxWidth: '100%', minHeight: 34, flexDirection: 'row', alignItems: 'center', gap: 7 }, editableTitleText: { flexShrink: 1, fontSize: 17, fontWeight: '700' }, editableTitleTextLarge: { fontSize: 20 }, editPencil: { fontSize: 13 }, editableTitleInput: { alignSelf: 'stretch', minWidth: 180, maxWidth: '100%', borderBottomWidth: 1.5, fontSize: 17, fontWeight: '700', paddingVertical: 4 }, editableTitleLarge: { fontSize: 20 },
-  helper: { fontSize: 12, lineHeight: 17 }, rowTitle: { fontSize: 14, fontWeight: '700' }, flex: { flex: 1, gap: 3, minWidth: 0 }, settingRow: { flexDirection: 'row', alignItems: 'center', gap: 14 }, chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  customSnapRow: { flexDirection: 'row', alignItems: 'center', gap: 10 }, customSnapInput: { flex: 1, minHeight: 46, borderWidth: 1.5, borderRadius: 12, paddingHorizontal: 14, fontFamily: 'JetBrainsMono-Regular', fontSize: 16 }, customSnapSet: { minWidth: 66, minHeight: 46, borderWidth: 1.5, borderRadius: 23, alignItems: 'center', justifyContent: 'center' },
+  fixedTitle: { fontSize: 17, fontWeight: '700', minHeight: 30, textAlignVertical: 'center' }, editableTitle: { alignSelf: 'flex-start', maxWidth: '100%', minHeight: 34, justifyContent: 'center', borderBottomWidth: StyleSheet.hairlineWidth, borderStyle: 'dotted' }, editableTitleText: { flexShrink: 1, fontSize: 17, fontWeight: '700' }, editableTitleTextLarge: { fontSize: 20 }, editableTitleInput: { alignSelf: 'stretch', minWidth: 180, maxWidth: '100%', borderBottomWidth: 1.5, fontSize: 17, fontWeight: '700', paddingVertical: 4 }, editableTitleLarge: { fontSize: 20 },
+  helper: { fontSize: 12, lineHeight: 17 }, rowTitle: { fontSize: 14, fontWeight: '700' }, settingLabel: { fontSize: 13, fontWeight: '700' }, flex: { flex: 1, gap: 3, minWidth: 0 }, settingRow: { flexDirection: 'row', alignItems: 'center', gap: 14 }, chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   actionRow: { minHeight: 54, paddingVertical: 7, flexDirection: 'row', alignItems: 'center', gap: 12 }, link: { fontSize: 12, fontWeight: '700' },
   volumeRow: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: 9 }, volumeLabel: { width: 112, gap: 2 }, inlineSlider: { flex: 1, height: 38 },
   trackSummary: { minHeight: 68, paddingVertical: 11, flexDirection: 'row', alignItems: 'center', gap: 12 }, priority: { fontFamily: 'JetBrainsMono-Regular', fontSize: 11 },
-  add: { minHeight: 48, borderWidth: 1.5, borderStyle: 'dashed', borderRadius: 13, alignItems: 'center', justifyContent: 'center' }, addText: { fontSize: 13, fontWeight: '700' },
   sequenceCard: { paddingVertical: 9 }, sequenceHead: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 9 }, sequenceSummary: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 8 }, sequenceChevron: { width: 22, textAlign: 'center', fontSize: 22, lineHeight: 24, fontWeight: '300' }, stepActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }, remove: { fontSize: 11, textDecorationLine: 'underline' },
   dragging: { zIndex: 20, boxShadow: '0 5px 16px rgba(0,0,0,0.24)' },
   gridHeading: { gap: 10 }, inlineActions: { flexDirection: 'row', alignItems: 'center', gap: 14 }, destructive: { fontSize: 12, fontWeight: '700', textAlign: 'center', paddingVertical: 8 },
