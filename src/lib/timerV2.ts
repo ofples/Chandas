@@ -84,10 +84,12 @@ export function defaultPatternProgram(): PatternProgram {
   return {
     schemaVersion: TIMER_V2_SCHEMA_VERSION,
     mode: 'pattern',
+    label: 'Main interval',
     mainMinutes: 30,
     mainCue: defaultCue('temple-gong'),
     tracks: [{
       id: createProgramId(),
+      label: 'Sub-bell 1',
       enabled: true,
       cadenceMinutes: 5,
       selectedOffsetsMinutes: validOffsets(30, 5),
@@ -176,7 +178,7 @@ export function normalizeSoundRef(value: unknown, fallback: SoundRef): SoundRef 
   return fallback
 }
 
-export function normalizeTrack(track: Partial<PatternTrack>, mainMinutes: number): PatternTrack {
+export function normalizeTrack(track: Partial<PatternTrack>, mainMinutes: number, fallbackLabel = 'Sub-bell'): PatternTrack {
   const main = clampDuration(mainMinutes, 30)
   const cadence = clampDuration(track.cadenceMinutes, 1)
   const selected = Array.isArray(track.selectedOffsetsMinutes) ? track.selectedOffsetsMinutes.slice(0, MAX_DURATION_MINUTES - 1) : []
@@ -186,6 +188,7 @@ export function normalizeTrack(track: Partial<PatternTrack>, mainMinutes: number
     .sort((a, b) => a - b)
   return {
     id: typeof track.id === 'string' && track.id.length > 0 && track.id.length <= MAX_ID_CHARACTERS ? track.id : createProgramId(),
+    label: normalizeLabel(track.label, fallbackLabel),
     enabled: track.enabled !== false,
     cadenceMinutes: cadence,
     selectedOffsetsMinutes,
@@ -197,8 +200,8 @@ export function normalizePatternProgram(value: Partial<PatternProgram> | undefin
   const mainMinutes = clampDuration(value?.mainMinutes, 30)
   const rawTracks = Array.isArray(value?.tracks) ? value.tracks : []
   const trackIds = new Set<string>()
-  const tracks = rawTracks.slice(0, MAX_PATTERN_TRACKS).map(track => {
-    const normalized = normalizeTrack(track, mainMinutes)
+  const tracks = rawTracks.slice(0, MAX_PATTERN_TRACKS).map((track, index) => {
+    const normalized = normalizeTrack(track, mainMinutes, `Sub-bell ${index + 1}`)
     if (trackIds.has(normalized.id)) normalized.id = createProgramId()
     trackIds.add(normalized.id)
     return normalized
@@ -207,8 +210,11 @@ export function normalizePatternProgram(value: Partial<PatternProgram> | undefin
   return {
     schemaVersion: TIMER_V2_SCHEMA_VERSION,
     mode: 'pattern',
+    label: normalizeLabel(value?.label, 'Main interval'),
     mainMinutes,
     mainCue: normalizeCue(value?.mainCue, defaultCue('temple-gong')),
+    ...(value?.startCue ? { startCue: normalizeCue(value.startCue, defaultCue('bright-chime')) } : {}),
+    ...(value?.endCue ? { endCue: normalizeCue(value.endCue, defaultCue('temple-gong')) } : {}),
     tracks,
     alignment: offset === undefined ? { kind: 'elapsed' } : { kind: 'local-clock', offsetMinutes: offset },
     runPolicy: normalizeRunPolicy(value?.runPolicy),
@@ -224,7 +230,14 @@ export function normalizeSequenceProgram(value: Partial<SequenceProgram> | undef
     stepIds.add(id)
     return { id, durationMinutes: clampDuration(step.durationMinutes, 5), label: normalizeLabel(step.label, `Step ${index + 1}`), ...normalizeCue(step, defaultCue('clear-bell')) }
   })
-  return { schemaVersion: TIMER_V2_SCHEMA_VERSION, mode: 'sequence', steps: steps.length > 0 ? steps : defaultSequenceProgram().steps, runPolicy: normalizeRunPolicy(value?.runPolicy) }
+  return {
+    schemaVersion: TIMER_V2_SCHEMA_VERSION,
+    mode: 'sequence',
+    steps: steps.length > 0 ? steps : defaultSequenceProgram().steps,
+    ...(value?.startCue ? { startCue: normalizeCue(value.startCue, defaultCue('bright-chime')) } : {}),
+    ...(value?.endCue ? { endCue: normalizeCue(value.endCue, defaultCue('temple-gong')) } : {}),
+    runPolicy: normalizeRunPolicy(value?.runPolicy),
+  }
 }
 
 export function normalizeWeeklyWindow(value: Partial<WeeklyAvailabilityWindow>, fallback?: WeeklyAvailabilityWindow): WeeklyAvailabilityWindow {
@@ -317,10 +330,12 @@ export function migrateLegacyConfig(legacy: Partial<TimerConfig>): TimerV2State 
   const pattern: PatternProgram = {
     schemaVersion: TIMER_V2_SCHEMA_VERSION,
     mode: 'pattern',
+    label: 'Main interval',
     mainMinutes,
     mainCue: defaultCue('temple-gong'),
     tracks: [{
       id: createProgramId(),
+      label: 'Sub-bell 1',
       enabled: legacy.subEnabled !== false,
       cadenceMinutes: cadence,
       selectedOffsetsMinutes: validOffsets(mainMinutes, cadence),

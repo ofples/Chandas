@@ -70,7 +70,14 @@ object TimerV2Timeline {
       else -> null
     }
     if (natural == null || endAt == null || natural.at < endAt) return@runCatching natural
-    if (natural.at == endAt) return@runCatching natural.copy(completesRun = true)
+    if (natural.at == endAt) {
+      val endingCue = root.optJSONObject("endCue")
+      if (endingCue == null) return@runCatching natural.copy(completesRun = true)
+      val winner = TimerV2Candidate("end", "run-complete", cueSound(endingCue), cueVolume(endingCue))
+      // Keep the natural boundary/logical identity for cycle-mute and alarm-once
+      // handling, replacing only the sound at the terminal instant.
+      return@runCatching natural.copy(candidates = listOf(winner), winner = winner, completesRun = true)
+    }
     val winner = completionCandidate(root) ?: return@runCatching null
     TimerV2Event(
       at = endAt,
@@ -278,6 +285,9 @@ object TimerV2Timeline {
   }
 
   private fun completionCandidate(root: JSONObject): TimerV2Candidate? {
+    root.optJSONObject("endCue")?.let { cue ->
+      return TimerV2Candidate("end", "run-complete", cueSound(cue), cueVolume(cue))
+    }
     return when (root.optString("mode")) {
       "pattern" -> TimerV2Candidate("completion", "run-complete", cueSound(root.optJSONObject("mainCue")), cueVolume(root.optJSONObject("mainCue")))
       "sequence" -> {
@@ -292,13 +302,14 @@ object TimerV2Timeline {
   private fun validatePattern(root: JSONObject): Boolean {
     val mainMinutes = root.optInt("mainMinutes", -1)
     if (mainMinutes !in 1..MAX_DURATION_MINUTES || !validCue(root.optJSONObject("mainCue"))) return false
+    if (!validOptionalLabel(root, "label") || !validOptionalCue(root, "startCue") || !validOptionalCue(root, "endCue")) return false
     val tracks = root.optJSONArray("tracks") ?: return false
     if (tracks.length() > MAX_TRACKS) return false
     val trackIds = mutableSetOf<String>()
     for (index in 0 until tracks.length()) {
       val track = tracks.optJSONObject(index) ?: return false
       val trackId = track.optString("id")
-      if (trackId.isBlank() || trackId.length > MAX_ID_CHARACTERS || !trackIds.add(trackId) || !validCue(track)) return false
+      if (trackId.isBlank() || trackId.length > MAX_ID_CHARACTERS || !trackIds.add(trackId) || !validOptionalLabel(track, "label") || !validCue(track)) return false
       val cadence = track.optInt("cadenceMinutes", -1)
       if (cadence !in 1..MAX_DURATION_MINUTES) return false
       val offsets = track.optJSONArray("selectedOffsetsMinutes") ?: return false
@@ -319,6 +330,7 @@ object TimerV2Timeline {
   }
 
   private fun validateSequence(root: JSONObject): Boolean {
+    if (!validOptionalCue(root, "startCue") || !validOptionalCue(root, "endCue")) return false
     val steps = root.optJSONArray("steps") ?: return false
     if (steps.length() !in 1..MAX_STEPS) return false
     val stepIds = mutableSetOf<String>()
@@ -337,6 +349,15 @@ object TimerV2Timeline {
     val durationSeconds = policy.optLong("durationSeconds", -1L)
     if (cycleCount !in 1..MAX_RUN_CYCLES || durationSeconds !in 1L..MAX_RUN_DURATION_SECONDS) return false
     return policy.optString("kind") in setOf("continuous", "cycles", "duration")
+  }
+
+  private fun validOptionalCue(root: JSONObject, key: String): Boolean = !root.has(key) || validCue(root.optJSONObject(key))
+
+  /** Labels remain optional at the native boundary so stored pre-feature V2 sessions can recover. */
+  private fun validOptionalLabel(root: JSONObject, key: String): Boolean {
+    if (!root.has(key)) return true
+    val label = root.optString(key)
+    return label.isNotBlank() && label.codePointCount(0, label.length) <= 60
   }
 
   private fun validCue(cue: JSONObject?): Boolean {

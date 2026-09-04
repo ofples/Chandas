@@ -144,6 +144,7 @@ interface ChandasTimerServiceModule {
   pickDeviceSound(kind: 'alarm' | 'notification' | 'unknown'): Promise<{ uri: string; title: string } | null>
   pickAudioDocument(): Promise<{ uri: string; title: string; mimeType?: string } | null>
   previewSound(soundId: string, fallbackSoundId: BuiltInSoundId, volume: number): Promise<boolean>
+  playImmediateCue(soundId: string, fallbackSoundId: BuiltInSoundId, volume: number): Promise<boolean>
   stopSoundPreview(): void
   isSoundAvailable(soundId: string): boolean
   addListener(eventName: 'onAlarmStateChanged', listener: (event: AlarmStateEvent) => void): EventSubscription
@@ -258,6 +259,11 @@ export const ChandasTimerService = {
     player.play()
     fallbackPreview = player
     return true
+  },
+  async playImmediateCue(sound: SoundRef, volume: number, fallbackSoundId: BuiltInSoundId = 'clear-bell'): Promise<boolean> {
+    if (!native) return false
+    const soundId = sound.kind === 'builtin' ? sound.id : sound.uri
+    return native.playImmediateCue(soundId, fallbackSoundId, volume)
   },
   stopSoundPreview() {
     native?.stopSoundPreview()

@@ -72,6 +72,32 @@ class TimerV2TimelineTest {
     assertTrue(event.completesRun)
   }
 
+  @Test fun customEndingCueReplacesNaturalAndSyntheticCompletionSounds() {
+    val endCue = JSONObject()
+      .put("sound", JSONObject().put("kind", "builtin").put("id", "wood-block"))
+      .put("volume", 0.35)
+
+    val pattern = JSONObject(fixtures.getJSONObject("patternCollision").getJSONObject("program").toString())
+    pattern.put("endCue", endCue)
+    pattern.put("runPolicy", JSONObject().put("kind", "cycles").put("cycleCount", 1).put("durationSeconds", 1_800))
+    assertTrue(TimerV2Timeline.isValid(pattern.toString()))
+    val natural = requireNotNull(TimerV2Timeline.next(pattern.toString(), 1_000L, 1_000L + 30 * 60_000L - 1L, 1_000L))
+    assertEquals(TimerV2Boundary.PATTERN_MAIN, natural.boundary)
+    assertTrue(natural.completesRun)
+    assertEquals("end", natural.winner.cueId)
+    assertEquals("wood-block", natural.winner.soundId)
+    assertEquals(1, natural.candidates.size)
+
+    val sequence = JSONObject(fixtures.getJSONObject("sequence").getJSONObject("program").toString())
+    sequence.put("endCue", endCue)
+    sequence.put("runPolicy", JSONObject().put("kind", "duration").put("cycleCount", 1).put("durationSeconds", 90))
+    assertTrue(TimerV2Timeline.isValid(sequence.toString()))
+    val synthetic = requireNotNull(TimerV2Timeline.next(sequence.toString(), 1_000L, 1_000L, 1_000L, 91_000L))
+    assertEquals(TimerV2Boundary.RUN_COMPLETE, synthetic.boundary)
+    assertEquals("end", synthetic.winner.cueId)
+    assertEquals("wood-block", synthetic.winner.soundId)
+  }
+
   @Test fun fixedCycleDeadlineSurvivesLocalPhaseRealignment() {
     val root = JSONObject(fixtures.getJSONObject("patternCollision").getJSONObject("program").toString())
     root.put("runPolicy", JSONObject().put("kind", "cycles").put("cycleCount", 2).put("durationSeconds", 1_800))

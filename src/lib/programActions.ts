@@ -66,6 +66,7 @@ export function addPatternTrack(state: TimerV2State): TimerV2State {
     const cadenceMinutes = 5
     const track: PatternTrack = {
       id: createProgramId(),
+      label: `Sub-bell ${program.tracks.length + 1}`,
       enabled: true,
       cadenceMinutes,
       selectedOffsetsMinutes: validOffsets(program.mainMinutes, cadenceMinutes),

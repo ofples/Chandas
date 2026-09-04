@@ -239,6 +239,16 @@ class ChandasTimerServiceModule : Module() {
       available
     }
 
+    AsyncFunction("playImmediateCue") { soundId: String, fallbackSoundId: String, volume: Float ->
+      val context = appContext.reactContext ?: return@AsyncFunction false
+      // Opening gongs follow the same optional call gate as scheduled cues.
+      // A missing READ_PHONE_STATE permission deliberately fails open in CallState.
+      if (CallState.isActive(context)) return@AsyncFunction false
+      val fallback = TimerSoundPlayer.builtInResource(fallbackSoundId) ?: R.raw.bell
+      TimerSoundPlayer.play(context, soundId, fallback, volume.coerceIn(0f, 1f)) {}
+      true
+    }
+
     Function("stopSoundPreview") {
       TimerSoundPlayer.stopPreview()
     }

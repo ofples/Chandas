@@ -13,11 +13,12 @@ function pattern(): PatternProgram {
   return {
     schemaVersion: 2,
     mode: 'pattern',
+    label: 'Focus cycle',
     mainMinutes: 30,
     mainCue: { sound: { kind: 'builtin', id: 'temple-gong' }, volume: 0.8 },
     tracks: [
-      { id: 'top', enabled: true, cadenceMinutes: 5, selectedOffsetsMinutes: [10], sound: { kind: 'builtin', id: 'soft-bowl' }, volume: 0.6 },
-      { id: 'bottom', enabled: true, cadenceMinutes: 2, selectedOffsetsMinutes: [10], sound: { kind: 'builtin', id: 'clear-bell' }, volume: 0.7 },
+      { id: 'top', label: 'Breathe', enabled: true, cadenceMinutes: 5, selectedOffsetsMinutes: [10], sound: { kind: 'builtin', id: 'soft-bowl' }, volume: 0.6 },
+      { id: 'bottom', label: 'Posture', enabled: true, cadenceMinutes: 2, selectedOffsetsMinutes: [10], sound: { kind: 'builtin', id: 'clear-bell' }, volume: 0.7 },
     ],
     alignment: { kind: 'elapsed' },
     runPolicy: { kind: 'continuous', cycleCount: 1, durationSeconds: 30 * 60 },
@@ -297,6 +298,20 @@ describe('bounded runs and availability policies', () => {
     expect(event?.candidates).toHaveLength(1)
   })
 
+  it('uses a custom ending gong at both natural and between-cue deadlines', () => {
+    const endCue = { sound: { kind: 'builtin', id: 'wood-block' } as const, volume: 0.35 }
+    const natural = { ...pattern(), endCue, runPolicy: { kind: 'cycles', cycleCount: 1, durationSeconds: 30 * 60 } as const }
+    const naturalEvent = nextProgramEvent(natural, 0, 29 * minute, 0)
+    expect(naturalEvent).toMatchObject({ at: 30 * minute, boundary: 'pattern-main', completesRun: true, winner: { cueId: 'end', kind: 'run-complete', sound: endCue.sound, volume: 0.35 } })
+    expect(naturalEvent?.candidates).toHaveLength(1)
+    const mute = iterationMuteFor(natural, 0, minute, 1)
+    const gated = gateProgramAudio({ event: naturalEvent!, now: naturalEvent!.at, masterVolume: 1, mute: { mutedUntil: 0, iteration: mute }, alarmBehavior: 'locked', callActive: false })
+    expect(gated).toMatchObject({ shouldPlay: true, disposition: 'one-shot', nextMute: { mutedUntil: 0 }, nextAlarmBehavior: 'off' })
+
+    const between = { ...sequence(), endCue, runPolicy: { kind: 'duration', cycleCount: 1, durationSeconds: 90 } as const }
+    expect(nextProgramEvent(between, 1_000, 1_000, 1_000)).toMatchObject({ at: 91_000, boundary: 'run-complete', winner: { cueId: 'end', sound: endCue.sound, volume: 0.35 } })
+  })
+
   it('keeps the promised terminal instant when a snapped phase realigns', () => {
     const program = { ...pattern(), runPolicy: { kind: 'cycles', cycleCount: 2, durationSeconds: 30 * 60 } as const }
     const startedAt = 12 * minute
@@ -367,6 +382,19 @@ describe('timer v2 validation and presets', () => {
     expect(parseTimerProgram('{"schemaVersion":99,"mode":"pattern"}')).toBeNull()
     expect(parseTimerProgram('{not json')).toBeNull()
     expect(parseTimerProgram(JSON.stringify(pattern()))).toEqual(pattern())
+  })
+
+  it('adds names to older Pattern records and preserves optional boundary gongs', () => {
+    const old = pattern() as Partial<PatternProgram>
+    delete old.label
+    delete (old.tracks![0] as Partial<PatternProgram['tracks'][number]>).label
+    old.startCue = { sound: { kind: 'builtin', id: 'bright-chime' }, volume: 0.4 }
+    old.endCue = { sound: { kind: 'builtin', id: 'soft-bowl' }, volume: 0.5 }
+    const normalized = normalizePatternProgram(old)
+    expect(normalized.label).toBe('Main interval')
+    expect(normalized.tracks[0].label).toBe('Sub-bell 1')
+    expect(normalized.startCue).toEqual(old.startCue)
+    expect(normalized.endCue).toEqual(old.endCue)
   })
 
   it('marks a loaded preset deleted without mutating the working copy', () => {

@@ -95,7 +95,11 @@ function displayFor(program: TimerProgram, settings: AppTimerSettings, anchor: n
   return {
     mainCountdown,
     nextCueCountdown: formatCountdown(next.at - now),
-    nextCueLabel: next.winner.kind === 'pattern-main' ? 'Main gong' : soundTitle(next.winner.sound),
+    nextCueLabel: next.winner.kind === 'run-complete'
+      ? 'Ending gong'
+      : program.mode === 'pattern'
+        ? next.winner.kind === 'pattern-main' ? program.label : program.tracks.find(track => track.id === next.winner.cueId)?.label ?? soundTitle(next.winner.sound)
+        : program.steps.find(step => step.id === next.winner.cueId)?.label ?? soundTitle(next.winner.sound),
     progress: position.cycleProgress,
     position,
     activeHoursPaused: false,
@@ -342,6 +346,30 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     if (restored) updateRuntimeState(restored.mute, restored.alarmBehavior)
     runningRef.current = true
     setIsRunning(true)
+    if (restore === undefined && programRef.current.startCue && settingsRef.current.masterVolume > 0) {
+      const cue = programRef.current.startCue
+      const volume = Math.max(0, Math.min(1, settingsRef.current.masterVolume * cue.volume))
+      try {
+        let played = false
+        if (isNativeServiceAvailable) {
+          played = await ChandasTimerService.playImmediateCue(cue.sound, volume, 'bright-chime')
+        } else {
+          const source = sourceForSound(cue.sound)
+          if (source) {
+            playerRef.current?.remove()
+            const player = createAudioPlayer(source)
+            player.volume = volume
+            player.play()
+            playerRef.current = player
+            played = true
+          }
+        }
+        if (played) setEventPulse(value => value + 1)
+      } catch {
+        // Starting the timer is the primary action. A one-shot opening cue may
+        // fail (or be call-muted) without invalidating the live schedule.
+      }
+    }
     refreshDisplay()
     if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current)
     refreshIntervalRef.current = setInterval(refreshDisplay, 250)
