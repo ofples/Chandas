@@ -159,6 +159,7 @@ Timer v2 replaces these assumptions rather than layering special cases over them
 | D-059 | User-facing global level controls are labelled simply `Volume`, never `Master` or `Master volume`. Standard volume rows contain only the label, slider, and percentage on one centerline; explanatory subtitles are removed. The internal `masterVolume` field name and independent multiplier semantics remain unchanged. |
 | D-060 | The setup Sound section has no separate `All sound levels` row. A compact mixer icon immediately after the global Volume percentage opens the full `Mixer` sheet, keeping the secondary action on the control it expands. |
 | D-061 | Compact setup/editor volume controls place the `Volume` label above a second line containing a full-width slider and, for the global control, the trailing mixer icon. They omit the numeric percentage; exact channel values remain visible in the full Mixer. This supersedes D-059's one-centerline layout and D-060's reference to placement after the percentage. |
+| D-062 | The bounded-policy section is labelled `RUN LENGTH`, because it describes Continuous, Cycles, and Duration more accurately than `Running time`. `ALIGN TO CLOCK` uses the same all-caps section-label style. Duration shows only its hours/minutes controls; Cycles shows a compact computed equivalent such as `= 45m` or `= 1hr` beside its counter, replacing the longer `Ends after…` sentence. |
 
 ---
 
@@ -1976,6 +1977,7 @@ This section is append-only. Every implementation session should record scope, m
 - Simplified every standard volume row to one aligned line labelled `Volume`, removing the user-facing `Master` term and redundant scope subtitles while retaining the underlying global/cue multiplier model.
 - Removed the separate `All sound levels` navigation row. A compact equalizer icon at the trailing edge of the global Volume control now opens the full `Mixer` sheet.
 - Restacked compact Volume controls as a label above a full-width slider, removed their percentage readout, and kept the mixer icon aligned at the slider's trailing edge. The full Mixer retains numeric values for detailed adjustment.
+- Restored the `RUN LENGTH` section label, matched `ALIGN TO CLOCK` to that all-caps style, removed redundant Duration outcome copy, and replaced the Cycles sentence with a vertically centered compact equivalent beside the counter.
 
 **Native time selector decision:** Android and React Native do not provide a built-in duration picker. The existing schedule time-of-day modal remains dependency-free and OTA-compatible; adding a community/native time picker would require a new native binary while providing the wrong semantics for durations longer than 24 hours. This round therefore standardizes the current modal instead of adding a native dependency.
 
