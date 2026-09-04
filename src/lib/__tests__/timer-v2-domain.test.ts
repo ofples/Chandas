@@ -4,7 +4,7 @@ import { chooseProgramMode, deleteProgramPreset, loadProgramPreset, patchSequenc
 import { alarmBehaviorAfterGesture, gateProgramAudio, isFreshScheduledEvent, iterationMuteFor, muteAfterScheduleChange, shouldSurfaceTimerSignal } from '../runtimeV2'
 import { defaultTimerV2State, migrateLegacyConfig, normalizeAvailabilityPolicy, normalizePatternProgram, normalizeSequenceProgram, normalizeSoundRef, parseTimerProgram, validOffsets } from '../timerV2'
 import { nextPatternEvent, nextProgramEvent, nextSequenceEvent, runEndAt, timelinePosition } from '../timeline'
-import { effectiveAvailabilityForProgram, hasAvailableTime, isWithinActiveHours, nextActiveHoursStart, windowsOverlap } from '../activeHours'
+import { effectiveAvailabilityForProgram, hasAvailableTime, isWithinActiveHours, nextActiveHoursStart, scheduleSegmentsForDay, windowsOverlap } from '../activeHours'
 import timelineFixtures from '../../../fixtures/timer-v2-timeline.json'
 
 const minute = 60_000
@@ -342,6 +342,19 @@ describe('bounded runs and availability policies', () => {
   it('detects cross-window overlap and rejects an empty enabled schedule', () => {
     expect(windowsOverlap(window('late', 22 * 60, 2 * 60, 1 << 5), window('early', 1 * 60, 3 * 60, 1 << 6))).toBe(true)
     expect(hasAvailableTime({ enabled: true, weeklyWindows: [], overrides: [] })).toBe(false)
+  })
+
+  it('builds merged current-day segments for the compact schedule timeline', () => {
+    const policy = { enabled: true, weeklyWindows: [window('first', 4 * 60, 10 * 60), window('overlap', 9 * 60, 11 * 60), window('second', 12 * 60, 18 * 60)], overrides: [] }
+    expect(scheduleSegmentsForDay(policy, 4)).toEqual([{ start: 4 * 60, end: 11 * 60 }, { start: 12 * 60, end: 18 * 60 }])
+    expect(scheduleSegmentsForDay({ ...policy, enabled: false }, 4)).toEqual([{ start: 0, end: 1_440 }])
+  })
+
+  it('includes the previous day carry-in for overnight schedule previews', () => {
+    const fridayNight = window('overnight', 22 * 60, 2 * 60, 1 << 5)
+    const policy = { enabled: true, weeklyWindows: [fridayNight], overrides: [] }
+    expect(scheduleSegmentsForDay(policy, 5)).toEqual([{ start: 22 * 60, end: 1_440 }])
+    expect(scheduleSegmentsForDay(policy, 6)).toEqual([{ start: 0, end: 2 * 60 }])
   })
 
   it('normalizes bounds, duplicate window ids, expired overrides, and maximum payload sizes', () => {

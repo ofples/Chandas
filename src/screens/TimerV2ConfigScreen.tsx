@@ -19,6 +19,7 @@ import { TimerHelpSheet } from '../components/timer-v2/TimerHelpSheet'
 import { SoundName } from '../components/timer-v2/SoundName'
 import { RunLengthConfig } from '../components/timer-v2/run-length-config'
 import { ScheduleConfig } from '../components/timer-v2/schedule-config'
+import { ScheduleTimelinePreview } from '../components/timer-v2/ScheduleTimelinePreview'
 import { SegmentedControl } from '../components/timer-v2/SegmentedControl'
 import {
   addPatternTrack, addSequenceStep, chooseProgramMode, duplicateSequenceStep, patchPatternTrack, patchSequenceStep,
@@ -64,6 +65,7 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
   const [trackId, setTrackId] = useState<string | null>(null)
   const [presetsOpen, setPresetsOpen] = useState(false)
   const [mixerOpen, setMixerOpen] = useState(false)
+  const [scheduleOpen, setScheduleOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
   const reducedMotion = useReducedMotion()
   const program = state.workingPrograms[state.workingPrograms.selectedMode]
@@ -107,7 +109,8 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
         </View>
 
         {program.runPolicy.kind === 'continuous' ? <View style={styles.section}>
-          <ScheduleConfig value={settings.availability} onChange={availability => changeSettings({ availability })} />
+          <View style={styles.settingRow}><Text style={[styles.eyebrow, styles.flex, { color: tokens.textMuted }]}>SCHEDULE</Text><Toggle value={settings.availability.enabled} onChange={enabled => changeSettings({ availability: { ...settings.availability, enabled } })} accessibilityLabel="Timer schedule" /></View>
+          <ScheduleTimelinePreview value={settings.availability} onPress={() => setScheduleOpen(true)} />
         </View> : null}
 
         <ActionRow title="Configurations" detail={state.workingPrograms.sourcePreset?.deleted ? 'Working copy · source removed' : state.workingPrograms.sourcePreset ? `Loaded from ${state.workingPrograms.sourcePreset.name}` : 'Working copy'} onPress={() => setPresetsOpen(true)} accessibilityLabel="Open saved configurations" />
@@ -127,6 +130,7 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
       {trackId ? <TrackEditorSheet state={state} trackId={trackId} onChange={onChange} onEditCue={() => setCueTarget({ kind: 'track', id: trackId })} onClose={() => setTrackId(null)} /> : null}
       {cue ? <SoundPickerSheet visible title={cueTitle} cue={cue} masterVolume={settings.masterVolume} onChange={patchCue} onClose={() => setCueTarget(null)} onFeedback={onFeedback} /> : null}
       <MixerSheet visible={mixerOpen} state={state} onChange={onChange} onEditCue={target => { setMixerOpen(false); setCueTarget(target) }} onClose={() => setMixerOpen(false)} onFeedback={onFeedback} />
+      <BottomSheet visible={scheduleOpen} title="Schedule" onClose={() => setScheduleOpen(false)}><ScheduleConfig showHeading={false} value={settings.availability} onChange={availability => changeSettings({ availability })} /></BottomSheet>
       <PresetLibrarySheet visible={presetsOpen} state={state} onChange={onChange} onClose={() => setPresetsOpen(false)} onFeedback={onFeedback} />
       <TimerHelpSheet visible={helpOpen} onClose={() => setHelpOpen(false)} onOpenFocusSettings={onOpenFocusSettings} />
     </View>

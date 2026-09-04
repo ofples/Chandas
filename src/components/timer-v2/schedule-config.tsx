@@ -12,6 +12,7 @@ import { AddRowButton } from './AddRowButton'
 interface Props {
   value: AvailabilityPolicy
   onChange: (value: AvailabilityPolicy) => void
+  showHeading?: boolean
 }
 
 const DAYS = [
@@ -24,7 +25,7 @@ const DAYS = [
   { short: 'S', compact: 'Sat', name: 'Saturday', bit: 1 << 6 },
 ] as const
 
-export function ScheduleConfig({ value, onChange }: Props) {
+export function ScheduleConfig({ value, onChange, showHeading = true }: Props) {
   const { tokens } = useTheme()
   const reducedMotion = useReducedMotion()
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -42,7 +43,7 @@ export function ScheduleConfig({ value, onChange }: Props) {
   }
 
   return <View style={styles.section}>
-    <View style={styles.toggleRow}><View style={styles.flex}><Text style={[styles.eyebrow, { color: tokens.textMuted }]}>SCHEDULE</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{value.enabled ? `${activeCount} active time ${activeCount === 1 ? 'range' : 'ranges'}` : 'Available at any time'}</Text></View><Toggle value={value.enabled} onChange={enabled => onChange({ ...value, enabled })} accessibilityLabel="Timer schedule" /></View>
+    <View style={styles.toggleRow}><View style={styles.flex}><Text style={[showHeading ? styles.eyebrow : styles.rowTitle, { color: showHeading ? tokens.textMuted : tokens.text }]}>{showHeading ? 'SCHEDULE' : 'Active times'}</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{value.enabled ? `${activeCount} active time ${activeCount === 1 ? 'range' : 'ranges'}` : 'Available at any time'}</Text></View><Toggle value={value.enabled} onChange={enabled => onChange({ ...value, enabled })} accessibilityLabel="Timer schedule" /></View>
     {value.enabled ? <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 120)} layout={reducedMotion ? undefined : LinearTransition.duration(150)} style={styles.windowList}>
       {value.weeklyWindows.length === 0 ? <View style={styles.empty}><Text style={[styles.rowTitle, { color: tokens.text }]}>No active times yet</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>Add a time range, or switch Schedule off to run at any time.</Text></View> : null}
       {value.weeklyWindows.map((window, index) => {

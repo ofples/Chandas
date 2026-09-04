@@ -9,10 +9,36 @@ export interface ActiveHoursSettings {
 }
 
 export type AvailabilitySettings = AvailabilityPolicy | ActiveHoursSettings
+export interface AvailabilitySegment { start: number; end: number }
 
 /** Bounded runs are intentionally uninterrupted; saved schedules remain available for Continuous mode. */
 export function effectiveAvailabilityForProgram(program: Pick<TimerProgram, 'runPolicy'>, availability: AvailabilityPolicy): AvailabilityPolicy {
   return program.runPolicy.kind === 'continuous' ? availability : { enabled: false, weeklyWindows: [], overrides: [] }
+}
+
+/** Merged civil-time spans for one local weekday, including overnight carry-in. */
+export function scheduleSegmentsForDay(value: AvailabilityPolicy, day: number): AvailabilitySegment[] {
+  if (!value.enabled) return [{ start: 0, end: 1_440 }]
+  const normalizedDay = ((day % 7) + 7) % 7
+  const previousDay = (normalizedDay + 6) % 7
+  const segments = value.weeklyWindows.flatMap(window => {
+    if (!window.enabled) return []
+    const start = normalizeMinute(window.startMinutes)
+    const end = normalizeMinute(window.endMinutes)
+    const selected = (candidate: number) => ((window.days & 0b1111111) & (1 << candidate)) !== 0
+    if (start === end) return selected(normalizedDay) ? [{ start: 0, end: 1_440 }] : []
+    if (start < end) return selected(normalizedDay) ? [{ start, end }] : []
+    const pieces: AvailabilitySegment[] = []
+    if (selected(previousDay) && end > 0) pieces.push({ start: 0, end })
+    if (selected(normalizedDay) && start < 1_440) pieces.push({ start, end: 1_440 })
+    return pieces
+  }).sort((left, right) => left.start - right.start)
+  return segments.reduce<AvailabilitySegment[]>((merged, segment) => {
+    const previous = merged.at(-1)
+    if (!previous || segment.start > previous.end) merged.push({ ...segment })
+    else previous.end = Math.max(previous.end, segment.end)
+    return merged
+  }, [])
 }
 
 const DAY_MS = 86_400_000
