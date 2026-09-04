@@ -11,7 +11,6 @@ export function TimerHelpSheet({ visible, onClose, onOpenFocusSettings }: { visi
     {item(<BellIcon on color={tokens.accent} />, 'Cycle', 'One named main interval repeats. Add up to five named sub-bells at selected points, each with its own sound and level.')}
     {item(<RestartIcon color={tokens.accent} />, 'Sequence', 'Steps run in order and repeat. Each step has its own duration, label, sound and level.')}
     {item(<ClockIcon color={tokens.accent} />, 'Run length', 'Keep going until you stop, or finish after a chosen number of cycles or an exact duration.')}
-    {item(<BellIcon on color={tokens.accent} />, 'Opening & ending gongs', 'Optional opening and ending sounds belong to the configuration. Without them, Start is quiet and the final interval uses its normal gong.')}
     {item(<ClockIcon color={tokens.accent} />, 'Schedule', 'Add weekly active times. Overnight ranges belong to the day on which they start; missed bells are not replayed.')}
     {item(<ClockIcon color={tokens.accent} />, 'Snap to clock', 'Keep Cycle mode on a local wall-clock rhythm, including after timezone and daylight-saving changes.')}
     {item(<RestartIcon color={tokens.accent} />, 'Reset', 'Start a fresh full interval or sequence. In a snapped Cycle, reset also unsnaps it from the clock.')}

@@ -11,7 +11,7 @@ import type { AppState, AppTimerSettings, TimerV2State } from './src/types'
 import { useTimerV2 } from './src/hooks/useTimerV2'
 import { clearTimerV2Session, loadTimerV2Session, loadTimerV2StateResult, saveTimerV2Session, saveTimerV2State, type TimerV2Session } from './src/lib/storage'
 import { defaultTimerV2State, normalizeAvailabilityPolicy, parseTimerProgram, replaceWorkingProgram, selectedProgram } from './src/lib/timerV2'
-import { patchPatternTrack, patchSequenceStep, updatePattern, updateSequence } from './src/lib/programActions'
+import { patchPatternTrack, patchSequenceStep, updatePattern } from './src/lib/programActions'
 import { TimerV2ConfigScreen } from './src/screens/TimerV2ConfigScreen'
 import { TimerV2RunningScreen } from './src/screens/TimerV2RunningScreen'
 import { AlarmRingingScreen } from './src/screens/AlarmRingingScreen'
@@ -414,14 +414,7 @@ function Root() {
 
   const changeCueVolume = (cueId: string, volume: number) => {
     if (!timerState || !program) return
-    if (cueId === 'start' || cueId === 'end') {
-      const key = cueId === 'start' ? 'startCue' : 'endCue'
-      const cue = program[key]
-      if (!cue) return
-      changeTimerState(program.mode === 'pattern'
-        ? updatePattern(timerState, value => ({ ...value, [key]: { ...cue, volume } }))
-        : updateSequence(timerState, value => ({ ...value, [key]: { ...cue, volume } })))
-    } else if (program.mode === 'sequence') changeTimerState(patchSequenceStep(timerState, cueId, { volume }))
+    if (program.mode === 'sequence') changeTimerState(patchSequenceStep(timerState, cueId, { volume }))
     else if (cueId === 'main') changeTimerState(updatePattern(timerState, value => ({ ...value, mainCue: { ...value.mainCue, volume } })))
     else changeTimerState(patchPatternTrack(timerState, cueId, { volume }))
   }

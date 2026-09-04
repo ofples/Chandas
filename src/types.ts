@@ -61,10 +61,6 @@ export interface PatternProgram {
   label: string
   mainMinutes: number
   mainCue: CueSettings
-  /** Optional one-shot cue played only for a fresh start. */
-  startCue?: CueSettings
-  /** Optional override for the final cue of a bounded run. */
-  endCue?: CueSettings
   tracks: PatternTrack[]
   alignment: { kind: 'elapsed' } | { kind: 'local-clock'; offsetMinutes: number }
   runPolicy: RunPolicy
@@ -80,10 +76,6 @@ export interface SequenceProgram {
   schemaVersion: 2
   mode: 'sequence'
   steps: SequenceStep[]
-  /** Optional one-shot cue played only for a fresh start. */
-  startCue?: CueSettings
-  /** Optional override for the final cue of a bounded run. */
-  endCue?: CueSettings
   runPolicy: RunPolicy
 }
 

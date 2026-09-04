@@ -4,7 +4,7 @@ import Slider from '@react-native-community/slider'
 import * as Haptics from 'expo-haptics'
 import Reanimated, { FadeIn, FadeInDown, FadeOut, LinearTransition, useReducedMotion } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import type { CueSettings, PatternTrack, SoundRef, TimerMode, TimerV2State } from '../types'
+import type { CueSettings, PatternTrack, SoundRef, TimerV2State } from '../types'
 import type { NativeFocusState } from '../native/ChandasTimerService'
 import { Chip } from '../components/Chip'
 import { Toggle } from '../components/Toggle'
@@ -21,7 +21,7 @@ import { ScheduleConfig } from '../components/timer-v2/schedule-config'
 import {
   addPatternTrack, addSequenceStep, chooseProgramMode, duplicateSequenceStep, patchPatternTrack, patchSequenceStep,
   removePatternTrack, removeSequenceStep, reorderPatternTracks, reorderSequenceSteps,
-  setTrackCadence, setTrackOffsets, updatePattern, updatePatternMainMinutes, updateSequence,
+  setTrackCadence, setTrackOffsets, updatePattern, updatePatternMainMinutes,
 } from '../lib/programActions'
 import { soundTitle } from '../lib/soundLibrary'
 import { validOffsets } from '../lib/timerV2'
@@ -36,7 +36,7 @@ const STEP_PRESETS = [5, 15, 25] as const
 const CADENCE_PRESETS = [1, 2, 5] as const
 const SNAP_PRESETS = [0, 10, 15] as const
 
-type CueTarget = { kind: 'main' } | { kind: 'track'; id: string } | { kind: 'step'; id: string } | { kind: 'boundary'; mode: TimerMode; boundary: 'start' | 'end' }
+type CueTarget = { kind: 'main' } | { kind: 'track'; id: string } | { kind: 'step'; id: string }
 
 interface Props {
   state: TimerV2State
@@ -61,7 +61,6 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
   const [trackId, setTrackId] = useState<string | null>(null)
   const [presetsOpen, setPresetsOpen] = useState(false)
   const [mixerOpen, setMixerOpen] = useState(false)
-  const [boundaryOpen, setBoundaryOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
   const reducedMotion = useReducedMotion()
   const program = state.workingPrograms[state.workingPrograms.selectedMode]
@@ -69,17 +68,12 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
 
   const changeSettings = (patch: Partial<typeof settings>) => onChange({ ...state, settings: { ...settings, ...patch } })
   const cue = cueTarget ? cueForTarget(state, cueTarget) : null
-  const cueTitle = cueTarget?.kind === 'main' ? 'Main gong' : cueTarget?.kind === 'track' ? 'Sub-bell sound' : cueTarget?.kind === 'step' ? 'Step sound' : cueTarget?.boundary === 'start' ? 'Opening gong' : 'Ending gong'
+  const cueTitle = cueTarget?.kind === 'main' ? 'Main gong' : cueTarget?.kind === 'track' ? 'Sub-bell sound' : cueTarget?.kind === 'step' ? 'Step sound' : ''
   const patchCue = (patch: Partial<CueSettings>) => {
     if (!cueTarget) return
     if (cueTarget.kind === 'main') onChange(updatePattern(state, value => ({ ...value, mainCue: { ...value.mainCue, ...patch } })))
     else if (cueTarget.kind === 'track') onChange(patchPatternTrack(state, cueTarget.id, patch))
-    else if (cueTarget.kind === 'step') onChange(patchSequenceStep(state, cueTarget.id, patch))
-    else {
-      const key = cueTarget.boundary === 'start' ? 'startCue' : 'endCue'
-      const current = cueForTarget(state, cueTarget)
-      if (current) onChange(setBoundaryCue(state, cueTarget.mode, key, { ...current, ...patch }))
-    }
+    else onChange(patchSequenceStep(state, cueTarget.id, patch))
   }
   const addTrack = () => { void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined); onChange(addPatternTrack(state)) }
   const addStep = () => { void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined); onChange(addSequenceStep(state)) }
@@ -116,11 +110,6 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
           />
         </View>
 
-        <Pressable onPress={() => setBoundaryOpen(true)} style={({ pressed }) => [styles.summaryBar, { backgroundColor: tokens.surface, borderColor: tokens.border, opacity: pressed ? 0.78 : 1, transform: [{ scale: pressed && !reducedMotion ? 0.99 : 1 }] }]} accessibilityRole="button" accessibilityLabel="Open opening and ending gongs">
-          <View style={styles.flex}><Text style={[styles.summaryTitle, { color: tokens.text }]}>Opening & ending gongs</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{boundarySummary(program.startCue, program.endCue)}</Text></View>
-          <Text style={[styles.chevron, { color: tokens.accent }]}>›</Text>
-        </Pressable>
-
         <Pressable onPress={() => setMixerOpen(true)} style={({ pressed }) => [styles.summaryBar, { backgroundColor: tokens.surface, borderColor: tokens.border, opacity: pressed ? 0.78 : 1, transform: [{ scale: pressed && !reducedMotion ? 0.99 : 1 }] }]} accessibilityRole="button" accessibilityLabel="Open sound levels">
           <View style={styles.flex}><Text style={[styles.summaryTitle, { color: tokens.text }]}>Sound levels</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>Master {Math.round(settings.masterVolume * 100)}%</Text></View>
           <Text style={[styles.chevron, { color: tokens.accent }]}>›</Text>
@@ -150,7 +139,6 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
       {trackId ? <TrackEditorSheet state={state} trackId={trackId} onChange={onChange} onEditCue={() => setCueTarget({ kind: 'track', id: trackId })} onClose={() => setTrackId(null)} /> : null}
       {cue ? <SoundPickerSheet visible title={cueTitle} cue={cue} masterVolume={settings.masterVolume} onChange={patchCue} onClose={() => setCueTarget(null)} onFeedback={onFeedback} /> : null}
       <MixerSheet visible={mixerOpen} state={state} onChange={onChange} onEditCue={target => { setMixerOpen(false); setCueTarget(target) }} onClose={() => setMixerOpen(false)} onFeedback={onFeedback} />
-      <BoundaryGongsSheet visible={boundaryOpen} mode={program.mode} startCue={program.startCue} endCue={program.endCue} state={state} onChange={onChange} onEditCue={target => { setBoundaryOpen(false); setCueTarget(target) }} onClose={() => setBoundaryOpen(false)} />
       <PresetLibrarySheet visible={presetsOpen} state={state} onChange={onChange} onClose={() => setPresetsOpen(false)} onFeedback={onFeedback} />
       <TimerHelpSheet visible={helpOpen} onClose={() => setHelpOpen(false)} onOpenFocusSettings={onOpenFocusSettings} />
     </View>
@@ -279,28 +267,6 @@ function TrackEditorSheet({ state, trackId, onChange, onEditCue, onClose }: { st
   </BottomSheet>
 }
 
-function BoundaryGongsSheet({ visible, mode, startCue, endCue, state, onChange, onEditCue, onClose }: { visible: boolean; mode: TimerMode; startCue?: CueSettings; endCue?: CueSettings; state: TimerV2State; onChange: (state: TimerV2State) => void; onEditCue: (target: CueTarget) => void; onClose: () => void }) {
-  const { tokens } = useTheme()
-  const toggle = (key: 'startCue' | 'endCue', enabled: boolean) => {
-    const cue = enabled
-      ? { sound: { kind: 'builtin' as const, id: key === 'startCue' ? 'bright-chime' as const : 'temple-gong' as const }, volume: 1 }
-      : undefined
-    onChange(setBoundaryCue(state, mode, key, cue))
-  }
-  return <BottomSheet visible={visible} eyebrow="OPTIONAL" title="Opening & ending gongs" onClose={onClose}>
-    <Text style={[styles.helper, { color: tokens.textMuted }]}>By default, Start is quiet and a bounded run ends with its final interval’s normal gong.</Text>
-    <View style={[styles.boundaryGroup, { borderColor: tokens.border }]}>
-      <View style={styles.settingRow}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Opening gong</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>Play once when a new run starts</Text></View><Toggle value={Boolean(startCue)} onChange={enabled => toggle('startCue', enabled)} accessibilityLabel="Enable opening gong" /></View>
-      {startCue ? <Reanimated.View entering={FadeInDown.duration(140)} exiting={FadeOut.duration(100)}><CueRow title="Opening sound & level" detail={`${soundTitle(startCue.sound)} · ${Math.round(startCue.volume * 100)}%`} sound={startCue.sound} onPress={() => onEditCue({ kind: 'boundary', mode, boundary: 'start' })} compact /></Reanimated.View> : null}
-    </View>
-    <View style={[styles.boundaryGroup, { borderColor: tokens.border }]}>
-      <View style={styles.settingRow}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Custom ending gong</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>Replace the final gong of a bounded run</Text></View><Toggle value={Boolean(endCue)} onChange={enabled => toggle('endCue', enabled)} accessibilityLabel="Enable custom ending gong" /></View>
-      {endCue ? <Reanimated.View entering={FadeInDown.duration(140)} exiting={FadeOut.duration(100)}><CueRow title="Ending sound & level" detail={`${soundTitle(endCue.sound)} · ${Math.round(endCue.volume * 100)}%`} sound={endCue.sound} onPress={() => onEditCue({ kind: 'boundary', mode, boundary: 'end' })} compact /></Reanimated.View> : null}
-    </View>
-    {endCue && (mode === 'pattern' ? state.workingPrograms.pattern.runPolicy.kind : state.workingPrograms.sequence.runPolicy.kind) === 'continuous' ? <GentleNotice title="Ready for bounded runs" message="The ending gong is saved, but continuous runs have no automatic end. Choose cycles or duration whenever you want to hear it." /> : null}
-  </BottomSheet>
-}
-
 function MixerSheet({ visible, state, onChange, onEditCue, onClose, onFeedback }: { visible: boolean; state: TimerV2State; onChange: (state: TimerV2State) => void; onEditCue: (target: CueTarget) => void; onClose: () => void; onFeedback: Props['onFeedback'] }) {
   const { tokens } = useTheme()
   const program = state.workingPrograms[state.workingPrograms.selectedMode]
@@ -317,9 +283,7 @@ function MixerSheet({ visible, state, onChange, onEditCue, onClose, onFeedback }
   return <BottomSheet visible={visible} eyebrow="VOLUME" title="Sound levels" onClose={close}>
     <View style={styles.mixerRow}><View style={styles.mixerLabel}><Text style={[styles.rowTitle, { color: tokens.text }]}>Master</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>All timer sounds</Text></View><Slider style={styles.mixerSlider} minimumValue={0} maximumValue={1} step={0.05} value={state.settings.masterVolume} onValueChange={masterVolume => onChange({ ...state, settings: { ...state.settings, masterVolume } })} minimumTrackTintColor={tokens.accent} maximumTrackTintColor={tokens.surfaceHi} thumbTintColor={tokens.accent} accessibilityLabel="Master timer volume" accessibilityValue={{ min: 0, max: 100, now: Math.round(state.settings.masterVolume * 100), text: `${Math.round(state.settings.masterVolume * 100)} percent` }} /><Text style={[styles.volumeValue, { color: tokens.text }]}>{Math.round(state.settings.masterVolume * 100)}</Text></View>
     <View style={[styles.divider, { backgroundColor: tokens.border }]} />
-    {program.startCue ? row('start', 'Opening gong', program.startCue, { kind: 'boundary', mode: program.mode, boundary: 'start' }, volume => setBoundaryCue(state, program.mode, 'startCue', { ...program.startCue!, volume })) : null}
     {program.mode === 'pattern' ? <>{row('main', program.label, program.mainCue, { kind: 'main' }, volume => updatePattern(state, value => ({ ...value, mainCue: { ...value.mainCue, volume } })))}{program.tracks.map(track => row(track.id, track.label, track, { kind: 'track', id: track.id }, volume => patchPatternTrack(state, track.id, { volume })))}</> : program.steps.map((step, index) => row(step.id, `${index + 1}. ${step.label}`, step, { kind: 'step', id: step.id }, volume => patchSequenceStep(state, step.id, { volume })))}
-    {program.endCue ? row('end', 'Ending gong', program.endCue, { kind: 'boundary', mode: program.mode, boundary: 'end' }, volume => setBoundaryCue(state, program.mode, 'endCue', { ...program.endCue!, volume })) : null}
   </BottomSheet>
 }
 
@@ -341,19 +305,7 @@ function CueRow({ title, detail, sound, onPress, compact = false }: { title: str
 function cueForTarget(state: TimerV2State, target: CueTarget): CueSettings | null {
   if (target.kind === 'main') return state.workingPrograms.pattern.mainCue
   if (target.kind === 'track') return state.workingPrograms.pattern.tracks.find(track => track.id === target.id) ?? null
-  if (target.kind === 'step') return state.workingPrograms.sequence.steps.find(step => step.id === target.id) ?? null
-  const program = state.workingPrograms[target.mode]
-  return (target.boundary === 'start' ? program.startCue : program.endCue) ?? null
-}
-
-function setBoundaryCue(state: TimerV2State, mode: TimerMode, key: 'startCue' | 'endCue', cue: CueSettings | undefined): TimerV2State {
-  return mode === 'pattern'
-    ? updatePattern(state, program => ({ ...program, [key]: cue }))
-    : updateSequence(state, program => ({ ...program, [key]: cue }))
-}
-
-function boundarySummary(startCue?: CueSettings, endCue?: CueSettings): string {
-  return `${startCue ? 'Opening custom' : 'Quiet start'} · ${endCue ? 'Ending custom' : 'Normal final gong'}`
+  return state.workingPrograms.sequence.steps.find(step => step.id === target.id) ?? null
 }
 
 function changeMainMinutes(state: TimerV2State, minutes: number, onChange: (state: TimerV2State) => void) {
@@ -421,7 +373,6 @@ const styles = StyleSheet.create({
   sequenceCard: { borderWidth: 1.5, borderRadius: 15, padding: 11 }, sequenceHead: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 9 }, sequenceSummary: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 8 }, sequenceChevron: { width: 22, textAlign: 'center', fontSize: 22, lineHeight: 24, fontWeight: '300' }, stepInput: { width: '100%', borderBottomWidth: 1, fontSize: 15, fontWeight: '700', paddingVertical: 8 }, stepActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }, remove: { fontSize: 11, textDecorationLine: 'underline' },
   dragging: { zIndex: 20, boxShadow: '0 5px 16px rgba(0,0,0,0.24)' },
   gridHeading: { gap: 10 }, inlineActions: { flexDirection: 'row', alignItems: 'center', gap: 14 }, destructive: { fontSize: 12, fontWeight: '700', textAlign: 'center', paddingVertical: 8 },
-  boundaryGroup: { borderWidth: 1.5, borderRadius: 14, padding: 13, gap: 12 },
   timeline: { height: 48, borderWidth: 1, borderRadius: 11, position: 'relative', overflow: 'hidden', paddingHorizontal: 8 }, timelineLine: { position: 'absolute', left: 8, right: 8, top: 20, height: 1 }, timelineBoundary: { position: 'absolute', top: 14, width: 2, height: 13 }, timelineCue: { position: 'absolute', width: 5, height: 5, marginLeft: -2.5, borderRadius: 3 }, timelineStart: { position: 'absolute', left: 7, bottom: 4, fontSize: 8 }, timelineEnd: { position: 'absolute', right: 7, bottom: 4, fontSize: 8 },
   mixerRow: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 9 }, mixerLabel: { width: 118, gap: 2 }, mixerSlider: { flex: 1, height: 34 }, volumeValue: { width: 28, fontFamily: 'JetBrainsMono-Regular', fontSize: 11, textAlign: 'right' }, divider: { height: 1 },
   previewMini: { width: 30, height: 30, borderWidth: 1, borderRadius: 15, alignItems: 'center', justifyContent: 'center' }, previewGlyph: { fontSize: 9 },

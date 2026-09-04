@@ -145,8 +145,7 @@ Timer v2 replaces these assumptions rather than layering special cases over them
 | D-045 | Advanced editing uses progressive disclosure. Sequence steps stay as equal-height compact ordered rows and open a focused editor sheet; saved-configuration details replace the list while being inspected; technical sound, scheduling, and collision explanations stay in Help or documentation unless required to resolve a current problem. |
 | D-046 | Configuration summaries use one title, one useful value, and a chevron. `Sound levels` replaces user-facing `Mixer` terminology in setup, while the running sheet may retain `Mixer & mute` because it combines two live control groups. |
 | D-047 | Every interval may have a user-facing name: Pattern has a named main interval and named sub-bell tracks; Sequence retains named steps. Names are stored in presets, default safely for older records, and identify intervals in editors, the running view, and sound controls. The next Pattern sub-bell may show its interval name with its countdown, but never substitutes a sound name or collision explanation. |
-| D-048 | Opening and ending gongs are optional per-configuration overrides hidden behind one advanced summary. Their absence preserves existing behavior: Start is quiet, and a bounded run uses the natural final cue (or its existing fallback at an in-between deadline). Enabling either override adds its own sound and relative volume to the configuration and sound controls. |
-| D-049 | An opening gong plays once only after a fresh Start has succeeded. It never replays on session restoration, foregrounding, timezone realignment, or manual live Reset/snap. A custom ending gong replaces the single final cue at a bounded deadline; it never overlaps the natural boundary, never loops as an Alarm, and has no effect in Continuous runs. Both use Alarm audio routing; the opening gong honors call auto-mute without preventing the timer from starting. |
+| D-048 | Per-run opening and ending gong overrides are deferred. They are not added to the program schema, UI, JavaScript runtime, or native scheduler in v2.0; Start remains quiet and bounded runs retain their existing final-cue behavior. This keeps the interval-naming release compatible with the current native binary and eligible for OTA delivery. |
 
 ---
 
@@ -594,8 +593,6 @@ interface PatternProgram {
   label: string
   mainMinutes: number
   mainCue: CueSettings
-  startCue?: CueSettings
-  endCue?: CueSettings
   tracks: PatternTrack[]
   alignment:
     | { kind: 'elapsed' }
@@ -613,8 +610,6 @@ interface SequenceProgram {
   schemaVersion: 2
   mode: 'sequence'
   steps: SequenceStep[]
-  startCue?: CueSettings
-  endCue?: CueSettings
   runPolicy: RunPolicy
 }
 
@@ -1894,32 +1889,29 @@ This section is append-only. Every implementation session should record scope, m
 
 **Risks or follow-ups:** Representative device testing should confirm the feel of dragging compact rows and opening nested sound selection from the step editor.
 
-### 2026-09-04 — Interval names and optional boundary gongs
+### 2026-09-04 — Renameable intervals with native compatibility preserved
 
-**Status:** Source implementation complete; remote Android compilation and on-device audio verification remain pending.
+**Status:** Complete in source and compatible with the existing Android runtime.
 
-**Scope:** Renameable Cycle intervals and sub-bells, existing Sequence step names, optional per-configuration opening/ending cues, preset persistence, running labels, foreground playback, and native background completion.
+**Scope:** Renameable Cycle intervals and sub-bells, existing Sequence step names, preset persistence, running labels, and deliberate deferral of opening/ending gong overrides.
 
-**Decisions referenced:** D-047–D-049.
+**Decisions referenced:** D-047–D-048.
 
 **Behavior implemented:**
 
 - Added a renameable main-interval label and renameable labels for every Cycle sub-bell. Sequence step naming remains in its focused editor. Names are normalized to 60 Unicode code points, receive clear fallbacks when old records are loaded, and travel with immutable saved configurations.
-- Added one progressively disclosed `Opening & ending gongs` sheet to both modes. Both controls are off by default. Enabling one reveals its sound and relative-volume editor; enabled channels also appear in setup Sound levels and the running Mixer.
-- Kept Start quiet by default. An enabled opening gong plays only after a fresh Start has been accepted, never during persisted-session restoration or live reanchoring. Failure or call suppression of this optional one-shot does not invalidate the running schedule.
-- Kept existing bounded-completion behavior by default. An enabled ending gong atomically replaces the natural or synthetic completion cue while retaining the natural boundary identity needed by cycle mute and Alarm Once. It remains a one-shot even if Alarm is locked.
-- Mirrored ending-cue arbitration in TypeScript and Kotlin, added native validation for optional boundary cues and optional backward-compatible Pattern labels, and routed immediate Android opening playback through Alarm audio with the same optional active-call gate as scheduled bells.
-- Updated the running Cycle header and next-sub-bell text to use interval names, while keeping sound names and overlap arbitration off the running surface.
+- Updated Cycle setup rows, sound controls, the running header, and next-sub-bell text to use interval names while keeping sound names and overlap arbitration off the running surface.
+- Removed the proposed opening/ending-gong implementation in full after compatibility review. No cue fields, bridge methods, Kotlin validation, or background scheduler changes remain; existing start and completion behavior is unchanged.
 
-**Migration impact:** The schema version remains 2 because all new fields are additive. Missing Pattern labels normalize to `Main interval` and `Sub-bell N`; missing boundary cues mean quiet Start and the existing final-cue behavior. Existing native V2 sessions without labels or boundary cues remain valid.
+**Migration impact:** The schema version remains 2. Missing Pattern labels normalize to `Main interval` and `Sub-bell N`; the existing native parser safely ignores these presentation-only fields.
 
-**Verification run:** `npx tsc --noEmit`; focused TypeScript tests; whitespace/diff inspection. Kotlin tests were extended but not executed locally because repository policy prohibits local Gradle tasks.
+**Verification run:** `npx tsc --noEmit`; focused TypeScript tests; whitespace inspection; Expo Android fingerprint comparison against production build version code 7.
 
-**Results:** Type checking passed, all 48 focused tests passed, and whitespace validation passed.
+**Results:** Type checking passed, all 47 focused tests passed, whitespace validation passed, and the resulting Android fingerprint `206547c4cdef082cfcb557d3e61193d4ea61d64a` exactly matches production build version code 7.
 
-**Native/on-device verification still required:** Opening playback on Alarm stream, call-active opening suppression, custom URI fallback, process restoration without replay, custom final cue at natural and between-cue deadlines, bounded completion while muted, and UI/audio behavior on representative Android devices.
+**Native/on-device verification still required:** Visual and accessibility review of naming fields and long labels on a representative Android device.
 
-**Risks or follow-ups:** The already-built store artifact version code 7 predates this slice. A new remote EAS store build is required before this behavior can be submitted to Play testing.
+**Risks or follow-ups:** Opening and ending gong customization remains a later native-release feature.
 
 ### Implementation-entry template
 
@@ -1959,4 +1951,4 @@ This section is append-only. Every implementation session should record scope, m
 | 1.3 | 2026-09-03 | Added bounded cycle/duration runs, exact terminal semantics, multi-window schedules, and the calendar-ready availability override contract. |
 | 1.4 | 2026-09-03 | Applied the first annotated-feedback pass: simpler Cycle/Sequence surfaces, immediate Alarm feedback, smoother nested rings, web-safe controls, compact Mixer, and sticky cue volume. |
 | 1.5 | 2026-09-03 | Extended the feedback direction across Timer v2 with compact Sequence rows, focused saved-configuration inspection, quiet routine transitions, and shorter setup/status language. |
-| 1.6 | 2026-09-04 | Added renameable Cycle intervals plus optional per-configuration opening and ending gongs with foreground/native parity and backward-compatible persistence. |
+| 1.6 | 2026-09-04 | Added renameable Cycle intervals while deferring opening/ending gong overrides so the change remains compatible with the existing native binary. |

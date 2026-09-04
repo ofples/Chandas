@@ -213,8 +213,6 @@ export function normalizePatternProgram(value: Partial<PatternProgram> | undefin
     label: normalizeLabel(value?.label, 'Main interval'),
     mainMinutes,
     mainCue: normalizeCue(value?.mainCue, defaultCue('temple-gong')),
-    ...(value?.startCue ? { startCue: normalizeCue(value.startCue, defaultCue('bright-chime')) } : {}),
-    ...(value?.endCue ? { endCue: normalizeCue(value.endCue, defaultCue('temple-gong')) } : {}),
     tracks,
     alignment: offset === undefined ? { kind: 'elapsed' } : { kind: 'local-clock', offsetMinutes: offset },
     runPolicy: normalizeRunPolicy(value?.runPolicy),
@@ -234,8 +232,6 @@ export function normalizeSequenceProgram(value: Partial<SequenceProgram> | undef
     schemaVersion: TIMER_V2_SCHEMA_VERSION,
     mode: 'sequence',
     steps: steps.length > 0 ? steps : defaultSequenceProgram().steps,
-    ...(value?.startCue ? { startCue: normalizeCue(value.startCue, defaultCue('bright-chime')) } : {}),
-    ...(value?.endCue ? { endCue: normalizeCue(value.endCue, defaultCue('temple-gong')) } : {}),
     runPolicy: normalizeRunPolicy(value?.runPolicy),
   }
 }

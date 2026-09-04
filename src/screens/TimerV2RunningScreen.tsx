@@ -203,12 +203,7 @@ function RunningMixerSheet({ visible, onClose, program, masterVolume, onMasterVo
   const [channelsOpen, setChannelsOpen] = useState(false)
   useEffect(() => { if (!visible) setChannelsOpen(false) }, [visible])
   const muted = Boolean(mute.iteration) || mute.mutedUntil > Date.now()
-  const intervalChannels: { id: string; title: string; cue: CueSettings }[] = program.mode === 'pattern' ? [{ id: 'main', title: program.label, cue: program.mainCue }, ...program.tracks.map(track => ({ id: track.id, title: track.label, cue: track }))] : program.steps.map((step, index) => ({ id: step.id, title: `${index + 1}. ${step.label}`, cue: step }))
-  const channels = [
-    ...(program.startCue ? [{ id: 'start', title: 'Opening gong', cue: program.startCue }] : []),
-    ...intervalChannels,
-    ...(program.endCue ? [{ id: 'end', title: 'Ending gong', cue: program.endCue }] : []),
-  ]
+  const channels: { id: string; title: string; cue: CueSettings }[] = program.mode === 'pattern' ? [{ id: 'main', title: program.label, cue: program.mainCue }, ...program.tracks.map(track => ({ id: track.id, title: track.label, cue: track }))] : program.steps.map((step, index) => ({ id: step.id, title: `${index + 1}. ${step.label}`, cue: step }))
   const preview = async (title: string, cue: CueSettings) => {
     setPreviewError(null)
     try {
