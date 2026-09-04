@@ -162,6 +162,7 @@ Timer v2 replaces these assumptions rather than layering special cases over them
 | D-062 | The bounded-policy section is labelled `RUN LENGTH`, because it describes Continuous, Cycles, and Duration more accurately than `Running time`. `ALIGN TO CLOCK` uses the same all-caps section-label style. Duration shows only its hours/minutes controls; Cycles shows a compact computed equivalent such as `= 45m` or `= 1hr` beside its counter, replacing the longer `Ends after…` sentence. |
 | D-063 | Continuous-mode Schedule keeps a quick top-level switch and a compact, tappable 24-hour preview for the current local day. Enabled ranges are merged and highlighted between labelled civil-time boundaries; overnight ranges include the portion inherited from the previous day. Tapping the preview opens the full existing range editor in a `Schedule` sheet. Complex schedules with more than six boundaries fall back to evenly spaced 0/6/12/18/24 labels to avoid clutter. |
 | D-064 | Sequence-step `Duplicate step` and `Remove step` actions use the same accent-coloured 13px semibold treatment and enlarged tap target as a sheet's `Done` action. Removal remains guarded by its confirmation flow rather than relying on subdued or underlined styling to communicate risk. |
+| D-065 | A cycle-bounded run's compact duration equivalent follows `ROUNDS` or `MAIN CYCLES` on the caption line beneath the complete stepper. It does not occupy a separate column or alter the centering of the minus/value/plus controls. |
 
 ---
 
@@ -1982,6 +1983,7 @@ This section is append-only. Every implementation session should record scope, m
 - Restored the `RUN LENGTH` section label, matched `ALIGN TO CLOCK` to that all-caps style, removed redundant Duration outcome copy, and replaced the Cycles sentence with a vertically centered compact equivalent beside the counter.
 - Moved detailed Schedule editing into a dedicated bottom sheet. The setup surface now keeps only its quick switch and a truthful current-day 24-hour timeline with merged active spans, boundary marks, concise status, and a direct tap target into the full editor.
 - Matched the Sequence editor's Duplicate and Remove actions to the sheet's bright `Done` treatment, removed the faint underlines, and enlarged both touch targets.
+- Moved the computed cycle duration beside the `ROUNDS`/`MAIN CYCLES` caption so the stepper remains centered and does not shift as the duration text changes.
 
 **Native time selector decision:** Android and React Native do not provide a built-in duration picker. The existing schedule time-of-day modal remains dependency-free and OTA-compatible; adding a community/native time picker would require a new native binary while providing the wrong semantics for durations longer than 24 hours. This round therefore standardizes the current modal instead of adding a native dependency.
 
