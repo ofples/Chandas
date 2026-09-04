@@ -164,6 +164,10 @@ Timer v2 replaces these assumptions rather than layering special cases over them
 | D-064 | Sequence-step `Duplicate step` and `Remove step` actions use the same accent-coloured 13px semibold treatment and enlarged tap target as a sheet's `Done` action. Removal remains guarded by its confirmation flow rather than relying on subdued or underlined styling to communicate risk. |
 | D-065 | A cycle-bounded run's compact duration equivalent follows `ROUNDS` or `MAIN CYCLES` on the caption line beneath the complete stepper. It does not occupy a separate column or alter the centering of the minus/value/plus controls. |
 | D-066 | Sequence reordering activates only after a short 260ms hold on the drag handle. Movement before activation remains normal page scrolling. During an active drag, adjacent rows animate aside and all visible order numbers reflect the prospective insertion before release; crossing each slot gives selection haptics. Holding near the usable top or bottom edge auto-scrolls only while another sequence position exists in that direction. Cancellation restores the original order, and accessibility increment/decrement actions remain available. |
+| D-067 | Full Stop is authoritative and fail-safe. The app returns to configuration immediately, clears local alarm/player state, and invokes the native timer stop directly rather than first dismissing the narrower alarm state. An exception during installed-binary window cleanup must not leave the React UI stranded on an empty activity or make the stopped timer appear to remain active. |
+| D-068 | A bottom sheet's dimming backdrop and sheet surface are siblings. The backdrop dismisses only direct backdrop presses and never wraps the scrollable sheet, so vertical gestures begun anywhere in Help or another sheet remain available to its ScrollView on Android. |
+| D-069 | Advanced sheet drill-down uses one visible modal layer with an explicit Back action. Cycle setup shows a compact Sub-bells summary and opens the library in a sheet; selecting a track replaces that sheet with its editor, and sound selection temporarily replaces the editor before returning to it. Schedule follows the same compact-summary-to-sheet pattern. |
+| D-070 | Chandas Focus remains a visible first-class setup control. Less frequently changed Android permissions live behind one compact `System access` summary that opens a dedicated sheet. The running screen is top-aligned beneath its header, and its combined live-audio sheet is called `Sound & mute` with the same simple Volume treatment as configuration. |
 
 ---
 
@@ -1999,6 +2003,33 @@ This section is append-only. Every implementation session should record scope, m
 
 **Risks or follow-ups:** If a future calendar feature adds resolved availability overrides, it should continue to use the existing policy boundary; bounded runs deliberately ignore weekly and calendar-derived availability alike.
 
+### 2026-09-04 — Android Stop and sheet-navigation feedback pass
+
+**Status:** Complete in source as an OTA-compatible containment pass; native main-thread cleanup hardening remains for the next store binary.
+
+**Scope:** Android Stop failure and gray activity state, Help scrolling, the running screen's top spacing and live audio sheet, Android permission organization, and Sub-bell modal navigation.
+
+**Decisions referenced:** D-067–D-070.
+
+**Behavior implemented:**
+
+- Made full Stop update the React screen first and invoke the authoritative native timer stop directly. It no longer calls the narrower alarm-dismiss path before stopping. Local alarm and preview-player cleanup is individually contained, and an exception from an older installed native module can no longer strand the user outside configuration.
+- Hardened the JavaScript native-service boundary so Stop and alarm dismissal report failure without throwing through the UI. The current Android implementation persists and cancels the timer before it clears alarm-window flags, so this containment preserves the important stopped state even if that final activity cleanup fails.
+- Rebuilt the shared bottom-sheet responder structure with separate backdrop and sheet siblings. Scroll gestures now begin normally throughout Help and other sheet bodies instead of working only over an interactive child.
+- Moved secondary Android permission controls into a focused `System access` sheet while leaving Chandas Focus directly visible. The summary communicates whether exact timing needs setup, is being checked, or is ready, and whether optional access remains available.
+- Reduced Cycle setup's Sub-bells surface to its switch, timeline, and concise active/cue summary. Its full list now opens in a sheet; track editing uses an explicit Back path and swaps modal content instead of stacking native modals.
+- Top-aligned the running composition to remove the unused upper void. Renamed the live sheet to `Sound & mute` and matched its Volume control to the configuration screen: label above a full-width slider with no redundant number.
+
+**Migration impact:** None. This pass changes TypeScript and React Native layout only; it does not change Android source, manifests, permissions, resources, dependencies, runtime fingerprint, or stored schema, so it remains eligible for the existing v2 Android binary.
+
+**Verification run:** `npx tsc --noEmit`; full Vitest suite; `git diff --check`; interactive React Native Web review at 390×844 covering Stop, Help scrolling from the middle of the body, compact Sub-bells, Back navigation, System access, the running composition, and Sound & mute.
+
+**Results:** Type checking passed, all 59 tests passed, whitespace validation passed, Stop returned to configuration, Help scrolled from non-control content, and each revised modal flow rendered and navigated correctly at the mobile viewport.
+
+**Native/on-device verification still required:** Reproduce full Stop from the running activity and notification on the affected Android device; verify lock-screen alarm dismissal, Android Back behavior across the Sub-bell and sound drill-down, TalkBack order, keyboard handling, and sheet scrolling with native gesture dispatch. Local native builds remain prohibited by repository policy.
+
+**Risks or follow-ups:** The installed native module still clears `FLAG_SHOW_WHEN_LOCKED`/screen-on activity state from a synchronous exported function. The next store build should move activity-window work explicitly onto Android's main queue. This OTA pass deliberately avoids that Kotlin change so it can repair the currently distributed binary without requiring a replacement AAB.
+
 ### Implementation-entry template
 
 ```md
@@ -2040,3 +2071,4 @@ This section is append-only. Every implementation session should record scope, m
 | 1.6 | 2026-09-04 | Added renameable Cycle intervals while deferring opening/ending gong overrides so the change remains compatible with the existing native binary. |
 | 1.7 | 2026-09-04 | Applied the third annotated-feedback pass: tap-to-edit titles, quick-only main duration, a progressive Sub-bells layer, cadence-first automatic priority, visible Master volume, and flatter setup/schedule rows. |
 | 1.8 | 2026-09-04 | Applied the fourth annotated-feedback pass: unified controls, expanded fixed-Custom shortcuts, repeating occurrence masks, Continuous-only schedules, hour/minute bounds, and a quieter live Sound sheet. |
+| 1.9 | 2026-09-04 | Hardened Android Stop and bottom-sheet scrolling, compacted Android access and Sub-bells into single-layer modal flows, and tightened the running layout and live sound controls. |
