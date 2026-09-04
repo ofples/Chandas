@@ -34,13 +34,13 @@ npm run build:android:prod
 
 This creates an AAB on EAS and increments the remote Android build number. It does not upload or release the bundle automatically. That separation is deliberate: creating an artifact is reversible; publishing a store release affects users and should remain an explicit decision.
 
-After reviewing the EAS build logs and installing the matching preview build for device QA, submit a draft to Google Play's internal track with:
+After reviewing the EAS build logs and installing the matching preview build for device QA, submit to Google Play's internal testing track with:
 
 ```sh
 npm run submit:android:prod
 ```
 
-The submission profile uses the internal track and draft status so Play Console remains the final release gate.
+The submission profile completes the internal-track release so enrolled testers can receive it after Google Play finishes processing. It does not promote the app to production.
 
 For unattended future releases, pushing a semantic version tag such as `v2.0.1` triggers `.eas/workflows/deploy-production.yml` once the Expo project is connected to this GitHub repository. The workflow runs checks and computes the native fingerprint. It creates a new AAB when no compatible production binary exists; otherwise it publishes an Android OTA update to the existing compatible binary. Store submission intentionally remains a separate approval.
 

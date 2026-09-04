@@ -15,7 +15,6 @@ import androidx.core.app.NotificationManagerCompat
 import expo.modules.kotlin.activityresult.AppContextActivityResultContract
 import expo.modules.kotlin.activityresult.AppContextActivityResultLauncher
 import expo.modules.kotlin.functions.Coroutine
-import expo.modules.kotlin.functions.Queues
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import expo.modules.kotlin.records.Field
@@ -226,11 +225,11 @@ class ChandasTimerServiceModule : Module() {
         else -> RingtoneManager.TYPE_ALL
       }
       launchSoundPicker(SoundPickerRequest(SOUND_SOURCE_RINGTONE, type))?.let(::resolvePickedSound)
-    }.runOnQueue(Queues.MAIN)
+    }
 
     AsyncFunction("pickAudioDocument") Coroutine { ->
       launchSoundPicker(SoundPickerRequest(SOUND_SOURCE_DOCUMENT))?.let(::resolvePickedSound)
-    }.runOnQueue(Queues.MAIN)
+    }
 
     AsyncFunction("previewSound") { soundId: String, fallbackSoundId: String, volume: Float ->
       val context = appContext.reactContext ?: return@AsyncFunction false
@@ -294,11 +293,12 @@ class ChandasTimerServiceModule : Module() {
     }
 
     Function("openNotificationSettings") {
-      val context = appContext.reactContext ?: return@Function
+      val context = appContext.reactContext ?: return@Function Unit
       runCatching { context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
         putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
       }) }
+      Unit
     }
 
     Function("hasNotificationPolicyAccess") {

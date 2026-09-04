@@ -67,12 +67,14 @@ object FocusModeController {
       }
     }
 
-    val openedDnd = runCatching {
-      context.startActivity(Intent(Settings.ACTION_ZEN_MODE_SETTINGS).apply {
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-      })
-      true
-    }.getOrDefault(false)
+    val openedDnd = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      runCatching {
+        context.startActivity(Intent(Settings.ACTION_ZEN_MODE_PRIORITY_SETTINGS).apply {
+          addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        })
+        true
+      }.getOrDefault(false)
+    } else false
     if (!openedDnd) openPolicySettings(context)
   }
 

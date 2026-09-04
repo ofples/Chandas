@@ -3,6 +3,8 @@ package expo.modules.chandastimerservice
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Calendar
+import android.icu.util.BasicTimeZone
+import android.icu.util.TimeZone
 import android.os.Build
 import kotlin.math.max
 
@@ -152,7 +154,12 @@ object TimerV2Timeline {
   /** Exact seasonal-offset boundary so local-clock patterns can realign even on pre-API 37 Android. */
   fun nextTimezoneTransition(now: Long): Long? {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return null
-    return runCatching { android.icu.util.TimeZone.getDefault().getNextTransition(now, false)?.time }.getOrNull()
+    return runCatching {
+      val defaultZone = TimeZone.getDefault()
+      val transitionZone = TimeZone.getTimeZone(defaultZone.id, TimeZone.TIMEZONE_ICU) as? BasicTimeZone
+        ?: return@runCatching null
+      transitionZone.getNextTransition(now, false)?.time
+    }.getOrNull()
   }
 
   private fun nextPattern(root: JSONObject, anchor: Long, now: Long): TimerV2Event? {
