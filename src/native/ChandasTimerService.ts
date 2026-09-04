@@ -174,12 +174,27 @@ export const ChandasTimerService = {
     native?.update(config)
   },
   stop() {
-    native?.stop()
+    try {
+      native?.stop()
+      return true
+    } catch (error) {
+      // Older Android builds clear alarm-window flags synchronously after the
+      // persisted timer has already been stopped. Keep that UI cleanup error
+      // from taking down the React tree or trapping the running screen.
+      if (__DEV__) console.warn('Native timer stop cleanup failed', error)
+      return false
+    }
   },
   // Dismisses an in-progress alarm-mode ring without stopping the whole timer —
   // normal tick scheduling resumes for the next interval.
   stopAlarm() {
-    native?.stopAlarm()
+    try {
+      native?.stopAlarm()
+      return true
+    } catch (error) {
+      if (__DEV__) console.warn('Native alarm cleanup failed', error)
+      return false
+    }
   },
   // Synchronous query for cold-start/resume: is the alarm ringing right now?
   // (e.g. the app was relaunched from the alarm's full-screen notification).

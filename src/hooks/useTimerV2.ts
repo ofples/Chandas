@@ -216,7 +216,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
 
   const dismissAlarm = useCallback(() => {
     if (isNativeServiceAvailable) ChandasTimerService.stopAlarm()
-    alarmPlayerRef.current?.remove()
+    try { alarmPlayerRef.current?.remove() } catch { /* player may already be released */ }
     alarmPlayerRef.current = null
     setIsAlarmRinging(false)
   }, [])
@@ -252,7 +252,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     }
     const source = sourceForSound(event.winner.sound)
     if (!source) return event.completesRun
-    playerRef.current?.remove()
+    try { playerRef.current?.remove() } catch { /* player may already be released */ }
     const player = createAudioPlayer(source)
     player.volume = Math.max(0, Math.min(1, activeSettings.masterVolume * event.winner.volume))
     player.play()
@@ -274,7 +274,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     alarmBehaviorRef.current = 'off'
     setMute(clearedMute)
     setAlarmBehavior('off')
-    alarmPlayerRef.current?.remove()
+    try { alarmPlayerRef.current?.remove() } catch { /* continue to the authoritative native stop */ }
     alarmPlayerRef.current = null
     setIsAlarmRinging(false)
     releaseDisplayWakeLock()
@@ -388,8 +388,13 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     alarmTapStartRef.current = null
     timeoutRef.current = null
     refreshIntervalRef.current = null
-    dismissAlarm()
-    playerRef.current?.remove()
+    // A full stop goes directly to the authoritative native stop. Calling the
+    // narrower alarm-dismiss path first allowed an Android window-cleanup
+    // exception to prevent the timer itself from ever being stopped.
+    alarmPlayerRef.current?.remove()
+    alarmPlayerRef.current = null
+    setIsAlarmRinging(false)
+    try { playerRef.current?.remove() } catch { /* continue to the authoritative native stop */ }
     playerRef.current = null
     const clearedMute = emptyRuntimeMute()
     muteRef.current = clearedMute
@@ -400,7 +405,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     if (isNativeServiceAvailable) ChandasTimerService.stop()
     void clearTimerV2Session()
     setDisplay({ mainCountdown: '--:--', nextCueCountdown: '--:--', nextCueLabel: '', progress: 0, position: null, activeHoursPaused: false, activeHoursResumeAt: 0, runEndsAt: 0, runRemainingMs: 0 })
-  }, [dismissAlarm])
+  }, [])
 
   const applyAlarmBehavior = useCallback((current: AlarmBehavior, next: AlarmBehavior) => {
     updateRuntimeState(muteRef.current, next)

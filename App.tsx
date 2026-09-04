@@ -435,10 +435,15 @@ function Root() {
   }
 
   const stop = () => {
-    timer.stop()
+    // Leave the running surface first so even a device-specific teardown
+    // problem cannot strand the user on a blank/half-unmounted screen.
     setAppState('config')
-    refreshFocusState()
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined)
+    try {
+      timer.stop()
+    } finally {
+      refreshFocusState()
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined)
+    }
   }
 
   if (!ready || !timerState || !program) return <AppLoadingScreen backgroundColor={tokens.bg} accentColor={tokens.accent} textColor={tokens.text} />

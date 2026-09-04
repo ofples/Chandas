@@ -9,13 +9,14 @@ interface Props {
   accessibilityTitle?: string
   eyebrow?: string
   onClose: () => void
+  onBack?: () => void
   children: ReactNode
   scroll?: boolean
   footer?: ReactNode
 }
 
 /** Shared, keyboard-safe sheet used by every Timer v2 secondary flow. */
-export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClose, children, scroll = true, footer }: Props) {
+export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClose, onBack, children, scroll = true, footer }: Props) {
   const { tokens } = useTheme()
   const insets = useSafeAreaInsets()
   const body = scroll
@@ -25,15 +26,16 @@ export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClo
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
       <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <Pressable style={styles.backdrop} onPress={onClose} accessible={false}>
-          <Pressable
+        <View style={styles.backdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessible={false} accessibilityRole="button" accessibilityLabel="Close sheet" />
+          <View
             style={[styles.sheet, { backgroundColor: tokens.surface, borderColor: tokens.border, paddingBottom: Math.max(insets.bottom, 16) }]}
-            onPress={event => event.stopPropagation()}
             accessible={false}
             accessibilityViewIsModal
           >
             <View style={[styles.grabber, { backgroundColor: tokens.textDisabled }]} />
             <View style={styles.header}>
+              {onBack ? <Pressable onPress={onBack} hitSlop={10} accessibilityRole="button" accessibilityLabel="Back"><Text style={[styles.back, { color: tokens.accent }]}>‹ Back</Text></Pressable> : null}
               <View style={styles.heading}>
                 {eyebrow ? <Text style={[styles.eyebrow, { color: tokens.textMuted }]}>{eyebrow}</Text> : null}
                 {typeof title === 'string' ? <Text style={[styles.title, { color: tokens.text }]}>{title}</Text> : title}
@@ -44,8 +46,8 @@ export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClo
             </View>
             {body}
             {footer}
-          </Pressable>
-        </Pressable>
+          </View>
+        </View>
       </KeyboardAvoidingView>
     </Modal>
   )
@@ -62,5 +64,6 @@ const styles = StyleSheet.create({
   eyebrow: { fontSize: 11, fontWeight: '700', letterSpacing: 1.35 },
   title: { fontSize: 20, fontWeight: '700' },
   done: { fontSize: 13, fontWeight: '700' },
+  back: { fontSize: 13, fontWeight: '700' },
   body: { gap: 14, paddingBottom: 8 },
 })
