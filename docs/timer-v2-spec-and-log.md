@@ -156,6 +156,7 @@ Timer v2 replaces these assumptions rather than layering special cases over them
 | D-056 | Run length belongs inside each mode editor, immediately after the interval structure it bounds. In Cycle it sits directly beneath the main-duration choices and before clock alignment. The segmented control has no redundant heading; outcome copy appears only for a bounded choice. Bounded runs ignore Schedule completely and run uninterrupted for their chosen cycles or elapsed duration; the saved Schedule remains intact and reappears when Continuous is selected. Duration entry exposes hours and minutes only and stores whole-minute bounds, superseding the input granularity in D-035 while retaining its seconds-based storage contract. |
 | D-057 | Every segmented tab control uses one shared component and the Cycle/Sequence selected treatment: solid accent fill with white text. Add-sub-bell, Add-step, and Add-time-range actions likewise share one component. |
 | D-058 | The running audio sheet is titled only `Sound`. Its master slider has no redundant heading, per-cue controls use a flat `Sound levels` disclosure, and selected-sound preview uses the same circular play/stop control as library rows. |
+| D-059 | User-facing global level controls are labelled simply `Volume`, never `Master` or `Master volume`. Standard volume rows contain only the label, slider, and percentage on one centerline; explanatory subtitles are removed. The internal `masterVolume` field name and independent multiplier semantics remain unchanged. |
 
 ---
 
@@ -1970,6 +1971,7 @@ This section is append-only. Every implementation session should record scope, m
 - Hid and disabled Schedule semantics for bounded runs while preserving every saved window. Both JavaScript playback and the existing Android payload receive an always-available effective policy for bounded runs, so the behavior remains correct after backgrounding or process death without native changes.
 - Simplified the running sheet to `Sound`, an unlabeled master slider, a flat Sound levels disclosure, and existing cycle/minute mute choices. The selected-sound footer now uses the same circular play/stop control as sound-library rows.
 - Centered Help icons on their title line and retained the app’s muted-label/bright-value hierarchy, with `Align to clock` brought into that convention.
+- Simplified every standard volume row to one aligned line labelled `Volume`, removing the user-facing `Master` term and redundant scope subtitles while retaining the underlying global/cue multiplier model.
 
 **Native time selector decision:** Android and React Native do not provide a built-in duration picker. The existing schedule time-of-day modal remains dependency-free and OTA-compatible; adding a community/native time picker would require a new native binary while providing the wrong semantics for durations longer than 24 hours. This round therefore standardizes the current modal instead of adding a native dependency.
 
