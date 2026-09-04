@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { ScrollView, StyleSheet, View } from 'react-native'
 import { Chip } from '../Chip'
 import { CustomMinutePicker } from '../CustomMinutePicker'
+import { useTheme } from '../../theme/ThemeContext'
+import { ScrollEdgeFade } from './ScrollEdgeFade'
 
 export function clockSnapPresets(mainMinutes: number): number[] {
   const upper = Math.min(55, Math.max(5, Math.round(mainMinutes)))
@@ -11,14 +13,18 @@ export function clockSnapPresets(mainMinutes: number): number[] {
   return result
 }
 
-export function ClockSnapSelector({ mainMinutes, value, onChange, compact = false }: { mainMinutes: number; value: number; onChange: (offset: number) => void; compact?: boolean }) {
+export function ClockSnapSelector({ mainMinutes, value, onChange, compact = false, fadeColor }: { mainMinutes: number; value: number; onChange: (offset: number) => void; compact?: boolean; fadeColor?: string }) {
+  const { tokens } = useTheme()
   const [customOpen, setCustomOpen] = useState(false)
   const presets = clockSnapPresets(mainMinutes)
   const isPreset = presets.includes(value)
   return <View style={styles.row}>
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.presets} style={styles.scroller}>
-      {presets.map(offset => <Chip key={offset} label={`:${String(offset).padStart(2, '0')}`} compact={compact} active={value === offset} onPress={() => onChange(offset)} />)}
-    </ScrollView>
+    <View style={styles.scrollSlot}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.presets} style={styles.scroller}>
+        {presets.map(offset => <Chip key={offset} label={`:${String(offset).padStart(2, '0')}`} compact={compact} active={value === offset} onPress={() => onChange(offset)} />)}
+      </ScrollView>
+      <ScrollEdgeFade color={fadeColor ?? tokens.surface} />
+    </View>
     <Chip label={isPreset ? 'Custom' : `:${String(value).padStart(2, '0')}`} compact={compact} active={!isPreset} onPress={() => setCustomOpen(true)} accessibilityLabel={isPreset ? 'Choose a custom clock offset' : `Edit custom clock offset, ${value} minutes`} />
     {customOpen ? <CustomMinutePicker title="Clock offset" initial={value} min={0} max={59} onConfirm={offset => { onChange(offset); setCustomOpen(false) }} onClose={() => setCustomOpen(false)} /> : null}
   </View>
@@ -26,6 +32,7 @@ export function ClockSnapSelector({ mainMinutes, value, onChange, compact = fals
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  scrollSlot: { flex: 1, minWidth: 0, position: 'relative' },
   scroller: { flex: 1, minWidth: 0 },
-  presets: { gap: 8, paddingRight: 2 },
+  presets: { gap: 8, paddingRight: 30 },
 })
