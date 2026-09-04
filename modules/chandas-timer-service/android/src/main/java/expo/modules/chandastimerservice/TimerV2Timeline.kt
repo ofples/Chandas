@@ -3,9 +3,7 @@ package expo.modules.chandastimerservice
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Calendar
-import android.icu.util.BasicTimeZone
-import android.icu.util.TimeZone
-import android.os.Build
+import java.util.TimeZone
 import kotlin.math.max
 
 data class TimerV2Event(
@@ -38,6 +36,8 @@ data class TimerV2Candidate(
 /** Native mirror of src/lib/timeline.ts. It intentionally schedules only one future event. */
 object TimerV2Timeline {
   private const val MINUTE = 60_000L
+  private const val TIMEZONE_TRANSITION_SCAN_STEP_MS = 6L * 60L * 60L * 1_000L
+  private const val TIMEZONE_TRANSITION_LOOKAHEAD_MS = 5L * 366L * 24L * 60L * 60L * 1_000L
   private const val SCHEMA_VERSION = 2
   private const val MAX_TRACKS = 5
   private const val MAX_STEPS = 20
@@ -153,13 +153,27 @@ object TimerV2Timeline {
 
   /** Exact seasonal-offset boundary so local-clock patterns can realign even on pre-API 37 Android. */
   fun nextTimezoneTransition(now: Long): Long? {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return null
-    return runCatching {
-      val defaultZone = TimeZone.getDefault()
-      val transitionZone = TimeZone.getTimeZone(defaultZone.id, TimeZone.TIMEZONE_ICU) as? BasicTimeZone
-        ?: return@runCatching null
-      transitionZone.getNextTransition(now, false)?.time
-    }.getOrNull()
+    val timezone = TimeZone.getDefault()
+    val currentOffset = timezone.getOffset(now)
+    val horizon = now + TIMEZONE_TRANSITION_LOOKAHEAD_MS
+    var before = now
+
+    while (before < horizon) {
+      val after = minOf(before + TIMEZONE_TRANSITION_SCAN_STEP_MS, horizon)
+      if (timezone.getOffset(after) != currentOffset) {
+        // Find the first millisecond with the new offset. A short scan step prevents
+        // two real-world timezone transitions from being hidden between samples.
+        var low = before
+        var high = after
+        while (high - low > 1L) {
+          val midpoint = low + (high - low) / 2L
+          if (timezone.getOffset(midpoint) == currentOffset) low = midpoint else high = midpoint
+        }
+        return high
+      }
+      before = after
+    }
+    return null
   }
 
   private fun nextPattern(root: JSONObject, anchor: Long, now: Long): TimerV2Event? {
