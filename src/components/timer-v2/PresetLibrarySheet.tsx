@@ -28,8 +28,9 @@ function summary(preset: ProgramPreset): string {
     const total = preset.program.steps.reduce((sum, step) => sum + step.durationMinutes, 0)
     return `${preset.program.steps.length} steps · ${total} min cycle · ${run}`
   }
-  const cueCount = preset.program.tracks.reduce((count, track) => count + (track.enabled ? track.selectedOffsetsMinutes.length : 0), 0)
-  return `${preset.program.mainMinutes} min main · ${preset.program.tracks.length} sub-bell${preset.program.tracks.length === 1 ? '' : 's'} · ${cueCount} cues · ${run}`
+  const cueCount = preset.program.subBellsEnabled ? preset.program.tracks.reduce((count, track) => count + (track.enabled ? track.selectedOffsetsMinutes.length : 0), 0) : 0
+  const subBells = preset.program.subBellsEnabled ? `${preset.program.tracks.length} sub-bell${preset.program.tracks.length === 1 ? '' : 's'} · ${cueCount} cues` : 'sub-bells off'
+  return `${preset.program.mainMinutes} min main · ${subBells} · ${run}`
 }
 
 export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedback }: Props) {
@@ -116,6 +117,7 @@ function PresetDetails({ preset }: { preset: ProgramPreset }) {
     <Text style={[styles.detailLine, { color: tokens.textMuted }]}>Run · {run}</Text>
     <Text style={[styles.detailLine, { color: tokens.textMuted }]}>Main · {program.mainMinutes}m · {soundTitle(program.mainCue.sound)} · {Math.round(program.mainCue.volume * 100)}%</Text>
     <Text style={[styles.detailLine, { color: tokens.textMuted }]}>Timing · {program.alignment.kind === 'elapsed' ? 'starts when timer starts' : `aligned to :${String(program.alignment.offsetMinutes).padStart(2, '0')} local time`}</Text>
+    {!program.subBellsEnabled ? <Text style={[styles.detailLine, { color: tokens.textMuted }]}>Sub-bells off · settings preserved</Text> : null}
     {program.tracks.map((track, index) => <Text key={track.id} style={[styles.detailLine, { color: tokens.textMuted }]}>{index + 1}. {track.enabled ? `${track.cadenceMinutes}m · ${track.selectedOffsetsMinutes.join(', ') || 'no cues'}` : 'Off'} · {soundTitle(track.sound)} · {Math.round(track.volume * 100)}%</Text>)}
   </View>
 }

@@ -73,8 +73,13 @@ export function addPatternTrack(state: TimerV2State): TimerV2State {
       sound: { kind: 'builtin', id: 'clear-bell' },
       volume: 1,
     }
-    return { ...program, tracks: [...program.tracks, track] }
+    return { ...program, subBellsEnabled: true, tracks: [...program.tracks, track] }
   })
+}
+
+export function setPatternSubBellsEnabled(state: TimerV2State, enabled: boolean): TimerV2State {
+  const withTrack = enabled && state.workingPrograms.pattern.tracks.length === 0 ? addPatternTrack(state) : state
+  return updatePattern(withTrack, program => ({ ...program, subBellsEnabled: enabled }))
 }
 
 export function patchPatternTrack(state: TimerV2State, trackId: string, patch: Partial<PatternTrack>): TimerV2State {
@@ -85,7 +90,10 @@ export function patchPatternTrack(state: TimerV2State, trackId: string, patch: P
 }
 
 export function removePatternTrack(state: TimerV2State, trackId: string): TimerV2State {
-  return updatePattern(state, program => ({ ...program, tracks: program.tracks.filter(track => track.id !== trackId) }))
+  return updatePattern(state, program => {
+    const tracks = program.tracks.filter(track => track.id !== trackId)
+    return { ...program, tracks, subBellsEnabled: tracks.length > 0 && program.subBellsEnabled }
+  })
 }
 
 export function setTrackCadence(state: TimerV2State, trackId: string, cadenceMinutes: number): TimerV2State {
@@ -110,16 +118,6 @@ export function toggleTrackOffset(state: TimerV2State, trackId: string, offset: 
     ? track.selectedOffsetsMinutes.filter(value => value !== offset)
     : [...track.selectedOffsetsMinutes, offset].sort((a, b) => a - b)
   return setTrackOffsets(state, trackId, selectedOffsetsMinutes)
-}
-
-export function reorderPatternTracks(state: TimerV2State, from: number, to: number): TimerV2State {
-  return updatePattern(state, program => {
-    if (from === to || from < 0 || to < 0 || from >= program.tracks.length || to >= program.tracks.length) return program
-    const tracks = [...program.tracks]
-    const [item] = tracks.splice(from, 1)
-    tracks.splice(to, 0, item)
-    return { ...program, tracks }
-  })
 }
 
 export function updateSequence(state: TimerV2State, update: (program: SequenceProgram) => SequenceProgram): TimerV2State {

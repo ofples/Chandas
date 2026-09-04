@@ -153,7 +153,7 @@ function TimerRings({ size, progress, position, program, muted, eventPulse }: { 
   const ringProgress = useMemo(() => {
     if (program.mode === 'sequence') return [position?.stepProgress ?? progress]
     const elapsedMinutes = Math.max(0, Math.min(program.mainMinutes, progress * program.mainMinutes))
-    return [progress, ...program.tracks.filter(track => track.enabled && track.selectedOffsetsMinutes.length > 0).map(track => trackProgress(track.selectedOffsetsMinutes, program.mainMinutes, elapsedMinutes))]
+    return [progress, ...(program.subBellsEnabled ? program.tracks : []).filter(track => track.enabled && track.selectedOffsetsMinutes.length > 0).map(track => trackProgress(track.selectedOffsetsMinutes, program.mainMinutes, elapsedMinutes))]
   }, [position?.stepProgress, program, progress])
   const center = 100
   return <View style={StyleSheet.absoluteFill}>

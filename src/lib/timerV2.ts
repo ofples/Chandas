@@ -87,6 +87,7 @@ export function defaultPatternProgram(): PatternProgram {
     label: 'Main interval',
     mainMinutes: 30,
     mainCue: defaultCue('temple-gong'),
+    subBellsEnabled: false,
     tracks: [{
       id: createProgramId(),
       label: 'Sub-bell 1',
@@ -205,6 +206,9 @@ export function normalizePatternProgram(value: Partial<PatternProgram> | undefin
     if (trackIds.has(normalized.id)) normalized.id = createProgramId()
     trackIds.add(normalized.id)
     return normalized
+  }).sort((left, right) => right.cadenceMinutes - left.cadenceMinutes)
+  tracks.forEach((track, index) => {
+    if (/^Sub-bell \d+$/.test(track.label)) track.label = `Sub-bell ${index + 1}`
   })
   const offset = value?.alignment?.kind === 'local-clock' ? clampSnapOffset(value.alignment.offsetMinutes) : undefined
   return {
@@ -213,6 +217,7 @@ export function normalizePatternProgram(value: Partial<PatternProgram> | undefin
     label: normalizeLabel(value?.label, 'Main interval'),
     mainMinutes,
     mainCue: normalizeCue(value?.mainCue, defaultCue('temple-gong')),
+    subBellsEnabled: typeof value?.subBellsEnabled === 'boolean' ? value.subBellsEnabled : tracks.some(track => track.enabled),
     tracks,
     alignment: offset === undefined ? { kind: 'elapsed' } : { kind: 'local-clock', offsetMinutes: offset },
     runPolicy: normalizeRunPolicy(value?.runPolicy),
@@ -329,6 +334,7 @@ export function migrateLegacyConfig(legacy: Partial<TimerConfig>): TimerV2State 
     label: 'Main interval',
     mainMinutes,
     mainCue: defaultCue('temple-gong'),
+    subBellsEnabled: legacy.subEnabled !== false,
     tracks: [{
       id: createProgramId(),
       label: 'Sub-bell 1',

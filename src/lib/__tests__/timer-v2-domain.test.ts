@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { PatternProgram, SequenceProgram } from '../../types'
-import { chooseProgramMode, deleteProgramPreset, loadProgramPreset, patchSequenceStep, reorderPatternTracks, saveProgramPreset, updatePatternMainMinutes } from '../programActions'
+import { chooseProgramMode, deleteProgramPreset, loadProgramPreset, patchSequenceStep, saveProgramPreset, setPatternSubBellsEnabled, updatePatternMainMinutes } from '../programActions'
 import { alarmBehaviorAfterGesture, gateProgramAudio, isFreshScheduledEvent, iterationMuteFor, muteAfterScheduleChange, shouldSurfaceTimerSignal } from '../runtimeV2'
 import { defaultTimerV2State, migrateLegacyConfig, normalizeAvailabilityPolicy, normalizePatternProgram, normalizeSequenceProgram, normalizeSoundRef, parseTimerProgram, validOffsets } from '../timerV2'
 import { nextPatternEvent, nextProgramEvent, nextSequenceEvent, runEndAt, timelinePosition } from '../timeline'
@@ -16,6 +16,7 @@ function pattern(): PatternProgram {
     label: 'Focus cycle',
     mainMinutes: 30,
     mainCue: { sound: { kind: 'builtin', id: 'temple-gong' }, volume: 0.8 },
+    subBellsEnabled: true,
     tracks: [
       { id: 'top', label: 'Breathe', enabled: true, cadenceMinutes: 5, selectedOffsetsMinutes: [10], sound: { kind: 'builtin', id: 'soft-bowl' }, volume: 0.6 },
       { id: 'bottom', label: 'Posture', enabled: true, cadenceMinutes: 2, selectedOffsetsMinutes: [10], sound: { kind: 'builtin', id: 'clear-bell' }, volume: 0.7 },
@@ -53,7 +54,7 @@ describe('timer v2 timeline contracts', () => {
     }
   })
 
-  it('uses track order as the sole overlap priority', () => {
+  it('lets the longer repeat interval win an overlap', () => {
     const event = nextPatternEvent(pattern(), 0, 9 * minute)
     expect(event.collision).toBe(true)
     expect(event.candidates.map(candidate => candidate.cueId)).toEqual(['top', 'bottom'])
@@ -61,20 +62,16 @@ describe('timer v2 timeline contracts', () => {
     expect(event.boundary).toBe('pattern-offset')
   })
 
-  it('changes the overlap winner when the user reorders tracks', () => {
-    const initial = defaultTimerV2State()
-    const configured = { ...initial, workingPrograms: { ...initial.workingPrograms, pattern: pattern() } }
-    const reordered = reorderPatternTracks(configured, 1, 0).workingPrograms.pattern
-    expect(nextPatternEvent(reordered, 0, 9 * minute).winner.cueId).toBe('bottom')
+  it('normalizes sub-bells into automatic longer-cadence priority order', () => {
+    const reversed = pattern()
+    reversed.tracks.reverse()
+    expect(normalizePatternProgram(reversed).tracks.map(track => track.id)).toEqual(['top', 'bottom'])
   })
 
-  it('uses the same order-only rule when colliding tracks have equal cadence', () => {
+  it('uses stable source order when colliding tracks have equal cadence', () => {
     const equal = pattern()
     equal.tracks[0].cadenceMinutes = 2
-    const initial = defaultTimerV2State()
-    const configured = { ...initial, workingPrograms: { ...initial.workingPrograms, pattern: equal } }
     expect(nextPatternEvent(equal, 0, 9 * minute).winner.cueId).toBe('top')
-    expect(nextPatternEvent(reorderPatternTracks(configured, 1, 0).workingPrograms.pattern, 0, 9 * minute).winner.cueId).toBe('bottom')
   })
 
   it('ignores disabled tracks and keeps main boundaries independent', () => {
@@ -86,6 +83,24 @@ describe('timer v2 timeline contracts', () => {
     expect(event.boundary).toBe('pattern-main')
     expect(event.collision).toBe(false)
     expect(event.candidates.map(candidate => candidate.cueId)).toEqual(['main'])
+  })
+
+  it('keeps configured tracks quiet when the sub-bell layer is off', () => {
+    const program = pattern()
+    program.subBellsEnabled = false
+    const event = nextPatternEvent(program, 0, 0)
+    expect(event.at).toBe(30 * minute)
+    expect(event.candidates.map(candidate => candidate.cueId)).toEqual(['main'])
+  })
+
+  it('toggles the sub-bell layer without destroying its track settings', () => {
+    const initial = defaultTimerV2State()
+    expect(initial.workingPrograms.pattern.subBellsEnabled).toBe(false)
+    const enabled = setPatternSubBellsEnabled(initial, true)
+    const disabled = setPatternSubBellsEnabled(enabled, false)
+    expect(enabled.workingPrograms.pattern.tracks).toEqual(initial.workingPrograms.pattern.tracks)
+    expect(disabled.workingPrograms.pattern.tracks).toEqual(initial.workingPrograms.pattern.tracks)
+    expect(disabled.workingPrograms.pattern.subBellsEnabled).toBe(false)
   })
 
   it('always returns an event strictly after an exact boundary', () => {
@@ -373,10 +388,24 @@ describe('timer v2 validation and presets', () => {
   it('adds names to older Pattern records', () => {
     const old = pattern() as Partial<PatternProgram>
     delete old.label
+    delete old.subBellsEnabled
     delete (old.tracks![0] as Partial<PatternProgram['tracks'][number]>).label
     const normalized = normalizePatternProgram(old)
     expect(normalized.label).toBe('Main interval')
+    expect(normalized.subBellsEnabled).toBe(true)
     expect(normalized.tracks[0].label).toBe('Sub-bell 1')
+  })
+
+  it('renumbers untouched default sub-bell labels after automatic sorting', () => {
+    const base = defaultTimerV2State().workingPrograms.pattern.tracks[0]
+    const normalized = normalizePatternProgram({
+      ...pattern(),
+      tracks: [
+        { ...base, id: 'short', label: 'Sub-bell 1', cadenceMinutes: 2 },
+        { ...base, id: 'long', label: 'Sub-bell 2', cadenceMinutes: 5 },
+      ],
+    })
+    expect(normalized.tracks.map(track => [track.id, track.label])).toEqual([['long', 'Sub-bell 1'], ['short', 'Sub-bell 2']])
   })
 
   it('marks a loaded preset deleted without mutating the working copy', () => {

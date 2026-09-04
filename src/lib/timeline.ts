@@ -40,8 +40,12 @@ function logicalId(mode: TimerMode, anchor: number, cycleIndex: number, boundary
 }
 
 function winnerForCandidates(candidates: TimelineCueCandidate[]): TimelineCueCandidate {
-  // D-028: UI list order is the only collision priority. Lower array index wins.
-  return candidates.slice().sort((left, right) => (left.trackOrder ?? Number.MIN_SAFE_INTEGER) - (right.trackOrder ?? Number.MIN_SAFE_INTEGER))[0]
+  // A slower bell carries more structural weight. Stable track order breaks the
+  // uncommon tie between two tracks with the same repeat interval.
+  return candidates.slice().sort((left, right) =>
+    (right.cadenceMinutes ?? 0) - (left.cadenceMinutes ?? 0)
+      || (left.trackOrder ?? Number.MAX_SAFE_INTEGER) - (right.trackOrder ?? Number.MAX_SAFE_INTEGER),
+  )[0]
 }
 
 export function nextPatternEvent(program: PatternProgram, anchor: number, now = Date.now()): ScheduledProgramEvent {
@@ -54,7 +58,7 @@ export function nextPatternEvent(program: PatternProgram, anchor: number, now = 
     candidatesByTime.set(mainAt, [{
       cueId: 'main', kind: 'pattern-main', sound: program.mainCue.sound, volume: program.mainCue.volume,
     }])
-    program.tracks.forEach((track, trackOrder) => {
+    if (program.subBellsEnabled !== false) program.tracks.forEach((track, trackOrder) => {
       if (!track.enabled) return
       track.selectedOffsetsMinutes.forEach(offsetMinutes => {
         const at = cycleStart + offsetMinutes * MINUTE_MS

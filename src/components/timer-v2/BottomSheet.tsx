@@ -5,7 +5,8 @@ import { useTheme } from '../../theme/ThemeContext'
 
 interface Props {
   visible: boolean
-  title: string
+  title: ReactNode
+  accessibilityTitle?: string
   eyebrow?: string
   onClose: () => void
   children: ReactNode
@@ -14,7 +15,7 @@ interface Props {
 }
 
 /** Shared, keyboard-safe sheet used by every Timer v2 secondary flow. */
-export function BottomSheet({ visible, title, eyebrow, onClose, children, scroll = true, footer }: Props) {
+export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClose, children, scroll = true, footer }: Props) {
   const { tokens } = useTheme()
   const insets = useSafeAreaInsets()
   const body = scroll
@@ -35,9 +36,9 @@ export function BottomSheet({ visible, title, eyebrow, onClose, children, scroll
             <View style={styles.header}>
               <View style={styles.heading}>
                 {eyebrow ? <Text style={[styles.eyebrow, { color: tokens.textMuted }]}>{eyebrow}</Text> : null}
-                <Text style={[styles.title, { color: tokens.text }]}>{title}</Text>
+                {typeof title === 'string' ? <Text style={[styles.title, { color: tokens.text }]}>{title}</Text> : title}
               </View>
-              <Pressable onPress={onClose} hitSlop={10} accessibilityRole="button" accessibilityLabel={`Close ${title}`}>
+              <Pressable onPress={onClose} hitSlop={10} accessibilityRole="button" accessibilityLabel={`Close ${accessibilityTitle ?? (typeof title === 'string' ? title : 'sheet')}`}>
                 <Text style={[styles.done, { color: tokens.accent }]}>Done</Text>
               </Pressable>
             </View>
@@ -54,7 +55,7 @@ const styles = StyleSheet.create({
   fill: { flex: 1 },
   scroll: { flexShrink: 1 },
   backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.58)' },
-  sheet: { maxHeight: '92%', minHeight: 220, borderWidth: 1.5, borderBottomWidth: 0, borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 20, paddingTop: 10, gap: 16 },
+  sheet: { width: '100%', maxWidth: 680, maxHeight: '92%', minHeight: 220, alignSelf: 'center', borderWidth: 1.5, borderBottomWidth: 0, borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 20, paddingTop: 10, gap: 16 },
   grabber: { width: 36, height: 4, borderRadius: 2, alignSelf: 'center', opacity: 0.55 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16 },
   heading: { flex: 1, gap: 3 },

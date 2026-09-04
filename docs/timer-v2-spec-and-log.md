@@ -8,7 +8,7 @@
 | Product | Chandas Android interval timer |
 | Scope | Timer v2 program model, advanced scheduling, audio, Focus/DND, presets, runtime controls, and help |
 | Primary platform | Android |
-| Specification version | 1.6 |
+| Specification version | 1.7 |
 | Created | 2026-09-02 |
 | Implementation rule | Deliver as one cohesive refactor; intermediate builds do not have to be usable |
 | Build rule | Never run a local native build, Gradle task, Expo native run, prebuild, or export. Remote EAS only when explicitly requested. |
@@ -103,8 +103,8 @@ Timer v2 replaces these assumptions rather than layering special cases over them
 | D-003 | A Pattern contains one main interval and at most five sub-bell tracks. |
 | D-004 | A Sequence contains 1–20 ordered steps and repeats indefinitely. |
 | D-005 | Loading a Sequence does not start it. Tapping Start begins step 1 at its full duration. A restored running session resumes its persisted position. |
-| D-006 | Pattern tracks and Sequence steps reorder by drag handle with haptics. Accessibility actions provide Move up and Move down. |
-| D-007 | Superseded by D-028. The earlier cadence-first overlap rule is retained only for decision history. |
+| D-006 | Sequence steps reorder by drag handle with haptics because their order defines the program. Accessibility actions provide Move up and Move down. Pattern tracks no longer reorder; see D-049. |
+| D-007 | Superseded first by D-028 and then restored in simplified form by D-049. |
 | D-008 | Main boundaries are not valid sub-track offsets, so a main gong never competes with a sub-bell. |
 | D-009 | Saved presets are immutable snapshots. Load creates a working copy. Save As always creates a new preset. Delete is the only mutation of a saved preset. |
 | D-010 | Presets contain program structure, program sounds, relative cue volumes, and Pattern snap settings. They exclude theme, active hours, Focus, master volume, runtime alarm state, mute state, and running position. |
@@ -125,7 +125,7 @@ Timer v2 replaces these assumptions rather than layering special cases over them
 | D-025 | Iteration mute suppresses events strictly inside the muted period. Its final main/cycle boundary remains audible and clears the mute. |
 | D-026 | Visual flashes are driven only by actual timer-event notifications while the UI is active, never by countdown jumps. |
 | D-027 | Long press is reserved for a tooltip. All controls also appear in the Help sheet. |
-| D-028 | Overlapping Pattern selections are allowed and resolved entirely by track order. The highest enabled track containing that offset wins, regardless of cadence. Only the winner plays. Reordering therefore edits overlap priority directly. |
+| D-028 | Superseded by D-049. The intermediate order-controlled collision rule remains only as decision history. |
 | D-029 | Existing quick-select chips and cycle/minute mute are baseline functionality and must remain available in Timer v2. Main duration keeps `10`, `15`, `30`, and custom; snap keeps `:00`, `:10`, `:15`, and custom. Mute keeps `1×`, `2×`, `3×`, and custom minutes. |
 | D-030 | Pattern running uses an outer main-progress ring with closely nested sub-track progress rings. The center shows the main countdown and, when applicable, only the next sub-bell countdown—without a sound name or redundant countdown label. Collision-resolution explanations do not appear on the running screen. Ring progress interpolates smoothly between scheduler refreshes. |
 | D-031 | Chandas automatically suppresses its own audible cues during an active phone call. This is a transient runtime gate: it does not change Master/cue volume, consume timed mute, change alarm behavior, or replay missed cues after the call. The next eligible future cue resumes normally. |
@@ -137,7 +137,7 @@ Timer v2 replaces these assumptions rather than layering special cases over them
 | D-037 | A bounded run ends exactly once. Its natural cue plays when a cycle bound or duration deadline coincides with a normal cue. A duration deadline between cues uses the Pattern main sound or the Sequence final-step sound as a one-shot completion cue. It never creates two overlapping sounds. |
 | D-038 | Continuous runs may be governed by multiple weekly active windows. A timestamp is active when it belongs to at least one enabled window; overlapping or adjacent windows are a union and never duplicate delivery. Cross-midnight attribution remains attached to the window's start day. |
 | D-039 | Scheduling is represented as an availability policy with weekly windows plus a currently empty list of resolved absolute-time overrides. A later calendar feature may populate `active` or `mute` overrides without changing timer, audio, or native scheduling contracts; mute overrides take precedence. No calendar permission or unfinished calendar UI ships in this slice. |
-| D-040 | The two user-facing mode names are `Cycle` and `Sequence`. Internal domain names may remain `pattern` and `sequence`, but product surfaces avoid exposing implementation vocabulary and collision arbitration details. Track order still determines collision priority. |
+| D-040 | The two user-facing mode names are `Cycle` and `Sequence`. Internal domain names may remain `pattern` and `sequence`, but product surfaces avoid exposing implementation vocabulary and collision arbitration details. |
 | D-041 | Android-only Focus, DND, and system-setting controls are hidden on web. A Focus control that needs setup opens the relevant Android setting without an error badge or a false active state. |
 | D-042 | The running Mixer opens with Master volume and cycle/minute mute controls. Per-sound levels remain available behind one explicit `Sound levels` disclosure. The cue sound picker keeps its selected-sound and cue-volume controls fixed while its sound library scrolls. |
 | D-043 | Alarm state changes optimistically on the first tap. The 400 ms gesture window exists only to distinguish a second tap and must never delay visible or native feedback for the first tap. |
@@ -146,6 +146,10 @@ Timer v2 replaces these assumptions rather than layering special cases over them
 | D-046 | Configuration summaries use one title, one useful value, and a chevron. `Sound levels` replaces user-facing `Mixer` terminology in setup, while the running sheet may retain `Mixer & mute` because it combines two live control groups. |
 | D-047 | Every interval may have a user-facing name: Pattern has a named main interval and named sub-bell tracks; Sequence retains named steps. Names are stored in presets, default safely for older records, and identify intervals in editors, the running view, and sound controls. The next Pattern sub-bell may show its interval name with its countdown, but never substitutes a sound name or collision explanation. |
 | D-048 | Per-run opening and ending gong overrides are deferred. They are not added to the program schema, UI, JavaScript runtime, or native scheduler in v2.0; Start remains quiet and bounded runs retain their existing final-cue behavior. This keeps the interval-naming release compatible with the current native binary and eligible for OTA delivery. |
+| D-049 | Pattern sub-bells sort automatically by repeat interval, longest first. At an overlap, the longer repeat interval wins; stable list order breaks equal-cadence ties. Only the winner plays. Manual Pattern reordering is removed, while Sequence reordering remains. |
+| D-050 | Sub-bells are one progressively disclosed layer with a single top-level switch. Fresh configurations keep the layer Off while preserving a ready first sub-bell; enabling reveals that sub-bell and Add, disabling hides and suppresses the layer without destroying its settings. |
+| D-051 | Interval names are edited in place by tapping the displayed title. Editors do not repeat the same name in a separate field. Main duration is represented only by quick choices and a Custom chip; a selected custom value replaces the word Custom and carries a pencil affordance. |
+| D-052 | Configuration uses one visual indentation level. Cue selection, volume, sub-bell rows, and schedule ranges use flat rows rather than nested cards. Master volume remains directly visible; sound selection and the full channel list follow as secondary actions. |
 
 ---
 
@@ -187,9 +191,9 @@ The base configuration screen remains a single centered column with a fixed Star
    - `Load` and `Save as` actions.
 2. Mode selector.
 3. Mode summary:
-   - Pattern: main duration, legacy quick-duration chips, and a compact priority-ordered list of tracks.
+   - Pattern: an in-place editable title, quick-duration chips, and an optional compact list of automatically ordered sub-bells.
    - Sequence: total cycle duration and ordered step summaries; the active step editor uses the same quick-choice pattern.
-4. Mixer entry with current master percentage.
+4. Sound section with visible Master volume, the primary sound choice, and a secondary full sound-levels action.
 5. Snap settings for Pattern only, including the legacy `:00`, `:10`, `:15`, and custom quick choices.
 6. Run length containing Continuous and bounded Cycle/Duration choices.
 7. Schedule containing one or more weekly active windows, collapsed behind a simple toggle when unused.
@@ -200,10 +204,10 @@ Structural track and step editing opens a focused editor. Frequently used durati
 
 ### 6.2 Editor surfaces
 
-- Pattern editor: full-height route or sheet containing main cue and track rows.
+- Pattern editor: main settings followed by one Sub-bells switch; its timeline, rows, and Add action remain hidden while Off.
 - Track editor: cadence, sound, volume, and trigger grid.
 - Sequence editor: reorderable step list and total cycle summary.
-- Step editor: duration, label, sound, and volume.
+- Step editor: in-place title, duration, sound, and volume.
 - Preset library: grouped immutable snapshots and destructive Delete action.
 - Save As sheet: name entry and read-only program summary.
 - Sound library: Built in, Android sounds, and Device audio sources.
@@ -218,7 +222,7 @@ The timer ring remains the dominant visual.
 Pattern running state shows:
 
 - Main countdown with an outer progress ring.
-- One inner progress ring per enabled sub-track; ring order remains stable and follows track order.
+- One inner progress ring per enabled sub-track, ordered automatically from longer to shorter cadence.
 - Only the next winning sub-cue countdown and sound/track label in text.
 - No collision-resolution copy; overlap priority belongs in Pattern setup and Help.
 - Existing restart/snap, alarm, Focus, and sound controls.
@@ -252,13 +256,13 @@ The top-right Help button is always available. The bottom Start/Stop hierarchy r
 The Pattern editor contains:
 
 - Main cue row: duration, sound, and relative volume.
-- Track rows: drag handle, cadence, count of selected triggers, sound name, volume, overlap count, and enabled toggle.
+- A top-level Sub-bells switch followed, when enabled, by flat track rows with cadence, selected-trigger count, sound name, and enabled toggle.
 - Add track action disabled at five tracks.
 - A compact timeline preview across one main cycle.
 
-Track ordering is overlap priority. When two or more enabled tracks select the same offset, the highest track wins regardless of cadence. Drag reordering therefore changes both presentation order and collision behavior; the UI labels this relationship explicitly.
+Tracks are normalized into descending cadence order. When two or more enabled tracks select the same offset, the track with the longer repeat interval wins; equal cadences retain stable source order. This makes the visible list match the collision rule without a separate priority control.
 
-The main-duration control retains the existing quick choices `10`, `15`, and `30` minutes plus Custom. Track cadence and Sequence step duration editors use the same chip pattern with context-appropriate values plus Custom. Pattern snap retains `:00`, `:10`, `:15`, and Custom.
+The main-duration control retains the existing quick choices `10`, `15`, and `30` minutes plus Custom, without a duplicate numeric field. Track cadence and Sequence step duration editors use the same chip pattern with context-appropriate values plus Custom. When a custom duration is active, its value and pencil replace the Custom label. Pattern snap retains `:00`, `:10`, `:15`, and Custom.
 
 Disabling a track preserves all settings and selections but removes it from scheduling and collision calculations.
 
@@ -286,20 +290,15 @@ Grid controls:
 - Re-entering a cell within the same gesture does not toggle it again.
 - Disabled tracks remain editable but are visually labelled Off.
 
-Collision display:
-
-- A selected offset shared with another enabled track receives a small stacked/overlap mark.
-- Winner cells use the accent color.
-- Losing cells use an outlined accent and name the higher-priority winning track in accessible text.
-- A summary above the grid states the number of overlaps and the precedence rule.
+Collision display stays out of the normal editor. The automatic rule is documented in Help, while selected cells retain one consistent visual treatment regardless of whether another sub-bell shares the same minute.
 
 Example:
 
 - Main: 30 minutes.
 - Track A: every 2 minutes, selected at 2, 10, and 28.
 - Track B: every 5 minutes, selected at 5, 10, and 25.
-- Track B is ordered above Track A.
-- At minute 10, Track B wins because it has higher list priority.
+- Track B appears above Track A automatically because five minutes is the longer cadence.
+- At minute 10, Track B wins because its repeat interval is longer.
 
 ### 7.4 Sequence editor
 
@@ -833,12 +832,13 @@ interface TimelinePosition {
 
 At a Pattern timestamp with multiple enabled track candidates:
 
-1. Sort by current track order ascending.
+1. Sort by cadence descending.
 2. The first candidate is the winner.
-3. Preserve every candidate in the scheduled event for UI explanation and test evidence.
-4. Play and notify only the winner.
+3. Preserve stable track order as the tie-breaker for equal cadences.
+4. Preserve every candidate in the scheduled event for test evidence.
+5. Play and notify only the winner.
 
-The scheduler must not flatten selections in a way that loses the candidate list. Track order is the sole tie-breaker; cadence does not affect it.
+The scheduler must not flatten selections in a way that loses the candidate list. Programs are persisted and sent to the existing native scheduler in this same automatically sorted order.
 
 ### 10.6 Active-hours gate
 
@@ -1269,9 +1269,9 @@ Timer v2 is implementation-complete when:
 
 - Existing configuration migrates to a behaviorally equivalent Pattern.
 - Pattern and Sequence editors enforce their limits and validation.
-- Pattern overlaps resolve exactly per D-028 and are explained in the editor and Help, not on the running timer.
+- Pattern overlaps resolve exactly per D-049 and are explained in Help, not in routine setup or the running timer.
 - Presets are immutable and all Save As/Load/Delete edge cases work.
-- Drag reordering has handles, animation, haptics, and accessible alternatives.
+- Sequence drag reordering has handles, animation, haptics, and accessible alternatives.
 - Built-in, Android, and document sound references persist and resolve with fallback.
 - Mixer levels affect native playback with master × cue scaling.
 - Pattern and Sequence schedules restore from native state.
@@ -1346,6 +1346,8 @@ Do not edit old entries to reflect new conclusions. Add a superseding entry and 
 | 2026-09-03 | D-034 | Accepted | State the Android DND limit accurately: alarm routing follows the Alarm stream and active DND alarm policy; Chandas Focus allows alarms without cloning other modes. |
 | 2026-09-03 | D-040–D-043 | Accepted | Apply the first annotated-feedback pass: plain mode names, platform-relevant controls, compact sound controls, and immediate Alarm feedback. |
 | 2026-09-03 | D-044–D-046 | Accepted | Extend the feedback direction across Timer v2 with quiet routine transitions, progressive disclosure, and consistent one-title/one-value navigation rows. |
+| 2026-09-04 | D-049 | Accepted | Restore the cadence-first overlap rule and automatic longest-first sorting. This supersedes manual Pattern priority from D-028 and removes a control that does not change the interval structure. |
+| 2026-09-04 | D-050–D-052 | Accepted | Apply the third feedback round as progressive disclosure, title-based editing, visible Master volume, and one flat indentation level. The explicitly excluded custom ending-gong idea remains deferred under D-048. |
 
 ### Decision-entry template
 
@@ -1913,6 +1915,33 @@ This section is append-only. Every implementation session should record scope, m
 
 **Risks or follow-ups:** Opening and ending gong customization remains a later native-release feature.
 
+### 2026-09-04 — Third annotated-feedback simplification
+
+**Status:** Complete in source and compatible with the existing Android runtime.
+
+**Scope:** Fourteen written notes and nine embedded screenshots from `feedback round3.docx`; the user explicitly excluded custom ending-gong work.
+
+**Decisions referenced:** D-049–D-052; D-048 remains unchanged.
+
+**Behavior implemented:**
+
+- Replaced duplicate interval-name fields with tap-to-edit titles for the Cycle main interval, sub-bells, and Sequence steps. Custom duration chips now show the chosen value with a pencil affordance.
+- Removed the duplicate large main-duration readout. The quick `10m`, `15m`, `30m`, and Custom choices remain the single main-duration control.
+- Added one top-level Sub-bells switch. Fresh configurations start with the layer hidden, enabling reveals a ready first sub-bell and Add, and disabling preserves track settings while suppressing them in both JavaScript and the existing native scheduler.
+- Removed manual Pattern drag priority. Sub-bells now normalize longest cadence first and the longer cadence wins an overlap; equal cadences keep stable source order. Untouched generated labels renumber after automatic sorting so the visible list stays coherent.
+- Flattened main sound, sub-bell, Sequence, schedule, and configuration rows. Master volume is directly visible; sound choice and the full sound-level list follow as quiet secondary actions. The compact cue timeline no longer has an enclosing border.
+- Retained drag handles and haptics for Sequence steps because order changes their actual playback sequence. Opening and ending gong customization was neither restored nor changed.
+
+**Migration impact:** The schema version remains 2. Older Pattern records infer `subBellsEnabled` from their existing enabled tracks, so current users retain behavior. The group-off native payload emits an effective copy with every track disabled; the stored working copy and preset keep their complete settings. No Android source, manifest, permission, sound resource, or native dependency changed.
+
+**Verification run:** `npx tsc --noEmit`; focused Vitest suite; `git diff --check`; React Native Web walkthrough at 390×844 and 1280×800 covering Cycle disclosure, in-place names, custom duration, automatic track sorting, sub-bell editor, Sequence, Schedule, and console diagnostics.
+
+**Results:** Type checking passed, all 50 focused tests passed, whitespace validation passed, and the revised screens rendered cleanly at both viewport sizes. The only web console message was React Native Web's existing `pointerEvents` deprecation warning.
+
+**Native/on-device verification still required:** Confirm switch, slider, keyboard, and haptic feel with TalkBack on a representative Android device. Local native builds remain prohibited by repository policy.
+
+**Risks or follow-ups:** The source-compatible group switch is deliberately serialized as disabled per-track native input so it remains safe for OTA delivery to the current binary.
+
 ### Implementation-entry template
 
 ```md
@@ -1952,3 +1981,4 @@ This section is append-only. Every implementation session should record scope, m
 | 1.4 | 2026-09-03 | Applied the first annotated-feedback pass: simpler Cycle/Sequence surfaces, immediate Alarm feedback, smoother nested rings, web-safe controls, compact Mixer, and sticky cue volume. |
 | 1.5 | 2026-09-03 | Extended the feedback direction across Timer v2 with compact Sequence rows, focused saved-configuration inspection, quiet routine transitions, and shorter setup/status language. |
 | 1.6 | 2026-09-04 | Added renameable Cycle intervals while deferring opening/ending gong overrides so the change remains compatible with the existing native binary. |
+| 1.7 | 2026-09-04 | Applied the third annotated-feedback pass: tap-to-edit titles, quick-only main duration, a progressive Sub-bells layer, cadence-first automatic priority, visible Master volume, and flatter setup/schedule rows. |

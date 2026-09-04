@@ -108,6 +108,12 @@ function displayFor(program: TimerProgram, settings: AppTimerSettings, anchor: n
 }
 
 function nativeConfigFor(program: TimerProgram, settings: AppTimerSettings, anchor: number, startedAt: number, terminalAt: number | null, alarmModeEnabled = false): NativeTimerConfig {
+  // Current Android binaries understand per-track enablement but predate the
+  // group switch. Serialize an effective copy so an OTA can safely suppress the
+  // whole layer, including after process death, without a native rebuild.
+  const nativeProgram: TimerProgram = program.mode === 'pattern' && !program.subBellsEnabled
+    ? { ...program, tracks: program.tracks.map(track => ({ ...track, enabled: false })) }
+    : program
   const mainMs = program.mode === 'pattern'
     ? program.mainMinutes * 60_000
     : program.steps.reduce((sum, step) => sum + step.durationMinutes * 60_000, 0)
@@ -126,7 +132,7 @@ function nativeConfigFor(program: TimerProgram, settings: AppTimerSettings, anch
     activeHoursDays: settings.availability.weeklyWindows[0]?.days ?? 0,
     availabilityPolicy: JSON.stringify(settings.availability),
     alarmDurationSeconds: settings.alarmDurationSeconds,
-    timerV2Program: JSON.stringify(program),
+    timerV2Program: JSON.stringify(nativeProgram),
     timerV2Anchor: anchor,
     timerV2StartedAt: startedAt,
     ...(terminalAt ? { timerV2EndsAt: terminalAt } : {}),

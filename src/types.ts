@@ -61,6 +61,8 @@ export interface PatternProgram {
   label: string
   mainMinutes: number
   mainCue: CueSettings
+  /** Keeps configured tracks intact while the whole sub-bell layer is hidden. */
+  subBellsEnabled: boolean
   tracks: PatternTrack[]
   alignment: { kind: 'elapsed' } | { kind: 'local-clock'; offsetMinutes: number }
   runPolicy: RunPolicy

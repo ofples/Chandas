@@ -23,7 +23,13 @@ export function DurationSelector({ value, presets, onChange, label, min = 1, max
       {label ? <Text style={[styles.label, { color: tokens.textMuted }]}>{label}</Text> : null}
       <View style={styles.chips}>
         {presets.map(minutes => <Chip key={minutes} label={`${minutes}m`} active={value === minutes} onPress={() => onChange(minutes)} compact={compact} />)}
-        <Chip label={isPreset ? 'Custom' : `${value}m`} active={!isPreset} onPress={() => setCustomOpen(true)} compact={compact} />
+        <Chip
+          label={isPreset ? 'Custom' : `${value}m  ✎`}
+          active={!isPreset}
+          onPress={() => setCustomOpen(true)}
+          compact={compact}
+          accessibilityLabel={isPreset ? 'Choose a custom duration' : `Edit custom duration, ${value} minutes`}
+        />
       </View>
       {customOpen ? <CustomMinutePicker title={label ?? 'Custom duration'} initial={value} min={min} max={max} onConfirm={minutes => { onChange(minutes); setCustomOpen(false) }} onClose={() => setCustomOpen(false)} /> : null}
     </View>
