@@ -73,6 +73,19 @@ export function VolumeIcon({ level, muted, color }: { level?: number; muted?: bo
   )
 }
 
+export function MixerIcon({ color }: { color: string }) {
+  return (
+    <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+      <Line x1={4} y1={6} x2={20} y2={6} stroke={color} strokeWidth={1.8} strokeLinecap="round" />
+      <Circle cx={9} cy={6} r={2} fill={color} />
+      <Line x1={4} y1={12} x2={20} y2={12} stroke={color} strokeWidth={1.8} strokeLinecap="round" />
+      <Circle cx={15} cy={12} r={2} fill={color} />
+      <Line x1={4} y1={18} x2={20} y2={18} stroke={color} strokeWidth={1.8} strokeLinecap="round" />
+      <Circle cx={11} cy={18} r={2} fill={color} />
+    </Svg>
+  )
+}
+
 // Circular-arrow "restart" icon — used when unsyncing from the clock.
 export function RestartIcon({ color }: { color: string }) {
   return (
