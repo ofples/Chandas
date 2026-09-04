@@ -65,8 +65,10 @@ npm run promote:preview:production -- --message "Promote verified update"
 Direct production publishing remains available for an urgent, already-verified change:
 
 ```sh
-npm run publish:production -- --message "Describe the hotfix"
+eas workflow:run .eas/workflows/publish-production-update.yml -F "message=Describe the hotfix" --non-interactive --wait
 ```
+
+This dedicated workflow performs the bundle export on EAS, runs type-checking and tests, computes the native fingerprint, and refuses to publish unless a compatible production AAB already exists. It never creates a native build as a side effect. Use the local `publish:production` script only on a machine explicitly provisioned for local Expo exports.
 
 For a cautious rollout, use EAS Update's rollout percentage on the production command and increase it from the dashboard after monitoring successful launches.
 
