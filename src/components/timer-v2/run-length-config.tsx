@@ -23,15 +23,13 @@ export function RunLengthConfig({ mode, value, cycleDurationSeconds, onChange }:
   const { tokens } = useTheme()
   const reducedMotion = useReducedMotion()
   const totalSeconds = value.kind === 'cycles' ? value.cycleCount * cycleDurationSeconds : value.durationSeconds
-  const summary = value.kind === 'continuous'
-    ? 'Keeps going until you stop it.'
-    : value.kind === 'cycles'
+  const summary = value.kind === 'cycles'
       ? `Ends after ${value.cycleCount} ${mode === 'sequence' ? (value.cycleCount === 1 ? 'round' : 'rounds') : (value.cycleCount === 1 ? 'main cycle' : 'main cycles')} · ${formatDuration(totalSeconds)}`
-      : `Ends after ${formatDuration(value.durationSeconds)}`
+      : value.kind === 'duration' ? `Ends after ${formatDuration(value.durationSeconds)}` : null
 
   return <View style={styles.section}>
-    <View style={styles.heading}><Text style={[styles.eyebrow, { color: tokens.textMuted }]}>RUN LENGTH</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{summary}</Text></View>
     <SegmentedControl items={choices} value={value.kind} onChange={kind => onChange({ ...value, kind })} accessibilityLabel="Run length" />
+    {summary ? <Text style={[styles.helper, { color: tokens.textMuted }]}>{summary}</Text> : null}
     {value.kind !== 'continuous' ? <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 170)} exiting={FadeOut.duration(reducedMotion ? 70 : 110)} layout={reducedMotion ? undefined : LinearTransition.duration(150)}>
       {value.kind === 'cycles'
         ? <View style={styles.stepper}><View style={styles.valueRow}><StepButton label="Decrease cycles" glyph="−" disabled={value.cycleCount <= 1} onPress={() => onChange({ ...value, cycleCount: value.cycleCount - 1 })} /><NumberField label={mode === 'sequence' ? 'Rounds' : 'Main cycles'} value={value.cycleCount} max={MAX_RUN_CYCLES} onCommit={cycleCount => onChange({ ...value, cycleCount })} hideLabel /><StepButton label="Increase cycles" glyph="+" disabled={value.cycleCount >= MAX_RUN_CYCLES} onPress={() => onChange({ ...value, cycleCount: value.cycleCount + 1 })} /></View><Text style={[styles.fieldLabel, { color: tokens.textMuted }]}>{mode === 'sequence' ? 'ROUNDS' : 'MAIN CYCLES'}</Text></View>
@@ -82,7 +80,7 @@ export function formatDuration(seconds: number): string {
 }
 
 const styles = StyleSheet.create({
-  section: { gap: 12 }, heading: { gap: 4 }, eyebrow: { fontSize: 11, fontWeight: '700', letterSpacing: 1.3 }, helper: { fontSize: 12, lineHeight: 17 },
+  section: { gap: 10 }, helper: { fontSize: 12, lineHeight: 17 },
   stepper: { alignItems: 'center', gap: 5 }, valueRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12 }, step: { width: 44, height: 44, borderWidth: 1.5, borderRadius: 22, alignItems: 'center', justifyContent: 'center' }, stepGlyph: { fontSize: 22, lineHeight: 24, textAlignVertical: 'center' },
   durationRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'center', gap: 8 }, colon: { fontFamily: 'JetBrainsMono-Regular', fontSize: 24, paddingTop: 8 }, fieldWrap: { alignItems: 'center', gap: 5 }, field: { width: 70, minHeight: 44, borderWidth: 1.5, borderRadius: 12, textAlign: 'center', fontFamily: 'JetBrainsMono-Regular', fontSize: 19, fontVariant: ['tabular-nums'], paddingHorizontal: 5 }, fieldLabel: { fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.6 },
 })
