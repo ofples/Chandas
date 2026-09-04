@@ -391,10 +391,11 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     // A full stop goes directly to the authoritative native stop. Calling the
     // narrower alarm-dismiss path first allowed an Android window-cleanup
     // exception to prevent the timer itself from ever being stopped.
-    alarmPlayerRef.current?.remove()
+    if (isNativeServiceAvailable) ChandasTimerService.stop()
+    try { alarmPlayerRef.current?.remove() } catch { /* continue local teardown */ }
     alarmPlayerRef.current = null
     setIsAlarmRinging(false)
-    try { playerRef.current?.remove() } catch { /* continue to the authoritative native stop */ }
+    try { playerRef.current?.remove() } catch { /* continue local teardown */ }
     playerRef.current = null
     const clearedMute = emptyRuntimeMute()
     muteRef.current = clearedMute
@@ -402,7 +403,6 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     setMute(clearedMute)
     setAlarmBehavior('off')
     releaseDisplayWakeLock()
-    if (isNativeServiceAvailable) ChandasTimerService.stop()
     void clearTimerV2Session()
     setDisplay({ mainCountdown: '--:--', nextCueCountdown: '--:--', nextCueLabel: '', progress: 0, position: null, activeHoursPaused: false, activeHoursResumeAt: 0, runEndsAt: 0, runRemainingMs: 0 })
   }, [])
