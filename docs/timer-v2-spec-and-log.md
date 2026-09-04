@@ -163,6 +163,7 @@ Timer v2 replaces these assumptions rather than layering special cases over them
 | D-063 | Continuous-mode Schedule keeps a quick top-level switch and a compact, tappable 24-hour preview for the current local day. Enabled ranges are merged and highlighted between labelled civil-time boundaries; overnight ranges include the portion inherited from the previous day. Tapping the preview opens the full existing range editor in a `Schedule` sheet. Complex schedules with more than six boundaries fall back to evenly spaced 0/6/12/18/24 labels to avoid clutter. |
 | D-064 | Sequence-step `Duplicate step` and `Remove step` actions use the same accent-coloured 13px semibold treatment and enlarged tap target as a sheet's `Done` action. Removal remains guarded by its confirmation flow rather than relying on subdued or underlined styling to communicate risk. |
 | D-065 | A cycle-bounded run's compact duration equivalent follows `ROUNDS` or `MAIN CYCLES` on the caption line beneath the complete stepper. It does not occupy a separate column or alter the centering of the minus/value/plus controls. |
+| D-066 | Sequence reordering activates only after a short 260ms hold on the drag handle. Movement before activation remains normal page scrolling. During an active drag, adjacent rows animate aside and all visible order numbers reflect the prospective insertion before release; crossing each slot gives selection haptics. Holding near the usable top or bottom edge auto-scrolls only while another sequence position exists in that direction. Cancellation restores the original order, and accessibility increment/decrement actions remain available. |
 
 ---
 
@@ -1984,16 +1985,17 @@ This section is append-only. Every implementation session should record scope, m
 - Moved detailed Schedule editing into a dedicated bottom sheet. The setup surface now keeps only its quick switch and a truthful current-day 24-hour timeline with merged active spans, boundary marks, concise status, and a direct tap target into the full editor.
 - Matched the Sequence editor's Duplicate and Remove actions to the sheet's bright `Done` treatment, removed the faint underlines, and enlarged both touch targets.
 - Moved the computed cycle duration beside the `ROUNDS`/`MAIN CYCLES` caption so the stepper remains centered and does not shift as the duration text changes.
+- Refined Sequence drag-and-drop with delayed activation, scroll-intent preservation, live insertion-space and order-number previews, bounded edge auto-scroll, cancellation cleanup, and haptic slot feedback. Migrated drag transforms from React Native Animated to Reanimated shared values.
 
 **Native time selector decision:** Android and React Native do not provide a built-in duration picker. The existing schedule time-of-day modal remains dependency-free and OTA-compatible; adding a community/native time picker would require a new native binary while providing the wrong semantics for durations longer than 24 hours. This round therefore standardizes the current modal instead of adding a native dependency.
 
 **Migration impact:** None. Stored main labels and second-based duration fields remain readable for compatibility. UI-edited duration bounds are whole-minute multiples. Saved availability records are never rewritten when a bounded policy is selected.
 
-**Verification run:** `npx tsc --noEmit`; focused Vitest suite; `git diff --check`; interactive React Native Web review at 390×844 and 1280×800 covering Cycle/Sequence tabs, bounded schedule suppression, cycle-stepper alignment, hour/minute duration entry, dynamic clock phases, occurrence summaries, running Sound controls, and selected-sound preview.
+**Verification run:** `npx tsc --noEmit`; focused Vitest suite; `git diff --check`; interactive React Native Web review at 390×844 and 1280×800 covering Cycle/Sequence tabs, bounded schedule suppression, cycle-stepper alignment, hour/minute duration entry, dynamic clock phases, occurrence summaries, Sequence reorder presentation, running Sound controls, and selected-sound preview.
 
-**Results:** Type checking passed, all 55 focused tests passed, and the reviewed surfaces remained semantically accessible. The 10-minute and 30-minute clock choices match the annotated examples, and Schedule disappears immediately for both Cycle- and duration-bounded runs.
+**Results:** Type checking passed, all 59 focused tests passed, and the reviewed surfaces remained semantically accessible. The 10-minute and 30-minute clock choices match the annotated examples, and Schedule disappears immediately for both Cycle- and duration-bounded runs.
 
-**Native/on-device verification still required:** TalkBack focus order, title-edit affordance discovery, slider and switch feel, modal keyboard behavior, haptics, and background bounded-run behavior on a representative Android device. Local native builds remain prohibited by repository policy.
+**Native/on-device verification still required:** TalkBack focus order, title-edit affordance discovery, slider and switch feel, modal keyboard behavior, long-press drag activation, edge auto-scroll, haptics, and background bounded-run behavior on a representative Android device. Local native builds remain prohibited by repository policy.
 
 **Risks or follow-ups:** If a future calendar feature adds resolved availability overrides, it should continue to use the existing policy boundary; bounded runs deliberately ignore weekly and calendar-derived availability alike.
 

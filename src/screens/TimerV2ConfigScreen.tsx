@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
-import { ActivityIndicator, Alert, Animated, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import Slider from '@react-native-community/slider'
 import * as Haptics from 'expo-haptics'
-import Reanimated, { FadeIn, FadeInDown, FadeOut, LinearTransition, useReducedMotion } from 'react-native-reanimated'
+import Reanimated, { FadeIn, FadeInDown, FadeOut, LinearTransition, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import type { CueSettings, PatternTrack, SoundRef, TimerV2State } from '../types'
 import type { NativeFocusState } from '../native/ChandasTimerService'
@@ -34,6 +34,7 @@ import { ChandasTimerService } from '../native/ChandasTimerService'
 import { GentleNotice, type AppNotice } from '../components/timer-v2/experience-feedback'
 import { hasAvailableTime } from '../lib/activeHours'
 import { MixerIcon } from '../components/Icons'
+import { edgeAutoScrollStep, previewIndexForItem, previewOffsetForItem, type ReorderPreview } from '../lib/reorder-preview'
 
 const MAIN_PRESETS = [5, 10, 15, 30, 45, 60] as const
 const STEP_PRESETS = [5, 15, 25] as const
@@ -67,6 +68,11 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
   const [mixerOpen, setMixerOpen] = useState(false)
   const [scheduleOpen, setScheduleOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
+  const [sequenceReordering, setSequenceReordering] = useState(false)
+  const scrollRef = useRef<ScrollView>(null)
+  const scrollOffsetRef = useRef(0)
+  const scrollContentHeightRef = useRef(0)
+  const scrollViewportRef = useRef({ top: 0, height: 0 })
   const reducedMotion = useReducedMotion()
   const program = state.workingPrograms[state.workingPrograms.selectedMode]
   const settings = state.settings
@@ -89,17 +95,36 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
     void Haptics.selectionAsync().catch(() => undefined)
     onChange(chooseProgramMode(state, mode))
   }
+  const handleSequenceReordering = useCallback((active: boolean) => {
+    setSequenceReordering(active)
+  }, [])
+  const autoScrollSequence = useCallback((pageY: number, canMoveEarlier: boolean, canMoveLater: boolean) => {
+    const { top, height } = scrollViewportRef.current
+    if (height <= 0) return 0
+    const edgeSize = Math.min(64, Math.max(48, height * 0.12))
+    const bottom = top + height - Math.min(76, height * 0.12)
+    const delta = edgeAutoScrollStep(pageY, top, bottom, edgeSize, canMoveEarlier, canMoveLater)
+    if (delta === 0) return 0
+    const maximum = Math.max(0, scrollContentHeightRef.current - height)
+    const next = Math.max(0, Math.min(maximum, scrollOffsetRef.current + delta))
+    const applied = next - scrollOffsetRef.current
+    if (applied !== 0) {
+      scrollOffsetRef.current = next
+      scrollRef.current?.scrollTo({ y: next, animated: false })
+    }
+    return applied
+  }, [])
 
   return (
     <View style={[styles.screen, { backgroundColor: tokens.bg }]}>
-      <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.content, { paddingTop: insets.top + 22, paddingBottom: insets.bottom + 116 }]}>
+      <ScrollView ref={scrollRef} scrollEnabled={!sequenceReordering} onLayout={event => { scrollViewportRef.current = { top: event.nativeEvent.layout.y, height: event.nativeEvent.layout.height } }} onContentSizeChange={(_width, height) => { scrollContentHeightRef.current = height }} onScroll={event => { scrollOffsetRef.current = event.nativeEvent.contentOffset.y }} scrollEventThrottle={16} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.content, { paddingTop: insets.top + 22, paddingBottom: insets.bottom + 116 }]}>
         <View style={styles.modeRow}>
           <SegmentedControl items={MODE_CHOICES} value={state.workingPrograms.selectedMode} onChange={selectMode} accessibilityLabel="Timer mode" style={styles.modeTabs} />
           <Pressable hitSlop={4} onPress={() => setHelpOpen(true)} style={[styles.question, { borderColor: tokens.border }]} accessibilityRole="button" accessibilityLabel="Timer help"><Text style={[styles.questionText, { color: tokens.accent }]}>?</Text></Pressable>
         </View>
 
         <Reanimated.View key={program.mode} entering={FadeIn.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 120)} style={styles.modeContent}>
-          {program.mode === 'pattern' ? <PatternEditor state={state} onChange={onChange} onEditTrack={setTrackId} onAdd={addTrack} /> : <SequenceEditor state={state} onChange={onChange} onEditCue={setCueTarget} onAdd={addStep} />}
+          {program.mode === 'pattern' ? <PatternEditor state={state} onChange={onChange} onEditTrack={setTrackId} onAdd={addTrack} /> : <SequenceEditor state={state} onChange={onChange} onEditCue={setCueTarget} onAdd={addStep} onReorderingChange={handleSequenceReordering} onAutoScroll={autoScrollSequence} />}
         </Reanimated.View>
 
         <View style={styles.section}>
@@ -181,14 +206,19 @@ function PatternEditor({ state, onChange, onEditTrack, onAdd }: { state: TimerV2
   </>
 }
 
-function SequenceEditor({ state, onChange, onEditCue, onAdd }: { state: TimerV2State; onChange: (state: TimerV2State) => void; onEditCue: (target: CueTarget) => void; onAdd: () => void }) {
+function SequenceEditor({ state, onChange, onEditCue, onAdd, onReorderingChange, onAutoScroll }: { state: TimerV2State; onChange: (state: TimerV2State) => void; onEditCue: (target: CueTarget) => void; onAdd: () => void; onReorderingChange: (active: boolean) => void; onAutoScroll: (pageY: number, canMoveEarlier: boolean, canMoveLater: boolean) => number }) {
   const { tokens } = useTheme()
   const [editingStepId, setEditingStepId] = useState<string | null>(null)
+  const [dragPreview, setDragPreview] = useState<ReorderPreview | null>(null)
   const program = state.workingPrograms.sequence
   const total = program.steps.reduce((sum, step) => sum + step.durationMinutes, 0)
+  const previewStep = useCallback((stepId: string, from: number, to: number, rowHeight: number) => setDragPreview({ stepId, from, to, rowHeight }), [])
+  const finishPreview = useCallback(() => setDragPreview(null), [])
+  const moveStep = useCallback((from: number, to: number) => onChange(reorderSequenceSteps(state, from, to)), [onChange, state])
+  useEffect(() => () => onReorderingChange(false), [onReorderingChange])
   return <View style={styles.section}>
     <View><Text style={[styles.eyebrow, { color: tokens.textMuted }]}>SEQUENCE</Text><Text style={[styles.sectionValue, { color: tokens.text }]}>{formatMinutes(total)}</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{program.steps.length} step{program.steps.length === 1 ? '' : 's'} · repeats</Text></View>
-    {program.steps.map((step, index) => <SequenceStepRow key={step.id} state={state} stepId={step.id} index={index} onEdit={() => setEditingStepId(step.id)} onChange={onChange} />)}
+    {program.steps.map((step, index) => <SequenceStepRow key={step.id} state={state} stepId={step.id} index={index} dragPreview={dragPreview} onEdit={() => setEditingStepId(step.id)} onMove={moveStep} onPreviewChange={previewStep} onPreviewEnd={finishPreview} onReorderingChange={onReorderingChange} onAutoScroll={onAutoScroll} />)}
     {program.steps.length < 20 ? <AddRowButton onPress={onAdd} title="+ Add step" /> : null}
     <ProgramRunLength state={state} mode="sequence" onChange={onChange} />
     {editingStepId ? <SequenceStepEditorSheet state={state} stepId={editingStepId} onChange={onChange} onEditCue={() => onEditCue({ kind: 'step', id: editingStepId })} onClose={() => setEditingStepId(null)} /> : null}
@@ -208,19 +238,28 @@ function PatternTrackRow({ state, track, index, onChange, onEdit }: { state: Tim
   </Reanimated.View>
 }
 
-function SequenceStepRow({ state, stepId, index, onEdit, onChange }: { state: TimerV2State; stepId: string; index: number; onEdit: () => void; onChange: (state: TimerV2State) => void }) {
+function SequenceStepRow({ state, stepId, index, dragPreview, onEdit, onMove, onPreviewChange, onPreviewEnd, onReorderingChange, onAutoScroll }: { state: TimerV2State; stepId: string; index: number; dragPreview: ReorderPreview | null; onEdit: () => void; onMove: (from: number, to: number) => void; onPreviewChange: (stepId: string, from: number, to: number, rowHeight: number) => void; onPreviewEnd: () => void; onReorderingChange: (active: boolean) => void; onAutoScroll: (pageY: number, canMoveEarlier: boolean, canMoveLater: boolean) => number }) {
   const { tokens } = useTheme()
-  const translation = useState(() => new Animated.Value(0))[0]
+  const dragTranslation = useSharedValue(0)
+  const previewTranslation = useSharedValue(0)
   const [dragging, setDragging] = useState(false)
   const [rowHeight, setRowHeight] = useState(82)
   const reducedMotion = useReducedMotion()
   const program = state.workingPrograms.sequence
   const step = program.steps.find(value => value.id === stepId)
+  const previewIndex = dragPreview ? previewIndexForItem(index, dragPreview.from, dragPreview.to) : index
+  const previewOffset = dragPreview ? previewOffsetForItem(index, dragPreview.from, dragPreview.to, dragPreview.rowHeight) : 0
+  useEffect(() => {
+    previewTranslation.value = reducedMotion ? previewOffset : withTiming(previewOffset, { duration: 140 })
+  }, [previewOffset, previewTranslation, reducedMotion])
+  const rowAnimatedStyle = useAnimatedStyle(() => ({ transform: [{ translateY: dragTranslation.value + previewTranslation.value }, { scale: dragging && !reducedMotion ? 1.015 : 1 }] }), [dragging, reducedMotion])
+  const handlePreviewChange = useCallback((from: number, to: number, height: number) => onPreviewChange(stepId, from, to, height), [onPreviewChange, stepId])
+  const handleDragStateChange = useCallback((active: boolean) => { setDragging(active); onReorderingChange(active) }, [onReorderingChange])
   if (!step) return null
-  return <Reanimated.View entering={reducedMotion ? FadeIn.duration(80) : FadeInDown.duration(190)} exiting={FadeOut.duration(reducedMotion ? 70 : 130)} layout={reducedMotion ? undefined : LinearTransition.duration(160)}>
-    <Animated.View onLayout={event => { if (!dragging) setRowHeight(event.nativeEvent.layout.height + 13) }} style={[styles.sequenceCard, index > 0 && { borderTopColor: tokens.border, borderTopWidth: StyleSheet.hairlineWidth }, dragging && styles.dragging, { opacity: dragging ? 0.92 : 1, transform: [{ translateY: translation }, { scale: dragging && !reducedMotion ? 1.015 : 1 }] }]}>
-      <View style={styles.sequenceHead}><ReorderHandle index={index} itemCount={program.steps.length} rowHeight={rowHeight} rowTranslation={translation} onDragStateChange={setDragging} onMove={(from, to) => onChange(reorderSequenceSteps(state, from, to))} label={`Reorder ${step.label}`} /><Text style={[styles.priority, { color: tokens.accent }]}>{String(index + 1).padStart(2, '0')}</Text><Pressable style={styles.sequenceSummary} onPress={onEdit} accessibilityRole="button" accessibilityLabel={`Edit ${step.label}`}><View style={styles.flex}><Text numberOfLines={1} style={[styles.rowTitle, { color: tokens.text }]}>{step.label}</Text><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>{step.durationMinutes}m · {soundTitle(step.sound)} · {Math.round(step.volume * 100)}%</Text></View><Text style={[styles.sequenceChevron, { color: tokens.accent }]}>›</Text></Pressable></View>
-    </Animated.View>
+  return <Reanimated.View entering={reducedMotion ? FadeIn.duration(80) : FadeInDown.duration(190)} exiting={FadeOut.duration(reducedMotion ? 70 : 130)} layout={reducedMotion ? undefined : LinearTransition.duration(160)} style={dragging ? styles.draggingLayer : undefined}>
+    <Reanimated.View onLayout={event => { if (!dragging) setRowHeight(event.nativeEvent.layout.height + 13) }} style={[styles.sequenceCard, index > 0 && { borderTopColor: tokens.border, borderTopWidth: StyleSheet.hairlineWidth }, dragging && styles.dragging, { opacity: dragging ? 0.92 : 1 }, rowAnimatedStyle]}>
+      <View style={styles.sequenceHead}><ReorderHandle index={index} itemCount={program.steps.length} rowHeight={rowHeight} rowTranslation={dragTranslation} onDragStateChange={handleDragStateChange} onPreviewChange={handlePreviewChange} onPreviewEnd={onPreviewEnd} onAutoScroll={onAutoScroll} onMove={onMove} label={`Reorder ${step.label}`} /><Text style={[styles.priority, { color: tokens.accent }]}>{String(previewIndex + 1).padStart(2, '0')}</Text><Pressable style={styles.sequenceSummary} onPress={onEdit} accessibilityRole="button" accessibilityLabel={`Edit ${step.label}`}><View style={styles.flex}><Text numberOfLines={1} style={[styles.rowTitle, { color: tokens.text }]}>{step.label}</Text><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>{step.durationMinutes}m · {soundTitle(step.sound)} · {Math.round(step.volume * 100)}%</Text></View><Text style={[styles.sequenceChevron, { color: tokens.accent }]}>›</Text></Pressable></View>
+    </Reanimated.View>
   </Reanimated.View>
 }
 
@@ -375,6 +414,7 @@ const styles = StyleSheet.create({
   trackSummary: { minHeight: 68, paddingVertical: 11, flexDirection: 'row', alignItems: 'center', gap: 12 }, priority: { fontFamily: 'JetBrainsMono-Regular', fontSize: 11 },
   sequenceCard: { paddingVertical: 9 }, sequenceHead: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 9 }, sequenceSummary: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 8 }, sequenceChevron: { width: 22, textAlign: 'center', fontSize: 22, lineHeight: 24, fontWeight: '300' }, stepActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }, sheetAction: { fontSize: 13, fontWeight: '700' },
   dragging: { zIndex: 20, boxShadow: '0 5px 16px rgba(0,0,0,0.24)' },
+  draggingLayer: { zIndex: 20 },
   gridHeading: { gap: 10 }, inlineActions: { flexDirection: 'row', alignItems: 'center', gap: 14 }, destructive: { fontSize: 12, fontWeight: '700', textAlign: 'center', paddingVertical: 8 },
   timeline: { height: 43, position: 'relative', overflow: 'hidden', paddingHorizontal: 8 }, timelineLine: { position: 'absolute', left: 8, right: 8, top: 17, height: 1 }, timelineBoundary: { position: 'absolute', top: 11, width: 2, height: 13 }, timelineCue: { position: 'absolute', width: 5, height: 5, marginLeft: -2.5, borderRadius: 3 }, timelineStart: { position: 'absolute', left: 7, bottom: 2, fontSize: 8 }, timelineEnd: { position: 'absolute', right: 7, bottom: 2, fontSize: 8 },
   mixerRow: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 9 }, mixerLabel: { width: 118, gap: 2 }, mixerSlider: { flex: 1, height: 34 }, volumeValue: { width: 28, fontFamily: 'JetBrainsMono-Regular', fontSize: 11, textAlign: 'right' }, divider: { height: 1 },

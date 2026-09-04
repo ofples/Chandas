@@ -5,6 +5,7 @@ import { alarmBehaviorAfterGesture, gateProgramAudio, isFreshScheduledEvent, ite
 import { defaultTimerV2State, migrateLegacyConfig, normalizeAvailabilityPolicy, normalizePatternProgram, normalizeSequenceProgram, normalizeSoundRef, parseTimerProgram, validOffsets } from '../timerV2'
 import { nextPatternEvent, nextProgramEvent, nextSequenceEvent, runEndAt, timelinePosition } from '../timeline'
 import { effectiveAvailabilityForProgram, hasAvailableTime, isWithinActiveHours, nextActiveHoursStart, scheduleSegmentsForDay, windowsOverlap } from '../activeHours'
+import { edgeAutoScrollStep, previewIndexForItem, previewOffsetForItem, reorderGestureIntent } from '../reorder-preview'
 import timelineFixtures from '../../../fixtures/timer-v2-timeline.json'
 
 const minute = 60_000
@@ -367,6 +368,34 @@ describe('bounded runs and availability policies', () => {
     expect(policy.weeklyWindows[0]).toMatchObject({ startMinutes: 0, endMinutes: 1_439 })
     expect(new Set(policy.weeklyWindows.map(value => value.id)).size).toBe(2)
     expect(policy.overrides).toEqual([])
+  })
+})
+
+describe('sequence reorder previews', () => {
+  it('waits before dragging and yields early swipes to scrolling', () => {
+    expect(reorderGestureIntent(150, 3, false, 3)).toBe('wait')
+    expect(reorderGestureIntent(150, 12, false, 3)).toBe('scroll')
+    expect(reorderGestureIntent(300, 12, true, 3)).toBe('scroll')
+    expect(reorderGestureIntent(300, 3, false, 3)).toBe('drag')
+    expect(reorderGestureIntent(300, 12, false, 1)).toBe('wait')
+  })
+
+  it('opens the destination slot while dragging a row later', () => {
+    expect([0, 1, 2, 3].map(index => previewIndexForItem(index, 0, 2))).toEqual([2, 0, 1, 3])
+    expect([0, 1, 2, 3].map(index => previewOffsetForItem(index, 0, 2, 82))).toEqual([0, -82, -82, 0])
+  })
+
+  it('opens the destination slot while dragging a row earlier', () => {
+    expect([0, 1, 2, 3].map(index => previewIndexForItem(index, 3, 1))).toEqual([0, 2, 3, 1])
+    expect([0, 1, 2, 3].map(index => previewOffsetForItem(index, 3, 1, 82))).toEqual([0, 82, 82, 0])
+  })
+
+  it('scrolls proportionally at usable edges and stops at list boundaries', () => {
+    expect(edgeAutoScrollStep(110, 100, 700, 60, true, true)).toBe(-9)
+    expect(edgeAutoScrollStep(690, 100, 700, 60, true, true)).toBe(9)
+    expect(edgeAutoScrollStep(400, 100, 700, 60, true, true)).toBe(0)
+    expect(edgeAutoScrollStep(90, 100, 700, 60, false, true)).toBe(0)
+    expect(edgeAutoScrollStep(710, 100, 700, 60, true, false)).toBe(0)
   })
 })
 
