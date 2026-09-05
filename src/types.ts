@@ -158,6 +158,8 @@ export interface AvailabilityPolicy {
 
 export interface AppTimerSettings {
   masterVolume: number
+  /** Whether optional setup controls are visible on configuration and running screens. */
+  advancedModeEnabled: boolean
   /** Global looping sound used by Alarm Once and Alarm Locked. */
   alarmSound: SoundRef
   notificationsEnabled: boolean

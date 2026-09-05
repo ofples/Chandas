@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import * as Haptics from 'expo-haptics'
 import Animated, { FadeIn, FadeInDown, FadeOut, LinearTransition, useReducedMotion } from 'react-native-reanimated'
 import type { ProgramPreset, TimerMode, TimerProgram, TimerV2State } from '../../types'
@@ -13,6 +13,7 @@ import { SegmentedControl } from './SegmentedControl'
 import { SheetTextButton } from './SheetTextButton'
 import { subBellColorValue } from '../../lib/subBellColors'
 import { tapHaptic } from '../../lib/haptics'
+import { SwipeToDeleteRow } from './swipe-to-delete-row'
 
 const FILTERS = [{ value: 'all', label: 'All' }, { value: 'pattern', label: 'Cycle' }, { value: 'sequence', label: 'Sequence' }] as const
 
@@ -56,10 +57,11 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedba
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined)
     setName(cleanName)
   }
-  const remove = (preset: ProgramPreset) => Alert.alert('Delete configuration?', `“${preset.name}”, saved ${new Date(preset.createdAt).toLocaleString()}, will be removed. Your current working copy will not change.`, [
-    { text: 'Cancel', style: 'cancel' },
-    { text: 'Delete', style: 'destructive', onPress: () => { onChange(deleteProgramPreset(state, preset.id)); setSelectedId(current => current === preset.id ? null : current); onFeedback({ title: 'Configuration removed', message: 'Your current working copy was not changed.', tone: 'info' }); void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined) } },
-  ])
+  const remove = (preset: ProgramPreset) => {
+    onChange(deleteProgramPreset(state, preset.id))
+    setSelectedId(current => current === preset.id ? null : current)
+    onFeedback({ title: 'Configuration removed', message: 'Your current working copy was not changed.', tone: 'info' })
+  }
 
   return (
     <BottomSheet visible={visible} eyebrow="SAVED SETUPS" title="Configurations" onClose={onClose}>
@@ -81,12 +83,13 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedba
       {!selected ? <SegmentedControl items={FILTERS} value={filter} onChange={setFilter} accessibilityLabel="Configuration type" /> : null}
       {selected ? <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 130)} style={[styles.inspector, { borderColor: tokens.border, backgroundColor: tokens.surfaceHi }]}>
         <View style={styles.copy}><Text style={[styles.presetTitle, { color: tokens.text }]}>{selected.name}</Text><PresetVisual program={selected.program} /><Text style={[styles.date, { color: tokens.textMuted }]}>Saved {new Date(selected.createdAt).toLocaleString()}</Text><PresetDetails preset={selected} /><Text style={[styles.helper, { color: tokens.text }]}>Loads as a new working copy.</Text></View>
-        <View style={styles.inspectorActions}><SheetTextButton label="Delete" tone="danger" onPress={() => remove(selected)} /><View style={styles.inspectorPrimary}><SheetTextButton label="Cancel" tone="muted" onPress={() => setSelectedId(null)} /><SheetTextButton label="Load" onPress={() => { onChange(loadProgramPreset(state, selected.id)); setSelectedId(null); onClose(); onFeedback({ title: 'Configuration loaded', message: `“${selected.name}” is ready to adjust.`, tone: 'success' }) }} /></View></View>
+        <View style={styles.inspectorActions}><SheetTextButton label="Cancel" tone="muted" onPress={() => setSelectedId(null)} /><SheetTextButton label="Load" onPress={() => { onChange(loadProgramPreset(state, selected.id)); setSelectedId(null); onClose(); onFeedback({ title: 'Configuration loaded', message: `“${selected.name}” is ready to adjust.`, tone: 'success' }) }} /></View>
       </Animated.View> : null}
       {!selected ? <View style={styles.list}>
         {presets.length === 0 ? <GentleNotice title={state.presets.length === 0 ? 'No saved configurations yet' : `No ${filter === 'pattern' ? 'Cycle' : 'Sequence'} configurations`} message={state.presets.length === 0 ? 'Name the current setup above to save it.' : 'Try All or save the current setup.'} /> : presets.map(preset => {
           const loaded = state.workingPrograms.sourcePreset?.id === preset.id && !state.workingPrograms.sourcePreset.deleted
           return <Animated.View key={preset.id} entering={FadeInDown.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 120)} layout={reducedMotion ? undefined : LinearTransition.duration(160)}>
+            <SwipeToDeleteRow accessibilityLabel={`Delete ${preset.name}`} onDelete={() => remove(preset)}>
             <Pressable style={[styles.preset, { borderColor: tokens.border, backgroundColor: tokens.surfaceHi }]} onPress={() => { tapHaptic(); setSelectedId(preset.id) }} accessibilityRole="button" accessibilityLabel={`Open ${preset.name}`}>
               <View style={styles.copy}>
               <View style={styles.titleRow}><Text numberOfLines={1} style={[styles.presetTitle, { color: tokens.text }]}>{preset.name}</Text>{loaded ? <Text style={[styles.loaded, { color: tokens.accent }]}>LOADED</Text> : null}</View>
@@ -94,6 +97,7 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedba
               <Text style={[styles.date, { color: tokens.textMuted }]}>Saved {new Date(preset.createdAt).toLocaleString()}</Text>
               </View><Text style={[styles.chevron, { color: tokens.accent }]}>›</Text>
             </Pressable>
+            </SwipeToDeleteRow>
           </Animated.View>
         })}
       </View> : null}
@@ -155,7 +159,7 @@ const styles = StyleSheet.create({
   inspector: { borderWidth: 1.5, borderRadius: 14, padding: 14, gap: 12 },
   details: { borderTopWidth: 1, borderBottomWidth: 1, paddingVertical: 9, gap: 5 },
   detailLine: { fontSize: 11, lineHeight: 16 },
-  inspectorActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 16 }, inspectorPrimary: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  inspectorActions: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 16 }, inspectorPrimary: { flexDirection: 'row', alignItems: 'center', gap: 16 },
   visual: { gap: 7, paddingVertical: 4 }, visualMeta: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }, visualKind: { fontSize: 12, fontWeight: '600' }, visualCount: { fontSize: 11 }, visualTrack: { height: 18, position: 'relative' }, visualLine: { position: 'absolute', left: 0, right: 0, top: 8, height: 2 }, visualBoundary: { position: 'absolute', top: 3, width: 2, height: 12, borderRadius: 1 }, visualCue: { position: 'absolute', top: 5, width: 8, height: 8, marginLeft: -4, borderRadius: 4 }, sequenceTrack: { height: 8, borderRadius: 4, overflow: 'hidden', flexDirection: 'row', gap: 2 }, sequenceSegment: { minWidth: 3 },
   chevron: { fontSize: 24, lineHeight: 26, fontWeight: '300' },
 })

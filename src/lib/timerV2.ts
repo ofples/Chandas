@@ -147,6 +147,7 @@ export function defaultAvailabilityPolicy(): AvailabilityPolicy {
 export function defaultAppTimerSettings(): AppTimerSettings {
   return {
     masterVolume: 0.8,
+    advancedModeEnabled: false,
     alarmSound: builtIn('alarm-tone'),
     notificationsEnabled: true,
     liveCountdownEnabled: false,
@@ -375,6 +376,7 @@ export function migrateLegacyConfig(legacy: Partial<TimerConfig>): TimerV2State 
     workingPrograms: { pattern, sequence: defaultSequenceProgram(), selectedMode: 'pattern' },
     settings: {
       masterVolume: clampVolume(legacy.volume, defaults.masterVolume),
+      advancedModeEnabled: false,
       alarmSound: defaults.alarmSound,
       notificationsEnabled: legacy.notificationsEnabled !== false,
       liveCountdownEnabled: false,

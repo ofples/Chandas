@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import Animated, { FadeInDown, FadeOut, LinearTransition, useReducedMotion } from 'react-native-reanimated'
 import type { AvailabilityPolicy, WeeklyAvailabilityWindow } from '../../types'
 import { createProgramId, MAX_WEEKLY_WINDOWS } from '../../lib/timerV2'
@@ -7,8 +7,8 @@ import { useTheme } from '../../theme/ThemeContext'
 import { Toggle } from '../Toggle'
 import { formatTimeOfDay } from '../ActiveHoursConfig'
 import { AddRowButton } from './AddRowButton'
-import { SheetTextButton } from './SheetTextButton'
 import { selectionHaptic, tapHaptic } from '../../lib/haptics'
+import { SwipeToDeleteRow } from './swipe-to-delete-row'
 
 interface Props {
   value: AvailabilityPolicy
@@ -33,7 +33,10 @@ export function ScheduleConfig({ value, onChange, showHeading = true, showEnable
   const [editingId, setEditingId] = useState<string | null>(null)
   const activeCount = value.weeklyWindows.filter(window => window.enabled && (window.days & 0b1111111) !== 0).length
   const patchWindow = (id: string, patch: Partial<WeeklyAvailabilityWindow>) => onChange({ ...value, weeklyWindows: value.weeklyWindows.map(window => window.id === id ? { ...window, ...patch } : window) })
-  const removeWindow = (window: WeeklyAvailabilityWindow) => Alert.alert('Remove time range?', `${windowSummary(window)} will be removed.`, [{ text: 'Cancel', style: 'cancel' }, { text: 'Remove', style: 'destructive', onPress: () => { onChange({ ...value, weeklyWindows: value.weeklyWindows.filter(item => item.id !== window.id) }); setEditingId(current => current === window.id ? null : current) } }])
+  const removeWindow = (window: WeeklyAvailabilityWindow) => {
+    onChange({ ...value, weeklyWindows: value.weeklyWindows.filter(item => item.id !== window.id) })
+    setEditingId(current => current === window.id ? null : current)
+  }
   const addWindow = () => {
     if (value.weeklyWindows.length >= MAX_WEEKLY_WINDOWS) return
     const previous = value.weeklyWindows.at(-1)
@@ -51,16 +54,15 @@ export function ScheduleConfig({ value, onChange, showHeading = true, showEnable
       {value.weeklyWindows.length === 0 ? <View style={styles.empty}><Text style={[styles.rowTitle, { color: tokens.text }]}>No active times yet</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>Add a time range to define when the timer may sound.</Text></View> : null}
       {value.weeklyWindows.map((window, index) => {
         const editing = editingId === window.id
-        return <Animated.View key={window.id} layout={reducedMotion ? undefined : LinearTransition.duration(150)} style={[styles.window, { borderBottomColor: tokens.border, opacity: window.enabled ? 1 : 0.55 }]}>
+        return <SwipeToDeleteRow key={window.id} accessibilityLabel={`Delete ${windowSummary(window)}`} onDelete={() => removeWindow(window)}><Animated.View layout={reducedMotion ? undefined : LinearTransition.duration(150)} style={[styles.window, { borderBottomColor: tokens.border, backgroundColor: tokens.surface, opacity: window.enabled ? 1 : 0.55 }]}>
           <View style={styles.windowHead}><Pressable onPress={() => { tapHaptic(); setEditingId(editing ? null : window.id) }} style={styles.flex} accessibilityRole="button" accessibilityLabel={`Edit ${windowSummary(window)}`}><Text style={[styles.rowTitle, { color: tokens.text }]}>{formatRange(window)}</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{daySummary(window.days)}</Text></Pressable><Toggle value={window.enabled} onChange={enabled => patchWindow(window.id, { enabled })} accessibilityLabel={`Enable time range ${index + 1}`} /></View>
           {editing ? <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 150)} exiting={FadeOut.duration(reducedMotion ? 70 : 100)} style={styles.editor}>
             <View style={styles.range}><ClockTimeInput label="Starts" value={window.startMinutes} onChange={startMinutes => patchWindow(window.id, { startMinutes })} /><Text style={[styles.to, { color: tokens.textMuted }]}>to</Text><ClockTimeInput label="Ends" value={window.endMinutes} onChange={endMinutes => patchWindow(window.id, { endMinutes })} /></View>
             <View style={styles.days}>{DAYS.map(day => { const selected = (window.days & day.bit) !== 0; return <Pressable key={day.name} onPress={() => { selectionHaptic(); patchWindow(window.id, { days: selected ? window.days & ~day.bit : window.days | day.bit }) }} accessibilityRole="button" accessibilityLabel={day.name} accessibilityState={{ selected }} style={[styles.day, { borderColor: selected ? tokens.accent : tokens.border, backgroundColor: selected ? tokens.accentGlow : 'transparent' }]}><Text style={[styles.dayText, { color: selected ? tokens.accent : tokens.textMuted }]}>{day.short}</Text></Pressable> })}</View>
             {window.startMinutes === window.endMinutes ? <Text style={[styles.helper, { color: tokens.textMuted }]}>Same start and end means all day on these days.</Text> : null}
             {window.days === 0 ? <Text accessibilityRole="alert" style={[styles.helper, { color: tokens.warm }]}>Choose at least one day, or switch this range off.</Text> : null}
-            <SheetTextButton label="Remove time range" tone="danger" onPress={() => removeWindow(window)} accessibilityLabel={`Remove ${windowSummary(window)}`} />
           </Animated.View> : null}
-        </Animated.View>
+        </Animated.View></SwipeToDeleteRow>
       })}
       <AddRowButton disabled={value.weeklyWindows.length >= MAX_WEEKLY_WINDOWS} onPress={addWindow} title={value.weeklyWindows.length >= MAX_WEEKLY_WINDOWS ? '16 range limit reached' : '+ Add time range'} />
     </Animated.View> : null}

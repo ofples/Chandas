@@ -1415,6 +1415,9 @@ Do not edit old entries to reflect new conclusions. Add a superseding entry and 
 | 2026-09-05 | D-091 | Accepted | Prefer discrete tap selection for sub-bell offsets. Remove gesture painting so vertical sheet scrolling remains predictable, and use restrained shared haptics for controls plus light/strong cue accents. |
 | 2026-09-05 | D-092 | Accepted | Offer an opt-in next-cue countdown in System integrations. The ongoing notification owns the reliable chronometer; Android 16+ may additionally promote it to a status-bar Live Update chip, but Chandas must not promise OEM-controlled promotion. |
 | 2026-09-05 | D-093 | Accepted | Alarm Once/Locked uses one global alarm sound independent of the Pattern main gong and saved configurations. Default to the packaged Sine alarm. While ringing, show only the flashing circle; a tap anywhere or Android Back dismisses the alarm without stopping the timer. Request a lock-screen full-screen alarm while leaving final presentation to Android permission, notification-channel, lock-screen, and OEM policy. |
+| 2026-09-05 | D-094 | Accepted | Put destructive collection actions on their list rows: a deliberate left swipe reveals one trash action and removal animates in place. Editors no longer duplicate Delete/Remove actions; the single required Sequence step remains protected. |
+| 2026-09-05 | D-095 | Accepted | Use one hybrid color control everywhere: show the current color as a compact circle and expand the shared horizontal palette in place. Keep Sub-bell cue masks collapsed behind Customize cues and expose only the contextually useful Clear or Select all action. |
+| 2026-09-05 | D-096 | Accepted | Default setup to a calm essential surface. Schedule, configurations, appearance, system integrations, alarm sound, and Chandas Focus live in a persisted Advanced mode that opens by tap or a progressive bottom-scroll reveal. Hide Alarm and Focus runtime controls while Advanced mode is hidden. |
 
 ### Decision-entry template
 
@@ -2312,6 +2315,30 @@ This section is append-only. Every implementation session should record scope, m
 
 **Risks or follow-ups:** Android 14+ and Google Play restrict full-screen intent access to qualifying alarm/calling apps, and users/OEMs retain final control. When access is denied, Android may show a heads-up lock-screen notification instead of launching the full-screen activity automatically.
 
+### 2026-09-05 — Progressive advanced setup and inline collection editing
+
+**Status:** Complete in source; eligible for OTA delivery to a compatible runtime.
+
+**Scope:** Setup information hierarchy, persisted Advanced mode, running-control visibility, hybrid color selection, Sub-bell cue disclosure, and inline collection deletion.
+
+**Decisions referenced:** D-094–D-096.
+
+**Behavior implemented:**
+
+- The default setup keeps the interval, run length, clock alignment, Sub-bells, primary volume, main gong, and bounded final-gong choice visible. Alarm sound, Schedule, saved configurations, Appearance, Chandas Focus, and System integrations are grouped into Advanced mode.
+- Show advanced is both tappable and scroll-driven: its opacity/scale strengthen as it enters the viewport, then it expands at the reveal threshold. Hide advanced remains at the bottom; an explicit collapse is guarded against immediately reopening at the same scroll position. The preference persists and controls whether Alarm and Focus appear on the running screen.
+- Appearance is no longer a separate modal. Its dark-mode switch and primary-color circle live in Advanced mode; tapping the circle expands the shared horizontal color rail in place. The same collapsed-circle interaction is used for Sub-bell colors.
+- Sub-bell cue grids begin collapsed. Customize cues reveals the grid and one right-aligned contextual action: Clear when all valid cues are selected, otherwise Select all.
+- Sub-bells, Sequence steps, Schedule ranges, and saved configurations share one left-swipe row. Swiping reveals a trash icon and deletion exits/collapses smoothly in the list. Delete actions were removed from their edit/detail sheets, and the sole remaining Sequence step cannot be deleted.
+
+**Migration impact:** `advancedModeEnabled` is additive, defaults off for existing and legacy state, and remains app-owned when native settings are reconciled. No native bridge, packaged resource, manifest, or runtime-fingerprint input changed in this slice.
+
+**Verification run:** TypeScript compilation, all 68 Vitest tests, whitespace validation, and interactive Expo Web review at 390×844 and 1280×900. The pass covered progressive reveal/collapse, the inline primary-color palette, collapsed/expanded cue editing with contextual Clear, swipe-to-trash presentation, and the simplified running control set. No page errors appeared during setup-screen inspection.
+
+**Native/on-device verification still required:** Confirm horizontal swipe recognition does not steal vertical BottomSheet scrolling, ReorderHandle long-press remains reliable beside row swipes, delete collapse motion/haptics feel appropriate, and scroll-threshold activation behaves consistently on short/tall Android viewports with gesture and three-button navigation.
+
+**Risks or follow-ups:** The shared swipe row uses React Native's platform responder because the project does not currently include Gesture Handler. If dense gesture composition expands later, migrate the shared primitive—not individual lists—to a simultaneous native gesture implementation.
+
 ### Implementation-entry template
 
 ```md
@@ -2363,3 +2390,4 @@ This section is append-only. Every implementation session should record scope, m
 | 2.6 | 2026-09-05 | Stabilized Focus stop/snooze semantics, added raw-state and capability contracts, widened native safety ceilings, and made notification presentation OTA-owned. |
 | 2.7 | 2026-09-05 | Simplified setup hierarchy and Sub-bell selection, redesigned saved configurations, unified tactile feedback, and added an optional Android next-cue live countdown. |
 | 2.8 | 2026-09-05 | Made the alarm a tap-anywhere flashing-circle surface, added a global configurable alarm sound with Sine alarm default, and hardened full-screen lock-screen presentation. |
+| 2.9 | 2026-09-05 | Added persisted progressive Advanced mode, hybrid inline color/cue disclosure, shared swipe-to-delete rows, and simplified running controls. |
