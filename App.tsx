@@ -451,7 +451,7 @@ function Root() {
   if (!ready || !timerState || !program) return <AppLoadingScreen backgroundColor={tokens.bg} accentColor={tokens.accent} textColor={tokens.text} />
 
   return <View style={{ flex: 1, backgroundColor: tokens.bg }}>
-    <StatusBar style={theme === 'dark' ? 'light' : 'dark'} />
+    <StatusBar style={theme === 'dark' ? 'light' : 'dark'} hidden={appState === 'running'} animated />
     <View
       style={{ flex: 1, pointerEvents: timer.isAlarmRinging ? 'none' : 'auto' }}
       importantForAccessibility={timer.isAlarmRinging ? 'no-hide-descendants' : 'auto'}

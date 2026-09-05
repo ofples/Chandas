@@ -20,7 +20,7 @@ function pattern(): PatternProgram {
     completionCue: null,
     subBellsEnabled: true,
     tracks: [
-      { id: 'top', label: 'Breathe', color: 'violet', enabled: true, cadenceMinutes: 5, selectedOffsetsMinutes: [10], sound: { kind: 'builtin', id: 'soft-bowl' }, volume: 0.6 },
+      { id: 'top', label: 'Breathe', color: 'violet', enabled: true, cadenceMinutes: 5, selectedOffsetsMinutes: [10], sound: { kind: 'builtin', id: 'handpan' }, volume: 0.6 },
       { id: 'bottom', label: 'Posture', color: 'blue', enabled: true, cadenceMinutes: 2, selectedOffsetsMinutes: [10], sound: { kind: 'builtin', id: 'clear-bell' }, volume: 0.7 },
     ],
     alignment: { kind: 'elapsed' },
@@ -34,7 +34,7 @@ function sequence(): SequenceProgram {
     mode: 'sequence',
     steps: [
       { id: 'work', label: 'Work', durationMinutes: 5, sound: { kind: 'builtin', id: 'clear-bell' }, volume: 0.8 },
-      { id: 'rest', label: 'Rest', durationMinutes: 2, sound: { kind: 'builtin', id: 'soft-bowl' }, volume: 0.6 },
+      { id: 'rest', label: 'Rest', durationMinutes: 2, sound: { kind: 'builtin', id: 'handpan' }, volume: 0.6 },
     ],
     completionCue: null,
     runPolicy: { kind: 'continuous', cycleCount: 1, durationSeconds: 30 * 60 },
@@ -317,7 +317,7 @@ describe('bounded runs and availability policies', () => {
   })
 
   it('replaces an exact terminal boundary with the configured final gong', () => {
-    const completionCue = { sound: { kind: 'builtin', id: 'bright-chime' } as const, volume: 0.35 }
+    const completionCue = { sound: { kind: 'builtin', id: 'bloom' } as const, volume: 0.35 }
     const program = { ...pattern(), completionCue, runPolicy: { kind: 'cycles', cycleCount: 1, durationSeconds: 30 * 60 } as const }
     const event = nextProgramEvent(program, 0, 29 * minute, 0)
     expect(event).toMatchObject({
@@ -330,7 +330,7 @@ describe('bounded runs and availability policies', () => {
   })
 
   it('uses the configured final gong for a synthetic duration completion', () => {
-    const completionCue = { sound: { kind: 'builtin', id: 'wood-block' } as const, volume: 0.45 }
+    const completionCue = { sound: { kind: 'builtin', id: 'instamatic' } as const, volume: 0.45 }
     const program = { ...sequence(), completionCue, runPolicy: { kind: 'duration', cycleCount: 1, durationSeconds: 90 } as const }
     const event = nextProgramEvent(program, 1_000, 1_000, 1_000)
     expect(event).toMatchObject({
@@ -342,7 +342,7 @@ describe('bounded runs and availability policies', () => {
   })
 
   it('ignores a stored final gong while a program is continuous', () => {
-    const program = { ...pattern(), completionCue: { sound: { kind: 'builtin', id: 'bright-chime' } as const, volume: 0.35 } }
+    const program = { ...pattern(), completionCue: { sound: { kind: 'builtin', id: 'bloom' } as const, volume: 0.35 } }
     const event = nextProgramEvent(program, 0, 29 * minute, 0)
     expect(event).toMatchObject({ completesRun: false, winner: { cueId: 'main', sound: program.mainCue.sound } })
   })
@@ -458,11 +458,19 @@ describe('timer v2 validation and presets', () => {
 
   it('rejects malformed and unknown sound references', () => {
     const fallback = { kind: 'builtin', id: 'clear-bell' } as const
+    const productionIds = [
+      'temple-gong', 'clear-bell', 'bloom', 'boxing-bell', 'bubble', 'champagne', 'cymbal', 'handpan', 'heartbeat',
+      'ice', 'instamatic', 'mouse-click', 'page', 'sine-bass', 'sine-high', 'sine-low', 'water-drop', 'wind',
+    ] as const
+    productionIds.forEach(id => expect(normalizeSoundRef({ kind: 'builtin', id }, fallback)).toEqual({ kind: 'builtin', id }))
     expect(normalizeSoundRef({ kind: 'builtin', id: 'not-real' }, fallback)).toEqual(fallback)
     expect(normalizeSoundRef({ kind: 'document', uri: '', title: 'Missing' }, fallback)).toEqual(fallback)
     expect(normalizeSoundRef({ kind: 'android', uri: 'content://tone', title: 'Tone', ringtoneType: 'future' }, fallback)).toEqual({
       kind: 'android', uri: 'content://tone', title: 'Tone', ringtoneType: 'unknown',
     })
+    expect(normalizeSoundRef({ kind: 'builtin', id: 'soft-bowl' }, fallback)).toEqual({ kind: 'builtin', id: 'handpan' })
+    expect(normalizeSoundRef({ kind: 'builtin', id: 'wood-block' }, fallback)).toEqual({ kind: 'builtin', id: 'instamatic' })
+    expect(normalizeSoundRef({ kind: 'builtin', id: 'bright-chime' }, fallback)).toEqual({ kind: 'builtin', id: 'bloom' })
   })
 
   it('rejects unsupported program schema versions without throwing', () => {
@@ -489,9 +497,9 @@ describe('timer v2 validation and presets', () => {
   it('normalizes optional final-gong settings without enabling them for older programs', () => {
     const configured = normalizeSequenceProgram({
       ...sequence(),
-      completionCue: { sound: { kind: 'builtin', id: 'bright-chime' }, volume: 4 },
+      completionCue: { sound: { kind: 'builtin', id: 'bloom' }, volume: 4 },
     })
-    expect(configured.completionCue).toEqual({ sound: { kind: 'builtin', id: 'bright-chime' }, volume: 1 })
+    expect(configured.completionCue).toEqual({ sound: { kind: 'builtin', id: 'bloom' }, volume: 1 })
     expect(normalizeSequenceProgram({ ...sequence(), completionCue: null }).completionCue).toBeNull()
   })
 

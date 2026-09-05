@@ -32,7 +32,15 @@ export const MAX_AVAILABILITY_OVERRIDES = 256
 
 const builtIn = (id: BuiltInSoundId): SoundRef => ({ kind: 'builtin', id })
 const defaultCue = (id: BuiltInSoundId): CueSettings => ({ sound: builtIn(id), volume: 1 })
-const BUILT_IN_SOUND_IDS = new Set<BuiltInSoundId>(['temple-gong', 'clear-bell', 'soft-bowl', 'wood-block', 'bright-chime'])
+const BUILT_IN_SOUND_IDS = new Set<BuiltInSoundId>([
+  'temple-gong', 'clear-bell', 'bloom', 'boxing-bell', 'bubble', 'champagne', 'cymbal', 'handpan', 'heartbeat',
+  'ice', 'instamatic', 'mouse-click', 'page', 'sine-bass', 'sine-high', 'sine-low', 'water-drop', 'wind',
+])
+const LEGACY_BUILT_IN_SOUND_ALIASES: Record<string, BuiltInSoundId> = {
+  'soft-bowl': 'handpan',
+  'wood-block': 'instamatic',
+  'bright-chime': 'bloom',
+}
 const MAX_ID_CHARACTERS = 200
 const MAX_URI_CHARACTERS = 8_192
 
@@ -112,9 +120,9 @@ export function defaultSequenceProgram(): SequenceProgram {
     schemaVersion: TIMER_V2_SCHEMA_VERSION,
     mode: 'sequence',
     steps: [
-      step(5, 'Prepare', 'bright-chime', 0.6),
+      step(5, 'Prepare', 'bloom', 0.6),
       step(25, 'Deep work', 'temple-gong', 0.85),
-      step(2, 'Reset', 'soft-bowl', 0.55),
+      step(2, 'Reset', 'handpan', 0.55),
     ],
     completionCue: null,
     runPolicy: normalizeRunPolicy(undefined),
@@ -166,8 +174,9 @@ export function normalizeCue(value: Partial<CueSettings> | undefined, fallback: 
 export function normalizeSoundRef(value: unknown, fallback: SoundRef): SoundRef {
   if (!value || typeof value !== 'object') return fallback
   const candidate = value as Record<string, unknown>
-  if (candidate.kind === 'builtin' && typeof candidate.id === 'string' && BUILT_IN_SOUND_IDS.has(candidate.id as BuiltInSoundId)) {
-    return { kind: 'builtin', id: candidate.id as BuiltInSoundId }
+  if (candidate.kind === 'builtin' && typeof candidate.id === 'string') {
+    const id = LEGACY_BUILT_IN_SOUND_ALIASES[candidate.id] ?? candidate.id
+    if (BUILT_IN_SOUND_IDS.has(id as BuiltInSoundId)) return { kind: 'builtin', id: id as BuiltInSoundId }
   }
   if (candidate.kind === 'android' && typeof candidate.uri === 'string' && candidate.uri.length > 0 && candidate.uri.length <= MAX_URI_CHARACTERS && typeof candidate.title === 'string') {
     const ringtoneType = candidate.ringtoneType === 'alarm' || candidate.ringtoneType === 'notification' ? candidate.ringtoneType : 'unknown'

@@ -51,6 +51,22 @@ class TimerV2TimelineTest {
     assertFalse(TimerV2Timeline.isValid(duplicate.toString()))
   }
 
+  @Test fun acceptsAndResolvesEveryProductionBuiltInSound() {
+    val root = JSONObject(fixtures.getJSONObject("patternCollision").getJSONObject("program").toString())
+    val productionIds = listOf(
+      "temple-gong", "clear-bell", "bloom", "boxing-bell", "bubble", "champagne", "cymbal", "handpan", "heartbeat",
+      "ice", "instamatic", "mouse-click", "page", "sine-bass", "sine-high", "sine-low", "water-drop", "wind",
+    )
+    productionIds.forEach { id ->
+      root.getJSONObject("mainCue").getJSONObject("sound").put("id", id)
+      assertTrue("Timeline rejected $id", TimerV2Timeline.isValid(root.toString()))
+      assertTrue("Player has no raw resource for $id", TimerSoundPlayer.builtInResource(id) != null)
+    }
+    listOf("soft-bowl", "wood-block", "bright-chime").forEach { legacyId ->
+      assertTrue("Legacy sound alias is not recoverable: $legacyId", TimerSoundPlayer.builtInResource(legacyId) != null)
+    }
+  }
+
   @Test fun boundedCycleEndsOnOneNaturalBoundary() {
     val root = JSONObject(fixtures.getJSONObject("patternCollision").getJSONObject("program").toString())
     root.put("runPolicy", JSONObject().put("kind", "cycles").put("cycleCount", 2).put("durationSeconds", 1_800))
@@ -76,14 +92,14 @@ class TimerV2TimelineTest {
     val root = JSONObject(fixtures.getJSONObject("patternCollision").getJSONObject("program").toString())
     root.put("runPolicy", JSONObject().put("kind", "cycles").put("cycleCount", 1).put("durationSeconds", 1_800))
     root.put("completionCue", JSONObject()
-      .put("sound", JSONObject().put("kind", "builtin").put("id", "bright-chime"))
+      .put("sound", JSONObject().put("kind", "builtin").put("id", "bloom"))
       .put("volume", 0.35))
     val endAt = requireNotNull(TimerV2Timeline.runEndAt(root.toString(), 0L, 1L))
     val event = requireNotNull(TimerV2Timeline.next(root.toString(), 0L, endAt - 1L, 1L, endAt))
     assertEquals(TimerV2Boundary.PATTERN_MAIN, event.boundary)
     assertEquals("completion", event.winner.cueId)
     assertEquals("run-complete", event.winner.kind)
-    assertEquals("bright-chime", event.winner.soundId)
+    assertEquals("bloom", event.winner.soundId)
     assertEquals(0.35f, event.winner.volume)
     assertEquals(1, event.candidates.size)
     assertTrue(event.completesRun)
@@ -93,12 +109,12 @@ class TimerV2TimelineTest {
     val root = JSONObject(fixtures.getJSONObject("sequence").getJSONObject("program").toString())
     root.put("runPolicy", JSONObject().put("kind", "duration").put("cycleCount", 1).put("durationSeconds", 90))
     root.put("completionCue", JSONObject()
-      .put("sound", JSONObject().put("kind", "builtin").put("id", "wood-block"))
+      .put("sound", JSONObject().put("kind", "builtin").put("id", "instamatic"))
       .put("volume", 0.45))
     assertTrue(TimerV2Timeline.isValid(root.toString()))
     val event = requireNotNull(TimerV2Timeline.next(root.toString(), 1_000L, 1_000L, 1_000L, 91_000L))
     assertEquals(TimerV2Boundary.RUN_COMPLETE, event.boundary)
-    assertEquals("wood-block", event.winner.soundId)
+    assertEquals("instamatic", event.winner.soundId)
     assertEquals(0.45f, event.winner.volume)
 
     root.put("completionCue", JSONObject().put("volume", 3))

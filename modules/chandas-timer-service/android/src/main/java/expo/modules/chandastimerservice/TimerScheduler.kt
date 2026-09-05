@@ -368,10 +368,7 @@ object TimerScheduler {
     return LocalClockResult(next, true)
   }
 
-  private fun resourceForV2Sound(soundId: String): Int = when (soundId) {
-    "temple-gong" -> R.raw.gong
-    else -> R.raw.bell
-  }
+  private fun resourceForV2Sound(soundId: String): Int = TimerSoundPlayer.builtInResource(soundId) ?: R.raw.bell
 
   private fun isValidConfig(config: TimerConfig): Boolean {
     if (config.mainMs !in 1L..MAX_NATIVE_INTERVAL_MS || config.subMs !in 1L..MAX_NATIVE_INTERVAL_MS) return false

@@ -108,7 +108,23 @@ object TimerSoundPlayer {
 
   fun builtInResource(soundId: String): Int? = when (soundId.removePrefix("builtin:")) {
     "temple-gong" -> R.raw.gong
-    "clear-bell", "soft-bowl", "wood-block", "bright-chime" -> R.raw.bell
+    "clear-bell" -> R.raw.bell
+    "bloom", "bright-chime" -> R.raw.bloom
+    "boxing-bell" -> R.raw.boxing_bell
+    "bubble" -> R.raw.bubble
+    "champagne" -> R.raw.champagne
+    "cymbal" -> R.raw.cymbal
+    "handpan", "soft-bowl" -> R.raw.handpan
+    "heartbeat" -> R.raw.heartbeat
+    "ice" -> R.raw.ice
+    "instamatic", "wood-block" -> R.raw.instamatic
+    "mouse-click" -> R.raw.mouse_click
+    "page" -> R.raw.page
+    "sine-bass" -> R.raw.sine_bass
+    "sine-high" -> R.raw.sine_high
+    "sine-low" -> R.raw.sine_low
+    "water-drop" -> R.raw.water_drop
+    "wind" -> R.raw.wind
     else -> soundId.removePrefix("builtin:").toIntOrNull()
   }
 

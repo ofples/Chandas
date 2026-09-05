@@ -63,7 +63,6 @@ The configuration surface remains restrained: the main screen shows the current 
 - Playing multiple sounds simultaneously at an overlap.
 - A full audio workstation: no automation curves, equalizer, pan, effects, or per-channel solo in v2.
 - Pausing program phase outside active hours. Active hours gate output; they do not freeze time.
-- A production audio pack. Five stable placeholder entries are sufficient until final assets are supplied.
 
 ---
 
@@ -112,7 +111,7 @@ Timer v2 replaces these assumptions rather than layering special cases over them
 | D-012 | Timer chimes always use Android alarm audio usage. The phone's Alarm volume remains system controlled. |
 | D-013 | Master volume and cue volume are independent multipliers. Timed/global mute never destroys either value. |
 | D-014 | A Mixer sheet exposes Master plus every cue channel. It does not include solo or automation. |
-| D-015 | Five stable built-in sound IDs ship with placeholder assets. Android system sounds and persisted audio document URIs are also selectable. |
+| D-015 | Superseded by D-085. The original five-entry placeholder library established the built-in/Android/document-source contract; the production library now replaces its three synthetic entries while retaining compatibility aliases. |
 | D-016 | At an unavailable sound URI, Chandas uses the built-in fallback and marks the configured sound as unavailable; scheduling must not fail. |
 | D-017 | Active hours use current device-local wall time and gate audio/Focus. Program phase continues silently outside active hours. No catch-up cues play. |
 | D-018 | Clock-snapped Patterns realign to current local wall time after time, timezone, or DST-offset changes. Unsnapped Patterns and Sequences retain elapsed cadence. |
@@ -181,6 +180,8 @@ Timer v2 replaces these assumptions rather than layering special cases over them
 | D-081 | The Sequence step sheet uses the shared horizontally scrollable duration selector with shortcuts for 1, 2, 3, 5, 10, 15, 20, 25, 30, 45, and 60 minutes plus Custom. A circular play action beside the Volume slider previews the selected sound at the effective master × step level and reports preview failure gently without changing the timer. |
 | D-082 | The Android setup collection is labelled `Permissions` in both its compact row and sheet. Chandas Focus stays separate because it is a first-class timer behavior rather than merely an access grant. |
 | D-083 | Cycle and Sequence programs may store one optional custom final gong. Its switch appears in Sound only for Cycles/Duration policies, defaults Off, and preserves the established terminal sound while Off. When On, sound and level are editable/previewable and saved with configurations. At the exact terminal instant it replaces—not accompanies—the natural or synthetic completion cue. Returning to Continuous hides and ignores the setting without destroying it. Opening-gong customization remains out of scope. |
+| D-084 | Running mode is immersive: entering it hides the system status bar with an animated transition, and Stop/completion restores the status bar in setup. The running Help button uses the same 40×40 circular geometry as every other running control. |
+| D-085 | The built-in library contains the existing Temple gong and Clear bell plus all sixteen supplied production recordings. Placeholder Soft bowl, Wood block, and Bright chime choices are removed from the picker; persisted references migrate respectively to Handpan, Instamatic, and Bloom, while the Android scheduler retains those old IDs as recovery aliases for already-running sessions. Every visible built-in ID maps to a distinct foreground asset and matching Android `res/raw` resource. |
 
 ---
 
@@ -437,7 +438,7 @@ Every sound selection resolves to one of:
 
 The Sound sheet has three sources:
 
-1. Built in — five stable placeholder choices with preview.
+1. Built in — eighteen bundled recordings with preview.
 2. Android sounds — launches the Android alarm/notification sound picker.
 3. Device audio — launches the Android document picker filtered to `audio/*` and requests persistable read access.
 
@@ -938,19 +939,32 @@ Create a single native resolver accepting `SoundRef` and fallback built-in ID.
 
 All players must close descriptors, release on completion/error, and protect completion callbacks from multiple invocation.
 
-### 11.3 Built-in placeholders
+### 11.3 Built-in sound library
 
 Stable IDs and intended character:
 
-| ID | Display name | Intended character | Initial asset |
-| --- | --- | --- | --- |
-| `temple-gong` | Temple gong | Low, sustained main boundary | Existing gong placeholder |
-| `clear-bell` | Clear bell | Neutral sub cue | Existing bell placeholder |
-| `soft-bowl` | Soft bowl | Gentle, rounded | Placeholder duplicate permitted |
-| `wood-block` | Wood block | Short, dry marker | Placeholder duplicate permitted |
-| `bright-chime` | Bright chime | Higher, distinct marker | Placeholder duplicate permitted |
+| ID | Display name | Character |
+| --- | --- | --- |
+| `temple-gong` | Temple gong | Deep and spacious |
+| `clear-bell` | Clear bell | Light and direct |
+| `bloom` | Bloom | Soft and unfolding |
+| `boxing-bell` | Boxing bell | Sharp metallic strike |
+| `bubble` | Bubble | Round liquid pop |
+| `champagne` | Champagne | Bright sparkling pop |
+| `cymbal` | Cymbal | Short metallic shimmer |
+| `handpan` | Handpan | Warm and resonant |
+| `heartbeat` | Heartbeat | Soft double pulse |
+| `ice` | Ice | Crisp glassy tap |
+| `instamatic` | Instamatic | Mechanical camera click |
+| `mouse-click` | Mouse click | Small dry click |
+| `page` | Page | Light paper flick |
+| `sine-bass` | Sine bass | Low pure tone |
+| `sine-high` | Sine high | High sustained tone |
+| `sine-low` | Sine low | Low sustained tone |
+| `water-drop` | Water drop | Clear water plink |
+| `wind` | Wind | Soft airy sweep |
 
-The IDs must not change when production audio replaces placeholders.
+The source library's four 24-bit PCM WAV recordings are bundled as 16-bit PCM WAV for wider Android decoder compatibility; their timing and content are otherwise unchanged. Compatibility normalization rewrites old `soft-bowl`, `wood-block`, and `bright-chime` references to `handpan`, `instamatic`, and `bloom`. Native playback also accepts the old IDs until any already-running or pre-normalized program has been recovered.
 
 ---
 
@@ -2163,6 +2177,30 @@ This section is append-only. Every implementation session should record scope, m
 
 **Risks or follow-ups:** Opening-gong customization remains intentionally excluded. A future opening cue would require its own start-delivery/idempotency design and must not be inferred from this terminal-only field.
 
+### 2026-09-05 — Immersive running mode and production sound library
+
+**Status:** Complete in source; requires the next native Android build.
+
+**Scope:** Running status-bar/help geometry, bundled foreground audio, Android raw resources and sound resolution, persisted placeholder migration, defaults, validation, and sound-library documentation.
+
+**Decisions referenced:** D-015, D-084, D-085.
+
+**Behavior implemented:**
+
+- Running mode now hides the status bar with an animated transition. Returning to setup by Stop, bounded completion, or recovery restores it automatically from the single app-state source of truth.
+- Enlarged the running Help button from 30×30 to the shared 40×40 control geometry and adjusted its glyph, without changing its tap or long-press behavior.
+- Replaced the three synthetic built-in choices with all sixteen supplied recordings while retaining the existing Temple gong and Clear bell. The picker now exposes eighteen real, individually previewable recordings.
+- Added each recording to both the Expo asset library and Android raw resources with one shared stable ID. Four 24-bit WAV sources were converted to 16-bit PCM copies for conservative Android `MediaPlayer` support; all other recordings were copied unchanged.
+- Changed fresh Sequence defaults to Bloom, Temple gong, and Handpan. Old Soft bowl, Wood block, and Bright chime references normalize to Handpan, Instamatic, and Bloom; Kotlin validation/playback retains aliases so an active session created by an older binary remains recoverable after package replacement.
+
+**Migration impact:** No schema-version bump. Persisted placeholder IDs are normalized on load and then saved using their production replacements. This release adds packaged audio resources and native resource mappings, so the complete library and background playback require a new binary and produce a new Expo runtime fingerprint.
+
+**Verification run:** Audio metadata/decoder-format inspection, source-to-bundle inventory comparison, TypeScript, Vitest, whitespace validation, JavaScript/Kotlin registry parity checks, and local responsive UI review. Native compilation remains deferred to the remote build by repository policy.
+
+**Native/on-device verification still required:** Preview and schedule every sound through Android's Alarm stream; verify 16-bit WAV playback on minimum/representative Android versions, sustained-sound interruption, screen-off/background delivery, status-bar restoration after every exit path, cutout/safe-area layout in fullscreen, and alarm-loop behavior with each applicable cue.
+
+**Risks or follow-ups:** The supplied recordings do not include repository-local provenance/license metadata. Preserve the original acquisition/license records outside the app and add them to release documentation if store or redistribution requirements call for attribution.
+
 ### Implementation-entry template
 
 ```md
@@ -2209,3 +2247,4 @@ This section is append-only. Every implementation session should record scope, m
 | 2.1 | 2026-09-05 | Flattened Chandas Focus to match other toggles and made both compact visualizers direct editor entry points. |
 | 2.2 | 2026-09-05 | Added persistent Sub-bell colors, centered the live timer, restored the Focus border and Cycle naming, simplified Sequence ordering, expanded step presets/preview, and renamed Android access to Permissions. |
 | 2.3 | 2026-09-05 | Restored an optional bounded-run final gong with saved sound/level controls and exactly-once JavaScript/native terminal replacement semantics. |
+| 2.4 | 2026-09-05 | Added immersive running status-bar behavior, standardized the running Help control, and replaced placeholder sounds with the eighteen-recording production library plus migration aliases. |

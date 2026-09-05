@@ -47,7 +47,12 @@ object TimerV2Timeline {
   private const val MAX_PROGRAM_CHARACTERS = 262_144
   private const val MAX_ID_CHARACTERS = 200
   private const val MAX_URI_CHARACTERS = 8_192
-  private val builtInSoundIds = setOf("temple-gong", "clear-bell", "soft-bowl", "wood-block", "bright-chime")
+  private val builtInSoundIds = setOf(
+    "temple-gong", "clear-bell", "bloom", "boxing-bell", "bubble", "champagne", "cymbal", "handpan", "heartbeat",
+    "ice", "instamatic", "mouse-click", "page", "sine-bass", "sine-high", "sine-low", "water-drop", "wind",
+    // Active sessions from binaries that exposed the placeholder names remain recoverable.
+    "soft-bowl", "wood-block", "bright-chime",
+  )
 
   fun isValid(serialized: String): Boolean = runCatching {
     if (serialized.length > MAX_PROGRAM_CHARACTERS) return@runCatching false
