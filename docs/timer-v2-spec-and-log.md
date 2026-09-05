@@ -1423,6 +1423,7 @@ Do not edit old entries to reflect new conclusions. Add a superseding entry and 
 | 2026-09-05 | D-099 | Accepted | User-requested Android cue events use `AlarmManager.setAlarmClock`; internal schedule-resume and timezone-realignment wakeups retain `setExactAndAllowWhileIdle`. This accepts Android's visible upcoming-alarm semantics in exchange for preventing Doze rate limits from delaying a Sub-bell and then starving a closely following main gong. |
 | 2026-09-05 | D-100 | Accepted | The running notification stays on Android's standard/BigText template so it remains eligible for promoted Live Update treatment. It uses the named interval as its heading, a public countdown, and the existing Stop action. Android owns whether the status chip is promoted and the chip-to-expanded-card transition; Chandas does not use a custom `RemoteViews` layout. |
 | 2026-09-05 | D-101 | Accepted | Stop is optimistic but verified. The setup screen appears immediately, while the app checks Android's persisted native state and retries quietly after 160 ms and 640 ms. A native cleanup exception counts as success when the following state read is inactive. After three unconfirmed attempts, keep setup visible and show a persistent Stop again warning. Starting a new session invalidates every delayed stop attempt so an old retry can never cancel the new timer. |
+| 2026-09-05 | D-102 | Accepted | Running clock alignment is a confirmed operation rather than a fire-and-forget sheet dismissal. Offer only distinct phase presets, show the chosen value with an in-sheet progress state until the schedule replacement resolves, and acknowledge both success and an already-selected rhythm. Stop/new Start invalidate every in-flight re-anchor so delayed asset preparation can never recreate an obsolete native timer. |
 
 ### Decision-entry template
 
@@ -2393,6 +2394,29 @@ This section is append-only. Every implementation session should record scope, m
 **Verification run:** TypeScript compilation; 74 Vitest tests including success, cleanup-exception, still-active, and unreadable-native-state cases; whitespace validation; and diff inspection confirming no Kotlin, manifest, app configuration, bundled asset, or dependency changes.
 
 **Native/on-device verification still required:** Reproduce on Johannes's device by stopping during an ordinary cycle, during a just-fired bell, and after background/foreground transitions. Confirm setup appears immediately, no later bell fires, the running notification disappears, and a deliberately induced bridge failure produces the warning instead of silent limbo.
+
+### 2026-09-05 — Confirmed running clock alignment
+
+**Status:** Complete in source; OTA-compatible with Android production build 9.
+
+**Scope:** Intermittent-looking clock alignment changes and the re-anchor/Stop race.
+
+**Decision referenced:** D-102.
+
+**Behavior implemented:**
+
+- Removed mathematically duplicate presets: a 5-minute Pattern no longer offers `:05` as a second form of `:00`, and a 10-minute Pattern no longer offers duplicate `:10`.
+- Limited custom offsets to distinct phases below the Pattern duration when the main interval is shorter than one hour.
+- Kept the clock sheet open with the selected chip and an Aligning indicator until the live schedule replacement succeeds. A failure stays visible in context rather than closing the sheet with no apparent result.
+- Added brief success feedback naming the applied offset, plus explicit Already aligned feedback when the current phase is selected again.
+- Added synchronous request guards in the app and timer hook. Rapid operations cannot overlap, and Stop/new Start invalidate a re-anchor waiting for cached sound preparation before it can call native Start.
+- Centralized clock-anchor math in a dependency-free helper shared by the runtime and deterministic tests.
+
+**Migration impact:** JavaScript/OTA only. No Kotlin, manifest, app configuration, dependency, or bundled-asset change.
+
+**Verification run:** TypeScript compilation; all 78 Vitest tests; deterministic local-clock boundary and distinct-preset tests; and interactive Expo Web validation of the 30-minute `:05` change, repeated-selection acknowledgement, countdown redraw, active icon, and the corrected 10-minute `:00`/`:05` choices.
+
+**Native/on-device verification still required:** On Android, choose several offsets while the timer runs and confirm the sheet waits for native acceptance, the countdown jumps to the expected wall-clock lattice, the notification countdown follows, and rapid Snap → Stop or Snap → Stop → Start sequences never resurrect or cancel the wrong session.
 
 ### Implementation-entry template
 

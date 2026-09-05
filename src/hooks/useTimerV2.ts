@@ -12,6 +12,7 @@ import { alarmBehaviorAfterGesture, emptyRuntimeMute, gateProgramAudio, isFreshS
 import { clearTimerV2Session, saveTimerV2Session } from '../lib/storage'
 import { ChandasTimerService, isNativeServiceAvailable, type NativeTimerConfig } from '../native/ChandasTimerService'
 import { timerCueHaptic } from '../lib/haptics'
+import { alignedClockAnchor } from '../lib/clockAlignment'
 
 const KEEP_AWAKE_TAG = 'chandas-running-v2'
 const ALARM_SOURCE = require('../../assets/sounds/alarm.mp3')
@@ -179,10 +180,7 @@ function builtInSoundsFor(program: TimerProgram, alarmSound: SoundRef): BuiltInS
 
 function alignedAnchorForStart(program: TimerProgram, now: number): number {
   if (program.mode !== 'pattern' || program.alignment.kind !== 'local-clock') return now
-  const date = new Date(now)
-  const minuteOfDay = date.getHours() * 60 + date.getMinutes()
-  const elapsedMinutes = ((minuteOfDay - program.alignment.offsetMinutes) % program.mainMinutes + program.mainMinutes) % program.mainMinutes
-  return now - elapsedMinutes * 60_000 - date.getSeconds() * 1_000 - date.getMilliseconds()
+  return alignedClockAnchor(program.mainMinutes, program.alignment.offsetMinutes, now)
 }
 
 /**
@@ -217,6 +215,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
   const alarmBehaviorRef = useRef<AlarmBehavior>('off')
   const alarmTapTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const alarmTapStartRef = useRef<AlarmBehavior | null>(null)
+  const reanchorRequestRef = useRef(0)
   const clearRuntimeInterruption = useCallback(() => setRuntimeInterruption(null), [])
 
   useEffect(() => { programRef.current = program }, [program])
@@ -430,6 +429,10 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
   }, [refreshDisplay, updateRuntimeState])
 
   const stop = useCallback(() => {
+    // Invalidate any re-anchor waiting on asset preparation before asking
+    // Android to stop. Otherwise that continuation could recreate a native
+    // schedule after the user has already returned to configuration.
+    reanchorRequestRef.current += 1
     // Do not dismantle the local running surface until Android confirms that
     // its durable schedule is inactive. This prevents a configuration-screen
     // limbo state in which native bells can continue in the background.
@@ -511,8 +514,10 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
   /** Restarts the live timeline without stopping the session or losing runtime controls. */
   const reanchor = useCallback(async (nextProgram: TimerProgram, alignToClock: boolean) => {
     if (!runningRef.current) return false
+    const request = ++reanchorRequestRef.current
     if (isNativeServiceAvailable && !ChandasTimerService.canScheduleExactAlarms()) return false
     if (isNativeServiceAvailable) await ChandasTimerService.prepareBuiltInSounds(builtInSoundsFor(nextProgram, settingsRef.current.alarmSound))
+    if (request !== reanchorRequestRef.current || !runningRef.current) return false
     const anchor = alignToClock ? alignedAnchorForStart(nextProgram, Date.now()) : Date.now()
     const startedAt = Date.now()
     const endsAt = runEndAt(nextProgram, anchor, startedAt)
@@ -642,6 +647,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
   }, [persistSession, program, settings])
 
   useEffect(() => () => {
+    reanchorRequestRef.current += 1
     if (timeoutRef.current) clearTimeout(timeoutRef.current)
     if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current)
     if (nativeUpdateRef.current) clearTimeout(nativeUpdateRef.current)

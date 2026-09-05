@@ -42,7 +42,7 @@ interface Props {
   realigning: boolean
   onStop: () => void
   onRestartUnsynced: () => void
-  onSnapToClock: (offsetMinutes: number) => void
+  onSnapToClock: (offsetMinutes: number) => Promise<boolean>
   onPressAlarm: () => void
   onMuteForIterations: (count: number) => void
   onMuteForMinutes: (minutes: number) => void
@@ -145,7 +145,7 @@ export function TimerV2RunningScreen(props: Props) {
 
     {props.focusActive ? <Animated.View entering={FadeIn.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 140)} pointerEvents="none" style={[styles.focusBorder, { borderColor: tokens.accent }]} /> : null}
     <RunningMixerSheet visible={mixerOpen} onClose={() => setMixerOpen(false)} program={props.program} masterVolume={props.masterVolume} onMasterVolumeChange={props.onMasterVolumeChange} onCueVolumeChange={props.onCueVolumeChange} mute={props.mute} onMuteIterations={props.onMuteForIterations} onClearMute={props.onClearMute} onCustom={() => { setMixerOpen(false); setCustomMute(true) }} />
-    <SnapSheet visible={snapOpen} mainMinutes={props.program.mode === 'pattern' ? props.program.mainMinutes : 30} current={props.program.mode === 'pattern' && props.program.alignment.kind === 'local-clock' ? props.program.alignment.offsetMinutes : 0} onSelect={offset => { props.onSnapToClock(offset); setSnapOpen(false) }} onClose={() => setSnapOpen(false)} />
+    <SnapSheet visible={snapOpen} mainMinutes={props.program.mode === 'pattern' ? props.program.mainMinutes : 30} current={props.program.mode === 'pattern' && props.program.alignment.kind === 'local-clock' ? props.program.alignment.offsetMinutes : 0} onSelect={props.onSnapToClock} onClose={() => setSnapOpen(false)} />
     {customMute ? <CustomMinutePicker title="Mute duration" initial={15} min={1} max={1440} onConfirm={minutes => { props.onMuteForMinutes(minutes); setCustomMute(false) }} onClose={() => setCustomMute(false)} /> : null}
     <TimerHelpSheet visible={helpOpen} onClose={() => setHelpOpen(false)} onOpenFocusSettings={props.onOpenFocusSettings} />
     {tooltip ? <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 160)} exiting={FadeOut.duration(reducedMotion ? 70 : 130)} style={[styles.tooltip, { backgroundColor: tokens.surfaceHi, borderColor: tokens.border, pointerEvents: 'none' }]}><Text style={[styles.tooltipText, { color: tokens.text }]}>{tooltip}</Text></Animated.View> : null}
@@ -241,11 +241,40 @@ function RunningMixerSheet({ visible, onClose, program, masterVolume, onMasterVo
   </BottomSheet>
 }
 
-function SnapSheet({ visible, mainMinutes, current, onSelect, onClose }: { visible: boolean; mainMinutes: number; current: number; onSelect: (offset: number) => void; onClose: () => void }) {
+function SnapSheet({ visible, mainMinutes, current, onSelect, onClose }: { visible: boolean; mainMinutes: number; current: number; onSelect: (offset: number) => Promise<boolean>; onClose: () => void }) {
   const { tokens } = useTheme()
-  return <BottomSheet visible={visible} eyebrow="Clock" title="Snap to clock" onClose={onClose} scroll={false}>
-    <Text style={[styles.sheetHelp, { color: tokens.textMuted }]}>Choose where each interval lands on the clock.</Text>
-    <ClockSnapSelector mainMinutes={mainMinutes} value={current} onChange={onSelect} />
+  const [applying, setApplying] = useState(false)
+  const [selected, setSelected] = useState(current)
+  const [error, setError] = useState(false)
+  useEffect(() => {
+    if (!visible) return
+    setSelected(current)
+    setError(false)
+    setApplying(false)
+  }, [current, visible])
+  const select = async (offset: number) => {
+    if (applying) return
+    setSelected(offset)
+    setError(false)
+    setApplying(true)
+    try {
+      if (await onSelect(offset)) onClose()
+      else {
+        setSelected(current)
+        setError(true)
+      }
+    } catch {
+      setSelected(current)
+      setError(true)
+    } finally {
+      setApplying(false)
+    }
+  }
+  const close = () => { if (!applying) onClose() }
+  return <BottomSheet visible={visible} eyebrow="Clock" title="Snap to clock" onClose={close} scroll={false}>
+    <View style={styles.snapStatus}><Text style={[styles.sheetHelp, { color: tokens.textMuted }]}>{applying ? `Aligning to :${String(selected).padStart(2, '0')}…` : 'Choose where each interval lands on the clock.'}</Text>{applying ? <ActivityIndicator size="small" color={tokens.accent} /> : null}</View>
+    {error ? <GentleNotice title="Alignment stayed unchanged" message="The timer is still running on its previous rhythm. You can try again." tone="attention" /> : null}
+    <ClockSnapSelector mainMinutes={mainMinutes} value={selected} onChange={offset => void select(offset)} disabled={applying} />
   </BottomSheet>
 }
 
@@ -254,7 +283,7 @@ const styles = StyleSheet.create({
   topline: { width: '100%', maxWidth: 480, minHeight: 40, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }, mode: { fontSize: 10, letterSpacing: 1.25, fontWeight: '800' }, stepTitle: { maxWidth: 240, fontSize: 17, fontWeight: '700' }, topRight: { flexDirection: 'row', alignItems: 'center', gap: 10 }, syncing: { flexDirection: 'row', alignItems: 'center', gap: 6 }, focusStatus: { fontSize: 9, letterSpacing: 1.1, fontWeight: '800' }, helpButton: { width: 40, height: 40, borderWidth: 1.5, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }, helpGlyph: { fontSize: 16, fontWeight: '800' },
   visualStage: { flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 14 }, ringWrap: { alignItems: 'center', justifyContent: 'center' }, svg: { position: 'absolute' }, flash: { position: 'absolute' }, center: { alignItems: 'center', gap: 5, maxWidth: '69%' }, mainTime: { width: '100%', textAlign: 'center', fontFamily: 'JetBrainsMono-Light', fontSize: 55, fontVariant: ['tabular-nums'] }, mainCaption: { fontSize: 10, letterSpacing: 1.05, textTransform: 'uppercase' }, nextCue: { marginTop: 11, alignItems: 'center', gap: 2, maxWidth: '100%' }, nextCueName: { fontSize: 13, fontWeight: '700' }, nextCueTime: { fontFamily: 'JetBrainsMono-Regular', fontSize: 12 }, nextLabel: { fontSize: 8, letterSpacing: 1.1, fontWeight: '800' }, slash: { position: 'absolute', height: 4, borderRadius: 3, transform: [{ rotate: '-45deg' }] }, muteStatus: { maxWidth: 330, fontSize: 11, lineHeight: 16, textAlign: 'center' }, runStatus: { fontFamily: 'JetBrainsMono-Regular', fontSize: 11, lineHeight: 16, textAlign: 'center', fontVariant: ['tabular-nums'] }, focusBorder: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderWidth: 3, zIndex: 100 },
   bottom: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 20, alignItems: 'center' }, controls: { width: '100%', maxWidth: 480, flexDirection: 'row', gap: 8, marginBottom: 10 }, spacer: { flex: 1 }, iconButton: { width: 40, height: 40, borderWidth: 1.5, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }, badge: { position: 'absolute', right: -2, top: -3, minWidth: 14, height: 14, borderRadius: 7, paddingHorizontal: 3, alignItems: 'center', justifyContent: 'center' }, badgeText: { color: '#fff', fontSize: 8, fontWeight: '900' }, stop: { width: '100%', maxWidth: 480, borderWidth: 1.5, paddingVertical: 16, borderRadius: 99, alignItems: 'center' }, stopText: { fontSize: 14, textTransform: 'uppercase', letterSpacing: 1.1, fontWeight: '800' },
-  channel: { minHeight: 78, gap: 3, paddingVertical: 5 }, masterBlock: { gap: 3 }, masterSlider: { flex: 1, height: 38 }, channelLabel: { gap: 2 }, channelControl: { minHeight: 40, flexDirection: 'row', alignItems: 'center', gap: 8 }, channelTitle: { fontSize: 13, fontWeight: '700' }, channelSound: { fontSize: 10 }, channelSlider: { flex: 1, height: 38 }, divider: { height: 1 }, sheetHelp: { fontSize: 12, lineHeight: 18 }, muteRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  channel: { minHeight: 78, gap: 3, paddingVertical: 5 }, masterBlock: { gap: 3 }, masterSlider: { flex: 1, height: 38 }, channelLabel: { gap: 2 }, channelControl: { minHeight: 40, flexDirection: 'row', alignItems: 'center', gap: 8 }, channelTitle: { fontSize: 13, fontWeight: '700' }, channelSound: { fontSize: 10 }, channelSlider: { flex: 1, height: 38 }, divider: { height: 1 }, sheetHelp: { flex: 1, fontSize: 12, lineHeight: 18 }, snapStatus: { minHeight: 24, flexDirection: 'row', alignItems: 'center', gap: 10 }, muteRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   channelToggle: { minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, channelToggleGlyph: { width: 22, textAlign: 'center', fontSize: 22, fontWeight: '400' }, channels: { gap: 2 },
   previewMini: { width: 30, height: 30, borderWidth: 1, borderRadius: 15, alignItems: 'center', justifyContent: 'center' }, previewGlyph: { fontSize: 9 },
   tooltip: { position: 'absolute', bottom: 126, alignSelf: 'center', maxWidth: '82%', paddingVertical: 10, paddingHorizontal: 14, borderRadius: 12, borderWidth: 1.5 }, tooltipText: { fontSize: 12, lineHeight: 17, textAlign: 'center' },

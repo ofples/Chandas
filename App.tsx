@@ -18,6 +18,7 @@ import { AlarmRingingScreen } from './src/screens/AlarmRingingScreen'
 import { ChandasTimerService, isNativeServiceAvailable, type NativeFocusState } from './src/native/ChandasTimerService'
 import { AppLoadingScreen, FeedbackBanner, type AppNotice } from './src/components/timer-v2/experience-feedback'
 import { AppErrorBoundary } from './src/components/timer-v2/app-error-boundary'
+import { clockOffsetLabel } from './src/lib/clockAlignment'
 
 const FALLBACK_PROGRAM = {
   schemaVersion: 2 as const, mode: 'pattern' as const, mainMinutes: 30,
@@ -80,6 +81,8 @@ function Root() {
   const [realigning, setRealigning] = useState(false)
   const [notice, setNotice] = useState<AppNotice | null>(null)
   const startingRef = useRef(false)
+  const realigningRef = useRef(false)
+  const reanchorAttemptGeneration = useRef(0)
   const noticeSequence = useRef(0)
   const storageWarningShown = useRef(false)
   const fullScreenGuidanceShown = useRef(false)
@@ -296,6 +299,9 @@ function Root() {
     // feels immediate, while a generation token prevents an old retry from
     // stopping a newly started session.
     setAppState('config')
+    reanchorAttemptGeneration.current += 1
+    realigningRef.current = false
+    setRealigning(false)
     const generation = ++stopAttemptGeneration.current
     const clearStopWarningOnSuccess = stopNeedsAttention.current
     stopNeedsAttention.current = false
@@ -447,6 +453,9 @@ function Root() {
     // A new explicit start supersedes any delayed verification from a previous
     // Stop press; otherwise that retry could cancel the new session.
     stopAttemptGeneration.current += 1
+    reanchorAttemptGeneration.current += 1
+    realigningRef.current = false
+    setRealigning(false)
     stopNeedsAttention.current = false
     if (stopRetryTimeout.current) clearTimeout(stopRetryTimeout.current)
     stopRetryTimeout.current = null
@@ -467,18 +476,39 @@ function Root() {
       })
   }
 
-  const reanchor = (alignToClock: boolean, offsetMinutes = 0) => {
-    if (!timerState || !program || realigning) return
+  const reanchor = async (alignToClock: boolean, offsetMinutes = 0): Promise<boolean> => {
+    if (!timerState || !program || realigningRef.current) return false
+    if (alignToClock && program.mode === 'pattern' && program.alignment.kind === 'local-clock' && program.alignment.offsetMinutes === offsetMinutes) {
+      showNotice({ title: `Already aligned to ${clockOffsetLabel(offsetMinutes)}`, message: 'The running timer is already following that clock rhythm.', tone: 'info' })
+      return true
+    }
+    realigningRef.current = true
+    const generation = ++reanchorAttemptGeneration.current
     setRealigning(true)
     const nextState = program.mode === 'pattern'
       ? updatePattern(timerState, value => ({ ...value, alignment: alignToClock ? { kind: 'local-clock', offsetMinutes } : { kind: 'elapsed' } }))
       : timerState
     const nextProgram = selectedProgram(nextState)
-    void timer.reanchor(nextProgram, alignToClock).then(started => {
-      if (started) changeTimerState(nextState)
-      else showNotice({ title: 'Alignment stayed unchanged', message: 'Exact timing is needed before Chandas can move this live pattern.', tone: 'attention', actionLabel: 'Open settings', onAction: openExactAlarmSettings })
-    }).catch(() => showNotice({ title: 'Alignment stayed unchanged', message: 'The timer is still running on its previous schedule. You can try again.', tone: 'attention' }))
-      .finally(() => setRealigning(false))
+    try {
+      const started = await timer.reanchor(nextProgram, alignToClock)
+      if (generation !== reanchorAttemptGeneration.current) return false
+      if (!started) {
+        showNotice({ title: 'Alignment stayed unchanged', message: 'Exact timing is needed before Chandas can move this live pattern.', tone: 'attention', actionLabel: 'Open settings', onAction: openExactAlarmSettings })
+        return false
+      }
+      changeTimerState(nextState)
+      if (alignToClock) showNotice({ title: `Aligned to ${clockOffsetLabel(offsetMinutes)}`, message: 'The countdown and upcoming bells now follow that clock rhythm.', tone: 'success' })
+      return true
+    } catch {
+      if (generation !== reanchorAttemptGeneration.current) return false
+      showNotice({ title: 'Alignment stayed unchanged', message: 'The timer is still running on its previous schedule. You can try again.', tone: 'attention' })
+      return false
+    } finally {
+      if (generation === reanchorAttemptGeneration.current) {
+        realigningRef.current = false
+        setRealigning(false)
+      }
+    }
   }
 
   const changeCueVolume = (cueId: string, volume: number) => {
