@@ -120,13 +120,16 @@ class ChandasAlarmService : Service() {
         setAudioAttributes(alarmAttributes)
         setWakeMode(applicationContext, PowerManager.PARTIAL_WAKE_LOCK)
         runCatching { TimerSoundPlayer.setDataSource(this@ChandasAlarmService, this, soundId) }
-          .getOrElse { TimerSoundPlayer.setDataSource(this@ChandasAlarmService, this, "builtin:${R.raw.alarm}") }
+          .getOrElse {
+            soundId = "builtin:${R.raw.alarm}"
+            TimerSoundPlayer.setDataSource(this@ChandasAlarmService, this, soundId)
+          }
         isLooping = true
         val volume = (config.volume * cueVolume).coerceIn(0f, 1f)
         setVolume(volume, volume)
         setOnPreparedListener { it.start() }
         setOnErrorListener { _, _, _ ->
-          if (soundId.contains("://")) {
+          if (soundId != "builtin:${R.raw.alarm}") {
             player?.release()
             player = null
             abandonAudioFocus()

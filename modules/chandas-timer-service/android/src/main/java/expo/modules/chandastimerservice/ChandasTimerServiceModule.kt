@@ -241,6 +241,11 @@ class ChandasTimerServiceModule : Module() {
       available
     }
 
+    AsyncFunction("cacheBuiltInSound") { id: String, sourceUri: String, revision: String ->
+      val context = appContext.reactContext ?: return@AsyncFunction false
+      TimerSoundCache.install(context, id, sourceUri, revision)
+    }
+
     Function("stopSoundPreview") {
       TimerSoundPlayer.stopPreview()
     }

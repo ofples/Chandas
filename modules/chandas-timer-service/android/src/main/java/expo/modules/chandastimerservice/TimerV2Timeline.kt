@@ -47,12 +47,6 @@ object TimerV2Timeline {
   private const val MAX_PROGRAM_CHARACTERS = 262_144
   private const val MAX_ID_CHARACTERS = 200
   private const val MAX_URI_CHARACTERS = 8_192
-  private val builtInSoundIds = setOf(
-    "temple-gong", "clear-bell", "bloom", "boxing-bell", "bubble", "champagne", "cymbal", "handpan", "heartbeat",
-    "ice", "instamatic", "mouse-click", "page", "sine-bass", "sine-high", "sine-low", "water-drop", "wind",
-    // Active sessions from binaries that exposed the placeholder names remain recoverable.
-    "soft-bowl", "wood-block", "bright-chime",
-  )
 
   fun isValid(serialized: String): Boolean = runCatching {
     if (serialized.length > MAX_PROGRAM_CHARACTERS) return@runCatching false
@@ -366,7 +360,7 @@ object TimerV2Timeline {
     if (!volume.isFinite() || volume !in 0.0..1.0) return false
     val sound = cue.optJSONObject("sound") ?: return false
     return when (sound.optString("kind")) {
-      "builtin" -> sound.optString("id") in builtInSoundIds
+      "builtin" -> TimerSoundIds.isValid(sound.optString("id"))
       "android", "document" -> {
         val uri = sound.optString("uri")
         val title = sound.optString("title")

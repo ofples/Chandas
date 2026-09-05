@@ -3,7 +3,7 @@ import { AppState, Platform } from 'react-native'
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake'
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio'
 import * as Haptics from 'expo-haptics'
-import type { AlarmBehavior, AppTimerSettings, TimerProgram } from '../types'
+import type { AlarmBehavior, AppTimerSettings, BuiltInSoundId, SoundRef, TimerProgram } from '../types'
 import { effectiveAvailabilityForProgram, hasAvailableTime, isWithinActiveHours, nextActiveHoursStart } from '../lib/activeHours'
 import { formatCountdown } from '../lib/snapLogic'
 import { sourceForSound, soundTitle } from '../lib/soundLibrary'
@@ -140,6 +140,21 @@ function nativeConfigFor(program: TimerProgram, settings: AppTimerSettings, anch
     timerV2StartedAt: startedAt,
     ...(terminalAt ? { timerV2EndsAt: terminalAt } : {}),
   }
+}
+
+function builtInSoundsFor(program: TimerProgram): BuiltInSoundId[] {
+  const ids = new Set<BuiltInSoundId>()
+  const add = (sound: SoundRef | undefined) => {
+    if (sound?.kind === 'builtin') ids.add(sound.id)
+  }
+  if (program.mode === 'pattern') {
+    add(program.mainCue.sound)
+    program.tracks.forEach(track => add(track.sound))
+  } else {
+    program.steps.forEach(step => add(step.sound))
+  }
+  add(program.completionCue?.sound)
+  return [...ids]
 }
 
 function alignedAnchorForStart(program: TimerProgram, now: number): number {
@@ -335,6 +350,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     if (!hasAvailableTime(effectiveAvailabilityForProgram(programRef.current, settingsRef.current.availability), acceptedAt)) return false
     if (nextProgramEvent(programRef.current, anchor, acceptedAt, startedAt, endsAt) === null) return false
     if (isNativeServiceAvailable && !ChandasTimerService.canScheduleExactAlarms()) return false
+    if (isNativeServiceAvailable) await ChandasTimerService.prepareBuiltInSounds(builtInSoundsFor(programRef.current))
     await setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: false })
     await activateDisplayWakeLock()
     const nativeConfig = nativeConfigFor(programRef.current, settingsRef.current, anchor, startedAt, endsAt, restored?.alarmBehavior === 'locked' || (!restored && alarmBehaviorRef.current === 'locked'))
@@ -364,6 +380,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
   }, [persistSession, refreshDisplay, scheduleNext, updateRuntimeState])
 
   const attachNativeSession = useCallback(async (restore: { anchor: number; startedAt?: number; endsAt?: number; mute: RuntimeMuteState; alarmBehavior: AlarmBehavior }) => {
+    if (isNativeServiceAvailable) await ChandasTimerService.prepareBuiltInSounds(builtInSoundsFor(programRef.current))
     anchorRef.current = restore.anchor
     startedAtRef.current = restore.startedAt ?? restore.anchor
     endsAtRef.current = restore.endsAt && restore.endsAt > 0 ? restore.endsAt : runEndAt(programRef.current, restore.anchor, restore.startedAt ?? restore.anchor)
@@ -462,6 +479,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
   const reanchor = useCallback(async (nextProgram: TimerProgram, alignToClock: boolean) => {
     if (!runningRef.current) return false
     if (isNativeServiceAvailable && !ChandasTimerService.canScheduleExactAlarms()) return false
+    if (isNativeServiceAvailable) await ChandasTimerService.prepareBuiltInSounds(builtInSoundsFor(nextProgram))
     const anchor = alignToClock ? alignedAnchorForStart(nextProgram, Date.now()) : Date.now()
     const startedAt = Date.now()
     const endsAt = runEndAt(nextProgram, anchor, startedAt)
@@ -571,7 +589,13 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     if (nativeUpdateRef.current) clearTimeout(nativeUpdateRef.current)
     nativeUpdateRef.current = setTimeout(() => {
       nativeUpdateRef.current = null
-      if (runningRef.current) ChandasTimerService.update(nativeConfigFor(programRef.current, settingsRef.current, anchorRef.current, startedAtRef.current, endsAtRef.current, alarmBehaviorRef.current === 'locked'))
+      if (!runningRef.current) return
+      const updateProgram = programRef.current
+      void ChandasTimerService.prepareBuiltInSounds(builtInSoundsFor(updateProgram)).then(() => {
+        if (runningRef.current && programRef.current === updateProgram) {
+          ChandasTimerService.update(nativeConfigFor(updateProgram, settingsRef.current, anchorRef.current, startedAtRef.current, endsAtRef.current, alarmBehaviorRef.current === 'locked'))
+        }
+      })
     }, 120)
     return () => {
       if (nativeUpdateRef.current) clearTimeout(nativeUpdateRef.current)

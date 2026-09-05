@@ -8,8 +8,9 @@
 import { AppState, Platform } from 'react-native'
 import { requireOptionalNativeModule } from 'expo-modules-core'
 import { createAudioPlayer, type AudioPlayer } from 'expo-audio'
+import { Asset } from 'expo-asset'
 import type { BuiltInSoundId, SoundRef } from '../types'
-import { sourceForSound } from '../lib/soundLibrary'
+import { BUILT_IN_SOUNDS, sourceForSound } from '../lib/soundLibrary'
 
 export interface NativeTimerConfig {
   mainMs: number
@@ -146,6 +147,7 @@ interface ChandasTimerServiceModule {
   pickDeviceSound(kind: 'alarm' | 'notification' | 'unknown'): Promise<{ uri: string; title: string } | null>
   pickAudioDocument(): Promise<{ uri: string; title: string; mimeType?: string } | null>
   previewSound(soundId: string, fallbackSoundId: BuiltInSoundId, volume: number): Promise<boolean>
+  cacheBuiltInSound?(id: string, sourceUri: string, revision: string): Promise<boolean>
   stopSoundPreview(): void
   isSoundAvailable(soundId: string): boolean
   addListener(eventName: 'onAlarmStateChanged', listener: (event: AlarmStateEvent) => void): EventSubscription
@@ -161,6 +163,45 @@ const native = Platform.OS === 'android'
 
 export const isNativeServiceAvailable = native !== null
 let fallbackPreview: AudioPlayer | null = null
+const nativeResourceSounds = new Set<BuiltInSoundId>(['temple-gong', 'clear-bell'])
+const soundCacheRequests = new Map<BuiltInSoundId, { revision: string; promise: Promise<boolean> }>()
+
+async function cacheBuiltInSound(id: BuiltInSoundId): Promise<boolean> {
+  if (!native || nativeResourceSounds.has(id)) return true
+  if (typeof native.cacheBuiltInSound !== 'function') return false
+  const definition = BUILT_IN_SOUNDS.find(sound => sound.id === id)
+  if (!definition) return false
+
+  try {
+    const asset = Asset.fromModule(definition.source)
+    await asset.downloadAsync()
+    if (!asset.localUri) return false
+    const revision = asset.hash ?? ''
+    const previous = soundCacheRequests.get(id)
+    if (previous?.revision === revision) return previous.promise
+    // Serializing replacements for one ID prevents an older in-flight copy
+    // from winning after a newer revision has already been requested.
+    if (previous) await previous.promise
+    const current = soundCacheRequests.get(id)
+    if (current?.revision === revision) return current.promise
+    let promise: Promise<boolean>
+    promise = native.cacheBuiltInSound(id, asset.localUri, revision)
+      .then(installed => {
+        if (!installed && soundCacheRequests.get(id)?.promise === promise) soundCacheRequests.delete(id)
+        return installed
+      })
+      .catch(() => {
+        if (soundCacheRequests.get(id)?.promise === promise) soundCacheRequests.delete(id)
+        return false
+      })
+    soundCacheRequests.set(id, { revision, promise })
+    return promise
+  } catch {
+    soundCacheRequests.delete(id)
+    return false
+  }
+}
+
 AppState.addEventListener('change', state => {
   if (state === 'active') return
   native?.stopSoundPreview()
@@ -265,7 +306,10 @@ export const ChandasTimerService = {
   },
   async previewSound(sound: SoundRef, volume: number, fallbackSoundId: BuiltInSoundId = 'clear-bell'): Promise<boolean> {
     const soundId = sound.kind === 'builtin' ? sound.id : sound.uri
-    if (native) return native.previewSound(soundId, fallbackSoundId, volume)
+    if (native) {
+      if (sound.kind === 'builtin') await cacheBuiltInSound(sound.id)
+      return native.previewSound(soundId, fallbackSoundId, volume)
+    }
     fallbackPreview?.remove()
     fallbackPreview = null
     const source = sourceForSound(sound)
@@ -284,6 +328,12 @@ export const ChandasTimerService = {
   isSoundAvailable(sound: SoundRef): boolean {
     if (sound.kind === 'builtin') return true
     return native?.isSoundAvailable(sound.uri) ?? false
+  },
+  async prepareBuiltInSounds(ids: Iterable<BuiltInSoundId>): Promise<boolean> {
+    if (!native) return true
+    const unique = [...new Set(ids)]
+    const results = await Promise.all(unique.map(cacheBuiltInSound))
+    return results.every(Boolean)
   },
   // Live updates while the app is open — the counterpart to isRinging() above.
   addAlarmListener(listener: (ringing: boolean) => void): EventSubscription | null {

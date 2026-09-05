@@ -78,7 +78,9 @@ object TimerSoundPlayer {
       }
     }
 
-    start(soundId, soundId.contains("://"))
+    // Any OTA-provided file can disappear or fail to decode. Always retain one
+    // attempt with the packaged fallback before giving up on the cue.
+    start(soundId, true)
     return { finish() }
   }
 
@@ -102,29 +104,15 @@ object TimerSoundPlayer {
   }
 
   fun canOpen(context: Context, soundId: String): Boolean = runCatching {
-    if (!soundId.contains("://")) return@runCatching builtInResource(soundId) != null
+    if (!soundId.contains("://")) {
+      return@runCatching builtInResource(soundId) != null || TimerSoundCache.resolve(context, soundId) != null
+    }
     context.contentResolver.openAssetFileDescriptor(Uri.parse(soundId), "r")?.use { true } ?: false
   }.getOrDefault(false)
 
   fun builtInResource(soundId: String): Int? = when (soundId.removePrefix("builtin:")) {
     "temple-gong" -> R.raw.gong
     "clear-bell" -> R.raw.bell
-    "bloom", "bright-chime" -> R.raw.bloom
-    "boxing-bell" -> R.raw.boxing_bell
-    "bubble" -> R.raw.bubble
-    "champagne" -> R.raw.champagne
-    "cymbal" -> R.raw.cymbal
-    "handpan", "soft-bowl" -> R.raw.handpan
-    "heartbeat" -> R.raw.heartbeat
-    "ice" -> R.raw.ice
-    "instamatic", "wood-block" -> R.raw.instamatic
-    "mouse-click" -> R.raw.mouse_click
-    "page" -> R.raw.page
-    "sine-bass" -> R.raw.sine_bass
-    "sine-high" -> R.raw.sine_high
-    "sine-low" -> R.raw.sine_low
-    "water-drop" -> R.raw.water_drop
-    "wind" -> R.raw.wind
     else -> soundId.removePrefix("builtin:").toIntOrNull()
   }
 
@@ -139,6 +127,12 @@ object TimerSoundPlayer {
       context.resources.openRawResourceFd(resource).use { descriptor ->
         player.setDataSource(descriptor.fileDescriptor, descriptor.startOffset, descriptor.length)
       }
+    } else if (!soundId.contains("://")) {
+      val cached = TimerSoundCache.resolve(context, soundId) ?: throw java.io.FileNotFoundException(soundId)
+      // App-private files are not guaranteed to be readable by the media
+      // process when passed as paths. MediaPlayer duplicates the descriptor,
+      // so it is safe to close our stream as soon as setDataSource returns.
+      java.io.FileInputStream(cached).use { stream -> player.setDataSource(stream.fd) }
     } else {
       player.setDataSource(context, Uri.parse(soundId))
     }

@@ -51,7 +51,7 @@ class TimerV2TimelineTest {
     assertFalse(TimerV2Timeline.isValid(duplicate.toString()))
   }
 
-  @Test fun acceptsAndResolvesEveryProductionBuiltInSound() {
+  @Test fun acceptsProductionAndFutureBuiltInSoundIdsWithoutANativeRegistry() {
     val root = JSONObject(fixtures.getJSONObject("patternCollision").getJSONObject("program").toString())
     val productionIds = listOf(
       "temple-gong", "clear-bell", "bloom", "boxing-bell", "bubble", "champagne", "cymbal", "handpan", "heartbeat",
@@ -60,11 +60,22 @@ class TimerV2TimelineTest {
     productionIds.forEach { id ->
       root.getJSONObject("mainCue").getJSONObject("sound").put("id", id)
       assertTrue("Timeline rejected $id", TimerV2Timeline.isValid(root.toString()))
-      assertTrue("Player has no raw resource for $id", TimerSoundPlayer.builtInResource(id) != null)
+      assertTrue("Identifier rejected $id", TimerSoundIds.isValid(id))
     }
-    listOf("soft-bowl", "wood-block", "bright-chime").forEach { legacyId ->
-      assertTrue("Legacy sound alias is not recoverable: $legacyId", TimerSoundPlayer.builtInResource(legacyId) != null)
+    root.getJSONObject("mainCue").getJSONObject("sound").put("id", "future-ota-sound")
+    assertTrue(TimerV2Timeline.isValid(root.toString()))
+    assertTrue(TimerSoundIds.isValid("future-ota-sound"))
+    assertEquals("handpan", TimerSoundIds.canonical("soft-bowl"))
+    assertEquals("instamatic", TimerSoundIds.canonical("wood-block"))
+    assertEquals("bloom", TimerSoundIds.canonical("bright-chime"))
+
+    listOf("", "123", "Uppercase", "../escape", "ends-", "a".repeat(65)).forEach { invalidId ->
+      root.getJSONObject("mainCue").getJSONObject("sound").put("id", invalidId)
+      assertFalse("Timeline accepted unsafe sound id: $invalidId", TimerV2Timeline.isValid(root.toString()))
     }
+    assertTrue(TimerSoundPlayer.builtInResource("temple-gong") != null)
+    assertTrue(TimerSoundPlayer.builtInResource("clear-bell") != null)
+    assertTrue(TimerSoundPlayer.builtInResource("future-ota-sound") == null)
   }
 
   @Test fun boundedCycleEndsOnOneNaturalBoundary() {

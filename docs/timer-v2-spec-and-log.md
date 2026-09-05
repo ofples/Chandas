@@ -181,7 +181,8 @@ Timer v2 replaces these assumptions rather than layering special cases over them
 | D-082 | The Android setup collection is labelled `Permissions` in both its compact row and sheet. Chandas Focus stays separate because it is a first-class timer behavior rather than merely an access grant. |
 | D-083 | Cycle and Sequence programs may store one optional custom final gong. Its switch appears in Sound only for Cycles/Duration policies, defaults Off, and preserves the established terminal sound while Off. When On, sound and level are editable/previewable and saved with configurations. At the exact terminal instant it replaces—not accompanies—the natural or synthetic completion cue. Returning to Continuous hides and ignores the setting without destroying it. Opening-gong customization remains out of scope. |
 | D-084 | Running mode is immersive: entering it hides the system status bar with an animated transition, and Stop/completion restores the status bar in setup. The running Help button uses the same 40×40 circular geometry as every other running control. |
-| D-085 | The built-in library contains the existing Temple gong and Clear bell plus all sixteen supplied production recordings. Placeholder Soft bowl, Wood block, and Bright chime choices are removed from the picker; persisted references migrate respectively to Handpan, Instamatic, and Bloom, while the Android scheduler retains those old IDs as recovery aliases for already-running sessions. Every visible built-in ID maps to a distinct foreground asset and matching Android `res/raw` resource. |
+| D-085 | Superseded in part by D-086. The built-in library contains the existing Temple gong and Clear bell plus all sixteen supplied production recordings. Placeholder Soft bowl, Wood block, and Bright chime choices are removed from the picker; persisted references migrate respectively to Handpan, Instamatic, and Bloom. |
+| D-086 | Built-in sound IDs are OTA-owned data. Temple gong, Clear bell, and the alarm loop remain packaged native fallbacks; every other built-in is materialized from its Expo asset into an atomic, app-private persistent cache before preview, Start, restore attachment, reanchor, or a live schedule update. Native validation accepts constrained future IDs without an allowlist, and playback resolves legacy aliases before the cache. Cache failure never invalidates or stops a timer: the packaged Clear bell (or alarm loop for continuous alarm playback) is used. |
 
 ---
 
@@ -964,7 +965,17 @@ Stable IDs and intended character:
 | `water-drop` | Water drop | Clear water plink |
 | `wind` | Wind | Soft airy sweep |
 
-The source library's four 24-bit PCM WAV recordings are bundled as 16-bit PCM WAV for wider Android decoder compatibility; their timing and content are otherwise unchanged. Compatibility normalization rewrites old `soft-bowl`, `wood-block`, and `bright-chime` references to `handpan`, `instamatic`, and `bloom`. Native playback also accepts the old IDs until any already-running or pre-normalized program has been recovered.
+The source library's four 24-bit PCM WAV recordings are bundled as 16-bit PCM WAV for wider Android decoder compatibility; their timing and content are otherwise unchanged. Compatibility normalization rewrites old `soft-bowl`, `wood-block`, and `bright-chime` references to `handpan`, `instamatic`, and `bloom`. Native playback resolves those aliases to the same cached files until any already-running or pre-normalized program has been recovered.
+
+### 11.4 OTA-to-native sound cache
+
+The Android binary packages only Temple gong, Clear bell, and the continuous alarm loop as guaranteed fallbacks. All other built-in recordings remain normal statically required Expo assets, so EAS Update includes new or changed files in its manifest.
+
+Before a native schedule can reference a built-in sound, JavaScript calls `Asset.downloadAsync()` and receives a local cache URI. The native module copies that file into `<filesDir>/timer-sounds/<sound-id>.audio` using `AtomicFile`, keyed by the Expo asset hash. This second copy is deliberate: Expo's downloaded asset resides in cache storage and Android may evict it between sessions, while `filesDir` persists across process death, reboot, and application updates. A replacement is committed only after a non-empty, size-bounded copy completes, syncs, and—when Expo provides its MD5—matches the expected content hash; an interrupted or mismatched update leaves the previous sound intact.
+
+The native scheduler treats built-in IDs as data matching `^[a-z](?:[a-z0-9-]{0,62}[a-z0-9])?$`. It does not contain a per-sound allowlist. The JavaScript library remains authoritative for what the user can select, while the constrained native format prevents path traversal, numeric resource-ID confusion, and unbounded identifiers. `MediaPlayer` receives an open file descriptor rather than the private pathname, preserving access across Android media-process implementations.
+
+This architecture means adding or replacing a normal library sound requires only a static JavaScript `require`, library metadata, and an OTA publication after the cache-capable binary has shipped. App icons, splash/config-plugin assets, native notification resources, and the three packaged fallbacks still require a binary when changed.
 
 ---
 
@@ -2201,6 +2212,30 @@ This section is append-only. Every implementation session should record scope, m
 
 **Risks or follow-ups:** The supplied recordings do not include repository-local provenance/license metadata. Preserve the original acquisition/license records outside the app and add them to release documentation if store or redistribution requirements call for attribution.
 
+### 2026-09-05 — OTA-capable native sound cache
+
+**Status:** Complete in source; requires one cache-capable Android build.
+
+**Scope:** Expo asset materialization, native-module cache API, atomic persistent storage, generic sound-ID validation, background and alarm playback resolution, packaged fallback policy, race handling, tests, and removal of duplicate raw resources.
+
+**Decisions referenced:** D-085, D-086.
+
+**Behavior implemented:**
+
+- Added a native cache operation that accepts a constrained built-in ID, a downloaded app-local asset URI, and its Expo content hash. It copies no network input, rejects path traversal, refuses empty or over-25-MiB files, verifies Expo MD5 values, and atomically replaces the previous version only after the complete file is synced.
+- Materializes every built-in sound needed by a program before Start, native-session attachment, reanchor, and debounced live schedule updates. Preview materializes its requested sound first. Duplicate and concurrent requests share one promise per sound/revision.
+- Stores dynamic recordings under the private files directory rather than relying on Expo's evictable cache. The native one-shot and looping alarm paths resolve the durable file without JavaScript and pass an open descriptor to `MediaPlayer`.
+- Removed the per-sound Kotlin allowlist and accepts future lowercase kebab-case IDs under a strict 64-character limit. Legacy placeholder IDs resolve to their production replacements at the native cache boundary.
+- Removed the sixteen duplicate `res/raw` recordings and their Kotlin mappings. Temple gong, Clear bell, and the alarm loop remain packaged as recovery resources. Missing, corrupt, unsupported, or incompletely installed dynamic sounds fall back to Clear bell or the alarm loop without stopping or invalidating the timer.
+
+**Migration impact:** This native cache contract itself changes the Expo runtime fingerprint and therefore needs one new Android binary. Once users have that runtime, adding or replacing ordinary statically required library sounds changes only OTA-owned JavaScript/assets and does not require another native ID, Kotlin mapping, or raw resource. Existing installed timers remain readable; a legacy sound ID resolves through its canonical cached ID.
+
+**Verification run:** TypeScript, Vitest, whitespace validation, registry inspection, focused source review against Expo Asset lifecycle documentation and Android `AtomicFile`/`MediaPlayer` contracts. Native compilation remains deferred to the remote build under repository policy.
+
+**Native/on-device verification still required:** On the next remote development build, install from a clean state and verify first preview/Start, process death, reboot, screen-off delivery, continuous alarm fallback, an OTA-added test sound, an OTA replacement using the same ID, and behavior after manually clearing only application cache.
+
+**Risks or follow-ups:** Persistent dynamic sounds are intentionally retained when a later library removes an entry so a still-running or restored timer cannot lose it. If the catalog grows substantially, add a bounded garbage collector that protects IDs referenced by active native state before removing stale files.
+
 ### Implementation-entry template
 
 ```md
@@ -2248,3 +2283,4 @@ This section is append-only. Every implementation session should record scope, m
 | 2.2 | 2026-09-05 | Added persistent Sub-bell colors, centered the live timer, restored the Focus border and Cycle naming, simplified Sequence ordering, expanded step presets/preview, and renamed Android access to Permissions. |
 | 2.3 | 2026-09-05 | Restored an optional bounded-run final gong with saved sound/level controls and exactly-once JavaScript/native terminal replacement semantics. |
 | 2.4 | 2026-09-05 | Added immersive running status-bar behavior, standardized the running Help control, and replaced placeholder sounds with the eighteen-recording production library plus migration aliases. |
+| 2.5 | 2026-09-05 | Added an atomic OTA-to-native sound cache so future library recordings can ship without native mappings, retaining only gong, bell, and alarm binary fallbacks. |
