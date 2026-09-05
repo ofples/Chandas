@@ -33,6 +33,7 @@ export const MAX_AVAILABILITY_OVERRIDES = 256
 const builtIn = (id: BuiltInSoundId): SoundRef => ({ kind: 'builtin', id })
 const defaultCue = (id: BuiltInSoundId): CueSettings => ({ sound: builtIn(id), volume: 1 })
 const BUILT_IN_SOUND_IDS = new Set<BuiltInSoundId>([
+  'alarm-tone',
   'temple-gong', 'clear-bell', 'bloom', 'boxing-bell', 'bubble', 'champagne', 'cymbal', 'handpan', 'heartbeat',
   'ice', 'instamatic', 'mouse-click', 'page', 'sine-bass', 'sine-high', 'sine-low', 'water-drop', 'wind',
 ])
@@ -146,6 +147,7 @@ export function defaultAvailabilityPolicy(): AvailabilityPolicy {
 export function defaultAppTimerSettings(): AppTimerSettings {
   return {
     masterVolume: 0.8,
+    alarmSound: builtIn('alarm-tone'),
     notificationsEnabled: true,
     liveCountdownEnabled: false,
     muteDuringCallsEnabled: true,
@@ -373,6 +375,7 @@ export function migrateLegacyConfig(legacy: Partial<TimerConfig>): TimerV2State 
     workingPrograms: { pattern, sequence: defaultSequenceProgram(), selectedMode: 'pattern' },
     settings: {
       masterVolume: clampVolume(legacy.volume, defaults.masterVolume),
+      alarmSound: defaults.alarmSound,
       notificationsEnabled: legacy.notificationsEnabled !== false,
       liveCountdownEnabled: false,
       muteDuringCallsEnabled: true,

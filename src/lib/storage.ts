@@ -9,6 +9,7 @@ import {
   normalizePatternProgram,
   normalizePreset,
   normalizeSequenceProgram,
+  normalizeSoundRef,
 } from './timerV2'
 
 const CONFIG_KEY = 'chandas-config'
@@ -206,6 +207,7 @@ function normalizeSettings(value: Partial<AppTimerSettings> | null): AppTimerSet
     masterVolume: typeof value.masterVolume === 'number' && Number.isFinite(value.masterVolume)
       ? Math.max(0, Math.min(1, value.masterVolume))
       : defaults.masterVolume,
+    alarmSound: normalizeSoundRef(value.alarmSound, defaults.alarmSound),
     notificationsEnabled: value.notificationsEnabled !== false,
     liveCountdownEnabled: value.liveCountdownEnabled === true,
     muteDuringCallsEnabled: value.muteDuringCallsEnabled !== false,

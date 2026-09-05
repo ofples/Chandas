@@ -9,6 +9,7 @@ export interface BuiltInSoundDefinition {
 
 const GONG_SOURCE = require('../../assets/sounds/gong.mp3')
 const BELL_SOURCE = require('../../assets/sounds/bell.mp3')
+const ALARM_SOURCE = require('../../assets/sounds/alarm.mp3')
 const BLOOM_SOURCE = require('../../assets/sounds/bloom.mp3')
 const BOXING_BELL_SOURCE = require('../../assets/sounds/boxing_bell.wav')
 const BUBBLE_SOURCE = require('../../assets/sounds/bubble.wav')
@@ -27,6 +28,7 @@ const WATER_DROP_SOURCE = require('../../assets/sounds/water_drop.mp3')
 const WIND_SOURCE = require('../../assets/sounds/wind.mp3')
 
 export const BUILT_IN_SOUNDS: BuiltInSoundDefinition[] = [
+  { id: 'alarm-tone', name: 'Sine alarm', description: 'Simple repeating alarm', source: ALARM_SOURCE },
   { id: 'temple-gong', name: 'Temple gong', description: 'Deep and spacious', source: GONG_SOURCE },
   { id: 'clear-bell', name: 'Clear bell', description: 'Light and direct', source: BELL_SOURCE },
   { id: 'bloom', name: 'Bloom', description: 'Soft and unfolding', source: BLOOM_SOURCE },

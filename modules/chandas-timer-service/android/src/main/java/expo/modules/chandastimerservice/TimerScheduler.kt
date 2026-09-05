@@ -249,7 +249,10 @@ object TimerScheduler {
       TimerNotifications.cancelRunning(context)
       ContextCompat.startForegroundService(
         context,
-        Intent(context, ChandasAlarmService::class.java).setAction(ChandasAlarmService.ACTION_START),
+        Intent(context, ChandasAlarmService::class.java).apply {
+          action = ChandasAlarmService.ACTION_START
+          putExtra(ChandasAlarmService.EXTRA_SOUND_ID, config.alarmSoundId)
+        },
       )
       onFinished()
       return
@@ -313,7 +316,7 @@ object TimerScheduler {
       emitV2Event(event, suppressed = false, reason = "none")
       ContextCompat.startForegroundService(context, Intent(context, ChandasAlarmService::class.java).apply {
         action = ChandasAlarmService.ACTION_START
-        putExtra(ChandasAlarmService.EXTRA_SOUND_ID, event.winner.soundId)
+        putExtra(ChandasAlarmService.EXTRA_SOUND_ID, config.alarmSoundId)
         putExtra(ChandasAlarmService.EXTRA_CUE_VOLUME, event.winner.volume)
       })
       onFinished()

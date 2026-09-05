@@ -34,11 +34,10 @@ class ChandasAlarmService : Service() {
     /** Repairs a ringing alarm after process recreation without restarting a live player. */
     fun ensureRunning(context: Context, config: TimerConfig) {
       if (live || !TimerStateStore.isRinging(context)) return
-      val sound = config.timerV2Program?.let(TimerV2Timeline::mainCueSound) ?: "temple-gong"
       val cue = config.timerV2Program?.let(TimerV2Timeline::mainCueVolume) ?: 1f
       ContextCompat.startForegroundService(context, Intent(context, ChandasAlarmService::class.java).apply {
         action = ACTION_START
-        putExtra(EXTRA_SOUND_ID, sound)
+        putExtra(EXTRA_SOUND_ID, config.alarmSoundId)
         putExtra(EXTRA_CUE_VOLUME, cue)
       })
     }
@@ -56,7 +55,7 @@ class ChandasAlarmService : Service() {
   private val handler = Handler(Looper.getMainLooper())
   private val autoSilence = Runnable { silenceAndResume() }
   private var stopHandled = false
-  private var soundId = "temple-gong"
+  private var soundId = "alarm-tone"
   private var cueVolume = 1f
 
   override fun onBind(intent: Intent?): IBinder? = null
@@ -74,6 +73,7 @@ class ChandasAlarmService : Service() {
         cueVolume = intent.getFloatExtra(EXTRA_CUE_VOLUME, cueVolume).coerceIn(0f, 1f)
         val duration = intent.getIntExtra(EXTRA_DURATION_SECONDS, 60).coerceIn(5, 3_600)
         if (player == null && TimerStateStore.isRinging(this)) {
+          soundId = TimerStateStore.load(this)?.alarmSoundId ?: "alarm-tone"
           startRinging()
         } else {
           val effective = (volume * cueVolume).coerceIn(0f, 1f)
@@ -82,7 +82,7 @@ class ChandasAlarmService : Service() {
         }
       }
       ACTION_START -> {
-        soundId = intent.getStringExtra(EXTRA_SOUND_ID) ?: "temple-gong"
+        soundId = intent.getStringExtra(EXTRA_SOUND_ID) ?: "alarm-tone"
         cueVolume = intent.getFloatExtra(EXTRA_CUE_VOLUME, 1f).coerceIn(0f, 1f)
         startRinging()
       }
@@ -188,7 +188,7 @@ class ChandasAlarmService : Service() {
     val copy = TimerNotificationCopy.from(config.notificationPresentation)
     val launchIntent = (packageManager.getLaunchIntentForPackage(packageName) ?: Intent())
       .apply {
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         putExtra(AlarmWindowHelper.EXTRA_ALARM_RINGING, true)
       }
     val fullScreenIntent = PendingIntent.getActivity(
@@ -211,6 +211,7 @@ class ChandasAlarmService : Service() {
       .setOngoing(true)
       .setCategory(NotificationCompat.CATEGORY_ALARM)
       .setPriority(NotificationCompat.PRIORITY_MAX)
+      .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
       .setContentIntent(fullScreenIntent)
       .addAction(0, copy.stopAlarmAction, stopPendingIntent)
 

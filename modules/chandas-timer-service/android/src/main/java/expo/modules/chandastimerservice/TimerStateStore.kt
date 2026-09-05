@@ -28,6 +28,7 @@ object TimerStateStore {
       .putLong("phase", config.phase)
       .putBoolean("subEnabled", config.subEnabled)
       .putFloat("volume", config.volume)
+      .putString("alarmSoundId", config.alarmSoundId)
       .putBoolean("notificationsEnabled", config.notificationsEnabled)
       .putBoolean("liveCountdownEnabled", config.liveCountdownEnabled)
       .putString("notificationPresentation", config.notificationPresentation)
@@ -61,6 +62,8 @@ object TimerStateStore {
       phase = prefs.getLong("phase", 0L),
       subEnabled = prefs.getBoolean("subEnabled", true),
       volume = prefs.getFloat("volume", 0.8f).coerceIn(0f, 1f),
+      alarmSoundId = prefs.getString("alarmSoundId", "alarm-tone")
+        ?.takeIf { it.isNotBlank() && it.length <= NativeTimerContract.MAX_SOUND_ID_CHARACTERS } ?: "alarm-tone",
       notificationsEnabled = prefs.getBoolean("notificationsEnabled", true),
       liveCountdownEnabled = prefs.getBoolean("liveCountdownEnabled", false),
       notificationPresentation = prefs.getString("notificationPresentation", null),

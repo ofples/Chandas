@@ -23,6 +23,7 @@ export type AppState = 'config' | 'running'
 export type TimerMode = 'pattern' | 'sequence'
 
 export type BuiltInSoundId =
+  | 'alarm-tone'
   | 'temple-gong'
   | 'clear-bell'
   | 'bloom'
@@ -157,6 +158,8 @@ export interface AvailabilityPolicy {
 
 export interface AppTimerSettings {
   masterVolume: number
+  /** Global looping sound used by Alarm Once and Alarm Locked. */
+  alarmSound: SoundRef
   notificationsEnabled: boolean
   /** Shows a native countdown to the next cue in the running notification. */
   liveCountdownEnabled: boolean

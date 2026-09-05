@@ -140,6 +140,7 @@ function nativeConfigFor(program: TimerProgram, settings: AppTimerSettings, anch
     phase: 0,
     subEnabled: false,
     volume: settings.masterVolume,
+    alarmSoundId: settings.alarmSound.kind === 'builtin' ? settings.alarmSound.id : settings.alarmSound.uri,
     notificationsEnabled: settings.notificationsEnabled,
     liveCountdownEnabled: settings.liveCountdownEnabled,
     notificationPresentation: NATIVE_NOTIFICATION_PRESENTATION,
@@ -159,7 +160,7 @@ function nativeConfigFor(program: TimerProgram, settings: AppTimerSettings, anch
   }
 }
 
-function builtInSoundsFor(program: TimerProgram): BuiltInSoundId[] {
+function builtInSoundsFor(program: TimerProgram, alarmSound: SoundRef): BuiltInSoundId[] {
   const ids = new Set<BuiltInSoundId>()
   const add = (sound: SoundRef | undefined) => {
     if (sound?.kind === 'builtin') ids.add(sound.id)
@@ -171,6 +172,7 @@ function builtInSoundsFor(program: TimerProgram): BuiltInSoundId[] {
     program.steps.forEach(step => add(step.sound))
   }
   add(program.completionCue?.sound)
+  add(alarmSound)
   return [...ids]
 }
 
@@ -276,7 +278,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
 
     if (gate.disposition === 'continuous-alarm') {
       dismissAlarm()
-      const player = createAudioPlayer(sourceForSound(event.winner.sound) ?? ALARM_SOURCE)
+      const player = createAudioPlayer(sourceForSound(activeSettings.alarmSound) ?? ALARM_SOURCE)
       player.loop = true
       player.volume = Math.max(0, Math.min(1, activeSettings.masterVolume * event.winner.volume))
       player.play()
@@ -368,7 +370,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     if (!hasAvailableTime(effectiveAvailabilityForProgram(programRef.current, settingsRef.current.availability), acceptedAt)) return false
     if (nextProgramEvent(programRef.current, anchor, acceptedAt, startedAt, endsAt) === null) return false
     if (isNativeServiceAvailable && !ChandasTimerService.canScheduleExactAlarms()) return false
-    if (isNativeServiceAvailable) await ChandasTimerService.prepareBuiltInSounds(builtInSoundsFor(programRef.current))
+    if (isNativeServiceAvailable) await ChandasTimerService.prepareBuiltInSounds(builtInSoundsFor(programRef.current, settingsRef.current.alarmSound))
     await setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: false })
     await activateDisplayWakeLock()
     const nativeConfig = nativeConfigFor(programRef.current, settingsRef.current, anchor, startedAt, endsAt, restored?.alarmBehavior === 'locked' || (!restored && alarmBehaviorRef.current === 'locked'))
@@ -402,7 +404,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     startedAtRef.current = restore.startedAt ?? restore.anchor
     endsAtRef.current = restore.endsAt && restore.endsAt > 0 ? restore.endsAt : runEndAt(programRef.current, restore.anchor, restore.startedAt ?? restore.anchor)
     if (isNativeServiceAvailable) {
-      await ChandasTimerService.prepareBuiltInSounds(builtInSoundsFor(programRef.current))
+      await ChandasTimerService.prepareBuiltInSounds(builtInSoundsFor(programRef.current, settingsRef.current.alarmSound))
       // Reapply the OTA-owned envelope when reconnecting after a launch. This
       // refreshes presentation metadata and additive settings without touching
       // mute/alarm-once controls or replacing the authoritative native anchor.
@@ -508,7 +510,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
   const reanchor = useCallback(async (nextProgram: TimerProgram, alignToClock: boolean) => {
     if (!runningRef.current) return false
     if (isNativeServiceAvailable && !ChandasTimerService.canScheduleExactAlarms()) return false
-    if (isNativeServiceAvailable) await ChandasTimerService.prepareBuiltInSounds(builtInSoundsFor(nextProgram))
+    if (isNativeServiceAvailable) await ChandasTimerService.prepareBuiltInSounds(builtInSoundsFor(nextProgram, settingsRef.current.alarmSound))
     const anchor = alignToClock ? alignedAnchorForStart(nextProgram, Date.now()) : Date.now()
     const startedAt = Date.now()
     const endsAt = runEndAt(nextProgram, anchor, startedAt)
@@ -625,7 +627,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
       nativeUpdateRef.current = null
       if (!runningRef.current) return
       const updateProgram = programRef.current
-      void ChandasTimerService.prepareBuiltInSounds(builtInSoundsFor(updateProgram)).then(() => {
+      void ChandasTimerService.prepareBuiltInSounds(builtInSoundsFor(updateProgram, settingsRef.current.alarmSound)).then(() => {
         if (runningRef.current && programRef.current === updateProgram) {
           ChandasTimerService.update(nativeConfigFor(updateProgram, settingsRef.current, anchorRef.current, startedAtRef.current, endsAtRef.current, alarmBehaviorRef.current === 'locked'))
         }

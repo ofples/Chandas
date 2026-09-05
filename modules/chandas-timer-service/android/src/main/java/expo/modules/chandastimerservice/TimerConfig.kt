@@ -6,6 +6,8 @@ data class TimerConfig(
   val phase: Long,
   val subEnabled: Boolean,
   val volume: Float,
+  /** Global repeat-until-dismissed alarm sound, independent of the main gong. */
+  val alarmSoundId: String = "alarm-tone",
   val notificationsEnabled: Boolean,
   val liveCountdownEnabled: Boolean = false,
   /** OTA-owned notification wording; null uses native fallback copy. */

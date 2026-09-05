@@ -19,6 +19,8 @@ export interface NativeTimerConfig {
   phase: number
   subEnabled: boolean
   volume: number       // 0–1, gong/bell volume
+  /** Built-in ID or persisted content URI for the looping alarm. */
+  alarmSoundId?: string
   notificationsEnabled: boolean
   liveCountdownEnabled?: boolean
   /** Serialized user-facing notification copy for the stable native engine. */
@@ -67,6 +69,7 @@ export interface NativeTimerState {
   phase?: number
   subEnabled?: boolean
   volume?: number
+  alarmSoundId?: string
   notificationsEnabled?: boolean
   liveCountdownEnabled?: boolean
   notificationPresentation?: string
@@ -129,6 +132,7 @@ export interface NativeTimerCapabilities {
   supportsRawFocusState: boolean
   supportsNotificationPresentation: boolean
   supportsLiveCountdown?: boolean
+  supportsAlarmSound?: boolean
 }
 
 export interface NativeFocusState {
@@ -194,7 +198,7 @@ const native = Platform.OS === 'android'
 
 export const isNativeServiceAvailable = native !== null
 let fallbackPreview: AudioPlayer | null = null
-const nativeResourceSounds = new Set<BuiltInSoundId>(['temple-gong', 'clear-bell'])
+const nativeResourceSounds = new Set<BuiltInSoundId>(['alarm-tone', 'temple-gong', 'clear-bell'])
 const soundCacheRequests = new Map<BuiltInSoundId, { revision: string; promise: Promise<boolean> }>()
 
 async function cacheBuiltInSound(id: BuiltInSoundId): Promise<boolean> {

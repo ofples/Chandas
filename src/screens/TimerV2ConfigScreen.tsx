@@ -30,7 +30,7 @@ import { soundTitle } from '../lib/soundLibrary'
 import { validOffsets } from '../lib/timerV2'
 import { useTheme } from '../theme/ThemeContext'
 import { useSoundAvailability } from '../hooks/use-sound-availability'
-import { ChandasTimerService } from '../native/ChandasTimerService'
+import { ChandasTimerService, isNativeServiceAvailable } from '../native/ChandasTimerService'
 import { GentleNotice, type AppNotice } from '../components/timer-v2/experience-feedback'
 import { hasAvailableTime } from '../lib/activeHours'
 import { LightbulbIcon, MixerIcon } from '../components/Icons'
@@ -45,7 +45,7 @@ const STEP_PRESETS = [1, 2, 3, 5, 10, 15, 20, 25, 30, 45, 60] as const
 const CADENCE_PRESETS = [1, 2, 3, 5, 10, 15, 20, 30] as const
 const MODE_CHOICES = [{ value: 'pattern', label: 'Cycle' }, { value: 'sequence', label: 'Sequence' }] as const
 
-type CueTarget = { kind: 'main' } | { kind: 'track'; id: string } | { kind: 'step'; id: string } | { kind: 'completion'; mode: TimerMode }
+type CueTarget = { kind: 'main' } | { kind: 'alarm' } | { kind: 'track'; id: string } | { kind: 'step'; id: string } | { kind: 'completion'; mode: TimerMode }
 
 interface Props {
   state: TimerV2State
@@ -56,14 +56,15 @@ interface Props {
   onFocusAutomationChange: (enabled: boolean) => void
   onOpenFocusSettings: () => void
   onOpenFocusRuleSettings: () => void
-  androidAccess: { exactAlarms: boolean; callMute: boolean; notifications: boolean; checking: boolean; pending: 'call-mute' | 'notifications' | null }
+  androidAccess: { exactAlarms: boolean; fullScreenAlarms: boolean; callMute: boolean; notifications: boolean; checking: boolean; pending: 'call-mute' | 'notifications' | null }
   onOpenExactAlarmSettings: () => void
+  onOpenFullScreenIntentSettings: () => void
   onRequestCallMuteAccess: () => void
   onRequestNotificationAccess: () => void
   onFeedback: (notice: Omit<AppNotice, 'id'>) => void
 }
 
-export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusState, onFocusAutomationChange, onOpenFocusSettings, onOpenFocusRuleSettings, androidAccess, onOpenExactAlarmSettings, onRequestCallMuteAccess, onRequestNotificationAccess, onFeedback }: Props) {
+export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusState, onFocusAutomationChange, onOpenFocusSettings, onOpenFocusRuleSettings, androidAccess, onOpenExactAlarmSettings, onOpenFullScreenIntentSettings, onRequestCallMuteAccess, onRequestNotificationAccess, onFeedback }: Props) {
   const { tokens, theme, toggleTheme, accentColor, setAccentColor } = useTheme()
   const insets = useSafeAreaInsets()
   const [cueTarget, setCueTarget] = useState<CueTarget | null>(null)
@@ -83,13 +84,17 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
   const reducedMotion = useReducedMotion()
   const program = state.workingPrograms[state.workingPrograms.selectedMode]
   const settings = state.settings
+  const alarmSoundSupported = !isNativeServiceAvailable || ChandasTimerService.getCapabilities()?.supportsAlarmSound === true
 
   const changeSettings = (patch: Partial<typeof settings>) => onChange({ ...state, settings: { ...settings, ...patch } })
   const cue = cueTarget ? cueForTarget(state, cueTarget) : null
-  const cueTitle = cueTarget?.kind === 'main' ? 'Main gong' : cueTarget?.kind === 'track' ? 'Sub-bell sound' : cueTarget?.kind === 'step' ? 'Step sound' : cueTarget?.kind === 'completion' ? 'Final gong' : ''
+  const cueTitle = cueTarget?.kind === 'main' ? 'Main gong' : cueTarget?.kind === 'alarm' ? 'Alarm sound' : cueTarget?.kind === 'track' ? 'Sub-bell sound' : cueTarget?.kind === 'step' ? 'Step sound' : cueTarget?.kind === 'completion' ? 'Final gong' : ''
   const patchCue = (patch: Partial<CueSettings>) => {
     if (!cueTarget) return
     if (cueTarget.kind === 'main') onChange(updatePattern(state, value => ({ ...value, mainCue: { ...value.mainCue, ...patch } })))
+    else if (cueTarget.kind === 'alarm') {
+      if (patch.sound) changeSettings({ alarmSound: patch.sound })
+    }
     else if (cueTarget.kind === 'track') onChange(patchPatternTrack(state, cueTarget.id, patch))
     else if (cueTarget.kind === 'step') onChange(patchSequenceStep(state, cueTarget.id, patch))
     else onChange(patchCompletionCue(state, cueTarget.mode, patch))
@@ -134,6 +139,7 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
         <View style={styles.section}>
           <VolumeControl label="Volume" value={settings.masterVolume} onChange={masterVolume => changeSettings({ masterVolume })} onOpenMixer={() => setMixerOpen(true)} />
           {program.mode === 'pattern' ? <CueRow title="Main gong" detail={soundTitle(program.mainCue.sound)} sound={program.mainCue.sound} onPress={() => setCueTarget({ kind: 'main' })} /> : null}
+          {program.mode === 'pattern' && alarmSoundSupported ? <CueRow title="Alarm sound" detail={soundTitle(settings.alarmSound)} sound={settings.alarmSound} onPress={() => setCueTarget({ kind: 'alarm' })} /> : null}
           <CompletionCueControls state={state} onChange={onChange} onEditCue={setCueTarget} onFeedback={onFeedback} />
         </View>
 
@@ -161,17 +167,17 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
       <SubBellLibrarySheet visible={subBellsOpen} state={state} onChange={onChange} onEditTrack={setTrackId} onAdd={addTrack} onClose={() => { setTrackId(null); setSubBellsOpen(false) }} />
       {trackId ? <TrackEditorSheet visible={subBellsOpen} state={state} trackId={trackId} onChange={onChange} onEditCue={() => setCueTarget({ kind: 'track', id: trackId })} onBack={() => setTrackId(null)} onClose={() => { setTrackId(null); setSubBellsOpen(false) }} onFeedback={onFeedback} /> : null}
       <MixerSheet visible={mixerOpen} state={state} onChange={onChange} onEditCue={setCueTarget} onClose={() => setMixerOpen(false)} onFeedback={onFeedback} />
-      {cue ? <SoundPickerSheet visible title={cueTitle} cue={cue} masterVolume={settings.masterVolume} onChange={patchCue} onBack={trackId || cueTarget?.kind === 'step' || mixerOpen ? () => setCueTarget(null) : undefined} onClose={() => setCueTarget(null)} onFeedback={onFeedback} /> : null}
+      {cue ? <SoundPickerSheet visible title={cueTitle} cue={cue} masterVolume={settings.masterVolume} onChange={patchCue} onBack={trackId || cueTarget?.kind === 'step' || mixerOpen ? () => setCueTarget(null) : undefined} onClose={() => setCueTarget(null)} showVolume={cueTarget?.kind !== 'alarm'} onFeedback={onFeedback} /> : null}
       <BottomSheet visible={scheduleOpen} title="Schedule" onClose={() => setScheduleOpen(false)}><ScheduleConfig showHeading={false} showEnabledControl={false} value={settings.availability} onChange={availability => changeSettings({ availability })} /></BottomSheet>
       <BottomSheet visible={appearanceOpen} title="Appearance" onClose={() => setAppearanceOpen(false)} scroll={false}><View style={styles.settingRow}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Dark mode</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>Use the darker interface.</Text></View><Toggle value={theme === 'dark'} onChange={toggleTheme} accessibilityLabel="Dark mode" /></View><Text style={[styles.helper, { color: tokens.textMuted }]}>Primary color</Text><ColorSelector label="" value={accentColor} onChange={setAccentColor} accessibilityLabel="Primary interface color" /></BottomSheet>
-      {Platform.OS === 'android' ? <BottomSheet visible={systemAccessOpen} title="System integrations" onClose={() => setSystemAccessOpen(false)}><SystemAccessPanel access={androidAccess} settings={settings} onChangeSettings={changeSettings} onOpenExactAlarmSettings={onOpenExactAlarmSettings} onRequestCallMuteAccess={onRequestCallMuteAccess} onRequestNotificationAccess={onRequestNotificationAccess} /></BottomSheet> : null}
+      {Platform.OS === 'android' ? <BottomSheet visible={systemAccessOpen} title="System integrations" onClose={() => setSystemAccessOpen(false)}><SystemAccessPanel access={androidAccess} settings={settings} onChangeSettings={changeSettings} onOpenExactAlarmSettings={onOpenExactAlarmSettings} onOpenFullScreenIntentSettings={onOpenFullScreenIntentSettings} onRequestCallMuteAccess={onRequestCallMuteAccess} onRequestNotificationAccess={onRequestNotificationAccess} /></BottomSheet> : null}
       <PresetLibrarySheet visible={presetsOpen} state={state} onChange={onChange} onClose={() => setPresetsOpen(false)} onFeedback={onFeedback} />
       <TimerHelpSheet visible={helpOpen} onClose={() => setHelpOpen(false)} onOpenFocusSettings={onOpenFocusSettings} />
     </KeyboardAvoidingView>
   )
 }
 
-function SystemAccessPanel({ access, settings, onChangeSettings, onOpenExactAlarmSettings, onRequestCallMuteAccess, onRequestNotificationAccess }: { access: Props['androidAccess']; settings: TimerV2State['settings']; onChangeSettings: (patch: Partial<TimerV2State['settings']>) => void; onOpenExactAlarmSettings: () => void; onRequestCallMuteAccess: () => void; onRequestNotificationAccess: () => void }) {
+function SystemAccessPanel({ access, settings, onChangeSettings, onOpenExactAlarmSettings, onOpenFullScreenIntentSettings, onRequestCallMuteAccess, onRequestNotificationAccess }: { access: Props['androidAccess']; settings: TimerV2State['settings']; onChangeSettings: (patch: Partial<TimerV2State['settings']>) => void; onOpenExactAlarmSettings: () => void; onOpenFullScreenIntentSettings: () => void; onRequestCallMuteAccess: () => void; onRequestNotificationAccess: () => void }) {
   const { tokens } = useTheme()
   const liveCountdownSupported = ChandasTimerService.getCapabilities()?.supportsLiveCountdown === true
   const toggleCallMute = (enabled: boolean) => {
@@ -188,6 +194,7 @@ function SystemAccessPanel({ access, settings, onChangeSettings, onOpenExactAlar
   }
   return <View style={styles.accessPanel}>
     {!access.exactAlarms ? <><View style={styles.accessRow}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Exact timing</Text><Text style={[styles.helper, { color: tokens.warm }]}>Needed for precise timing with the screen off.</Text></View><SheetTextButton label="Set up" tone="danger" onPress={onOpenExactAlarmSettings} /></View><View style={[styles.divider, { backgroundColor: tokens.border }]} /></> : null}
+    {!access.fullScreenAlarms ? <><View style={styles.accessRow}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Full-screen alarms</Text><Text style={[styles.helper, { color: tokens.warm }]}>Allow alarms to open over the lock screen.</Text></View><SheetTextButton label="Set up" tone="danger" onPress={onOpenFullScreenIntentSettings} /></View><View style={[styles.divider, { backgroundColor: tokens.border }]} /></> : null}
     <PermissionToggleRow title="Mute during calls" detail={access.callMute ? 'Keeps timer cues quiet during calls.' : 'Optional phone-state access.'} value={settings.muteDuringCallsEnabled && access.callMute} pending={access.pending === 'call-mute'} checking={access.checking} onChange={toggleCallMute} />
     <View style={[styles.divider, { backgroundColor: tokens.border }]} />
     <PermissionToggleRow title="Timer notifications" detail={access.notifications ? 'Shows running status and controls.' : 'Optional notification access.'} value={settings.notificationsEnabled && access.notifications} pending={access.pending === 'notifications'} checking={access.checking} onChange={toggleNotifications} />
@@ -203,6 +210,7 @@ function PermissionToggleRow({ title, detail, value, pending, checking, onChange
 function androidAccessSummary(access: Props['androidAccess']): string {
   if (access.checking) return 'Checking permissions…'
   if (!access.exactAlarms) return 'Exact timing needs setup'
+  if (!access.fullScreenAlarms) return 'Full-screen alarms need setup'
   return 'Timing, notifications and call mute'
 }
 
@@ -451,6 +459,7 @@ function VolumeControl({ label, value, onChange, onOpenMixer, onPreview }: { lab
 }
 
 function cueForTarget(state: TimerV2State, target: CueTarget): CueSettings | null {
+  if (target.kind === 'alarm') return { sound: state.settings.alarmSound, volume: 1 }
   if (target.kind === 'main') return state.workingPrograms.pattern.mainCue
   if (target.kind === 'track') return state.workingPrograms.pattern.tracks.find(track => track.id === target.id) ?? null
   if (target.kind === 'step') return state.workingPrograms.sequence.steps.find(step => step.id === target.id) ?? null

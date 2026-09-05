@@ -1414,6 +1414,7 @@ Do not edit old entries to reflect new conclusions. Add a superseding entry and 
 | 2026-09-05 | D-090 | Accepted | Use content hierarchy rather than category labels on the setup screen: the editable interval name, run guidance, Align to clock, Sub Bells, sound controls, Schedule, Chandas Focus, and navigation rows stand on their own without redundant all-caps headings. |
 | 2026-09-05 | D-091 | Accepted | Prefer discrete tap selection for sub-bell offsets. Remove gesture painting so vertical sheet scrolling remains predictable, and use restrained shared haptics for controls plus light/strong cue accents. |
 | 2026-09-05 | D-092 | Accepted | Offer an opt-in next-cue countdown in System integrations. The ongoing notification owns the reliable chronometer; Android 16+ may additionally promote it to a status-bar Live Update chip, but Chandas must not promise OEM-controlled promotion. |
+| 2026-09-05 | D-093 | Accepted | Alarm Once/Locked uses one global alarm sound independent of the Pattern main gong and saved configurations. Default to the packaged Sine alarm. While ringing, show only the flashing circle; a tap anywhere or Android Back dismisses the alarm without stopping the timer. Request a lock-screen full-screen alarm while leaving final presentation to Android permission, notification-channel, lock-screen, and OEM policy. |
 
 ### Decision-entry template
 
@@ -2293,6 +2294,24 @@ This section is append-only. Every implementation session should record scope, m
 
 **Risks or follow-ups:** Android and OEM policy decides whether a qualifying Live Update is promoted and whether chip text fits; Chandas guarantees only the ongoing notification countdown. Users can independently disable notifications or Live Updates in system settings. The short cue haptics use standard predefined Android effects where available, so their physical intensity varies by device.
 
+### 2026-09-05 — Dedicated alarm sound and tap-anywhere dismissal
+
+**Status:** Complete in source; the native alarm changes require the next Android build and locked-device validation.
+
+**Scope:** Alarm Once/Locked playback, full-screen ringing presentation, lock-screen window lifetime, and global sound selection.
+
+**Decisions referenced:** D-093.
+
+**Behavior implemented:** The ringing surface is a single full-screen dismiss target containing only the flashing circle. A screen tap or Android Back stops the loop and resumes the timer. Alarm playback now reads a global Alarm sound setting rather than reusing the current main gong; its default is the packaged Sine alarm, and the ordinary built-in/Android/device picker can replace it. The full-screen alarm intent is public on the lock screen, clears stale activity instances, keeps the display awake while ringing, and continues to fall back safely to the packaged alarm resource if a selected file becomes unavailable.
+
+**Migration impact:** Existing settings normalize to Sine alarm without touching saved configurations. Native contract v4 adds the bounded `alarmSoundId` field and capability. The packaged alarm asset already exists, but the new bridge field, scheduler behavior, and lock-screen handling require a replacement binary.
+
+**Verification run:** TypeScript, Vitest, whitespace review, and native source inspection. Local Android compilation remains prohibited by repository policy.
+
+**Native/on-device verification still required:** Verify Alarm Once and Locked from foreground, background, screen-off, secure lock screen, and process recreation; tap the center and screen edges; press Back; deny then grant full-screen-alarm access; test built-in, Android ringtone, and document sounds; confirm a missing document falls back to Sine alarm and ordinary timer scheduling resumes after dismissal.
+
+**Risks or follow-ups:** Android 14+ and Google Play restrict full-screen intent access to qualifying alarm/calling apps, and users/OEMs retain final control. When access is denied, Android may show a heads-up lock-screen notification instead of launching the full-screen activity automatically.
+
 ### Implementation-entry template
 
 ```md
@@ -2343,3 +2362,4 @@ This section is append-only. Every implementation session should record scope, m
 | 2.5 | 2026-09-05 | Added an atomic OTA-to-native sound cache so future library recordings can ship without native mappings, retaining only gong, bell, and alarm binary fallbacks. |
 | 2.6 | 2026-09-05 | Stabilized Focus stop/snooze semantics, added raw-state and capability contracts, widened native safety ceilings, and made notification presentation OTA-owned. |
 | 2.7 | 2026-09-05 | Simplified setup hierarchy and Sub-bell selection, redesigned saved configurations, unified tactile feedback, and added an optional Android next-cue live countdown. |
+| 2.8 | 2026-09-05 | Made the alarm a tap-anywhere flashing-circle surface, added a global configurable alarm sound with Sine alarm default, and hardened full-screen lock-screen presentation. |

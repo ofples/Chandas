@@ -111,6 +111,7 @@ object TimerSoundPlayer {
   }.getOrDefault(false)
 
   fun builtInResource(soundId: String): Int? = when (soundId.removePrefix("builtin:")) {
+    "alarm-tone" -> R.raw.alarm
     "temple-gong" -> R.raw.gong
     "clear-bell" -> R.raw.bell
     else -> soundId.removePrefix("builtin:").toIntOrNull()

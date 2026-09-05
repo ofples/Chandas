@@ -621,7 +621,8 @@ describe('timer v2 validation and presets', () => {
     const migrated = migrateLegacyConfig({ mainInterval: 45, subInterval: 9, subEnabled: false, snapEnabled: true, snapOffset: 17, volume: 0.35, activeHoursEnabled: true, activeHoursDays: 0b0101010, focusModeEnabled: true })
     expect(migrated.workingPrograms.pattern).toMatchObject({ mainMinutes: 45, alignment: { kind: 'local-clock', offsetMinutes: 17 } })
     expect(migrated.workingPrograms.pattern.tracks[0]).toMatchObject({ enabled: false, cadenceMinutes: 9, selectedOffsetsMinutes: [9, 18, 27, 36] })
-    expect(migrated.settings).toMatchObject({ masterVolume: 0.35, availability: { enabled: true, weeklyWindows: [{ days: 0b0101010 }] }, focusAutomationEnabled: true })
+    expect(migrated.settings).toMatchObject({ masterVolume: 0.35, alarmSound: { kind: 'builtin', id: 'alarm-tone' }, availability: { enabled: true, weeklyWindows: [{ days: 0b0101010 }] }, focusAutomationEnabled: true })
+    expect(normalizeSoundRef({ kind: 'builtin', id: 'alarm-tone' }, { kind: 'builtin', id: 'clear-bell' })).toEqual({ kind: 'builtin', id: 'alarm-tone' })
   })
 
   it('repairs corrupt duration, volume, labels, offsets, and overlong arrays', () => {

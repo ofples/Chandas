@@ -34,6 +34,7 @@ object AlarmWindowHelper {
           WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
       )
     }
+    activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
     val keyguardManager = activity.getSystemService(Activity.KEYGUARD_SERVICE) as? KeyguardManager
     keyguardManager?.requestDismissKeyguard(activity, null)
