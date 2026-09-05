@@ -26,6 +26,7 @@ build/
 .metro-health-check*
 /.agents
 /.claude
+/.codex-remote-attachments
 /.vite
 /.vscode
 
