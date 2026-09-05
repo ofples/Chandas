@@ -8,8 +8,8 @@ import { ConfigScreen } from './components/ConfigScreen'
 import { RunningScreen } from './components/RunningScreen'
 import { PipContent } from './components/PipContent'
 
-const STORAGE_KEY = 'slottimer-config'
-const THEME_KEY   = 'slottimer-theme'
+const STORAGE_KEY = 'chandas-config'
+const THEME_KEY   = 'chandas-theme'
 
 const DEFAULT_CONFIG: TimerConfig = {
   mainInterval: 30,

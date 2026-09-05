@@ -1,0 +1,172 @@
+package expo.modules.chandastimerservice
+
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.os.Build
+import androidx.core.app.NotificationCompat
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+object TimerNotifications {
+  const val RUNNING_ID = 1001
+  const val ALARM_ID = 1002
+  private const val EVENT_ID = 1003
+
+  const val RUNNING_CHANNEL = "chandas-running"
+  const val EVENT_CHANNEL = "chandas-events"
+  const val ALARM_CHANNEL = "chandas-alarm"
+
+  /** Android renders this transparent monochrome mask in the status bar and notification header. */
+  fun smallIcon(): Int = R.drawable.chandas_notification
+
+  fun ensureChannels(context: Context) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+    val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    manager.createNotificationChannel(NotificationChannel(
+      RUNNING_CHANNEL,
+      "Chandas running",
+      NotificationManager.IMPORTANCE_LOW,
+    ).apply {
+      description = "Shows the active timer and next gong time"
+      setSound(null, null)
+      setShowBadge(false)
+    })
+    manager.createNotificationChannel(NotificationChannel(
+      EVENT_CHANNEL,
+      "Chandas chimes",
+      NotificationManager.IMPORTANCE_DEFAULT,
+    ).apply {
+      description = "Shows bell and gong events"
+      setSound(null, null)
+      setShowBadge(false)
+    })
+    manager.createNotificationChannel(NotificationChannel(
+      ALARM_CHANNEL,
+      "Chandas alarm",
+      NotificationManager.IMPORTANCE_HIGH,
+    ).apply {
+      description = "Shown while a Chandas alarm is ringing"
+      setSound(null, null)
+      setShowBadge(false)
+    })
+  }
+
+  fun postRunning(context: Context, config: TimerConfig) {
+    val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    val copy = TimerNotificationCopy.from(config.notificationPresentation)
+    if (!config.notificationsEnabled) {
+      manager.cancel(RUNNING_ID)
+      return
+    }
+    ensureChannels(context)
+    val now = System.currentTimeMillis()
+    val event = config.timerV2Program?.let { TimerV2Timeline.next(it, config.timerV2Anchor, now, config.timerV2StartedAt, config.timerV2EndsAt) }
+    val next = event?.at ?: TimerMath.nextTick(now, config.mainMs, config.phase)
+    val activeNow = ActiveHours.isActive(config, now)
+    val activeAtNext = ActiveHours.isActive(config, next)
+    val resumesAt = if (!activeNow || !activeAtNext) ActiveHours.nextStart(config, if (activeNow) next else now) else 0L
+    val endsBeforeResume = config.timerV2EndsAt > 0L && resumesAt > 0L && resumesAt >= config.timerV2EndsAt
+    val countdownAt = when {
+      event?.completesRun == true -> next
+      endsBeforeResume -> config.timerV2EndsAt
+      activeNow && activeAtNext -> next
+      else -> 0L
+    }
+    val content = when {
+      event?.completesRun == true -> copy.sessionEnds(formatTime(next))
+      endsBeforeResume -> copy.sessionEnds(formatTime(config.timerV2EndsAt))
+      activeNow && activeAtNext -> copy.nextCue(formatTime(next))
+      else -> copy.resumes(formatTime(resumesAt))
+    }
+    val title = config.timerV2Program?.let(TimerV2Timeline::notificationTitle) ?: copy.runningTitle
+    val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+    val contentIntent = launchIntent?.let {
+      PendingIntent.getActivity(
+        context,
+        8101,
+        it,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+      )
+    }
+    val stopIntent = PendingIntent.getBroadcast(
+      context,
+      8102,
+      Intent(context, TimerEventReceiver::class.java).setAction(TimerEventReceiver.ACTION_STOP),
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+    val builder = NotificationCompat.Builder(context, RUNNING_CHANNEL)
+        .setContentTitle(title)
+        .setContentText(content)
+        .setStyle(NotificationCompat.BigTextStyle().setBigContentTitle(title).bigText(content))
+        .setSmallIcon(smallIcon())
+        .setOngoing(true)
+        .setOnlyAlertOnce(true)
+        .setShowWhen(false)
+        .setContentIntent(contentIntent)
+        .addAction(0, copy.stopTimerAction, stopIntent)
+        .setCategory(NotificationCompat.CATEGORY_STOPWATCH)
+        .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+        .setPriority(NotificationCompat.PRIORITY_LOW)
+    if (config.liveCountdownEnabled && countdownAt > now) {
+      builder
+        .setWhen(countdownAt)
+        .setShowWhen(true)
+        .setUsesChronometer(true)
+        .setChronometerCountDown(true)
+        // Android 16+ may promote this user-started, time-sensitive timer to a
+        // status-bar chip. The notification countdown remains useful when the
+        // OS or OEM chooses standard presentation instead.
+        .setRequestPromotedOngoing(true)
+    }
+    runCatching { manager.notify(RUNNING_ID, builder.build()) }
+  }
+
+  fun postEvent(context: Context, config: TimerConfig, type: TimerEventType) {
+    if (type == TimerEventType.ACTIVE_START || type == TimerEventType.REALIGN) return
+    if (!config.notificationsEnabled) return
+    ensureChannels(context)
+    val copy = TimerNotificationCopy.from(config.notificationPresentation)
+    val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+    val contentIntent = launchIntent?.let {
+      PendingIntent.getActivity(
+        context,
+        8103,
+        it,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+      )
+    }
+    val title = if (type == TimerEventType.MAIN) copy.mainEventTitle else if (type == TimerEventType.V2) copy.cueEventTitle else copy.bellEventTitle
+    runCatching { manager.notify(
+      EVENT_ID,
+      NotificationCompat.Builder(context, EVENT_CHANNEL)
+        .setContentTitle(title)
+        .setContentText(copy.eventBody)
+        .setSmallIcon(smallIcon())
+        .setAutoCancel(true)
+        .setTimeoutAfter(8_000L)
+        .setContentIntent(contentIntent)
+        .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+        .build(),
+    ) }
+  }
+
+  fun cancelRunning(context: Context) {
+    val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    manager.cancel(RUNNING_ID)
+    manager.cancel(EVENT_ID)
+  }
+
+  fun cancelAlarm(context: Context) {
+    val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    manager.cancel(ALARM_ID)
+  }
+
+  private fun formatTime(epochMs: Long): String =
+    SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(epochMs))
+}

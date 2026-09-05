@@ -1,0 +1,90 @@
+{
+  "expo": {
+    "name": "Chandas",
+    "slug": "chandas",
+    "version": "2.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "scheme": "chandas",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.yukti.chandas"
+    },
+    "android": {
+      "package": "com.yukti.chandas",
+      "runtimeVersion": "f8c55f24f4972e429d24120aa843e8a0e32f1aaf",
+      "adaptiveIcon": {
+        "backgroundColor": "#0b0c10",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+        "POST_NOTIFICATIONS",
+        "POST_PROMOTED_NOTIFICATIONS",
+        "WAKE_LOCK",
+        "USE_FULL_SCREEN_INTENT",
+        "USE_EXACT_ALARM",
+        "RECEIVE_BOOT_COMPLETED",
+        "ACCESS_NOTIFICATION_POLICY",
+        "READ_PHONE_STATE",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ],
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-audio",
+        {
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
+      "expo-font",
+      "./modules/chandas-timer-service/app.plugin.js",
+      [
+        "expo-notifications",
+        {
+          "color": "#7c6ff7"
+        }
+      ],
+      "expo-asset",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 220,
+          "backgroundColor": "#0b0c10",
+          "dark": {
+            "backgroundColor": "#0b0c10"
+          }
+        }
+      ]
+    ],
+    "owner": "ofples",
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/0a58141c-12a1-4e21-acb5-f4153b629fd7",
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0,
+      "useEmbeddedUpdate": true,
+      "enableBsdiffPatchSupport": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "0a58141c-12a1-4e21-acb5-f4153b629fd7"
+      }
+    }
+  }
+}

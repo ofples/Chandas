@@ -1,0 +1,2530 @@
+# Chandas Timer v2
+
+## Product specification, implementation plan, and project log
+
+| Field | Value |
+| --- | --- |
+| Document status | Implemented in source; static/web verified; remote native build and device validation pending |
+| Product | Chandas Android interval timer |
+| Scope | Timer v2 program model, advanced scheduling, audio, Focus/DND, presets, runtime controls, and help |
+| Primary platform | Android |
+| Specification version | 2.6 |
+| Created | 2026-09-02 |
+| Implementation rule | Deliver as one cohesive refactor; intermediate builds do not have to be usable |
+| Build rule | Never run a local native build, Gradle task, Expo native run, prebuild, or export. Remote EAS only when explicitly requested. |
+
+This document is the implementation authority for Timer v2. It is also an append-only project log. Product decisions are recorded with stable IDs so implementation notes, deviations, and test evidence can refer back to them without rewriting history.
+
+---
+
+## 1. Executive summary
+
+Timer v2 turns Chandas from a single main/sub interval timer into a reusable program-based timer while preserving the app's quiet, minimal running experience.
+
+Two program modes are supported:
+
+1. **Pattern** — one repeating main interval with up to five independently configured sub-bell tracks. Each track exposes a grid of possible trigger offsets inside the main interval.
+2. **Sequence** — up to twenty ordered intervals which play in sequence and repeat as a complete cycle.
+
+Every audible cue has a stable sound selection and a relative volume. A master level scales the whole program. Timer sounds use Android's alarm audio usage. Focus is represented as the state of Chandas's own Android DND rule rather than inferred from a saved toggle.
+
+Programs can be saved as immutable named presets. Loading a preset creates a working copy. Saving changes always creates another preset; it never edits or overwrites the source preset.
+
+The configuration surface remains restrained: the main screen shows the current program summary and the essential Start action. Detailed track grids, sequences, sounds, mixer channels, presets, Focus status, and help live behind explicit sheets or editor routes.
+
+---
+
+## 2. Goals
+
+### 2.1 Product goals
+
+- Support sophisticated repeating interval arrangements without making the default timer intimidating.
+- Make audible outcomes deterministic, including overlapping sub-bells, mute boundaries, alarms, active hours, and timezone changes.
+- Let users build a personal library of timer programs without destructive preset editing.
+- Make every hidden or gesture-driven control discoverable through tooltips and a complete Help surface.
+- Treat Android as the source of truth for Chandas Focus state.
+- Preserve all existing user configuration through a one-time schema migration.
+
+### 2.2 Engineering goals
+
+- Use one versioned program schema in TypeScript and an equivalent persisted model in Kotlin.
+- Generalize timer math into deterministic, side-effect-free timeline engines on both sides of the native bridge.
+- Keep native Android scheduling authoritative while the React Native layer renders from the same program and anchor.
+- Persist enough native state to restore a running program after process death, reboot, package replacement, time changes, and timezone changes.
+- Add explicit native events for timer cues, Focus state, control state, and sound-picker results.
+- Cover the timeline and migration rules with lightweight TypeScript tests.
+
+### 2.3 Non-goals
+
+- iOS background delivery.
+- Cloud sync or preset sharing.
+- Editing a saved preset in place.
+- Importing complete Android DND profiles or displaying unrelated DND modes.
+- Playing multiple sounds simultaneously at an overlap.
+- A full audio workstation: no automation curves, equalizer, pan, effects, or per-channel solo in v2.
+- Pausing program phase outside active hours. Active hours gate output; they do not freeze time.
+
+---
+
+## 3. Current baseline and known causes
+
+The current app already contains most of the Android primitives required by v2:
+
+- `AlarmManager` exact scheduling in `TimerScheduler.kt`.
+- Persistent native timer configuration in `TimerStateStore.kt`.
+- A local Expo module bridge in `ChandasTimerServiceModule.kt`.
+- Android Focus rule ownership through `FocusModeController.kt` and `FocusConditionProviderService.kt`.
+- Time, timezone, boot, and package-replacement restoration through `TimerRestoreReceiver.kt`.
+- Native one-shot and repeating-alarm playback.
+- A JS fallback and timestamp-derived countdown in `useTimer.ts`.
+
+The relevant current limitations are:
+
+- `TimerConfig` is a flat single-main/single-sub schema.
+- Snapped phase is stored as an offset against Unix time, not explicitly against local wall time.
+- Ordinary chimes use notification audio unless Chandas Focus is active.
+- Foreground Focus refresh calls `sync()`, which writes the desired condition and can fight a manual Android override.
+- Focus preference and actual rule activation are separate concepts but are represented by booleans that make the UI appear more certain than Android is.
+- Running-screen flashes are inferred from countdown values jumping upward. Foreground resynchronization can therefore look like a newly fired bell.
+- Iteration mute currently consumes and suppresses the main event that ends the muted iteration.
+- The native scheduler can only choose between a single main event and a mathematically periodic sub event.
+
+Timer v2 replaces these assumptions rather than layering special cases over them.
+
+---
+
+## 4. Locked product decisions
+
+| ID | Decision |
+| --- | --- |
+| D-001 | Timer v2 is implemented as one cohesive refactor. Intermediate app states do not have to remain usable. |
+| D-002 | Pattern remains the default mode and is the migration target for existing configurations. |
+| D-003 | A Pattern contains one main interval and at most five sub-bell tracks. |
+| D-004 | A Sequence contains 1–20 ordered steps and repeats indefinitely. |
+| D-005 | Loading a Sequence does not start it. Tapping Start begins step 1 at its full duration. A restored running session resumes its persisted position. |
+| D-006 | Sequence steps reorder by drag handle with haptics because their order defines the program. Accessibility actions provide Move up and Move down. Pattern tracks no longer reorder; see D-049. |
+| D-007 | Superseded first by D-028 and then restored in simplified form by D-049. |
+| D-008 | Main boundaries are not valid sub-track offsets, so a main gong never competes with a sub-bell. |
+| D-009 | Saved presets are immutable snapshots. Load creates a working copy. Save As always creates a new preset. Delete is the only mutation of a saved preset. |
+| D-010 | Presets contain program structure, program sounds, relative cue volumes, and Pattern snap settings. They exclude theme, active hours, Focus, master volume, runtime alarm state, mute state, and running position. |
+| D-011 | Duplicate preset names are allowed. Created date/time and mode disambiguate them. |
+| D-012 | Timer chimes always use Android alarm audio usage. The phone's Alarm volume remains system controlled. |
+| D-013 | Master volume and cue volume are independent multipliers. Timed/global mute never destroys either value. |
+| D-014 | A Mixer sheet exposes Master plus every cue channel. It does not include solo or automation. |
+| D-015 | Superseded by D-085. The original five-entry placeholder library established the built-in/Android/document-source contract; the production library now replaces its three synthetic entries while retaining compatibility aliases. |
+| D-016 | At an unavailable sound URI, Chandas uses the built-in fallback and marks the configured sound as unavailable; scheduling must not fail. |
+| D-017 | Active hours use current device-local wall time and gate audio/Focus. Program phase continues silently outside active hours. No catch-up cues play. |
+| D-018 | Clock-snapped Patterns realign to current local wall time after time, timezone, or DST-offset changes. Unsnapped Patterns and Sequences retain elapsed cadence. |
+| D-019 | Chandas displays only its own Focus state. It does not surface unrelated DND modes. |
+| D-020 | Read-only Focus refresh never republishes or reactivates a rule condition. Reconciliation is performed only for a genuine app/schedule transition. |
+| D-021 | Focus uses a priority rule, explicitly permits alarms, and leaves unrelated notification policy fields unspecified/preserved. |
+| D-022 | A manual Android snooze is displayed as Paused in Android and is not immediately overridden. Rule disable/deletion turns Focus automation off. |
+| D-023 | Single-tapping Alarm while Off arms the next main event. Double-tapping Off or Once locks alarm behavior for every main event. Single-tapping an active state turns it Off. Double-tapping Locked turns it Off. |
+| D-024 | Continuous alarm behavior is Pattern-main-only in v2. Sequence sounds are one-shot. |
+| D-025 | Iteration mute suppresses events strictly inside the muted period. Its final main/cycle boundary remains audible and clears the mute. |
+| D-026 | Visual flashes are driven only by actual timer-event notifications while the UI is active, never by countdown jumps. |
+| D-027 | Long press is reserved for a tooltip. All controls also appear in the Help sheet. |
+| D-028 | Superseded by D-049. The intermediate order-controlled collision rule remains only as decision history. |
+| D-029 | Existing quick-select chips and cycle/minute mute are baseline functionality and must remain available in Timer v2. Main duration keeps `10`, `15`, `30`, and custom; snap keeps `:00`, `:10`, `:15`, and custom. Mute keeps `1×`, `2×`, `3×`, and custom minutes. |
+| D-030 | Pattern running uses an outer main-progress ring with closely nested sub-track progress rings. The center shows the main countdown and, when applicable, only the next sub-bell countdown—without a sound name or redundant countdown label. Collision-resolution explanations do not appear on the running screen. Ring progress interpolates smoothly between scheduler refreshes. |
+| D-031 | Chandas automatically suppresses its own audible cues during an active phone call. This is a transient runtime gate: it does not change Master/cue volume, consume timed mute, change alarm behavior, or replay missed cues after the call. The next eligible future cue resumes normally. |
+| D-032 | Exact-alarm access is a hard Android runtime requirement. Start is blocked without it; loss stops and clears the native running session instead of silently degrading to inexact delivery. |
+| D-033 | Equal active-hours start/end values mean the selected civil day is active for all 24 hours, with midnight as the next window boundary. |
+| D-034 | Alarm audio usage routes Chandas through the phone Alarm stream but cannot override an unrelated DND mode that disallows alarms. Chandas Focus permits alarms and never claims to clone or modify other DND profiles. |
+| D-035 | Every Pattern and Sequence configuration has a run policy: Continuous, a bounded number of complete cycles, or a bounded elapsed duration in hours/minutes/seconds. The policy is part of saved presets. |
+| D-036 | Pattern `N cycles` means `N` main intervals; Sequence `N cycles` means `N` complete traversals of the ordered step list. Duration bounds use elapsed time from the accepted Start anchor and do not pause for inactive schedule windows, calls, or mute. |
+| D-037 | A bounded run ends exactly once. Without a custom final gong, its natural cue plays when a deadline coincides with a normal cue; a deadline between cues uses the Pattern main sound or Sequence final-step sound. With a custom final gong, that cue replaces either form of terminal cue. Completion never creates two overlapping sounds. |
+| D-038 | Continuous runs may be governed by multiple weekly active windows. A timestamp is active when it belongs to at least one enabled window; overlapping or adjacent windows are a union and never duplicate delivery. Cross-midnight attribution remains attached to the window's start day. |
+| D-039 | Scheduling is represented as an availability policy with weekly windows plus a currently empty list of resolved absolute-time overrides. A later calendar feature may populate `active` or `mute` overrides without changing timer, audio, or native scheduling contracts; mute overrides take precedence. No calendar permission or unfinished calendar UI ships in this slice. |
+| D-040 | The two user-facing mode names are `Cycle` and `Sequence`. Internal domain names may remain `pattern` and `sequence`, but product surfaces avoid exposing implementation vocabulary and collision arbitration details. |
+| D-041 | Android-only Focus, DND, and system-setting controls are hidden on web. A Focus control that needs setup opens the relevant Android setting without an error badge or a false active state. |
+| D-042 | The running Mixer opens with Master volume and cycle/minute mute controls. Per-sound levels remain available behind one explicit `Sound levels` disclosure. The cue sound picker keeps its selected-sound and cue-volume controls fixed while its sound library scrolls. |
+| D-043 | Alarm state changes optimistically on the first tap. The 400 ms gesture window exists only to distinguish a second tap and must never delay visible or native feedback for the first tap. |
+| D-044 | Routine Start, Stop, and successful live Reset/snap actions rely on immediate screen state, control state, and haptics for confirmation. Banners are reserved for completion, errors, permissions, recovery, and other outcomes the interface cannot show by itself. |
+| D-045 | Advanced editing uses progressive disclosure. Sequence steps stay as equal-height compact ordered rows and open a focused editor sheet; saved-configuration details replace the list while being inspected; technical sound, scheduling, and collision explanations stay in Help or documentation unless required to resolve a current problem. |
+| D-046 | Configuration summaries use one title, one useful value, and a chevron. `Sound levels` replaces user-facing `Mixer` terminology in setup, while the running sheet may retain `Mixer & mute` because it combines two live control groups. |
+| D-047 | Every interval may have a user-facing name: Pattern has a named main interval and named sub-bell tracks; Sequence retains named steps. Names are stored in presets, default safely for older records, and identify intervals in editors, the running view, and sound controls. The next Pattern sub-bell may show its interval name with its countdown, but never substitutes a sound name or collision explanation. |
+| D-048 | Superseded by D-083. The earlier compatibility release deferred both opening and ending overrides so it could remain eligible for the installed native binary. Start remains quiet; only the bounded-run final override is now being restored at the next native release boundary. |
+| D-049 | Pattern sub-bells sort automatically by repeat interval, longest first. At an overlap, the longer repeat interval wins; stable list order breaks equal-cadence ties. Only the winner plays. Manual Pattern reordering is removed, while Sequence reordering remains. |
+| D-050 | Sub-bells are one progressively disclosed layer with a single top-level switch. Fresh configurations keep the layer Off while preserving a ready first sub-bell; enabling reveals that sub-bell and Add, disabling hides and suppresses the layer without destroying its settings. |
+| D-051 | Interval names are edited in place by tapping the displayed title. Editors do not repeat the same name in a separate field. Main duration is represented only by quick choices and a Custom chip; a selected custom value replaces the word Custom and carries a pencil affordance. |
+| D-052 | Configuration uses one visual indentation level. Cue selection, volume, sub-bell rows, and schedule ranges use flat rows rather than nested cards. Master volume remains directly visible; sound selection and the full channel list follow as secondary actions. |
+| D-053 | The Cycle main interval has the fixed visible name `Main interval`; its stored legacy label remains compatibility data and is no longer editable or shown. Sub-bell and Sequence names remain tap-to-edit, indicated by a quiet dotted underline rather than a pencil icon. This supersedes the main-name and pencil portions of D-047 and D-051. |
+| D-054 | Main-duration shortcuts are `5`, `10`, `15`, `30`, `45`, and `60` minutes in a horizontal strip with Custom fixed at the trailing edge. A soft trailing fade indicates that additional choices can scroll beneath that fixed action. A selected custom value appears without an edit icon. Clock-alignment shortcuts use the same layout, fade, and five-minute phases derived from the main interval; Custom opens the same minute-entry modal pattern. This supersedes D-029's narrower main/snap lists. |
+| D-055 | New tracks select every valid occurrence. A track summary says `N occurrences` when all are selected and `N/M selected` only after a user deselects occurrences. Growing the main interval repeats the existing occurrence-selection mask forward; an all-selected mask stays all selected. Shortening still removes only cues outside the new interval. |
+| D-056 | Run length belongs inside each mode editor, immediately after the interval structure it bounds. In Cycle it sits directly beneath the main-duration choices and before clock alignment. The segmented control has no redundant heading; outcome copy appears only for a bounded choice. Bounded runs ignore Schedule completely and run uninterrupted for their chosen cycles or elapsed duration; the saved Schedule remains intact and reappears when Continuous is selected. Duration entry exposes hours and minutes only and stores whole-minute bounds, superseding the input granularity in D-035 while retaining its seconds-based storage contract. |
+| D-057 | Every segmented tab control uses one shared component and the Cycle/Sequence selected treatment: solid accent fill with white text. Add-sub-bell, Add-step, and Add-time-range actions likewise share one component. |
+| D-058 | The running audio sheet is titled only `Sound`. Its master slider has no redundant heading, per-cue controls use a flat `Sound levels` disclosure, and selected-sound preview uses the same circular play/stop control as library rows. |
+| D-059 | User-facing global level controls are labelled simply `Volume`, never `Master` or `Master volume`. Standard volume rows contain only the label, slider, and percentage on one centerline; explanatory subtitles are removed. The internal `masterVolume` field name and independent multiplier semantics remain unchanged. |
+| D-060 | The setup Sound section has no separate `All sound levels` row. A compact mixer icon immediately after the global Volume percentage opens the full `Mixer` sheet, keeping the secondary action on the control it expands. |
+| D-061 | Compact setup/editor volume controls place the `Volume` label above a second line containing a full-width slider and, for the global control, the trailing mixer icon. They omit the numeric percentage; exact channel values remain visible in the full Mixer. This supersedes D-059's one-centerline layout and D-060's reference to placement after the percentage. |
+| D-062 | The bounded-policy section is labelled `RUN LENGTH`, because it describes Continuous, Cycles, and Duration more accurately than `Running time`. `ALIGN TO CLOCK` uses the same all-caps section-label style. Duration shows only its hours/minutes controls; Cycles shows a compact computed equivalent such as `= 45m` or `= 1hr` beside its counter, replacing the longer `Ends after…` sentence. |
+| D-063 | Continuous-mode Schedule keeps a quick top-level switch and a compact, tappable 24-hour preview for the current local day. Enabled ranges are merged and highlighted between labelled civil-time boundaries; overnight ranges include the portion inherited from the previous day. Tapping the preview opens the full existing range editor in a `Schedule` sheet. Complex schedules with more than six boundaries fall back to evenly spaced 0/6/12/18/24 labels to avoid clutter. |
+| D-064 | Sequence-step `Duplicate step` and `Remove step` actions use the same accent-coloured 13px semibold treatment and enlarged tap target as a sheet's `Done` action. Removal remains guarded by its confirmation flow rather than relying on subdued or underlined styling to communicate risk. |
+| D-065 | A cycle-bounded run's compact duration equivalent follows `ROUNDS` or `MAIN CYCLES` on the caption line beneath the complete stepper. It does not occupy a separate column or alter the centering of the minus/value/plus controls. |
+| D-066 | Sequence reordering activates only after a short 260ms hold on the drag handle. Movement before activation remains normal page scrolling. During an active drag, adjacent rows animate aside and all visible order numbers reflect the prospective insertion before release; crossing each slot gives selection haptics. Holding near the usable top or bottom edge auto-scrolls only while another sequence position exists in that direction. Cancellation restores the original order, and accessibility increment/decrement actions remain available. |
+| D-067 | Full Stop is authoritative and fail-safe. The app returns to configuration immediately, clears local alarm/player state, and invokes the native timer stop directly rather than first dismissing the narrower alarm state. An exception during installed-binary window cleanup must not leave the React UI stranded on an empty activity or make the stopped timer appear to remain active. |
+| D-068 | A bottom sheet's dimming backdrop and sheet surface are siblings. The backdrop dismisses only direct backdrop presses and never wraps the scrollable sheet, so vertical gestures begun anywhere in Help or another sheet remain available to its ScrollView on Android. |
+| D-069 | Advanced sheet drill-down uses one visible modal layer with an explicit Back action. Cycle setup shows a compact Sub-bells summary and opens the library in a sheet; selecting a track replaces that sheet with its editor, and sound selection temporarily replaces the editor before returning to it. Schedule follows the same compact-summary-to-sheet pattern. |
+| D-070 | Chandas Focus remains a visible first-class setup control. Less frequently changed Android permissions live behind one compact `System access` summary that opens a dedicated sheet. The running screen is top-aligned beneath its header, and its combined live-audio sheet is called `Sound & mute` with the same simple Volume treatment as configuration. |
+| D-071 | The Schedule timeline is progressive disclosure for an enabled schedule only. The setup switch is its sole on/off control; when Off, no preview is shown. The Schedule sheet edits ranges only and never repeats the global Active times toggle. |
+| D-072 | Each Schedule range is one visually continuous editing unit: summary and per-range switch, expanded time/day controls, an explicit outlined `Remove this time range` action with confirmation, then the separator. A separator never divides a range header from its active editor. |
+| D-073 | The compact Schedule timeline paints merged current-day active spans but labels only genuine user-authored start/end transitions. Midnight segment splits created to render overnight ranges are not labelled as schedule boundaries. Closely spaced real labels alternate between two lanes, and the summary counts each contributing configured range once rather than counting its rendered overnight pieces. |
+| D-074 | Chandas Focus uses the same flat section-label-and-switch treatment as Schedule, Sub-bells, and Align to clock. It has no enclosing card. Exceptional Android/DND state and its recovery action remain progressively disclosed beneath the row only when relevant. |
+| D-075 | Compact Schedule and Sub-bell timelines are direct editor controls, not decoration. Tapping anywhere on either visualizer opens its corresponding sheet, with a generous hit target, pressed feedback, and an explicit accessibility hint. Existing labelled configuration rows remain equivalent entry points. |
+| D-076 | Every Sub-bell has one optional semantic color chosen from a fixed ten-color palette. New and legacy tracks receive stable order-based defaults; the setting is stored with presets but remains visual metadata ignored by timing, audio, collision precedence, and the Android scheduler. The color appears in setup previews and identifies that track's nested running ring. |
+| D-077 | When Chandas Focus is actually active, a restrained accent border around the running screen replaces the persistent `FOCUS ON` label. Exceptional `FOCUS PAUSED` status remains explicit because it requires user understanding or recovery. |
+| D-078 | The running timer visualization is centered within the usable space between its compact header and fixed controls. On short screens the same region gains sufficient minimum height and remains scrollable. This supersedes D-070's temporary top-aligned running composition. |
+| D-079 | The Cycle main interval name is once again tap-to-edit and is shown consistently in setup and while running. Its normalized `label` remains part of saved configurations. This supersedes D-053 and restores the Pattern-main portion of D-047/D-051. |
+| D-080 | Sequence reorder feedback is direct rather than springy: rows preview their insertion positions and prospective order numbers, but the held row does not scale and release settles with a short non-bouncing transition. The two-digit order number sits immediately beside the interval title instead of occupying its own column. |
+| D-081 | The Sequence step sheet uses the shared horizontally scrollable duration selector with shortcuts for 1, 2, 3, 5, 10, 15, 20, 25, 30, 45, and 60 minutes plus Custom. A circular play action beside the Volume slider previews the selected sound at the effective master × step level and reports preview failure gently without changing the timer. |
+| D-082 | The Android setup collection is labelled `Permissions` in both its compact row and sheet. Chandas Focus stays separate because it is a first-class timer behavior rather than merely an access grant. |
+| D-083 | Cycle and Sequence programs may store one optional custom final gong. Its switch appears in Sound only for Cycles/Duration policies, defaults Off, and preserves the established terminal sound while Off. When On, sound and level are editable/previewable and saved with configurations. At the exact terminal instant it replaces—not accompanies—the natural or synthetic completion cue. Returning to Continuous hides and ignores the setting without destroying it. Opening-gong customization remains out of scope. |
+| D-084 | Running mode is immersive: entering it hides the system status bar with an animated transition, and Stop/completion restores the status bar in setup. The running Help button uses the same 40×40 circular geometry as every other running control. |
+| D-085 | Superseded in part by D-086. The built-in library contains the existing Temple gong and Clear bell plus all sixteen supplied production recordings. Placeholder Soft bowl, Wood block, and Bright chime choices are removed from the picker; persisted references migrate respectively to Handpan, Instamatic, and Bloom. |
+| D-086 | Built-in sound IDs are OTA-owned data. Temple gong, Clear bell, and the alarm loop remain packaged native fallbacks; every other built-in is materialized from its Expo asset into an atomic, app-private persistent cache before preview, Start, restore attachment, reanchor, or a live schedule update. Native validation accepts constrained future IDs without an allowlist, and playback resolves legacy aliases before the cache. Cache failure never invalidates or stops a timer: the packaged Clear bell (or alarm loop for continuous alarm playback) is used. |
+| D-087 | `Paused by Android` is a running-session state, not a synonym for an inactive rule. A deactivation broadcast is treated as a snooze only while automation is enabled, a timer still exists, and Chandas still requests the rule active. Stop, bounded completion, failed Start, and schedule exit clear native timer state before publishing the false Focus condition. |
+| D-088 | The Android module exposes a versioned capability record and uses native safety ceilings substantially above current product limits. JavaScript retains the intentionally simple five-track/twenty-step UI, while later increases within the advertised engine envelope remain OTA-compatible. Additive program fields remain forward-compatible within schema v2; an incompatible timeline change still requires a schema/runtime increment and native build. |
+| D-089 | Changeable notification wording is an optional, bounded serialized presentation record persisted with the active native session. Kotlin owns notification channels, platform categories, intents, timing and safe fallback copy; JavaScript owns ordinary titles, bodies, actions and time templates so copy refinements do not require a new binary. Raw Focus facts are likewise bridged to JavaScript, which derives presentation precedence while preserving older-binary reasons. |
+
+---
+
+## 5. Vocabulary
+
+| Term | Meaning |
+| --- | --- |
+| Program | The current editable Pattern or Sequence configuration. |
+| Working program | The auto-saved editable program currently shown in Config. It may have been loaded from a preset but is independent of it. |
+| Preset | An immutable saved snapshot of a program. |
+| Pattern cycle | One complete main interval. |
+| Main boundary | The end of a Pattern cycle and beginning of the next. |
+| Track | A Pattern sub-bell definition with cadence, selected offsets, sound, and volume. |
+| Cadence | The minute spacing that defines the possible offsets for a Pattern track. Larger minutes mean a less frequent cadence. |
+| Cue | A logical audible event. A collision can contain multiple candidate cues but produces one winning audible cue. |
+| Sequence step | One duration in a Sequence. Its sound plays when that step ends. |
+| Sequence cycle | One traversal of every Sequence step. |
+| Anchor | The persisted reference used to locate the current cycle/step at any timestamp. |
+| Snapped Pattern | A Pattern aligned to local wall-clock time using the configured minute offset. |
+| Alarm Once | Repeat-until-dismissed behavior for the next Pattern main boundary only. |
+| Alarm Locked | Repeat-until-dismissed behavior for every Pattern main boundary until disabled. |
+| Focus automation | The user's request that Chandas activate its Android Focus rule while a running program is within active hours. |
+| Focus actual state | The current state of Chandas's owned Android rule, as reported by Android. |
+| Run policy | Whether a started configuration continues until stopped or ends after a cycle count or exact elapsed duration. |
+| Weekly window | A device-local recurring day/time range in which timer audio and Chandas Focus may be active. |
+| Availability override | A resolved absolute-time active/mute interval, designed for later calendar sync without giving the native scheduler direct calendar access. |
+
+---
+
+## 6. Information architecture
+
+### 6.1 Configuration screen
+
+The base configuration screen remains a single centered column with a fixed Start action. It shows:
+
+1. Program header:
+   - Current mode: Pattern or Sequence.
+   - Optional source line: `Loaded from Morning practice`.
+   - `Load` and `Save as` actions.
+2. Mode selector.
+3. Mode summary:
+   - Pattern: a fixed `Main interval` title, quick-duration choices, and an optional compact list of automatically ordered sub-bells.
+   - Sequence: total cycle duration and ordered step summaries; the active step editor uses the same quick-choice pattern.
+4. Sound section with visible Master volume, the primary sound choice, and a secondary full sound-levels action.
+5. Snap settings for Pattern only, with five-minute phase choices derived from the current main interval and a fixed trailing Custom action.
+6. Run length directly beneath the Pattern main settings or Sequence step list, containing Continuous and bounded Cycle/Duration choices.
+7. Schedule containing one or more weekly active windows, shown only for Continuous runs and collapsed behind a simple toggle when unused.
+8. Advanced settings containing Chandas Focus and platform access.
+9. Start.
+
+Structural track and step editing opens a focused editor. Frequently used duration and snap choices remain directly available as compact chips so Timer v2 does not add friction to existing workflows.
+
+### 6.2 Editor surfaces
+
+- Pattern editor: main settings followed by one Sub-bells switch; its timeline, rows, and Add action remain hidden while Off.
+- Track editor: cadence, sound, volume, and trigger grid.
+- Sequence editor: reorderable step list and total cycle summary.
+- Step editor: in-place title, duration, sound, and volume.
+- Preset library: grouped immutable snapshots and destructive Delete action.
+- Save As sheet: name entry and read-only program summary.
+- Sound library: Built in, Android sounds, and Device audio sources.
+- Mixer: scrollable channel list.
+- Focus details: actual Chandas rule state and Android settings actions.
+- Help: complete control reference.
+
+### 6.3 Running screen
+
+The timer ring remains the dominant visual.
+
+Pattern running state shows:
+
+- Main countdown with an outer progress ring.
+- One inner progress ring per enabled sub-track, ordered automatically from longer to shorter cadence.
+- Only the next winning sub-cue countdown and sound/track label in text.
+- No collision-resolution copy; overlap priority belongs in Pattern setup and Help.
+- Existing restart/snap, alarm, Focus, and sound controls.
+
+Sequence running state shows:
+
+- Current step countdown.
+- Step label.
+- `Step n of m` and next step summary.
+- Ring progress within the current step.
+- Alarm control hidden because continuous alarm is Pattern-only.
+
+Both modes show a quiet remaining-run summary when bounded. The timer returns to configuration after the completion cue is dispatched and native running state is durably cleared.
+
+The top-right Help button is always available. The bottom Start/Stop hierarchy remains unchanged.
+
+---
+
+## 7. Detailed interaction specifications
+
+### 7.1 Mode selection
+
+- Pattern and Sequence are presented as two segments, not a long picker.
+- Switching mode swaps the working program to the last auto-saved working program for that mode.
+- Switching does not delete either working program.
+- If no working program exists for the selected mode, create its default.
+- A running program cannot change mode. Stop is required first.
+
+### 7.2 Pattern editor
+
+The Pattern editor contains:
+
+- Main cue row: duration, sound, and relative volume.
+- A top-level Sub-bells switch followed, when enabled, by flat track rows with cadence, selected-trigger count, sound name, and enabled toggle.
+- Add track action disabled at five tracks.
+- A compact timeline preview across one main cycle.
+
+Tracks are normalized into descending cadence order. When two or more enabled tracks select the same offset, the track with the longer repeat interval wins; equal cadences retain stable source order. This makes the visible list match the collision rule without a separate priority control.
+
+The main-duration control provides `5`, `10`, `15`, `30`, `45`, and `60` minutes in a horizontally scrollable shortcut strip, with Custom fixed at the trailing edge and no duplicate numeric field. Track cadence and Sequence step duration editors use the same pattern with context-appropriate values. A selected custom value replaces the Custom label without an icon. Pattern snap derives five-minute phase shortcuts from the current main interval and uses the same fixed Custom/modal behavior.
+
+Disabling a track preserves all settings and selections but removes it from scheduling and collision calculations.
+
+Changing the main duration:
+
+- Retains track cadence.
+- Drops selected offsets that are no longer strictly inside the main duration.
+- Shows a confirmation when at least one selected offset would be removed.
+- When growing, repeats the existing occurrence-selection mask forward. An all-selected or previously empty lattice selects every newly available occurrence.
+
+### 7.3 Track editor and trigger grid
+
+For main duration `M` and track cadence `C`, potential offsets are:
+
+`C, 2C, 3C, ... kC`, where `0 < kC < M`.
+
+The main boundary `M` is never present in the grid.
+
+Grid controls:
+
+- `Select all` selects every potential offset.
+- `Clear` removes every selection.
+- Tapping a cell toggles it.
+- Dragging begins a paint session. The first newly touched cell establishes the target state; every newly entered cell receives that state.
+- Re-entering a cell within the same gesture does not toggle it again.
+- Disabled tracks remain editable but are visually labelled Off.
+
+Collision display stays out of the normal editor. The automatic rule is documented in Help, while selected cells retain one consistent visual treatment regardless of whether another sub-bell shares the same minute.
+
+Example:
+
+- Main: 30 minutes.
+- Track A: every 2 minutes, selected at 2, 10, and 28.
+- Track B: every 5 minutes, selected at 5, 10, and 25.
+- Track B appears above Track A automatically because five minutes is the longer cadence.
+- At minute 10, Track B wins because its repeat interval is longer.
+
+### 7.4 Sequence editor
+
+- Supports 1–20 steps.
+- Each row shows drag handle, ordinal, duration, label, sound, and volume.
+- Add appends a default five-minute step.
+- Duplicate inserts a copy immediately after its source with a new stable ID.
+- Delete requires confirmation only when it would remove non-default edits; the final remaining step cannot be deleted.
+- Dragging a handle lifts the row, slightly scales it, and dims its original slot.
+- Haptics:
+  - Medium impact on lift.
+  - Selection tick when crossing a valid insertion boundary.
+  - Light impact on drop.
+- Accessible custom actions: Move up and Move down.
+
+The header shows total cycle duration. Each step sound fires at the end of that step. The final step's sound marks the cycle boundary; step 1 then begins immediately.
+
+### 7.4.1 Run length
+
+Run length is configured independently for Pattern and Sequence and is included in Save As snapshots.
+
+- `Continuous` is the default and has no automatic end.
+- `Cycles` accepts a whole number from 1–999.
+  - Pattern copy uses `main cycles`.
+  - Sequence copy uses `rounds`, with `cycle` retained in Help as the formal term.
+- `Duration` accepts hours and minutes and normalizes them to a whole-minute total from 1 minute through 359:59. The domain/native representation remains seconds for compatibility, always as a multiple of 60 when edited by this UI.
+- Switching between choices preserves the most recently entered valid cycle count and duration so experimentation is reversible; only the selected policy is scheduled.
+- The setup summary states the concrete outcome, for example `Ends after 6 main cycles · 3:00:00` or `Ends after 45:00`.
+- Start is unavailable only while the selected bound is invalid. Validation is local, calm, and specific; it never erases the user's last valid value.
+
+Bound semantics:
+
+- The run epoch begins when Start is accepted. A snapped Pattern may use an earlier lattice anchor for cue phase, so the session separately persists `startedAt`; duration bounds are always measured from `startedAt`, not from the phase anchor.
+- Start derives and persists a fixed `endsAt`. Timezone/DST realignment may move a snapped Pattern's cue phase but never silently lengthens or shortens the promised session; if a former cycle terminal no longer coincides with a realigned main boundary, it becomes the same one-shot synthetic completion event used by a duration bound.
+- A cycle bound ends after the requested number of natural cycle boundaries strictly following Start. It includes exactly the requested number of newly completed Pattern main intervals or Sequence rounds; a snapped boundary coincident with the Start tap is not counted retroactively.
+- A duration bound ends at `startedAt + durationSeconds × 1000`.
+- Focus state, calls, and user mute may gate sound but never extend the deadline. Schedule is not applied to a bounded run.
+- At an exact collision between the deadline and a normal event, the event is marked `completesRun` and is delivered once.
+- At a between-cue deadline, a synthetic `run-complete` event uses the Pattern main cue or Sequence final-step cue.
+- A delivery recovered after the deadline clears the run without replaying a stale completion cue.
+- Alarm Once/Locked never converts a bounded completion into a looping alarm; bounded completion is one-shot and terminal.
+
+### 7.4.2 Schedule and multiple active windows
+
+The schedule card is intentionally lightweight:
+
+- It is available only when the selected run length is Continuous. Choosing a bounded run hides and ignores it without deleting any saved ranges.
+- Off means always available.
+- On reveals an ordered list of weekly windows plus `Add time range`.
+- Each window has a concise day summary, start/end times, and an enabled switch.
+- Tapping a row opens its focused editor. The editor reuses the seven day buttons and start/end pickers.
+- New windows default to the days of the most recently edited window and a non-overlapping daytime range when one can be inferred; otherwise they use every day, 08:00–22:00.
+- Removing the final window leaves an empty state and disables Start until a window is added or Schedule is switched Off.
+- Up to 16 weekly windows are supported. This is enough for split-day schedules without creating an unwieldy foreground/native payload.
+- Overlap is allowed. The union is active, and a small `Overlaps another range` note is informational rather than an error.
+- Equal endpoints retain the existing all-day meaning for that window on its selected start days.
+- Cross-midnight windows retain start-day attribution.
+
+The currently hidden calendar-ready layer is a list of resolved absolute-time overrides. Later, a calendar-selection UI can translate chosen event slots into overrides and persist a bounded horizon. The availability resolver applies this order:
+
+1. If Schedule is Off, the weekly base is active; if On, the weekly-window union is the base.
+2. Matching `active` overrides may open otherwise inactive time.
+3. Matching `mute` overrides always close it and win over both weekly windows and active overrides.
+4. Expired overrides are ignored and may be pruned safely.
+
+Android receives only normalized weekly windows and resolved overrides. It does not read calendars itself, so future calendar permission, account selection, and sync failures remain isolated from exact timer delivery.
+
+### 7.5 Preset library
+
+Preset records are immutable.
+
+Save As flow:
+
+1. Open Save As.
+2. Enter a non-empty name of at most 80 Unicode characters.
+3. Review mode and concise structure summary.
+4. Save creates a new UUID and timestamp.
+5. The working program records the new preset as its source for informational display only.
+
+Duplicate names are permitted. The UI always displays mode, created date/time, and summary so duplicates remain distinguishable.
+
+Load flow:
+
+1. Open Load.
+2. Browse all presets grouped by mode or filter to the current mode.
+3. Tap a preset to inspect its full read-only summary.
+4. Confirm Load.
+5. Deep-copy it into the corresponding working program and switch mode if necessary.
+6. Subsequent edits never mutate the preset.
+
+Delete flow:
+
+1. Open preset overflow action.
+2. Confirm using the preset name and saved date.
+3. Delete only the preset record.
+4. If that preset is currently loaded, the working copy remains intact and its source becomes `Deleted preset` until next Save As/load.
+
+### 7.6 Sound library
+
+Every sound selection resolves to one of:
+
+- Built-in sound ID.
+- Android ringtone URI plus display metadata.
+- Persisted document URI plus display metadata.
+
+The Sound sheet has three sources:
+
+1. Built in — eighteen bundled recordings with preview.
+2. Android sounds — launches the Android alarm/notification sound picker.
+3. Device audio — launches the Android document picker filtered to `audio/*` and requests persistable read access.
+
+Preview:
+
+- Stops the previous preview before starting another.
+- Uses alarm audio routing so preview loudness matches timer playback behavior.
+- Applies master × channel relative volume.
+- Never changes the system Alarm volume.
+
+Unavailable URI behavior:
+
+- Retain the original metadata so the user understands what disappeared.
+- Mark it `Unavailable` in editors and the Mixer.
+- Play the built-in fallback at runtime.
+- Offer Replace; do not repeatedly launch a picker automatically.
+
+### 7.7 Mixer
+
+Pattern channels:
+
+- Master.
+- Main.
+- One row for every track, including disabled tracks.
+
+Sequence channels:
+
+- Master.
+- One row for every step.
+
+Each cue row includes:
+
+- Drag-independent cue identity/label.
+- Sound name.
+- Preview action.
+- 0–100% relative volume slider.
+- Current percentage using tabular numerals.
+
+The Master row controls a global 0–100% scalar. It is not saved inside a preset. Setting Master to zero is a persistent master level, not a timed mute. Timed mute remains a separate runtime control and restores to the existing master level.
+
+The running Sound & Mute control continues to expose the existing `1×`, `2×`, `3×`, and custom-minute choices. It may share a sheet with Master and channel levels, but these mute choices must not be buried behind an additional settings route or removed from the running workflow.
+
+The system Alarm volume appears as a read-only explanatory footer, not as an app-controlled slider.
+
+### 7.8 Alarm gesture and state machine
+
+States:
+
+- `off`
+- `once`
+- `locked`
+
+Transitions:
+
+| Current | Single tap | Double tap | Main alarm fires |
+| --- | --- | --- | --- |
+| Off | Once | Locked | No change |
+| Once | Off | Locked | Off |
+| Locked | Off | Off | Locked |
+
+Implementation uses exclusive single/double gesture recognition. A single tap is committed only after the double-tap window expires, preventing a transient Once state during a double tap.
+
+Visual state:
+
+- Off: muted border and icon.
+- Once: accent border/glow and `1` badge.
+- Locked: accent-filled or stronger glow plus lock badge.
+
+Haptics:
+
+- Once: light/selection feedback.
+- Locked: medium confirmation feedback.
+- Off: soft feedback.
+
+Long press opens the tooltip and never changes alarm state.
+
+### 7.9 Mute behavior
+
+Mute state is independent from volume state.
+
+Pattern iteration mute:
+
+- When armed for `N` iterations at time `t`, determine the next `N` Pattern main boundaries.
+- Suppress every sub cue and intermediate main boundary strictly before the Nth ending boundary.
+- Allow the Nth boundary to sound.
+- Clear mute immediately before processing that final boundary.
+
+Therefore, `Mute 1×` silences sub-bells until the next main gong, but the next main gong is heard.
+
+Sequence iteration mute:
+
+- `N×` means N complete Sequence cycles.
+- Suppress step-end cues before the Nth cycle boundary.
+- Allow the final step sound at the Nth cycle boundary, then clear mute.
+
+Minute mute:
+
+- Store an absolute end timestamp.
+- Events with timestamps strictly before the end are muted.
+- The first event at or after the end plays normally.
+
+Configuration or timezone changes that invalidate a stored iteration boundary clear iteration mute and emit a control-state update; timestamp mute remains valid.
+
+### 7.9.1 Call-aware automatic mute
+
+- When Android reports an active call, Chandas suppresses normal one-shot cue audio immediately.
+- This is separate from user mute. Master and individual cue-volume settings remain unchanged, and timed/iteration mute is neither created nor consumed.
+- Missed cues are not replayed after a call. On call end, the scheduler re-evaluates from the current timestamp and resumes at the next eligible future cue.
+- Continuous Alarm behavior remains governed by the user’s alarm choice and Android’s alarm/call policy; implementation must never attempt to alter call audio or device call volume.
+- The running UI may show a quiet `Muted during call` status, but must not present it as a durable user setting.
+
+### 7.10 Help and tooltips
+
+- A `?` button appears in the running screen's top-right corner.
+- It opens a scrollable Timer Controls sheet.
+- Every icon control supports a long-press tooltip with label and concise behavior.
+- Tooltips dismiss on tap elsewhere, another tooltip, app backgrounding, or a short timeout.
+- Tooltips do not contain actions; the Help sheet contains actionable links where needed.
+
+Help topics:
+
+- Restart and Snap.
+- Alarm Off/Once/Locked gestures.
+- Focus states and Android DND access.
+- Master volume, Mixer, and phone Alarm volume.
+- Timed and iteration mute behavior.
+- Pattern collision precedence.
+- Sequence step/cycle semantics.
+- Active hours and timezone behavior.
+
+---
+
+## 8. Data model
+
+The following interfaces are normative shapes. Exact file separation may change, but names and semantics should remain recognizable.
+
+```ts
+type TimerMode = 'pattern' | 'sequence'
+
+type BuiltInSoundId =
+  | 'temple-gong'
+  | 'clear-bell'
+  | 'soft-bowl'
+  | 'wood-block'
+  | 'bright-chime'
+
+type SoundRef =
+  | { kind: 'builtin'; id: BuiltInSoundId }
+  | {
+      kind: 'android'
+      uri: string
+      title: string
+      ringtoneType: 'alarm' | 'notification' | 'unknown'
+    }
+  | {
+      kind: 'document'
+      uri: string
+      title: string
+      mimeType?: string
+    }
+
+interface CueSettings {
+  sound: SoundRef
+  volume: number // normalized 0..1
+}
+
+interface RunPolicy {
+  kind: 'continuous' | 'cycles' | 'duration'
+  cycleCount: number // preserved while another kind is selected
+  durationSeconds: number // preserved while another kind is selected
+}
+
+interface PatternTrack extends CueSettings {
+  id: string
+  label: string
+  enabled: boolean
+  cadenceMinutes: number
+  selectedOffsetsMinutes: number[]
+}
+
+interface PatternProgram {
+  schemaVersion: 2
+  mode: 'pattern'
+  label: string
+  mainMinutes: number
+  mainCue: CueSettings
+  completionCue: CueSettings | null
+  tracks: PatternTrack[]
+  alignment:
+    | { kind: 'elapsed' }
+    | { kind: 'local-clock'; offsetMinutes: number }
+  runPolicy: RunPolicy
+}
+
+interface SequenceStep extends CueSettings {
+  id: string
+  durationMinutes: number
+  label: string
+}
+
+interface SequenceProgram {
+  schemaVersion: 2
+  mode: 'sequence'
+  steps: SequenceStep[]
+  completionCue: CueSettings | null
+  runPolicy: RunPolicy
+}
+
+type TimerProgram = PatternProgram | SequenceProgram
+
+interface ProgramPreset {
+  id: string
+  name: string
+  createdAt: number
+  program: TimerProgram
+}
+
+interface WorkingProgramState {
+  pattern: PatternProgram
+  sequence: SequenceProgram
+  selectedMode: TimerMode
+  sourcePreset?: {
+    id: string
+    name: string
+    createdAt: number
+    deleted?: boolean
+  }
+}
+```
+
+Common/global settings remain separate:
+
+```ts
+interface AppTimerSettings {
+  masterVolume: number
+  advancedModeEnabled: boolean
+  alarmSound: SoundRef
+  alarmVolume: number
+  notificationsEnabled: boolean
+  liveCountdownEnabled: boolean
+  muteDuringCallsEnabled: boolean
+  availability: {
+    enabled: boolean
+    weeklyWindows: Array<{
+      id: string
+      enabled: boolean
+      startMinutes: number
+      endMinutes: number
+      days: number
+    }>
+    overrides: Array<{
+      id: string
+      startAt: number
+      endAt: number
+      behavior: 'active' | 'mute'
+      source: 'calendar'
+      sourceId?: string
+    }>
+  }
+  focusAutomationEnabled: boolean
+  alarmDurationSeconds: number
+}
+
+type AlarmBehavior = 'off' | 'once' | 'locked'
+
+interface NativeFocusState {
+  policyAccess: boolean
+  automationEnabled: boolean
+  ruleExists: boolean
+  ruleEnabled: boolean
+  actual: 'inactive' | 'active' | 'unknown'
+  reason:
+    | 'off'
+    | 'timer-stopped'
+    | 'outside-active-hours'
+    | 'active'
+    | 'paused-by-android'
+    | 'rule-disabled'
+    | 'access-required'
+    | 'unknown'
+}
+```
+
+Validation:
+
+- Minutes are positive integers.
+- Main and step durations remain within 1–240 minutes unless a future decision changes the existing bound.
+- Pattern cadence is 1–240 minutes. A cadence may exceed the current main duration; its selectable offset lattice is then empty until the main duration grows again.
+- Track count is 0–5.
+- Sequence step count is 1–20.
+- Offsets are unique within a track and satisfy `offset % cadence === 0` and `0 < offset < mainMinutes`.
+- Volumes are finite and clamped to 0–1.
+- Labels are trimmed and at most 60 Unicode characters.
+- Preset names are trimmed, non-empty, and at most 80 Unicode characters.
+- IDs are stable UUIDs and are never inferred from array index.
+- Run cycle counts are whole numbers from 1–999.
+- Run durations are whole seconds from 1–1,295,999 (`359:59:59`).
+- Weekly-window count is 0–16; its IDs are unique, minutes lie in 0–1,439, and days use a Sunday-first seven-bit mask.
+- Availability override count is bounded, IDs are unique, timestamps are finite, and `endAt > startAt`. Unknown sources/behaviors and expired records are ignored safely.
+
+---
+
+## 9. Persistence and migration
+
+### 9.1 Proposed keys
+
+| Key | Owner | Contents |
+| --- | --- | --- |
+| `chandas-working-programs-v2` | AsyncStorage | Both working programs, selected mode, informational preset source |
+| `chandas-program-presets-v1` | AsyncStorage | Immutable preset array |
+| `chandas-app-timer-settings-v2` | AsyncStorage | Master volume, active hours, Focus preference, notification/alarm settings |
+| `chandas-session-v2` | AsyncStorage | JS-visible running-session summary |
+| `chandas-native-state` | Android SharedPreferences | Authoritative restorable native running program and control state |
+
+The implementation may use differently named keys but must keep v1 data intact until a successful v2 write completes.
+
+### 9.2 Legacy migration
+
+Given the existing flat configuration:
+
+- Create a Pattern program.
+- `mainMinutes = mainInterval`.
+- Main sound = built-in `temple-gong`.
+- Main relative volume = 1.
+- If sub is enabled, create one enabled track:
+  - cadence = `subInterval`.
+  - selections = every valid multiple of cadence inside main.
+  - sound = built-in `clear-bell`.
+  - relative volume = 1.
+- If sub is disabled, create the same track disabled so its settings are not lost.
+- Existing `volume` becomes global `masterVolume`.
+- The global alarm sound defaults to Sine alarm and its independent relative volume defaults to 1.
+- Existing snap setting becomes Pattern alignment.
+- Existing active-hours, Focus, notification, and alarm-duration values move to global settings.
+- Existing continuous `alarmModeEnabled` does not become a persistent locked runtime state; default runtime alarm behavior is Off after migration.
+- Create the default Sequence working program without selecting it.
+- Do not create an automatic preset from legacy config.
+
+Migration requirements:
+
+- Idempotent.
+- Parse defensively and clamp invalid values.
+- Write v2 records before recording migration completion.
+- Never delete the old keys during the initial Timer v2 release.
+- On failure, fall back to v2 defaults and preserve old storage for diagnosis.
+
+### 9.3 Native persistence
+
+The Kotlin state store must persist the complete running program as a versioned JSON payload or an equivalent lossless representation. It must also persist:
+
+- Program anchor and anchor kind.
+- Selected mode.
+- Next scheduled event identity and timestamp.
+- Alarm behavior.
+- Alarm-visible/ringing state.
+- Timestamp mute or iteration-mute boundary identity.
+- Focus automation state required for restoration.
+- Resolved sound references and fallback IDs.
+- Session `startedAt`, distinct from the cue-phase anchor.
+- The immutable run policy and derived terminal event/deadline.
+- The normalized availability policy, including future resolved overrides.
+
+Native deserialization must reject unsupported future schema versions without crashing and clear only the invalid running session, not AsyncStorage presets.
+
+---
+
+## 10. Timeline and scheduling specification
+
+### 10.1 Timeline engine output
+
+Both TypeScript and Kotlin engines expose equivalent operations:
+
+```ts
+interface TimelineCueCandidate {
+  cueId: string
+  kind: 'pattern-main' | 'pattern-track' | 'sequence-step'
+  sound: SoundRef
+  volume: number
+  cadenceMinutes?: number
+  trackOrder?: number
+}
+
+interface ScheduledProgramEvent {
+  at: number
+  logicalId: string
+  cycleIndex: number
+  candidates: TimelineCueCandidate[]
+  winner: TimelineCueCandidate
+  collision: boolean
+  completesRun: boolean
+}
+
+interface TimelinePosition {
+  mode: TimerMode
+  cycleIndex: number
+  cycleProgress: number
+  currentStepIndex?: number
+  stepProgress?: number
+  nextEvent: ScheduledProgramEvent
+}
+```
+
+`logicalId` must be deterministic for the same program, anchor, cycle, and boundary. It is used to deduplicate receiver delivery and avoid replaying visual events.
+
+### 10.2 Pattern elapsed alignment
+
+- Start sets an epoch anchor at the moment Start is accepted.
+- Cycle `n` begins at `anchor + n × mainDuration`.
+- Track offsets are added to each cycle start.
+- Main cue occurs at the cycle end.
+- Restart Unsynced creates a new elapsed anchor at the restart moment.
+
+### 10.3 Pattern local-clock alignment
+
+- Treat the configured offset as a minute position in local civil time.
+- Find the next local occurrence on the repeating main-duration lattice.
+- Convert it to an epoch timestamp using the current system timezone rules.
+- Re-evaluate after every event and after time/timezone/offset broadcasts.
+- Do not represent this mode as a permanently fixed UTC phase.
+- During ambiguous or skipped DST civil times, choose the first strictly future valid instant and enforce logical-event deduplication. Never emit a rapid catch-up sequence.
+
+### 10.4 Sequence alignment
+
+- Start anchor is the accepted Start timestamp.
+- Cycle duration is the sum of step durations.
+- Step-end offsets are cumulative step durations.
+- The final step-end is the cycle boundary and carries only the final step's cue.
+- A restored session derives current cycle and step from the persisted anchor and current time.
+- There is no snap-to-clock behavior in Sequence v2.
+
+### 10.5 Collision resolution
+
+At a Pattern timestamp with multiple enabled track candidates:
+
+1. Sort by cadence descending.
+2. The first candidate is the winner.
+3. Preserve stable track order as the tie-breaker for equal cadences.
+4. Preserve every candidate in the scheduled event for test evidence.
+5. Play and notify only the winner.
+
+The scheduler must not flatten selections in a way that loses the candidate list. Programs are persisted and sent to the existing native scheduler in this same automatically sorted order.
+
+### 10.6 Active-hours gate
+
+Before scheduling or firing:
+
+- Determine active status using current local timezone, selected day mask, and cross-midnight rules.
+- If inactive, schedule `ACTIVE_START` at the next local active start.
+- On `ACTIVE_START`, do not play anything. Re-evaluate program position and schedule the first future cue.
+- If an event arrives after active hours closed, suppress it and schedule the next active start.
+- Never replay events skipped while inactive.
+
+For multiple weekly windows, `isActive` evaluates their union and `nextStart` chooses the earliest strictly future start among all enabled, selected-day windows. `currentWindowEnd` finds the end of the connected active union, including overlapping and exactly adjacent windows; it must not pause Focus at an internal boundary where another window keeps availability active.
+
+Absolute availability overrides use epoch timestamps and therefore retain their real-world instant through timezone changes. Weekly windows are civil-time values and are re-evaluated in the new timezone. A matching mute override always wins.
+
+### 10.6.1 Bounded terminal event
+
+- The runtime derives one terminal timestamp from `startedAt`, the run policy, and the program cycle duration.
+- For `cycles`, terminal time is `startedAt + count × cycleDuration` for elapsed programs. For a snapped Pattern, it is the `count`th main boundary strictly after `startedAt` so requested cycles are never shortened by an earlier phase anchor.
+- For `duration`, terminal time is exactly `startedAt + seconds × 1000`.
+- The next scheduler target is the earlier of the next normal cue and the terminal timestamp.
+- Equality produces one normal event with `completesRun: true`; strict terminal precedence produces a synthetic `run-complete` event.
+- After validating and delivering a terminal event, native clears persisted active state, future alarms, Focus condition, and the running notification before playback begins. One-shot playback may finish independently.
+- If restoration occurs at or after a missed terminal timestamp, clear the run silently. Do not replay stale completion audio.
+
+### 10.7 Event delivery order
+
+For a valid fired event:
+
+1. Validate it matches the persisted next logical event.
+2. Clear persisted next-event identity.
+3. Re-evaluate active hours.
+4. Resolve/advance mute state.
+5. Consume Alarm Once if the event is a Pattern main boundary.
+6. Post any configured notification.
+7. Schedule the next event before starting playback.
+8. Emit an in-process timer-event signal with timestamp, winner, collision, and whether sound was suppressed.
+9. Play one-shot or start continuous alarm if allowed.
+
+For a terminal event, step 7 is replaced by durable session completion. It is still performed before one-shot playback.
+
+Scheduling the next event before playback prevents a slow/missing audio URI from breaking the timer.
+
+---
+
+## 11. Android audio architecture
+
+### 11.1 Audio routing
+
+- Every one-shot cue uses `AudioAttributes.USAGE_ALARM` and sonification content type.
+- Continuous alarms continue to request exclusive transient audio focus and use the alarm usage.
+- App relative volume is applied with `MediaPlayer.setVolume` or the chosen equivalent.
+- Chandas never changes the system Alarm stream volume.
+
+### 11.2 Sound resolver
+
+Create a single native resolver accepting `SoundRef` and fallback built-in ID.
+
+- Built in: resolve to `res/raw` resource descriptor.
+- Android sound: open the content URI.
+- Document: open through `ContentResolver` using persisted permission.
+- Failure: record availability false, resolve fallback, and continue.
+
+All players must close descriptors, release on completion/error, and protect completion callbacks from multiple invocation.
+
+### 11.3 Built-in sound library
+
+Stable IDs and intended character:
+
+| ID | Display name | Character |
+| --- | --- | --- |
+| `temple-gong` | Temple gong | Deep and spacious |
+| `clear-bell` | Clear bell | Light and direct |
+| `bloom` | Bloom | Soft and unfolding |
+| `boxing-bell` | Boxing bell | Sharp metallic strike |
+| `bubble` | Bubble | Round liquid pop |
+| `champagne` | Champagne | Bright sparkling pop |
+| `cymbal` | Cymbal | Short metallic shimmer |
+| `handpan` | Handpan | Warm and resonant |
+| `heartbeat` | Heartbeat | Soft double pulse |
+| `ice` | Ice | Crisp glassy tap |
+| `instamatic` | Instamatic | Mechanical camera click |
+| `mouse-click` | Mouse click | Small dry click |
+| `page` | Page | Light paper flick |
+| `sine-bass` | Sine bass | Low pure tone |
+| `sine-high` | Sine high | High sustained tone |
+| `sine-low` | Sine low | Low sustained tone |
+| `water-drop` | Water drop | Clear water plink |
+| `wind` | Wind | Soft airy sweep |
+
+The source library's four 24-bit PCM WAV recordings are bundled as 16-bit PCM WAV for wider Android decoder compatibility; their timing and content are otherwise unchanged. Compatibility normalization rewrites old `soft-bowl`, `wood-block`, and `bright-chime` references to `handpan`, `instamatic`, and `bloom`. Native playback resolves those aliases to the same cached files until any already-running or pre-normalized program has been recovered.
+
+### 11.4 OTA-to-native sound cache
+
+The Android binary packages only Temple gong, Clear bell, and the continuous alarm loop as guaranteed fallbacks. All other built-in recordings remain normal statically required Expo assets, so EAS Update includes new or changed files in its manifest.
+
+Before a native schedule can reference a built-in sound, JavaScript calls `Asset.downloadAsync()` and receives a local cache URI. The native module copies that file into `<filesDir>/timer-sounds/<sound-id>.audio` using `AtomicFile`, keyed by the Expo asset hash. This second copy is deliberate: Expo's downloaded asset resides in cache storage and Android may evict it between sessions, while `filesDir` persists across process death, reboot, and application updates. A replacement is committed only after a non-empty, size-bounded copy completes, syncs, and—when Expo provides its MD5—matches the expected content hash; an interrupted or mismatched update leaves the previous sound intact.
+
+The native scheduler treats built-in IDs as data matching `^[a-z](?:[a-z0-9-]{0,62}[a-z0-9])?$`. It does not contain a per-sound allowlist. The JavaScript library remains authoritative for what the user can select, while the constrained native format prevents path traversal, numeric resource-ID confusion, and unbounded identifiers. `MediaPlayer` receives an open file descriptor rather than the private pathname, preserving access across Android media-process implementations.
+
+This architecture means adding or replacing a normal library sound requires only a static JavaScript `require`, library metadata, and an OTA publication after the cache-capable binary has shipped. App icons, splash/config-plugin assets, native notification resources, and the three packaged fallbacks still require a binary when changed.
+
+---
+
+## 12. Focus/DND architecture
+
+### 12.1 State separation
+
+Focus comprises three separate facts:
+
+1. Automation preference: should Chandas request its rule during a valid running window?
+2. Requested condition: does the current timer/active-hours state call for activation?
+3. Actual Android rule state: is the owned rule active, inactive, disabled, missing, or unknown?
+
+No UI may call Focus Active based solely on facts 1 or 2.
+
+### 12.2 Rule policy
+
+- Use `INTERRUPTION_FILTER_PRIORITY`.
+- Explicitly allow alarm-category audio.
+- Leave unrelated categories/effects unset when creating the policy.
+- Do not replace a user-modified policy during routine activation refresh.
+- For APIs that retain previous ZenPolicy when update policy is null, update only metadata that genuinely changed.
+- Allow manual invocation where supported.
+
+### 12.3 Refresh versus reconcile
+
+Read-only refresh:
+
+- Query access, rule existence, enabled state, and actual activation.
+- Derive a UI reason.
+- Emit state.
+- Never publish a condition.
+
+Reconcile:
+
+- Runs on Start, Stop, Focus preference change, active-hours boundary, time/timezone change, and program restoration.
+- Publishes only when the desired condition genuinely transitions.
+- Records last requested condition.
+
+### 12.4 Android overrides
+
+- Rule activated manually: reflect Active when Android reports it.
+- Rule deactivated/snoozed manually: reflect Paused in Android; do not republish True until the requested condition has first transitioned False and later True.
+- Rule disabled: set automation preference false and emit Rule disabled.
+- Rule removed: clear stored rule ID, set automation preference false, and recreate only after the user explicitly enables automation again.
+- Policy access revoked: report DND access required and do not claim activation.
+
+Only the Chandas-owned rule is presented. Other active system rules are neither named nor displayed.
+
+### 12.5 Native event
+
+```ts
+addListener(
+  'onFocusStateChanged',
+  listener: (state: NativeFocusState) => void,
+): EventSubscription
+```
+
+App startup and foregrounding perform the read-only query, then rely on events while mounted.
+
+---
+
+## 13. Native bridge surface
+
+The existing module should evolve toward the following conceptual surface:
+
+```ts
+interface NativeRunningProgram {
+  schemaVersion: 2
+  program: TimerProgram
+  anchor: {
+    kind: 'elapsed' | 'local-clock'
+    epochMs: number
+  }
+  settings: AppTimerSettings
+}
+
+interface NativeTimerState {
+  active: boolean
+  ringing: boolean
+  program?: TimerProgram
+  anchor?: NativeRunningProgram['anchor']
+  nextEvent?: ScheduledProgramEvent
+  alarmBehavior: AlarmBehavior
+  controls: NativeControlState
+  focus: NativeFocusState
+}
+
+start(config: NativeRunningProgram): void
+update(patch: NativeProgramPatch): void
+stop(): void
+getState(): NativeTimerState
+setAlarmBehavior(value: AlarmBehavior): void
+muteForIterations(count: number): void
+muteForMinutes(minutes: number): void
+clearMute(): void
+getFocusState(): NativeFocusState
+setFocusAutomationEnabled(enabled: boolean): void
+openNotificationPolicySettings(): void
+pickAndroidSound(): Promise<SoundRef | null>
+pickAudioDocument(): Promise<SoundRef | null>
+previewSound(sound: SoundRef, volume: number): Promise<void>
+stopSoundPreview(): void
+```
+
+Events:
+
+- `onTimerEventFired`
+- `onAlarmStateChanged`
+- `onControlStateChanged`
+- `onFocusStateChanged`
+- Optional `onSoundAvailabilityChanged`
+
+Large structured records may cross as JSON strings if Expo Record nesting becomes brittle, but validation must occur on both sides.
+
+---
+
+## 14. React Native architecture and file plan
+
+Suggested new or replaced files:
+
+```text
+src/
+  types/
+    timer-program.ts
+    native-timer.ts
+  lib/
+    timeline.ts
+    collision-resolution.ts
+    program-validation.ts
+    config-migration.ts
+    preset-storage.ts
+    working-program-storage.ts
+  hooks/
+    use-timer.ts
+    use-program-library.ts
+    use-sound-picker.ts
+  components/
+    mode-selector.tsx
+    program-header.tsx
+    pattern-summary.tsx
+    pattern-editor.tsx
+    pattern-track-row.tsx
+    trigger-grid.tsx
+    sequence-summary.tsx
+    sequence-editor.tsx
+    sequence-step-row.tsx
+    drag-handle.tsx
+    preset-library-sheet.tsx
+    save-preset-sheet.tsx
+    sound-picker-sheet.tsx
+    mixer-sheet.tsx
+    focus-status.tsx
+    timer-help-sheet.tsx
+    control-tooltip.tsx
+  screens/
+    config-screen.tsx
+    running-screen.tsx
+```
+
+Native additions/refactors:
+
+```text
+modules/chandas-timer-service/android/src/main/java/.../
+  ProgramConfig.kt
+  ProgramJson.kt
+  ProgramTimeline.kt
+  PatternTimeline.kt
+  SequenceTimeline.kt
+  CollisionResolver.kt
+  SoundRef.kt
+  TimerSoundResolver.kt
+  TimerEventRegistry.kt
+  FocusState.kt
+```
+
+Existing `TimerScheduler`, `TimerStateStore`, `FocusModeController`, `TimerSoundPlayer`, `TimerRestoreReceiver`, module bridge, and notifications are refactored to consume these types.
+
+File naming in new TypeScript files should be kebab-case. Existing files can be renamed as part of the cohesive refactor if imports are updated atomically.
+
+---
+
+## 15. Visual and motion specification
+
+### 15.1 Visual thesis
+
+> A quiet instrument panel: near-black surfaces, precise mono numerals, and a single violet rhythm signal.
+
+Retain the existing tokens:
+
+- Background `#0b0c10`.
+- Surface `#16171e`.
+- Elevated surface `#1e1f28`.
+- Accent `#7c6ff7`.
+- Primary text `#e8e8f0`.
+- Muted text `#5a5a72`.
+
+Use cards only when the surface itself is interactive, such as a reorderable step or a preset snapshot. Ordinary sections rely on spacing and dividers.
+
+### 15.2 Typography
+
+- JetBrains Mono Light for timer numerals.
+- JetBrains Mono Regular for compact timing metadata.
+- Platform system sans-serif for labels and controls.
+- Section labels remain uppercase, 11px-equivalent, and generously tracked.
+- Numeric values use tabular numerals.
+
+### 15.3 Motion
+
+- Sheets rise with a short eased transform and fade backdrop.
+- Mode content crossfades with a small vertical shift.
+- Dragged rows lift 2–4px, scale approximately 1.015, and cast one restrained shadow.
+- Timer cue flashes are event-driven and use the existing single/three-pulse vocabulary.
+- Overlap winner changes briefly illuminate the winning grid cell after reordering.
+- Respect reduced-motion settings by removing scale/translation while retaining opacity/state changes.
+
+### 15.4 Haptics
+
+- Drag lift: medium.
+- Reorder boundary: selection.
+- Drop: light.
+- Alarm Once: selection/light.
+- Alarm Locked: medium.
+- Alarm Off: soft/light.
+- Destructive preset delete confirmation: warning notification feedback after confirmation, not before.
+
+---
+
+## 16. Error and edge-state requirements
+
+- Exact-alarm access unavailable: block Start and direct to Android settings as today; do not silently promise exact timing.
+- Notification permission denied: continue only according to existing Android foreground/alarm constraints and show the required status; do not crash.
+- DND policy access missing: timer runs, Focus reports Access required, sounds still follow the alarm stream and system policy.
+- Selected sound unavailable: fallback sound plays; editor shows Replace.
+- Empty preset library: explain Save As in one sentence and show no decorative empty-state art.
+- Maximum tracks/steps: disable Add with an accessible explanation.
+- Corrupt preset: omit it from Load, keep the raw record for diagnostic logging if practical, and do not fail the whole library.
+- Program edited while running: only explicitly live-editable values—master/channel volume, mute, alarm state, Focus preference—update immediately. Structural edits require Stop.
+- Time change moves an event into the past: schedule the next strictly future logical event without catch-up.
+- Process starts from a stale event PendingIntent: reject it using persisted logical ID/timestamp matching.
+- Equal sound URI titles: identity remains URI/ID, not display title.
+
+---
+
+## 17. Accessibility requirements
+
+- Minimum 44×44 logical-point touch targets, even when visual controls are 36px circles.
+- Every icon has label, state, and hint.
+- Alarm labels explicitly announce Off, next main only, or every main.
+- Trigger cells announce minute offset, selected state, collision state, and winner.
+- Drag rows expose adjustable/move actions; reordering is never gesture-only.
+- Preset summaries are readable as one logical accessibility element with separate Load/Delete actions.
+- Sliders announce channel name and percentage.
+- Focus status never relies on color or border alone.
+- Overlap winners use text/icon in addition to accent fill.
+- Help content is scrollable, focus-trapped while presented, and returns focus to the Help button on close.
+- Reduced motion is honored.
+
+---
+
+## 18. Performance and limits
+
+- Pattern grids may contain up to 239 cells per track. Render only the expanded track editor, not every track's complete grid on the base screen.
+- Memoize collision results by program revision.
+- Avoid per-frame timeline object allocation in the running UI; update display on a bounded interval or animation frame only where required for the ring.
+- Do not bridge countdown updates. Bridge structural/control changes and actual events only.
+- Schedule one next Android event at a time, as in the current architecture.
+- Stop/release audio previews on sheet close, app background, and component unmount.
+- Preset payloads are small enough for AsyncStorage; no database is required in v2.
+
+---
+
+## 19. Test plan
+
+### 19.1 TypeScript unit tests
+
+Timeline fixtures:
+
+- Pattern 30 minutes, cadence 2, selected 2 and 28.
+- Pattern collision: cadence 2 and 5 both selected at 10; cadence 5 wins.
+- Equal-cadence collision changes winner after reorder.
+- Disabled track does not participate.
+- Main boundary is never a track offset.
+- Sequence 5/25/2 produces boundaries at 5, 30, and 32 minutes and repeats.
+- Restored Sequence locates the correct step and progress.
+- Next event is always strictly future.
+
+Active-hours fixtures:
+
+- Same-day window.
+- Cross-midnight window with day-mask ownership.
+- Timezone change into and out of active hours.
+- UTC+05:30 snapped Pattern alignment.
+- DST forward gap and backward overlap do not cause catch-up storms or duplicate logical delivery.
+
+Control fixtures:
+
+- Pattern mute 1× permits next main boundary.
+- Pattern mute 3× suppresses interior boundaries and permits final boundary.
+- Sequence mute 1× permits final step/cycle boundary.
+- Minute mute boundary equality plays.
+- Alarm gesture transition table.
+
+Storage fixtures:
+
+- Valid legacy migration.
+- Disabled legacy sub interval.
+- Corrupt/partial legacy config.
+- Migration idempotency.
+- Preset load returns a deep copy.
+- Save As never overwrites an existing ID.
+- Deleting a loaded preset preserves working program.
+
+### 19.2 Static verification
+
+- `npx tsc --noEmit`.
+- Lint, if a lint command is added/configured.
+- Focused unit-test command.
+- `git diff --check`.
+- Search for lingering flat-config field assumptions.
+- Validate app/plugin manifests by inspection without running prebuild.
+
+### 19.3 Native tests to add but not run locally
+
+- Kotlin timeline fixtures matching TypeScript fixtures.
+- JSON round-trip tests.
+- Collision resolver tests.
+- Focus-state derivation tests by API branch.
+- Sound fallback resolver tests where Android test facilities permit.
+
+### 19.4 On-device verification required later
+
+- Android 15+ manual Chandas rule activate, snooze, disable, delete, and access revoke.
+- Older supported Android Focus behavior.
+- Timezone change while running, including a half-hour timezone.
+- Screen off and app process death across Pattern/Sequence cues.
+- Reboot restore with built-in, ringtone URI, and document URI sounds.
+- Alarm-stream volume zero and DND policies that allow/block alarms.
+- Drag reorder performance and haptics.
+- TalkBack trigger-grid and reorder actions.
+- Full-screen continuous alarm OEM behavior.
+
+No native build or device behavior is considered verified by TypeScript/static checks.
+
+---
+
+## 20. Definition of done
+
+Timer v2 is implementation-complete when:
+
+- Existing configuration migrates to a behaviorally equivalent Pattern.
+- Pattern and Sequence editors enforce their limits and validation.
+- Pattern overlaps resolve exactly per D-049 and are explained in Help, not in routine setup or the running timer.
+- Presets are immutable and all Save As/Load/Delete edge cases work.
+- Sequence drag reordering has handles, animation, haptics, and accessible alternatives.
+- Built-in, Android, and document sound references persist and resolve with fallback.
+- Mixer levels affect native playback with master × cue scaling.
+- Pattern and Sequence schedules restore from native state.
+- Active hours and timezone behavior match D-017/D-018.
+- Focus reports Android truth and does not fight manual snoozing.
+- Alarm Off/Once/Locked gestures and persistence behave exactly as specified.
+- Iteration mute preserves the final boundary.
+- Foregrounding without a fresh native event does not flash the timer circle.
+- Help and long-press tooltips cover every running control.
+- TypeScript and lightweight tests pass.
+- The final handoff names all native behavior that still requires EAS/on-device verification.
+
+---
+
+## 21. Implementation work order
+
+Although delivered in one go, work should proceed in dependency order:
+
+1. Add v2 types, validation, migration, storage, and immutable preset operations.
+2. Build TypeScript Pattern/Sequence timeline and collision fixtures.
+3. Port the model/timeline to Kotlin and replace flat native persistence.
+4. Generalize native scheduling and add actual timer-event IPC.
+5. Refactor Focus into read/reconcile state paths and state events.
+6. Add alarm audio routing, sound references, native pickers, preview, and fallback.
+7. Replace the configuration UI with mode summaries and full editors.
+8. Add drag/haptics/accessibility behavior.
+9. Add preset, sound, Mixer, Focus, Help, and tooltip sheets.
+10. Adapt Running for Pattern/Sequence, alarm gestures, new mute boundaries, and event-driven flash.
+11. Run static/unit verification, audit the diff, and update this log.
+
+The app does not need to run between these internal steps. The final result must be internally consistent.
+
+---
+
+## 22. HTML mockup mapping
+
+The standalone prototype lives in `mockups/timer-v2/` and intentionally contains only presentation-level interactions. It demonstrates:
+
+- Pattern configuration.
+- Preset Load and Save As.
+- Pattern tracks and collision grid.
+- Sequence step ordering and drag handles.
+- Sound library sources.
+- Mixer.
+- Running Pattern and Sequence states.
+- Alarm Once and Locked visuals.
+- Chandas Focus states.
+- Help/tooltips.
+
+It does not implement a timer, persistent storage, real drag-and-drop, Android pickers, native audio, DND, or exact alarms. Prototype navigation and sheet opening exist only to inspect the proposed flow.
+
+---
+
+## 23. Decision log
+
+Do not edit old entries to reflect new conclusions. Add a superseding entry and reference the original ID.
+
+| Date | ID | Status | Decision / rationale |
+| --- | --- | --- | --- |
+| 2026-09-02 | D-001–D-027 | Accepted | Initial Timer v2 decisions consolidated from product discussion. |
+| 2026-09-02 | D-007 | Accepted | Allow overlaps. Larger cadence duration wins; track order resolves equal cadence. This gives deliberate precedence without simultaneous audio. |
+| 2026-09-02 | D-009 | Accepted | Presets are immutable snapshots. The working copy is the only editable representation. |
+| 2026-09-02 | D-014 | Accepted | Add a restrained Mixer because one master plus up to twenty cue levels otherwise becomes difficult to understand. |
+| 2026-09-02 | D-019 | Accepted | Do not display unrelated Android DND modes. Chandas reports only its owned Focus rule. |
+| 2026-09-02 | D-023 | Accepted | Alarm defaults to Once on single tap; double tap locks it for every Pattern main boundary. |
+| 2026-09-02 | D-028 | Accepted | Track order, not cadence, determines every Pattern overlap winner. Supersedes D-007 while retaining its decision-history entry. |
+| 2026-09-02 | D-029 | Accepted | Preserve legacy quick duration/snap choices and running cycle/minute mute; Timer v2 must not regress existing controls. |
+| 2026-09-02 | D-030 | Accepted | Replace running collision copy with nested main/sub progress rings and show text only for the main countdown and next sub-bell. |
+| 2026-09-03 | D-031 | Accepted | Automatically suppress Chandas cue playback during active calls without modifying user volume/mute state or replaying missed cues. |
+| 2026-09-03 | D-032 | Accepted | Treat exact timing as an invariant: do not leave an apparently running session after exact-alarm access disappears. |
+| 2026-09-03 | D-033 | Accepted | Define equal active-hours endpoints as a full selected civil day rather than an empty or ambiguous window. |
+| 2026-09-03 | D-034 | Accepted | State the Android DND limit accurately: alarm routing follows the Alarm stream and active DND alarm policy; Chandas Focus allows alarms without cloning other modes. |
+| 2026-09-03 | D-040–D-043 | Accepted | Apply the first annotated-feedback pass: plain mode names, platform-relevant controls, compact sound controls, and immediate Alarm feedback. |
+| 2026-09-03 | D-044–D-046 | Accepted | Extend the feedback direction across Timer v2 with quiet routine transitions, progressive disclosure, and consistent one-title/one-value navigation rows. |
+| 2026-09-04 | D-049 | Accepted | Restore the cadence-first overlap rule and automatic longest-first sorting. This supersedes manual Pattern priority from D-028 and removes a control that does not change the interval structure. |
+| 2026-09-04 | D-050–D-052 | Accepted | Apply the third feedback round as progressive disclosure, title-based editing, visible Master volume, and one flat indentation level. The explicitly excluded custom ending-gong idea remains deferred under D-048. |
+| 2026-09-04 | D-053–D-058 | Accepted | Apply the fourth annotated-feedback round: remove the main-name and pencil affordances, expand and align quick choices, repeat cue masks on growth, keep schedules Continuous-only, unify segmented/Add controls, and simplify the live Sound sheet. |
+| 2026-09-05 | D-090 | Accepted | Use content hierarchy rather than category labels on the setup screen: the editable interval name, run guidance, Align to clock, Sub Bells, sound controls, Schedule, Chandas Focus, and navigation rows stand on their own without redundant all-caps headings. |
+| 2026-09-05 | D-091 | Accepted | Prefer discrete tap selection for sub-bell offsets. Remove gesture painting so vertical sheet scrolling remains predictable, and use restrained shared haptics for controls plus light/strong cue accents. |
+| 2026-09-05 | D-092 | Accepted | Offer an opt-in next-cue countdown in System integrations. The ongoing notification owns the reliable chronometer; Android 16+ may additionally promote it to a status-bar Live Update chip, but Chandas must not promise OEM-controlled promotion. |
+| 2026-09-05 | D-093 | Accepted | Alarm Once/Locked uses one global alarm sound independent of the Pattern main gong and saved configurations. Default to the packaged Sine alarm. While ringing, show only the flashing circle; a tap anywhere or Android Back dismisses the alarm without stopping the timer. Request a lock-screen full-screen alarm while leaving final presentation to Android permission, notification-channel, lock-screen, and OEM policy. |
+| 2026-09-05 | D-094 | Accepted | Put destructive collection actions on their list rows: a deliberate left swipe reveals one trash action and removal animates in place. Editors no longer duplicate Delete/Remove actions; the single required Sequence step remains protected. |
+| 2026-09-05 | D-095 | Accepted | Use one hybrid color control everywhere: show the current color as a compact circle and expand the shared horizontal palette in place. Keep Sub-bell cue masks collapsed behind Customize cues and expose only the contextually useful Clear or Select all action. |
+| 2026-09-05 | D-096 | Accepted | Default setup to a calm essential surface. Schedule, configurations, appearance, system integrations, alarm sound, and Chandas Focus live in a persisted Advanced mode that opens by tap or a progressive bottom-scroll reveal. Hide Alarm and Focus runtime controls while Advanced mode is hidden. |
+| 2026-09-05 | D-097 | Accepted | Modal section labels use the same sentence-case, white, 14-point/700 hierarchy as setup entries. Positional sheet metadata remains smaller but loses all-caps tracking. Loading a saved configuration asks before discarding a working program only when its user-editable content differs from its source snapshot or the untouched default. |
+| 2026-09-05 | D-098 | Accepted | Every nested Sub-bell ring begins its first segment at the current main-cycle start and resets at each selected cue; it never borrows progress from the previous cycle. Schedule previews render the merged active union and label only that rendered union, so a subsumed range leaves neither a duplicate bar nor internal boundary ticks. |
+| 2026-09-05 | D-099 | Accepted | User-requested Android cue events use `AlarmManager.setAlarmClock`; internal schedule-resume and timezone-realignment wakeups retain `setExactAndAllowWhileIdle`. This accepts Android's visible upcoming-alarm semantics in exchange for preventing Doze rate limits from delaying a Sub-bell and then starving a closely following main gong. |
+| 2026-09-05 | D-100 | Accepted | The running notification stays on Android's standard/BigText template so it remains eligible for promoted Live Update treatment. It uses the named interval as its heading, a public countdown, and the existing Stop action. Android owns whether the status chip is promoted and the chip-to-expanded-card transition; Chandas does not use a custom `RemoteViews` layout. |
+| 2026-09-05 | D-101 | Accepted | Stop is optimistic but verified. The setup screen appears immediately, while the app checks Android's persisted native state and retries quietly after 160 ms and 640 ms. A native cleanup exception counts as success when the following state read is inactive. After three unconfirmed attempts, keep setup visible and show a persistent Stop again warning. Starting a new session invalidates every delayed stop attempt so an old retry can never cancel the new timer. |
+| 2026-09-05 | D-102 | Accepted | Running clock alignment is a confirmed operation rather than a fire-and-forget sheet dismissal. Offer only distinct phase presets, show the chosen value with an in-sheet progress state until the schedule replacement resolves, and acknowledge both success and an already-selected rhythm. Stop/new Start invalidate every in-flight re-anchor so delayed asset preparation can never recreate an obsolete native timer. |
+| 2026-09-05 | D-103 | Accepted | Advanced reveal requires a deliberate release-threshold pull after the setup screen reaches its true bottom; merely exposing the prompt never expands it, and collapsing explicitly re-arms the gesture. The single Show advanced prompt brightens continuously with pull progress. Appearance is one flat row containing its expandable color swatch and light/dark action. Every overflowing horizontal choice rail uses position-aware scrims on both edges. A Sub-bell with no selected cue positions disables automatically and selecting a position enables it again. |
+| 2026-09-05 | D-104 | Accepted | Alarm sound owns an independent saved level, multiplied by master volume and Android's Alarm stream. Contract v5 advertises this as an additive capability so older binaries keep hiding the unsupported level. Android timer, event, and alarm notifications use one transparent monochrome circular small-icon resource. The running Sound & mute sheet mirrors setup: its mixer button expands channel sliders with previews in place. Keep the Android production update line pinned to build 9's runtime only while every contract-v5 addition remains capability-gated and backward compatible. |
+
+### Decision-entry template
+
+```md
+| YYYY-MM-DD | D-### | Proposed / Accepted / Superseded | Decision and rationale. Supersedes D-### if applicable. |
+```
+
+---
+
+## 24. Implementation log
+
+This section is append-only. Every implementation session should record scope, material changes, verification, and unresolved risk.
+
+### 2026-09-02 — Specification and mockup
+
+**Status:** Complete.
+
+**Scope:** Consolidate Timer v2 behavior into an implementation authority and create a standalone HTML prototype for all new flows.
+
+**Artifacts:**
+
+- `docs/timer-v2-spec-and-log.md`
+- `mockups/timer-v2/index.html`
+- `mockups/timer-v2/styles.css`
+- `mockups/timer-v2/mockup.js`
+- `mockups/timer-v2/README.md`
+
+**Implementation changes:** None. Product/specification and mockup only.
+
+**Verification:**
+
+- `node --check mockups/timer-v2/mockup.js` completed successfully.
+- `git diff --check` completed successfully.
+- Static cross-reference check found 10 unique mock screens, 40 internal navigation targets, no missing screen target, and no duplicate screen ID.
+- CSS delimiter check reported balanced braces.
+- A browser/screenshot pass was attempted, but no connected browser surface was available in this environment. Visual behavior therefore remains to be opened and inspected manually from `mockups/timer-v2/index.html`.
+
+**Known gaps:** The prototype cannot validate React Native gestures, Android DND, audio routing, native sound pickers, exact scheduling, device persistence, or final browser rendering on this machine.
+
+### 2026-09-02 — Browser QA and review revisions
+
+**Status:** Complete.
+
+**Scope:** Inspect all ten mockup screens in the connected browser at desktop and compact mobile sizes, exercise the representative interactions, and incorporate product-review feedback without regressing existing Timer controls.
+
+**Decisions referenced:** D-006, D-008, D-025, D-028–D-030.
+
+**Files changed:**
+
+- `docs/timer-v2-spec-and-log.md`
+- `mockups/timer-v2/index.html`
+- `mockups/timer-v2/styles.css`
+- `mockups/timer-v2/mockup.js`
+- `mockups/timer-v2/README.md`
+
+**Behavior and presentation revised:**
+
+- Restored quick main-duration, snap-offset, and Sequence-step duration choices.
+- Added the existing `1×`, `2×`, `3×`, and custom-minute mute choices to the running Sound & Mute path, with explicit final-boundary behavior.
+- Made Pattern track order the sole overlap-priority rule and reflected it in summaries, the trigger grid, Help, and the scheduling specification.
+- Replaced the running Pattern collision note and ambiguous `Main boundary at 09:30` copy with nested main/sub progress rings and one next-sub-bell line.
+- Removed unwired overflow dots from Sequence rows; drag handles remain the ordering affordance.
+- Made trigger-grid cell count, Clear, Select all, and drag-paint state functional in the prototype.
+
+**Verification:**
+
+- Inspected every screen at a desktop viewport and at `390 × 844` mobile size.
+- Re-inspected the changed Pattern, trigger-grid, Sequence, Mixer, and running Pattern surfaces at both sizes.
+- Alarm prototype exercised through Off → Once → Locked → Off.
+- Trigger grid exercised at 3 → 4 → 14 → 0 selected cells; the summary stayed synchronized.
+- Save As dialog, navigation, sheets, filters, and quick-choice selection were exercised.
+- Browser console reported no errors or warnings after the final reload.
+- `node --check mockups/timer-v2/mockup.js` completed successfully.
+
+**Known gaps:** Browser QA validates the HTML flow only. React Native row reordering/haptics, nested-ring runtime progress, scheduling, Android audio/DND behavior, persistence, and native picker flows still require implementation and device-level verification.
+
+### 2026-09-03 — V2 domain, timeline, and migration foundation
+
+**Status:** Complete.
+
+**Scope:** Establish the versioned Timer v2 program model, deterministic TypeScript timeline engine, and safe AsyncStorage migration path from the existing flat timer configuration.
+
+**Decisions referenced:** D-007 (superseded), D-008, D-009–D-013, D-028–D-031.
+
+**Files changed:**
+
+- `src/types.ts`
+- `src/lib/timerV2.ts`
+- `src/lib/timeline.ts`
+- `src/lib/storage.ts`
+
+**Behavior implemented:**
+
+- Added V2 Pattern/Sequence, cue/sound, preset, working-program, and global-settings types.
+- Added defensive normalization, bounds validation, UUID-shaped IDs, default programs, and one-way legacy migration.
+- Added a pure timeline engine which retains all collision candidates and selects the highest ordered enabled Pattern track as its winner.
+- Added Sequence boundary calculation, deterministic logical event IDs, progress snapshots, and V2 split-record persistence.
+- Preserved every legacy storage key; migration writes the V2 records before recording completion.
+- Recorded D-031 automatic call-aware audio suppression for the upcoming Android/runtime slice.
+
+**Verification:**
+
+- `npx tsc --noEmit` completed successfully.
+- Compiled pure-domain check verified migration offsets/volume, top-track overlap priority, and Sequence next-step resolution.
+
+**Known gaps:** The app still renders and runs against the legacy flat configuration. Runtime playback, native Kotlin parity, and V2 UI wiring are subsequent slices.
+
+### 2026-09-03 — Runtime audio-gate semantics
+
+**Status:** Complete.
+
+**Scope:** Make the v2 mute, Alarm Once, and automatic-call-mute decisions pure and deterministic before integrating them into the JS and Android runtimes.
+
+**Decisions referenced:** D-013, D-023–D-025, D-031.
+
+**Files changed:**
+
+- `src/lib/runtimeV2.ts`
+
+**Behavior implemented:**
+
+- Iteration mute persists an ending logical-event identity and epoch rather than decrementing at each main event.
+- The selected ending main/cycle cue is audible and atomically clears iteration mute.
+- Timestamp mute respects boundary equality: the first event at or after its end is eligible to play.
+- Automatic call mute is a transient audio gate. It does not modify user volume, consume timed/iteration mute, or consume Alarm Once.
+- Alarm Once is consumed only for an eligible Pattern main event outside call suppression.
+
+**Verification:**
+
+- `npx tsc --noEmit` completed successfully.
+- Compiled pure-domain checks covered final-boundary iteration mute, timestamp mute, and call suppression preserving mute/alarm state.
+
+**Known gaps:** The existing `useTimer` and Kotlin scheduler do not consume this engine yet. Their migration is the next runtime-integration slice.
+
+### 2026-09-03 — Program editor operations
+
+**Status:** Complete.
+
+**Scope:** Add the immutable operations consumed by the V2 editor before rendering its flows.
+
+**Files changed:**
+
+- `src/lib/programActions.ts`
+
+**Behavior implemented:**
+
+- Pattern tracks support adding/removing (up to five), cadence changes, clear/select/toggle grid offsets, and deterministic reordering.
+- Main-duration changes retain only valid in-range cues; normalization validates final cadence/offset relationships.
+- Sequence steps support adding/removing (never zero), editing and deterministic reordering.
+- Saving creates an immutable snapshot; loading copies a snapshot into working state; later edits never change the saved item; deletion only removes the saved snapshot.
+
+**Verification:**
+
+- `npx tsc --noEmit` completed successfully.
+
+### 2026-09-03 — V2 JavaScript runtime and session
+
+**Status:** Complete for the JavaScript/web fallback; Android exact-alarm parity remains a native slice.
+
+**Files changed:**
+
+- `src/hooks/useTimerV2.ts`
+- `src/lib/storage.ts`
+- `src/lib/soundLibrary.ts`
+
+**Behavior implemented:**
+
+- Pattern and Sequence programs run from an absolute anchor and share the same deterministic timeline as the editor.
+- The fallback persists/restores the V2 program, anchor, mute boundary and alarm behavior; stopping removes only the V2 session.
+- Playback volume is master × cue volume. The five built-in library identities are already persistent, with deliberately reusable bundled placeholder audio pending final sound assets.
+- The alarm button is one-shot by default; a second tap within 400ms locks it on. Mute choices preserve stored volume and make the final selected cycle boundary audible.
+- Active-hours resume re-evaluates only future events and never catches up skipped cues.
+
+**Verification:**
+
+- `npx tsc --noEmit` completed successfully.
+
+**Known gaps:** The JS runtime cannot authoritatively observe Android call state and is foreground-only. The native exact-alarm implementation must consume the same V2 session and add call-state suppression.
+
+### 2026-09-03 — V2 application surfaces
+
+**Status:** Complete for the React Native UI.
+
+**Files changed:**
+
+- `App.tsx`
+- `src/screens/TimerV2ConfigScreen.tsx`
+- `src/screens/TimerV2RunningScreen.tsx`
+
+**Behavior implemented:**
+
+- The application now boots from V2 state, migrates legacy data automatically, restores a V2 session, and renders V2 configuration/running surfaces.
+- Pattern mode exposes five ordered sub-bell tracks with quick duration/cadence choices, selected-cue grids, per-cue sound/volume controls and visible collision priority.
+- Sequence mode provides a repeatable, labelled step list with cue/volume choices, durable order controls and safe add/remove behavior.
+- The running screen uses nested rings for enabled Pattern tracks, surfaces only the next cue in the centre, avoids the old foreground flash heuristic, and retains cycle/time mute controls in its mixer.
+- Help, immutable save/load/delete configuration flow, active-hours settings, Focus/DND controls, and one-tap/quick-double-tap alarm semantics are available in the V2 UI.
+
+**Verification:**
+
+- `npx tsc --noEmit` completed successfully.
+
+**Known gaps:** Final distinct bundled audio assets remained at this point in the log; subsequent slices add the native scheduler, DND reconciliation, device picker and haptic drag reorder.
+
+### 2026-09-03 — Android V2 exact-alarm scheduler
+
+**Status:** Implemented; requires device/native-build verification.
+
+**Files changed:**
+
+- `modules/chandas-timer-service/android/src/main/java/expo/modules/chandastimerservice/TimerV2Timeline.kt`
+- `modules/chandas-timer-service/android/src/main/java/expo/modules/chandastimerservice/TimerScheduler.kt`
+- `modules/chandas-timer-service/android/src/main/java/expo/modules/chandastimerservice/TimerStateStore.kt`
+- `modules/chandas-timer-service/android/src/main/java/expo/modules/chandastimerservice/CallState.kt`
+- Android module bridge/manifest and `app.json`
+- `src/hooks/useTimerV2.ts`, `src/native/ChandasTimerService.ts`
+
+**Behavior implemented:**
+
+- Android parses the persisted V2 program and mirrors JS Pattern/Sequence event selection, including ordered-track collision precedence, cue volume and a single future exact-alarm target.
+- The V2 hook uses the Android scheduler when available; JS retains the web/foreground fallback only.
+- Normal Android timer cues are automatically gated during an active call when the user grants `READ_PHONE_STATE`; missed cues are not replayed and no mute/alarm state is consumed.
+- Native timed mute and V2 cycle mute retain the requested logical end boundary, so that boundary is audible and clears mute. Alarm Once now also remains armed if a cue is muted.
+- Local-clock Pattern anchors are recomputed in the Android restore path after boot, wall-clock and timezone broadcasts.
+
+**Verification:**
+
+- `npx tsc --noEmit` completed successfully after the bridge/hook changes.
+- Native compilation was deliberately not run: repository policy forbids local native builds.
+
+**Known gaps:** Final distinct bundled audio assets remain to be added. V2 Android code needs a remote/device test pass before release.
+
+### 2026-09-03 — Android device sound picker
+
+**Status:** Implemented; requires device/native-build verification.
+
+**Files changed:**
+
+- `ChandasTimerServiceModule.kt`, `TimerSoundPlayer.kt`, `TimerScheduler.kt`
+- `src/native/ChandasTimerService.ts`
+- `src/screens/TimerV2ConfigScreen.tsx`
+
+**Behavior implemented:**
+
+- The per-cue sound sheet opens Android’s system ringtone picker for alarm/notification sounds.
+- Selected content URIs and titles are stored in the V2 `SoundRef` and are played directly by the native one-shot player at the cue’s effective volume.
+- Built-in library identities continue to map to bundled placeholder sounds until the final five distinct assets are supplied.
+
+**Verification:**
+
+- `npx tsc --noEmit` completed successfully.
+- The native picker/playback path is static-reviewed only; local native builds are prohibited by repository policy.
+
+### 2026-09-03 — Android Focus/DND reconciliation
+
+**Status:** Implemented; requires device/native-build verification.
+
+**Files changed:**
+
+- `FocusModeController.kt`
+- `ChandasTimerServiceModule.kt`
+- `App.tsx`
+
+**Behavior implemented:**
+
+- If the user disables Chandas’ automatic Focus rule in Android settings, the next native reconciliation records that external decision, stops publishing the rule, and mirrors the disabled setting back to app state.
+- Re-enabling Focus from Chandas explicitly clears the external-disable marker and reactivates the existing rule when Android policy access permits it.
+- Chandas continues to use an automatic rule with Android’s alarm interruption filter; Android does not expose an API for cloning every exclusion from the currently active user DND profile, so the app never claims to copy those exclusions.
+
+**Verification:**
+
+- `npx tsc --noEmit` completed successfully.
+- Native compilation/device DND transitions remain unverified locally by repository policy.
+
+### 2026-09-03 — Haptic reorder handles
+
+**Status:** Complete for React Native UI.
+
+**Files changed:**
+
+- `src/screens/TimerV2ConfigScreen.tsx`
+
+**Behavior implemented:**
+
+- Pattern tracks and Sequence steps have dedicated drag handles that provide a small haptic response and move the item one position in the drag direction.
+- Visible move-earlier/move-later buttons remain alongside the gesture as an accessible alternative.
+
+**Verification:**
+
+- `npx tsc --noEmit` completed successfully.
+
+### 2026-09-03 — Complete configuration and editor flows
+
+**Status:** Implemented; visual device verification remains.
+
+**Decisions referenced:** D-006, D-009, D-010, D-014, D-028, D-029.
+
+**Behavior implemented:**
+
+- Rebuilt configuration as compact summaries with focused sheets for trigger editing, immutable presets, sound selection, and the mixer.
+- Restored the exact main-duration and clock-snap quick choices, plus custom entry.
+- Added tap-and-drag cue painting, select/clear all, named overlap priority, compact timeline preview, five-track limit, and accessible cell state.
+- Added multi-position drag handles with lift/crossing haptics and accessibility increment/decrement actions.
+- Added Sequence duplication, custom duration, confirmation before removal, and 20-step enforcement.
+- Added five stable built-in sound identities, Android alarm/notification pickers, document selection, preview, URI fallback, and per-cue levels.
+- Added active-day selection and prevented starting with active hours enabled but no selected days.
+
+**Verification run:** `npx tsc --noEmit`; `npm test`.
+
+**Results:** Type checking passed; all current deterministic domain tests passed.
+
+### 2026-09-03 — Live timer controls and visualization
+
+**Status:** Implemented; visual and native device verification remains.
+
+**Decisions referenced:** D-014, D-024, D-026, D-027, D-029, D-030, D-031.
+
+**Behavior implemented:**
+
+- Pattern now renders the main progress ring plus one stable inner ring per audible sub-track and only the next winning sub-cue in the center.
+- Sequence now shows current step, position, next step, and current-step progress without an alarm control.
+- Restored restart-from-now and running clock-snap controls; realigning atomically restarts native scheduling and clears any cycle mute whose old ending identity no longer exists, while preserving timestamp mute.
+- Alarm remains one-shot on first tap and locks on a quick second tap; state is shown with `1`/`∞` badges.
+- Added a complete running mixer, `1×`/`2×`/`3×` cycle mute, custom minute mute, explicit mute status, and final-boundary-audible behavior.
+- Added long-press tooltips, an always-visible Help action, and event-driven ring flashes that cannot be triggered by foregrounding or countdown jumps.
+- Optional call and notification permissions are requested with scoped explanations; refusal does not stop the timer.
+- Serialized state/session persistence prevents rapid gestures, sliders, or Stop from completing writes out of order.
+
+**Verification run:** `npx tsc --noEmit`; `npm test`; Expo module autolinking search.
+
+**Results:** All checks passed and the local module resolves without duplicates.
+
+### 2026-09-03 — Civil-time and DST-safe Android scheduling
+
+**Status:** Implemented by static review; native device verification remains mandatory.
+
+**Decisions referenced:** D-018, D-019, D-020.
+
+**Behavior implemented:**
+
+- Local-clock patterns compare schedule lattices at every scheduling and delivery boundary, realigning only when the civil-time phase truly changed and suppressing stale deliveries.
+- A dedicated exact realignment event is scheduled at the next timezone-offset transition on API 24+, covering daylight-saving changes before Android 17 introduced an offset-change broadcast.
+- Date, timezone, manual-time, package, boot, and exact-alarm permission changes all reconcile from persisted native state.
+- Manual wall-clock changes shift elapsed Pattern/Sequence anchors using paired wall/monotonic clock samples, preserving elapsed cadence; local-clock patterns instead recompute their civil anchor.
+- Iteration mute is cleared across a realignment and a native control-state update is emitted, matching D-025; timestamp mute and Alarm Once remain intact.
+- Native validation now rejects duplicate IDs/offsets and invalid Sequence labels before scheduling.
+
+**Reference validation:**
+
+- Android documents `ACTION_TIMEZONE_CHANGED`, `ACTION_TIME_CHANGED`, and the API 37 `ACTION_TIMEZONE_OFFSET_CHANGED` semantics in the [Intent API reference](https://developer.android.com/reference/android/content/Intent).
+- Android exposes timezone transition data from API 24 through [`android.icu.util.TimeZone`](https://developer.android.com/reference/android/icu/util/TimeZone).
+- Exact alarm access and delivery behavior were checked against the [AlarmManager API reference](https://developer.android.com/reference/android/app/AlarmManager).
+- Call-state detection uses `TelecomManager.isInCall()`, whose documented requirement is `READ_PHONE_STATE`, with only a deprecated compatibility fallback; see [TelecomManager](https://developer.android.com/reference/android/telecom/TelecomManager).
+- The Focus policy intentionally sets only alarm allowance because unset `ZenPolicy` fields do not change the surrounding policy; see [ZenPolicy.Builder](https://developer.android.com/reference/android/service/notification/ZenPolicy.Builder).
+- Android 15 user-managed rule semantics and activation/deactivation status handling were checked against [NotificationManager](https://developer.android.com/reference/android/app/NotificationManager).
+- The alarm service declares `mediaPlayback` and its matching permissions in line with Android’s [foreground-service type requirements](https://developer.android.com/develop/background-work/services/fgs/service-types).
+
+**Native/on-device verification still required:** DST gap/fold, a non-hour offset change, manual clock jumps, reboot, and API 24/29/35/37 behavior cannot be proven without an Android build and devices; local builds are prohibited by repository policy.
+
+### 2026-09-03 — Completion-audit hardening
+
+**Status:** Implemented by TypeScript tests and static review; native device verification remains mandatory.
+
+**Behavior implemented:**
+
+- Made Alarm tap recognition exclusive and covered the complete Off/Once/Locked single/double transition table; alarm state changes now use the specified light/medium haptics.
+- Clear cycle mute when restart, snap, timezone, or DST realignment invalidates its logical ending boundary, while retaining timestamp mute and Alarm Once.
+- Added sound-URI availability labels and Replace affordances, preview controls in both Mixers, built-in preview fallback outside Android, picker busy states, and preview cleanup on changes, close, background, and unmount.
+- Preserved Pattern cadence when the main interval becomes shorter, including the valid empty-grid case, and made main-duration confirmation account for every removed selection.
+- Completed preset inspection, explicit Load copy, Save As provenance, deleted-source handling, Unicode-safe limits, timestamps, filters, and post-confirmation warning haptics.
+- Lifted and animated the full dragged track/step row, added insertion-boundary/drop haptics, measured row travel, retained TalkBack move actions, and respected reduced-motion preferences.
+- Expanded Help, tooltip dismissal, paused-Focus messaging/resume behavior, and visible Android access status for exact timing, call auto-mute, and notifications.
+- Hardened native alarm recovery after process recreation, live main-cue volume changes, notification small-icon selection, audio-focus handling, URI grants, Android rule deletion/disable reconciliation, and explicit rule re-enable without overwriting policy.
+- Added one shared JSON Pattern/Sequence fixture corpus consumed by TypeScript tests and staged Kotlin unit tests (not run locally per repository build policy).
+
+**Verification run:** `npx tsc --noEmit`; `npm test`; Expo Android local-module autolinking search.
+
+**Results:** Type checking passed, all 17 focused tests passed, and `chandas-timer-service` resolves without duplicates.
+
+**Native/on-device verification still required:** Kotlin compilation/tests and the Android/API/OEM matrix in section 19.4 remain intentionally unexecuted until the user requests a remote EAS development build.
+
+### 2026-09-03 — Platform and exact-timing hardening
+
+**Status:** Implemented by static review; native device verification remains mandatory.
+
+**Decisions referenced:** D-012, D-018–D-022, D-032–D-034.
+
+**Behavior implemented:**
+
+- Added Android 12/12L `SCHEDULE_EXACT_ALARM` coverage while retaining `USE_EXACT_ALARM` for Android 13+ timer use.
+- Made exact permission loss and scheduling `SecurityException` fail closed, clearing schedule, audio, Focus, notifications, service, and persisted active state.
+- Added overflow/bounds validation before native scheduling and rejected malformed update payloads without replacing a valid schedule.
+- Migrated Android sound/document picking to Expo registered activity-result contracts on the main queue.
+- Added the Android 15 rule-specific Chandas Focus settings path and preserved user-managed rule policy.
+- Defined equal active-hours endpoints as full selected civil days and corrected running notification resume copy.
+- Restored web dependencies and web-session authority for browser verification.
+
+**Verification run:** `npx tsc --noEmit`; `npm test`; Expo config resolution; Expo Android autolinking resolution.
+
+**Results:** All permitted checks passed.
+
+### 2026-09-03 — Alarm, gesture, and accessibility polish
+
+**Status:** Complete in React Native source; native alarm behavior still requires device validation.
+
+**Behavior implemented:**
+
+- Made the alarm overlay an explicit-dismiss modal and hid/inerted the running controls beneath it.
+- Replaced the web-incompatible animated SVG alarm fill with an equivalent animated native View.
+- Fixed trigger-grid stale render/callback state across Clear all, Select all, cadence changes, and drag paint.
+- Clamped row drag travel to valid list bounds and ignored rather than queued an accidental second Android picker launch.
+- Added recoverable sound-picker error copy.
+
+**Verification run:** live desktop/mobile browser inspection; trigger-grid Clear all/Select all exercise; `npx tsc --noEmit`; `npm test`; `git diff --check`.
+
+**Results:** All checks passed.
+
+### 2026-09-03 — Delivery freshness and final recovery audit
+
+**Status:** Source implementation complete; remote native build and on-device matrix pending.
+
+**Decisions referenced:** D-017, D-026, D-032.
+
+**Behavior implemented:**
+
+- Added a native delivery timestamp and surfaced flashes only for fresh, unsuppressed events received while the UI is active.
+- Prevented a background-throttled web timer from replaying an old cue on foreground.
+- Added an exactly-once `goAsync` receiver completion guard and safe schedule restoration after unexpected receiver exceptions.
+- Guarded Start against rapid double activation and exposed a clear busy state.
+- Completed reduced-motion drag cancellation and removed false accessibility grouping from modal containers.
+- Re-ran a final spec/mockup/native audit and recorded every finding and residual device-only risk in `timer-v2-implementation-review.md`.
+
+**Verification run:** `npx tsc --noEmit`; `npm test`; `git diff --check`; Expo public config; Expo Android module search; React Native Web desktop/mobile walkthrough.
+
+**Results:** Type checking passed, all 37 focused tests passed, whitespace validation passed, and the local native module resolves without duplicates. Six additional Kotlin fixtures are staged for the remote native run.
+
+**Native/on-device verification still required:** Kotlin compilation/tests, manifest merge, and the Android API/OEM scenarios in section 19.4. Local native builds remain prohibited by repository policy.
+
+### 2026-09-03 — Calm interaction and feedback refinement
+
+**Status:** Complete in React Native source and verified in the live web surface; Android permission presentation remains part of the device matrix.
+
+**Scope:** Motion, loading, empty states, recoverable errors, permission guidance, tactile feedback, and secondary-flow polish without changing timer semantics.
+
+**Behavior implemented:**
+
+- Added a branded restoring state for font and persisted-state startup instead of a blank screen, plus a last-resort gentle UI error boundary.
+- Replaced recoverable operational alerts with accessible, non-blocking notices that support calm explanations, optional actions, persistence for required intervention, and automatic dismissal for transient confirmation.
+- Added explicit progress and success/decline/failure outcomes for exact timing, notification, DND, call-state, sound-picker, timer-start, and live realignment actions.
+- Kept optional permissions optional: declined call-state or notification access does not block the timer, while exact timing remains clearly identified as required to start reliably.
+- Made storage recovery observable without discarding usable data, serialized save failures visible without interrupting editing, and invalid saved records fall back safely.
+- Added reduced-motion-aware screen, mode, row, empty-state, active-hours, running-ring, next-cue, status, badge, tooltip, and sound-tab transitions, all kept below 300 ms.
+- Added restrained press feedback, selection/mute/stop haptics, live realignment busy state, inline preview failures, richer empty states, and safe wrappers around Android settings and sound availability.
+- Replaced newly exercised deprecated web shadow/pointer-event usage and verified that the refined surface emits no new runtime warnings.
+
+**Verification run:** `npx tsc --noEmit`; `npm test`; `git diff --check`; live React Native Web walkthrough at desktop and mobile viewport sizes, including mode switching, configuration-library empty/save states, sound-source guidance, Start, running Mixer, mute, Stop, and transient notice expiry.
+
+**Results:** Type checking passed, all 37 focused tests passed, whitespace validation passed, live interactions remained accessible through semantic roles, and no new UI runtime warning was emitted after reload.
+
+**Native/on-device verification still required:** Permission-dialog appearance and return paths, system-settings launch failures, reduced-motion behavior, TalkBack announcements, haptic intensity, and animation performance on representative low/mid/high-tier Android devices.
+
+### 2026-09-03 — Bounded runs and multi-window availability
+
+**Status:** Source implementation complete; native compilation and device verification remain pending.
+
+**Scope:** Continuous/cycle/duration run policies, exact hours/minutes/seconds bounds, weekly schedule unions, calendar-ready absolute overrides, persistence, native scheduling, completion feedback, and preset support.
+
+**Decisions referenced:** D-035–D-039.
+
+**Behavior implemented:**
+
+- Added a calm Run length control to Pattern and Sequence with Continuous, 1–999 cycles/rounds, and 1 second–359:59:59 elapsed-duration choices. Values are preserved when switching choices and saved inside immutable presets.
+- Persisted a distinct session `startedAt` and fixed `endsAt`, allowing clock-snapped cue phase to realign across timezone/DST changes without changing the promised run length.
+- Added exactly-once terminal events. Natural final cues are reused at exact collisions; between-cue deadlines use the Pattern main cue or Sequence final-step cue as a one-shot and never become a looping alarm.
+- Made terminal timing independent of schedules, call auto-mute, Focus, and user mute. Those gates may quiet the completion sound, but cannot delay or extend the run—even when the next active schedule window begins after the deadline.
+- Added multiple weekly active ranges with enable switches, overnight/full-day semantics, overlap-as-union behavior, empty/invalid guidance, and a 16-range native-safe limit.
+- Added normalized absolute `active`/`mute` override records as the future calendar boundary. Android receives resolved records only and has no calendar dependency or permission in this release.
+- Mirrored the policy and terminal timestamps through the Expo bridge and durable Android state; native recovery clears expired bounded sessions instead of replaying stale completion cues.
+- Added bounded-run remaining copy to the running view, completion feedback and return-to-setup behavior, Help content, and run-policy details in Save/load summaries.
+
+**Migration impact:** Existing Pattern/Sequence records without a run policy normalize to Continuous. Existing single active-hours settings migrate to one weekly window. Existing continuous native sessions interpret a missing or zero `endsAt` as unbounded.
+
+**Verification run:** `npx tsc --noEmit`; `npm test -- --run`; `git diff --check`; live React Native Web review at mobile and desktop sizes.
+
+**Results:** Type checking passed, all 46 focused tests passed, whitespace validation passed, bounded controls and multi-range editing rendered correctly, and a short duration run returned to setup automatically.
+
+**Native/on-device verification still required:** Kotlin compilation/tests, exact-alarm delivery at second-level deadlines, process death/reboot recovery, schedule-gated completion, call-active completion, timezone/DST changes during bounded runs, notification copy, and representative Android API/OEM behavior. Local native builds remain prohibited by repository policy.
+
+**Risks or follow-ups:** Calendar selection/sync and permission UX are intentionally deferred; the override contract is present so they can be added without changing timer scheduling. Remote native verification should be completed before release.
+
+### 2026-09-03 — First annotated-feedback pass
+
+**Status:** Complete for every unambiguous item in the supplied first feedback document; one truncated comment remains intentionally unresolved pending the follow-up document.
+
+**Scope:** Nine embedded annotated screenshots covering configuration hierarchy, running-timer density, nested rings, tooltips, Alarm responsiveness, Focus/web visibility, Mixer disclosure, mode names, quick selections, sound-picker layout, and removal of technical collision copy.
+
+**Decisions referenced:** D-023, D-027–D-030, D-040–D-043.
+
+**Behavior implemented:**
+
+- Renamed the visible modes to Cycle and Sequence, removed the redundant Chandas/Interval timer masthead, and moved Configurations below the schedule with a clear navigation chevron.
+- Preserved quick duration, snap, and cycle/minute mute controls. Fixed web duration shortcuts that could appear inert when a native-only confirmation was required, and moved custom clock offset entry inline beneath its quick choices.
+- Reduced the running surface to the useful countdowns, moved nested rings closer together, and interpolated ring progress between timer refreshes.
+- Replaced confusing Reset, clock, and Alarm tooltip copy with direct descriptions. Alarm Once now appears immediately while a second quick tap promotes it to Every.
+- Hid Focus and Android DND help on web. Focus setup routes to the relevant Android setting without an exclamation badge or misleading active treatment.
+- Collapsed per-sound running controls behind Sound levels while retaining Master and all prior mute choices at the first level.
+- Kept cue volume and selected sound fixed at the bottom of the sound picker while its library scrolls; removed redundant Android/device instructions and level-formula copy.
+- Removed user-visible `wins`, `overlap`, and disabled-selection implementation notes while preserving track-order collision resolution in the domain model.
+- Changed bottom-sheet presentation to a fade so the dimmed backdrop no longer appears to slide with the sheet.
+
+**Verification run:** `npx tsc --noEmit`; `npm test -- --run`; `git diff --check`; live React Native Web walkthrough at desktop and 390 × 844 mobile sizes.
+
+**Results:** Type checking passed, all 46 focused tests passed, whitespace validation passed, quick duration changes updated immediately, Alarm Once and double-tap Every states updated correctly, Android-only controls were absent on web, and the configuration, running timer, Help, Mixer, cue grid, and sticky-volume sound picker were inspected visually.
+
+**Native/on-device verification still required:** Bottom-sheet fade behavior, haptics, Focus settings routing, Alarm single/double tap timing, sticky sound controls with the keyboard open, and ring animation performance on representative Android devices. Local native builds remain prohibited by repository policy.
+
+**Risks or follow-ups:** The source paragraph ending in “tapping this just” is incomplete. No behavior was inferred from it; resolve it when the remaining feedback arrives.
+
+### 2026-09-03 — Whole-surface simplification pass
+
+**Status:** Source implementation complete; Android device review remains pending.
+
+**Scope:** Cycle and Sequence setup, step editing, run controls, sound levels, schedules, saved configurations, Android access/Focus summaries, numeric entry, running status, and routine feedback banners.
+
+**Decisions referenced:** D-027, D-040–D-046.
+
+**Behavior implemented:**
+
+- Collapsed Sequence steps into equal-height ordered rows with duration, sound, and level summaries. Tapping one opens a focused editor with its name, quick durations, sound, duplicate, and remove controls; drag handles remain visible and their geometry no longer changes during editing.
+- Turned saved configurations into a focused two-stage flow: save/list first, then one selected configuration’s details and Load/Delete actions. Removed duplicate Inspect/Delete controls and the repeated selected row.
+- Replaced the configuration Mixer card with a simple Sound levels row and reduced the sheet to Master plus cue channels. Removed multiplier explanations already covered by Help.
+- Simplified sub-bell terminology from trigger grids/cue positions to Repeat every/Bell times, shortened empty guidance, and stopped encoding collision winners into the small timeline preview.
+- Reduced Android access and Chandas Focus cards to current status plus the action needed now. Detailed DND behavior remains in Help.
+- Removed routine success banners from Start, Stop, Reset, and successful clock snapping. Their screen/control transitions and haptics now provide confirmation; failure and permission guidance remain explicit.
+- Shortened running mute and bounded-end status, simplified the clock sheet, and constrained custom-minute entry to a calm centered field on wide and narrow layouts.
+
+**Verification run:** `npx tsc --noEmit`; `npm test -- --run`; `git diff --check`; semantic and visual React Native Web walkthrough at 390 × 844 and desktop sizes.
+
+**Results:** Type checking passed, all 46 focused tests passed, whitespace validation passed, compact/expanded Sequence states and focused configuration details were exercised, and routine Start/Stop transitions completed without redundant banners.
+
+**Native/on-device verification still required:** Compact-row drag thresholds and haptics, Android permission/Focus states, keyboard avoidance in numeric entry, and TalkBack navigation order. Local native builds remain prohibited by repository policy.
+
+**Risks or follow-ups:** Representative device testing should confirm the feel of dragging compact rows and opening nested sound selection from the step editor.
+
+### 2026-09-04 — Renameable intervals with native compatibility preserved
+
+**Status:** Complete in source and compatible with the existing Android runtime.
+
+**Scope:** Renameable Cycle intervals and sub-bells, existing Sequence step names, preset persistence, running labels, and deliberate deferral of opening/ending gong overrides.
+
+**Decisions referenced:** D-047–D-048.
+
+**Behavior implemented:**
+
+- Added a renameable main-interval label and renameable labels for every Cycle sub-bell. Sequence step naming remains in its focused editor. Names are normalized to 60 Unicode code points, receive clear fallbacks when old records are loaded, and travel with immutable saved configurations.
+- Updated Cycle setup rows, sound controls, the running header, and next-sub-bell text to use interval names while keeping sound names and overlap arbitration off the running surface.
+- Removed the proposed opening/ending-gong implementation in full after compatibility review. No cue fields, bridge methods, Kotlin validation, or background scheduler changes remain; existing start and completion behavior is unchanged.
+
+**Migration impact:** The schema version remains 2. Missing Pattern labels normalize to `Main interval` and `Sub-bell N`; the existing native parser safely ignores these presentation-only fields.
+
+**Verification run:** `npx tsc --noEmit`; focused TypeScript tests; whitespace inspection; Expo Android fingerprint comparison against production build version code 7.
+
+**Results:** Type checking passed, all 47 focused tests passed, whitespace validation passed, and the resulting Android fingerprint `206547c4cdef082cfcb557d3e61193d4ea61d64a` exactly matches production build version code 7.
+
+**Native/on-device verification still required:** Visual and accessibility review of naming fields and long labels on a representative Android device.
+
+**Risks or follow-ups:** Opening and ending gong customization remains a later native-release feature.
+
+### 2026-09-04 — Third annotated-feedback simplification
+
+**Status:** Complete in source and compatible with the existing Android runtime.
+
+**Scope:** Fourteen written notes and nine embedded screenshots from `feedback round3.docx`; the user explicitly excluded custom ending-gong work.
+
+**Decisions referenced:** D-049–D-052; D-048 remains unchanged.
+
+**Behavior implemented:**
+
+- Replaced duplicate interval-name fields with tap-to-edit titles for the Cycle main interval, sub-bells, and Sequence steps. Custom duration chips now show the chosen value with a pencil affordance.
+- Removed the duplicate large main-duration readout. The quick `10m`, `15m`, `30m`, and Custom choices remain the single main-duration control.
+- Added one top-level Sub-bells switch. Fresh configurations start with the layer hidden, enabling reveals a ready first sub-bell and Add, and disabling preserves track settings while suppressing them in both JavaScript and the existing native scheduler.
+- Removed manual Pattern drag priority. Sub-bells now normalize longest cadence first and the longer cadence wins an overlap; equal cadences keep stable source order. Untouched generated labels renumber after automatic sorting so the visible list stays coherent.
+- Flattened main sound, sub-bell, Sequence, schedule, and configuration rows. Master volume is directly visible; sound choice and the full sound-level list follow as quiet secondary actions. The compact cue timeline no longer has an enclosing border.
+- Retained drag handles and haptics for Sequence steps because order changes their actual playback sequence. Opening and ending gong customization was neither restored nor changed.
+
+**Migration impact:** The schema version remains 2. Older Pattern records infer `subBellsEnabled` from their existing enabled tracks, so current users retain behavior. The group-off native payload emits an effective copy with every track disabled; the stored working copy and preset keep their complete settings. No Android source, manifest, permission, sound resource, or native dependency changed.
+
+**Verification run:** `npx tsc --noEmit`; focused Vitest suite; `git diff --check`; React Native Web walkthrough at 390×844 and 1280×800 covering Cycle disclosure, in-place names, custom duration, automatic track sorting, sub-bell editor, Sequence, Schedule, and console diagnostics.
+
+**Results:** Type checking passed, all 50 focused tests passed, whitespace validation passed, and the revised screens rendered cleanly at both viewport sizes. The only web console message was React Native Web's existing `pointerEvents` deprecation warning.
+
+**Native/on-device verification still required:** Confirm switch, slider, keyboard, and haptic feel with TalkBack on a representative Android device. Local native builds remain prohibited by repository policy.
+
+**Risks or follow-ups:** The source-compatible group switch is deliberately serialized as disabled per-track native input so it remains safe for OTA delivery to the current binary.
+
+### 2026-09-04 — Fourth annotated-feedback consistency pass
+
+**Status:** Complete in source and compatible with the existing Android runtime.
+
+**Scope:** Forty-four written/image document blocks and eleven embedded screenshots from `feedback 4.docx`, covering edit affordances, main/snap shortcuts, sub-bell selection behavior, shared segmented controls, run-length placement and input, Schedule semantics, sound preview, add controls, Help alignment, and the running Sound sheet.
+
+**Decisions referenced:** D-053–D-058; D-048 and D-049 remain unchanged.
+
+**Behavior implemented:**
+
+- Removed main-interval renaming from the product surface and removed pencil glyphs everywhere. Sub-bell and Sequence names remain editable through their title, with a restrained dotted underline and accessibility hint.
+- Expanded main shortcuts to 5/10/15/30/45/60 minutes. Presets scroll independently while Custom stays fixed at the trailing edge. Clock alignment now uses the same layout and modal interaction; a 10-minute main offers `:00`, `:05`, `:10`, while a 30-minute main offers `:00` through `:25` in five-minute steps.
+- Added a soft, non-interactive trailing fade to both horizontal shortcut strips so partially clipped choices read as scrollable instead of abruptly cut off.
+- Made all valid sub-bell occurrences selected by default. Summaries now say `N occurrences` for an untouched complete selection and `N/M selected` after specific omissions. When the main interval grows, the prior occurrence mask repeats forward instead of leaving new positions empty; shortening retains its destructive-change confirmation.
+- Replaced independently styled mode, run-length, sound-source, and configuration-filter tabs with one shared solid-accent segmented control. Sub-bell, Sequence-step, and schedule-range Add actions now share one control as well.
+- Moved Run length into each mode editor. Duration entry now uses aligned Hours/Minutes fields with no seconds. Cycle steppers share a centerline and place their label beneath the whole control.
+- Moved the Cycle run-policy selector directly beneath the main-duration choices and removed its redundant heading and Continuous explanation; bounded outcome copy remains available only when it adds information.
+- Hid and disabled Schedule semantics for bounded runs while preserving every saved window. Both JavaScript playback and the existing Android payload receive an always-available effective policy for bounded runs, so the behavior remains correct after backgrounding or process death without native changes.
+- Simplified the running sheet to `Sound`, an unlabeled master slider, a flat Sound levels disclosure, and existing cycle/minute mute choices. The selected-sound footer now uses the same circular play/stop control as sound-library rows.
+- Centered Help icons on their title line and retained the app’s muted-label/bright-value hierarchy, with `Align to clock` brought into that convention.
+- Simplified every standard volume row to one aligned line labelled `Volume`, removing the user-facing `Master` term and redundant scope subtitles while retaining the underlying global/cue multiplier model.
+- Removed the separate `All sound levels` navigation row. A compact equalizer icon at the trailing edge of the global Volume control now opens the full `Mixer` sheet.
+- Restacked compact Volume controls as a label above a full-width slider, removed their percentage readout, and kept the mixer icon aligned at the slider's trailing edge. The full Mixer retains numeric values for detailed adjustment.
+- Restored the `RUN LENGTH` section label, matched `ALIGN TO CLOCK` to that all-caps style, removed redundant Duration outcome copy, and replaced the Cycles sentence with a vertically centered compact equivalent beside the counter.
+- Moved detailed Schedule editing into a dedicated bottom sheet. The setup surface now keeps only its quick switch and a truthful current-day 24-hour timeline with merged active spans, boundary marks, concise status, and a direct tap target into the full editor.
+- Matched the Sequence editor's Duplicate and Remove actions to the sheet's bright `Done` treatment, removed the faint underlines, and enlarged both touch targets.
+- Moved the computed cycle duration beside the `ROUNDS`/`MAIN CYCLES` caption so the stepper remains centered and does not shift as the duration text changes.
+- Refined Sequence drag-and-drop with delayed activation, scroll-intent preservation, live insertion-space and order-number previews, bounded edge auto-scroll, cancellation cleanup, and haptic slot feedback. Migrated drag transforms from React Native Animated to Reanimated shared values.
+
+**Native time selector decision:** Android and React Native do not provide a built-in duration picker. The existing schedule time-of-day modal remains dependency-free and OTA-compatible; adding a community/native time picker would require a new native binary while providing the wrong semantics for durations longer than 24 hours. This round therefore standardizes the current modal instead of adding a native dependency.
+
+**Migration impact:** None. Stored main labels and second-based duration fields remain readable for compatibility. UI-edited duration bounds are whole-minute multiples. Saved availability records are never rewritten when a bounded policy is selected.
+
+**Verification run:** `npx tsc --noEmit`; focused Vitest suite; `git diff --check`; interactive React Native Web review at 390×844 and 1280×800 covering Cycle/Sequence tabs, bounded schedule suppression, cycle-stepper alignment, hour/minute duration entry, dynamic clock phases, occurrence summaries, Sequence reorder presentation, running Sound controls, and selected-sound preview.
+
+**Results:** Type checking passed, all 59 focused tests passed, and the reviewed surfaces remained semantically accessible. The 10-minute and 30-minute clock choices match the annotated examples, and Schedule disappears immediately for both Cycle- and duration-bounded runs.
+
+**Native/on-device verification still required:** TalkBack focus order, title-edit affordance discovery, slider and switch feel, modal keyboard behavior, long-press drag activation, edge auto-scroll, haptics, and background bounded-run behavior on a representative Android device. Local native builds remain prohibited by repository policy.
+
+**Risks or follow-ups:** If a future calendar feature adds resolved availability overrides, it should continue to use the existing policy boundary; bounded runs deliberately ignore weekly and calendar-derived availability alike.
+
+### 2026-09-04 — Android Stop and sheet-navigation feedback pass
+
+**Status:** Complete in source as an OTA-compatible containment pass; native main-thread cleanup hardening remains for the next store binary.
+
+**Scope:** Android Stop failure and gray activity state, Help scrolling, the running screen's top spacing and live audio sheet, Android permission organization, and Sub-bell modal navigation.
+
+**Decisions referenced:** D-067–D-070.
+
+**Behavior implemented:**
+
+- Made full Stop update the React screen first and invoke the authoritative native timer stop directly. It no longer calls the narrower alarm-dismiss path before stopping. Local alarm and preview-player cleanup is individually contained, and an exception from an older installed native module can no longer strand the user outside configuration.
+- Hardened the JavaScript native-service boundary so Stop and alarm dismissal report failure without throwing through the UI. The current Android implementation persists and cancels the timer before it clears alarm-window flags, so this containment preserves the important stopped state even if that final activity cleanup fails.
+- Rebuilt the shared bottom-sheet responder structure with separate backdrop and sheet siblings. Scroll gestures now begin normally throughout Help and other sheet bodies instead of working only over an interactive child.
+- Moved secondary Android permission controls into a focused `System access` sheet while leaving Chandas Focus directly visible. The summary communicates whether exact timing needs setup, is being checked, or is ready, and whether optional access remains available.
+- Reduced Cycle setup's Sub-bells surface to its switch, timeline, and concise active/cue summary. Its full list now opens in a sheet; track editing uses an explicit Back path and swaps modal content instead of stacking native modals.
+- Top-aligned the running composition to remove the unused upper void. Renamed the live sheet to `Sound & mute` and matched its Volume control to the configuration screen: label above a full-width slider with no redundant number.
+
+**Migration impact:** None. This pass changes TypeScript and React Native layout only; it does not change Android source, manifests, permissions, resources, dependencies, runtime fingerprint, or stored schema, so it remains eligible for the existing v2 Android binary.
+
+**Verification run:** `npx tsc --noEmit`; full Vitest suite; `git diff --check`; interactive React Native Web review at 390×844 covering Stop, Help scrolling from the middle of the body, compact Sub-bells, Back navigation, System access, the running composition, and Sound & mute.
+
+**Results:** Type checking passed, all 59 tests passed, whitespace validation passed, Stop returned to configuration, Help scrolled from non-control content, and each revised modal flow rendered and navigated correctly at the mobile viewport.
+
+**Native/on-device verification still required:** Reproduce full Stop from the running activity and notification on the affected Android device; verify lock-screen alarm dismissal, Android Back behavior across the Sub-bell and sound drill-down, TalkBack order, keyboard handling, and sheet scrolling with native gesture dispatch. Local native builds remain prohibited by repository policy.
+
+### 2026-09-05 — Interaction and visual consistency pass
+
+- Added a persistent, ten-color primary-accent choice under Appearance. The palette opens in a sheet; the adjacent lightbulb independently switches dark/light mode. Accent-derived fills and glows now follow the chosen color throughout the UI.
+- Reused the same horizontal, single-row color rail for sub-bells and Appearance. Sub-bell progress rings retain their individual colors and now use the same stroke weight as the main ring.
+- Moved setup Help beside the active Cycle/Sequence heading, below the mode selector, so it no longer compresses the selector.
+- Simplified the Sub-bells library to its useful hierarchy: active/cue summary, timing diagram, track rows and Add. The redundant mode eyebrow, duplicate title and group toggle were removed.
+- Kept parent sheets mounted during Sub-bell → track → sound and Mixer → sound drill-down. Back returns one level, Android hardware Back follows the same route, and Done remains available without shifting editable titles.
+- Introduced one shared text-action component for Done, Back, Duplicate, Remove, Delete, Cancel and Clear mute actions. Add-row controls remain intentionally visually distinct.
+- Expanded sub-bell cadence presets and added a one-tap First & last selection action. The timing grid now captures from touch-down and interpolates crossed cells, making taps and rapid paint gestures deterministic regardless of starting cell or direction.
+- Standardized cue-volume layouts: each cue has a full-width slider row with a fixed circular preview control; the global setup volume retains its circular Mixer control. The running mixer can preview the main/current reference cue at the selected master level.
+- Replaced Schedule's nested time picker with in-place, keyboard-safe `HH:MM` clock fields. Custom elapsed durations now use explicit hours/minutes fields and continue to support values beyond 24 hours; they deliberately do not use a time-of-day picker because that would change duration semantics.
+- Restored concise guidance under Run length and Align to clock, strengthened the editable-title underline, and made the shared sheet/config surfaces keyboard-avoiding on Android and iOS.
+- Configuration names now default to the current Cycle name (or loaded Sequence name). Saving a Cycle configuration applies that name to the working main interval as well as the saved copy.
+- Permissions now separate Android authorization from the user's feature preference. Exact timing is hidden once ready; notifications and call auto-mute are reversible switches. Call auto-mute's preference is serialized through the Android service so granted phone-state access never forces the behavior on.
+
+**Compatibility note:** `muteDuringCallsEnabled` is a new native timer-service field. The rest of this pass is JavaScript/asset compatible, but honoring a user-disabled call auto-mute setting while the app is backgrounded requires a new Android binary. Do not publish this commit as an OTA to an older production runtime.
+
+**Verification:** TypeScript (`npx tsc --noEmit`) and 60 Vitest cases passed. A 390×844 local web pass verified the Cycle setup, Appearance/light-dark switch, simplified Sub-bell library, track editor hierarchy, horizontal palettes, and inline Schedule editor with no render errors. Kotlin compilation and physical-device checks remain pending because local native builds are prohibited by repository policy. Verify stacked sheet transitions, Android Back, keyboard resizing, notification/call toggles, rapid grid painting, and call-active suppression on the next remote development build.
+
+**Risks or follow-ups:** The installed native module still clears `FLAG_SHOW_WHEN_LOCKED`/screen-on activity state from a synchronous exported function. The next store build should move activity-window work explicitly onto Android's main queue. This OTA pass deliberately avoids that Kotlin change so it can repair the currently distributed binary without requiring a replacement AAB.
+
+### 2026-09-05 — Schedule editor and timeline clarity pass
+
+**Status:** Complete in source and OTA-compatible.
+
+**Scope:** Schedule progressive disclosure, modal ownership, range grouping/removal, overnight timeline geometry, and the production workflow's missing test fixture.
+
+**Decisions referenced:** D-071–D-073.
+
+**Behavior implemented:**
+
+- Hide the compact Schedule timeline whenever Schedule is Off. Enabling the setup switch reveals it with a gentle transition; the preview remains the entry point to detailed editing.
+- Removed the redundant Active times control from the Schedule sheet. The sheet now owns only individual ranges, while the setup switch remains the sole global schedule control.
+- Moved every separator below the complete range/editor block. Replaced the faint underlined removal link with a warm outlined `Remove this time range` button while retaining the destructive confirmation.
+- Separated rendered active spans from labelled transitions. Overnight carry-in/out still paints correctly to the day edges, but no longer invents `0`/`24` labels. Nearby genuine transitions alternate label lanes, and one overnight range is counted once in the summary even when it produces two visual pieces.
+- Included the small shared timeline fixture in EAS upload archives so the guarded production workflow's cloud type-check can run instead of failing on an excluded test dependency.
+
+**Migration impact:** None. Schedule storage and runtime resolution are unchanged; this is rendering, interaction hierarchy, and release-archive configuration only. No native files or dependencies changed.
+
+**Verification run:** `npx tsc --noEmit`; full Vitest suite; `git diff --check`; React Native Web review at 390×844 using the reported 08:00–22:00, 23:00–01:00, and 02:00–04:00 ranges.
+
+**Results:** Type checking passed, all 60 tests passed, whitespace validation passed, Off removed the preview entirely, the modal contained no global toggle, the expanded editor and removal action remained above their separator, and the timeline showed only 01:00/02:00/04:00/08:00/22:00/23:00 with a truthful three-range summary. No new runtime error was logged.
+
+**Native/on-device verification still required:** Confirm two-lane label spacing at the exact Android font scale, destructive confirmation appearance, modal scroll reachability, and switch/transition feel on a representative device.
+
+**Risks or follow-ups:** Very dense schedules can still contain many genuine transitions. The compact preview intentionally preserves their ticks while alternating close labels; if real-world schedules exceed comfortable density, a later pass can suppress selected labels without changing schedule semantics.
+
+### 2026-09-05 — Flat Focus and tappable visualizers
+
+**Status:** Complete in source and OTA-compatible.
+
+**Scope:** Chandas Focus visual consistency and direct manipulation of compact Schedule/Sub-bell timelines.
+
+**Decisions referenced:** D-074–D-075.
+
+**Behavior implemented:**
+
+- Removed the Chandas Focus card and restyled it as the same uppercase section label plus trailing switch used by the other setup toggles. Normal Off/Ready/active states add no redundant copy; actionable DND access, Android-disabled, and paused states remain available without a container.
+- Made the Cycle cue timeline open the Sub-bells sheet directly. The existing Configure sub-bells row remains available as a more descriptive secondary target.
+- Confirmed the Schedule timeline already owned its editor action and strengthened both timelines with larger hit areas, restrained pressed feedback, and accessibility hints.
+
+**Migration impact:** None. TypeScript/UI-only; no stored, native, permission, dependency, or runtime-fingerprint change.
+
+**Verification run:** `npx tsc --noEmit`; full Vitest suite; `git diff --check`; mobile web interaction review.
+
+**Native/on-device verification still required:** Confirm Android switch alignment, pressed-state feel, and TalkBack naming/activation on both visualizers.
+
+### 2026-09-05 — Colored cues and running/sequence refinement
+
+**Status:** Complete in source and OTA-compatible.
+
+**Scope:** Sub-bell visual identity, running-screen balance and Focus state, Cycle naming, Sequence row/reorder behavior, step duration/preview controls, and Android settings terminology.
+
+**Decisions referenced:** D-076–D-082; supersedes D-053 and the running alignment portion of D-070.
+
+**Files changed:** TypeScript domain types and normalization, Pattern actions, Cycle/Sequence configuration UI, running timer UI, reorder handle, domain tests, and this specification/log. Android source, resources, manifests, and dependencies are unchanged.
+
+**Behavior implemented:**
+
+- Added ten semantic Sub-bell colors in a reusable palette. Existing records are repaired deterministically by track order, new tracks receive the next default, saved configurations retain selections, and malformed values fall back safely.
+- Added a compact two-row color selector to each Sub-bell editor, small color keys in the track list, colored setup cue dots, colored nested running strokes, and matching next-cue text.
+- Centered the timer rings in the space between header and controls. Active Chandas Focus now uses the familiar accent edge border instead of an always-visible label; a paused Android rule still displays its exceptional state.
+- Restored tap-to-edit naming for the Cycle main interval and use of that name in the running header.
+- Moved Sequence order numbers beside titles, removed held-row scaling and spring release, expanded the shared scrolling duration shortcuts, and added an inline Volume preview action with gentle failure feedback and cleanup on close or sound drill-down.
+- Renamed `Android access` / `System access` to the simpler `Permissions`, leaving Chandas Focus as its own control.
+
+**Migration impact:** No schema-version or native migration. `PatternTrack.color` is optional visual metadata; normalizing old state fills it, presets naturally preserve it, and the Kotlin `JSONObject` parser reads only its established fields. This changes the JavaScript bundle only and remains compatible with the current v2 Android runtime.
+
+**Verification run:** `npx tsc --noEmit`; full Vitest suite; `git diff --check`; source-level review of native `JSONObject` parsing and responsive running layout.
+
+**Results:** Type checking passed and all 60 tests passed, including legacy/malformed color repair. No native contract or permission changed.
+
+**Native/on-device verification still required:** Confirm the visual center across compact and tall Android devices, palette contrast under system display adjustments, TalkBack reading/selection for all ten colors, focus-border visibility around cutouts/system bars, sound preview routing through the Alarm stream, and delayed reorder/auto-scroll feel.
+
+**Risks or follow-ups:** The palette is intentionally semantic. Its actual color values can be tuned later without migrating saved configurations. A future user-defined color picker can extend the metadata contract separately if the fixed palette proves too limiting.
+
+### 2026-09-05 — Optional bounded-run final gong
+
+**Status:** Complete in source; requires the next native Android build.
+
+**Scope:** Persisted Cycle/Sequence program data, bounded-run Sound controls, previews and mixers, JavaScript/native terminal scheduling, normalization, and parity tests.
+
+**Decisions referenced:** D-037, D-048, D-083.
+
+**Behavior implemented:**
+
+- Added an optional final cue to both program kinds. It is Off for new and older configurations and saved naturally with configuration snapshots.
+- Showed one `Custom final gong` switch only for Cycles and Duration. Enabling it begins with the sound and level that would otherwise end that program, so merely enabling the option produces no surprising level jump. Its Volume includes an adjacent preview action and its sound opens the established picker.
+- Included the enabled final cue in setup and live sound-level mixers. Switching back to Continuous hides and ignores it while preserving the choice for a later bounded run.
+- Reused the existing exactly-once terminal event in JavaScript and Kotlin. A configured final gong replaces the natural boundary cue when the deadline lands exactly on one, or the derived synthetic cue when it lands between boundaries; no second alarm, notification, or overlapping playback is created.
+- Kept terminal identity, fixed end time, durable completion-before-playback ordering, user/call mute gates, and non-looping bounded alarm semantics unchanged.
+
+**Migration impact:** Normalization fills `completionCue: null` for older working programs and presets without increasing the v2 schema version. The native parser accepts missing/null values for backward compatibility and validates any configured cue before scheduling. Because Android must understand the new cue to honor it while the app is backgrounded, this feature requires a new binary even though older programs remain readable.
+
+**Verification run:** TypeScript, Vitest, whitespace/diff validation, and source-level JavaScript/Kotlin parity review. Native compilation and device playback remain intentionally deferred to the remote build because repository policy prohibits local native builds.
+
+**Native/on-device verification still required:** Test exact-boundary and between-boundary endings with the screen off, process death/restart, Android/device sounds, unavailable document sounds and fallback, user/call mute at completion, and saved-configuration round trips on the next remote development build.
+
+**Risks or follow-ups:** Opening-gong customization remains intentionally excluded. A future opening cue would require its own start-delivery/idempotency design and must not be inferred from this terminal-only field.
+
+### 2026-09-05 — Immersive running mode and production sound library
+
+**Status:** Complete in source; requires the next native Android build.
+
+**Scope:** Running status-bar/help geometry, bundled foreground audio, Android raw resources and sound resolution, persisted placeholder migration, defaults, validation, and sound-library documentation.
+
+**Decisions referenced:** D-015, D-084, D-085.
+
+**Behavior implemented:**
+
+- Running mode now hides the status bar with an animated transition. Returning to setup by Stop, bounded completion, or recovery restores it automatically from the single app-state source of truth.
+- Enlarged the running Help button from 30×30 to the shared 40×40 control geometry and adjusted its glyph, without changing its tap or long-press behavior.
+- Replaced the three synthetic built-in choices with all sixteen supplied recordings while retaining the existing Temple gong and Clear bell. The picker now exposes eighteen real, individually previewable recordings.
+- Added each recording to both the Expo asset library and Android raw resources with one shared stable ID. Four 24-bit WAV sources were converted to 16-bit PCM copies for conservative Android `MediaPlayer` support; all other recordings were copied unchanged.
+- Changed fresh Sequence defaults to Bloom, Temple gong, and Handpan. Old Soft bowl, Wood block, and Bright chime references normalize to Handpan, Instamatic, and Bloom; Kotlin validation/playback retains aliases so an active session created by an older binary remains recoverable after package replacement.
+
+**Migration impact:** No schema-version bump. Persisted placeholder IDs are normalized on load and then saved using their production replacements. This release adds packaged audio resources and native resource mappings, so the complete library and background playback require a new binary and produce a new Expo runtime fingerprint.
+
+**Verification run:** Audio metadata/decoder-format inspection, source-to-bundle inventory comparison, TypeScript, Vitest, whitespace validation, JavaScript/Kotlin registry parity checks, and local responsive UI review. Native compilation remains deferred to the remote build by repository policy.
+
+**Native/on-device verification still required:** Preview and schedule every sound through Android's Alarm stream; verify 16-bit WAV playback on minimum/representative Android versions, sustained-sound interruption, screen-off/background delivery, status-bar restoration after every exit path, cutout/safe-area layout in fullscreen, and alarm-loop behavior with each applicable cue.
+
+**Risks or follow-ups:** The supplied recordings do not include repository-local provenance/license metadata. Preserve the original acquisition/license records outside the app and add them to release documentation if store or redistribution requirements call for attribution.
+
+### 2026-09-05 — OTA-capable native sound cache
+
+**Status:** Complete in source; requires one cache-capable Android build.
+
+**Scope:** Expo asset materialization, native-module cache API, atomic persistent storage, generic sound-ID validation, background and alarm playback resolution, packaged fallback policy, race handling, tests, and removal of duplicate raw resources.
+
+**Decisions referenced:** D-085, D-086.
+
+**Behavior implemented:**
+
+- Added a native cache operation that accepts a constrained built-in ID, a downloaded app-local asset URI, and its Expo content hash. It copies no network input, rejects path traversal, refuses empty or over-25-MiB files, verifies Expo MD5 values, and atomically replaces the previous version only after the complete file is synced.
+- Materializes every built-in sound needed by a program before Start, native-session attachment, reanchor, and debounced live schedule updates. Preview materializes its requested sound first. Duplicate and concurrent requests share one promise per sound/revision.
+- Stores dynamic recordings under the private files directory rather than relying on Expo's evictable cache. The native one-shot and looping alarm paths resolve the durable file without JavaScript and pass an open descriptor to `MediaPlayer`.
+- Removed the per-sound Kotlin allowlist and accepts future lowercase kebab-case IDs under a strict 64-character limit. Legacy placeholder IDs resolve to their production replacements at the native cache boundary.
+- Removed the sixteen duplicate `res/raw` recordings and their Kotlin mappings. Temple gong, Clear bell, and the alarm loop remain packaged as recovery resources. Missing, corrupt, unsupported, or incompletely installed dynamic sounds fall back to Clear bell or the alarm loop without stopping or invalidating the timer.
+
+**Migration impact:** This native cache contract itself changes the Expo runtime fingerprint and therefore needs one new Android binary. Once users have that runtime, adding or replacing ordinary statically required library sounds changes only OTA-owned JavaScript/assets and does not require another native ID, Kotlin mapping, or raw resource. Existing installed timers remain readable; a legacy sound ID resolves through its canonical cached ID.
+
+**Verification run:** TypeScript, Vitest, whitespace validation, registry inspection, focused source review against Expo Asset lifecycle documentation and Android `AtomicFile`/`MediaPlayer` contracts. Native compilation remains deferred to the remote build under repository policy.
+
+**Native/on-device verification still required:** On the next remote development build, install from a clean state and verify first preview/Start, process death, reboot, screen-off delivery, continuous alarm fallback, an OTA-added test sound, an OTA replacement using the same ID, and behavior after manually clearing only application cache.
+
+**Risks or follow-ups:** Persistent dynamic sounds are intentionally retained when a later library removes an entry so a still-running or restored timer cannot lose it. If the catalog grows substantially, add a bounded garbage collector that protects IDs referenced by active native state before removing stale files.
+
+### 2026-09-05 — Native stabilization and OTA-owned presentation
+
+**Status:** Complete in source; requires one replacement Android build and focused device validation.
+
+**Scope:** Focus stop/snooze state transitions, raw Focus telemetry, bridge capability discovery, forward-compatible native safety ceilings, persisted notification presentation, reconnect synchronization, and regression coverage.
+
+**Decisions referenced:** D-020–D-022, D-032, D-067, D-087–D-089.
+
+**Behavior implemented:**
+
+- Made Stop, failed Start, bounded completion, and exact-alarm-access failure clear the authoritative timer record before publishing Focus inactive. A late Android 15 deactivation status is retained as a manual pause only if automation is enabled, a timer still runs, and Chandas still requests Focus active.
+- Added raw `timerRunning`, `requestedActive`, `pausedByAndroid`, `ruleWasRemoved`, and `withinActiveHours` facts to Focus state. New binaries let the TypeScript layer derive the user-facing reason; older binaries continue using their existing native reason without failing.
+- Added native contract v2 capability discovery with supported program schemas, safety ceilings, dynamic-sound support, raw-Focus support, and notification-presentation support. Product limits remain deliberately smaller and simpler in JavaScript.
+- Raised native-only safety ceilings to 32 Pattern tracks, 64 Sequence steps, seven-day cue durations, a 448-day maximum program cycle, 100,000 run cycles, one-year duration bounds, and larger mute limits. Native Start additionally verifies that the supplied main duration exactly matches the serialized program cycle.
+- Moved ordinary notification titles, bodies, action labels, and time templates into a bounded serialized record. Kotlin retains conservative English defaults and rejects blank, oversized, malformed, or placeholder-free copy. Reconnecting to a persisted native session reapplies this OTA-owned envelope without changing its anchor or runtime mute controls.
+- Kept native-only responsibilities unchanged: exact alarm delivery, persistent scheduling, audio routing, system intents, DND ownership, permissions, receivers/services, notification channels, and packaged emergency sounds.
+- Aligned the stabilization binary with SDK 57's expected `expo` 57.0.20 and `expo-notifications` 57.0.17 patch releases instead of carrying known dependency drift into the next store artifact.
+
+**Migration impact:** The additional bridge function, raw state fields, validation behavior, and notification record require a new native runtime. All fields are additive. TypeScript feature-detects capability discovery, preserves legacy Focus reasons when raw facts are absent, and the new notification record is optional with native defaults. Once this binary is installed, ordinary notification-copy changes, product-limit increases within the advertised ceiling, Focus status wording/precedence, and new library recordings can ship by OTA.
+
+**Verification run:** Expo SDK dependency compatibility, TypeScript compilation, the complete Vitest suite including new Focus presentation tests, whitespace validation, and source review against Android 15 automatic-rule status semantics. Native Gradle tests were added for Focus deactivation policy, notification-copy validation, and engine headroom but were not run locally because repository policy prohibits native compilation.
+
+**Native/on-device verification still required:** On Android 15+, exercise in-app Stop, notification Stop, bounded completion, schedule exit/re-entry, manual rule snooze, manual reactivation, rule disable/removal, loss/restoration of DND access, and process death between state transitions. Confirm notification copy after a cold reconnect and verify that the native capability record is available to the release bundle.
+
+**Risks or follow-ups:** Android documents `AUTOMATIC_RULE_STATUS_DEACTIVATED` as a user snooze, but the additional requested-active/timer-running guard intentionally tolerates delayed or OEM-divergent broadcasts. Native ceilings are safety bounds rather than a commitment to expose larger editors. Manifest permissions, new platform integrations, incompatible timer math, native dependency/SDK changes, and defects inside native platform mechanisms will always require a replacement build.
+
+### 2026-09-05 — Quiet setup hierarchy, tactile cues, and live countdown
+
+**Status:** Complete in source; native additions require a replacement Android build and device validation.
+
+**Scope:** Setup-screen hierarchy, Sub-bell editing, saved-configuration presentation, Appearance controls, shared interaction feedback, exact cue haptics, and Android running-notification countdowns.
+
+**Decisions referenced:** D-090–D-092.
+
+**Behavior implemented:**
+
+- Removed redundant Main interval, Run Length, Sound, and duplicate Sub-bells headings. Fresh and legacy-default Cycle names now read “Main Interval”; Align to clock, Sub Bells, Schedule, and Chandas Focus use the same primary row-title treatment and concise one-line help.
+- Reduced Sub Bells to its title/count row, toggle, and tappable timeline. The nested editor no longer repeats an Enabled row beside the rename flow. Bell offsets are tap-only so the sheet never captures a drag intended for scrolling.
+- Added Dark mode to the Appearance sheet alongside the existing horizontally scrolling accent selector.
+- Reworked saved configurations around compact Pattern/Sequence timeline previews, stronger light-theme contrast, neutral selection surfaces, and the shared text-action component for Save, Load, Cancel, and Delete.
+- Centralized light control haptics in shared buttons, toggles, chips, segmented controls, schedule controls, and live timer actions. Audible native cues receive a light tick for sub-bells/steps and a strong click for main/cycle/final boundaries; muted, call-suppressed, and out-of-hours cues remain silent and still.
+- Added an opt-in Next cue countdown under System integrations. Android’s notification chronometer updates without JavaScript wakeups. The notification requests promoted ongoing treatment on supported Android 16+ devices and falls back to the normal ongoing notification/lock-screen countdown elsewhere.
+
+**Migration impact:** `liveCountdownEnabled` is additive and defaults off for existing installations. Native contract v3 adds this field, promoted-notification capability reporting, the non-runtime promoted-notification permission, AndroidX Core 1.17, and native cue vibration. These native changes produce a new Expo runtime fingerprint and require a new store/development binary before the integration appears.
+
+**Verification run:** TypeScript compilation, Vitest, source/diff validation, and interactive Expo Web review at 390×844 and 1280×900, including the main Cycle setup, Appearance sheet, light-theme configuration list/detail, and Sub-bell rename/timing sheet. Native builds remain prohibited locally by repository policy.
+
+**Native/on-device verification still required:** On the next remote Android build, verify the System integrations toggle, countdown rollover at sub-bell/main/cycle/final boundaries, schedule pause/resume, bounded completion, notification-disabled behavior, Android 16 promoted-chip eligibility/settings, pre-Android-16 notification fallback, and light/strong vibration on at least one Pixel and one OEM device.
+
+**Risks or follow-ups:** Android and OEM policy decides whether a qualifying Live Update is promoted and whether chip text fits; Chandas guarantees only the ongoing notification countdown. Users can independently disable notifications or Live Updates in system settings. The short cue haptics use standard predefined Android effects where available, so their physical intensity varies by device.
+
+### 2026-09-05 — Dedicated alarm sound and tap-anywhere dismissal
+
+**Status:** Complete in source; the native alarm changes require the next Android build and locked-device validation.
+
+**Scope:** Alarm Once/Locked playback, full-screen ringing presentation, lock-screen window lifetime, and global sound selection.
+
+**Decisions referenced:** D-093.
+
+**Behavior implemented:** The ringing surface is a single full-screen dismiss target containing only the flashing circle. A screen tap or Android Back stops the loop and resumes the timer. Alarm playback now reads a global Alarm sound setting rather than reusing the current main gong; its default is the packaged Sine alarm, and the ordinary built-in/Android/device picker can replace it. The full-screen alarm intent is public on the lock screen, clears stale activity instances, keeps the display awake while ringing, and continues to fall back safely to the packaged alarm resource if a selected file becomes unavailable.
+
+**Migration impact:** Existing settings normalize to Sine alarm without touching saved configurations. Native contract v4 adds the bounded `alarmSoundId` field and capability. The packaged alarm asset already exists, but the new bridge field, scheduler behavior, and lock-screen handling require a replacement binary.
+
+**Verification run:** TypeScript, Vitest, whitespace review, and native source inspection. Local Android compilation remains prohibited by repository policy.
+
+**Native/on-device verification still required:** Verify Alarm Once and Locked from foreground, background, screen-off, secure lock screen, and process recreation; tap the center and screen edges; press Back; deny then grant full-screen-alarm access; test built-in, Android ringtone, and document sounds; confirm a missing document falls back to Sine alarm and ordinary timer scheduling resumes after dismissal.
+
+**Risks or follow-ups:** Android 14+ and Google Play restrict full-screen intent access to qualifying alarm/calling apps, and users/OEMs retain final control. When access is denied, Android may show a heads-up lock-screen notification instead of launching the full-screen activity automatically.
+
+### 2026-09-05 — Progressive advanced setup and inline collection editing
+
+**Status:** Complete in source; eligible for OTA delivery to a compatible runtime.
+
+**Scope:** Setup information hierarchy, persisted Advanced mode, running-control visibility, hybrid color selection, Sub-bell cue disclosure, and inline collection deletion.
+
+**Decisions referenced:** D-094–D-096.
+
+**Behavior implemented:**
+
+- The default setup keeps the interval, run length, clock alignment, Sub-bells, primary volume, main gong, and bounded final-gong choice visible. Alarm sound, Schedule, saved configurations, Appearance, Chandas Focus, and System integrations are grouped into Advanced mode.
+- Show advanced is both tappable and scroll-driven. Ordinary scrolling only exposes the prompt; an additional bottom pull progressively brightens it, gives threshold haptics, and expands only when released beyond the threshold. Hide advanced resets and re-arms the gesture. The preference persists and controls whether Alarm and Focus appear on the running screen.
+- Appearance is no longer a separate modal. One flat Advanced row combines its primary-color circle with a lightbulb light/dark action; tapping the circle expands the shared horizontal color rail in place. The same collapsed-circle interaction is used for Sub-bell colors.
+- Sub-bell cue grids begin collapsed. Customize cues reveals the grid and one right-aligned contextual action: Clear when all valid cues are selected, otherwise Select all.
+- Sub-bells, Sequence steps, Schedule ranges, and saved configurations share one left-swipe row. Swiping reveals a trash icon and deletion exits/collapses smoothly in the list. Delete actions were removed from their edit/detail sheets, and the sole remaining Sequence step cannot be deleted.
+
+**Migration impact:** `advancedModeEnabled` is additive, defaults off for existing and legacy state, and remains app-owned when native settings are reconciled. No native bridge, packaged resource, manifest, or runtime-fingerprint input changed in this slice.
+
+**Verification run:** TypeScript compilation, all 68 Vitest tests, whitespace validation, and interactive Expo Web review at 390×844 and 1280×900. The pass covered progressive reveal/collapse, the inline primary-color palette, collapsed/expanded cue editing with contextual Clear, swipe-to-trash presentation, and the simplified running control set. No page errors appeared during setup-screen inspection.
+
+**Native/on-device verification still required:** Confirm horizontal swipe recognition does not steal vertical BottomSheet scrolling, ReorderHandle long-press remains reliable beside row swipes, delete collapse motion/haptics feel appropriate, and scroll-threshold activation behaves consistently on short/tall Android viewports with gesture and three-button navigation.
+
+**Risks or follow-ups:** The shared swipe row uses React Native's platform responder because the project does not currently include Gesture Handler. If dense gesture composition expands later, migrate the shared primitive—not individual lists—to a simultaneous native gesture implementation.
+
+### 2026-09-05 — Doze-safe cue delivery and final interface alignment
+
+**Status:** Complete. Remote Android production build 9 passed; physical-device validation remains pending.
+
+**Scope:** Modal typography, guarded configuration loading, nested-ring phase, overlapping Schedule previews, collision parity, Android low-power scheduling, and the promoted running notification.
+
+**Decisions referenced:** D-097–D-100.
+
+**Behavior implemented:**
+
+- Added one shared sheet-section heading and applied the setup screen's sentence-case hierarchy to Repeat every, Cue volume, Mute for, schedule time fields, sheet metadata, and related secondary flows.
+- Configuration loading now compares user-editable program content rather than generated IDs. Untouched defaults and unchanged loaded snapshots open directly; changed or source-deleted working copies receive a clear Keep editing / Load confirmation.
+- Corrected nested Sub-bell ring phase so the first visual segment starts at the current cycle boundary. Added deterministic tests for the start, midpoint, cue reset, and final-to-main segment.
+- Reduced Schedule preview geometry to the merged current-day union. Fully subsumed and partially overlapping author ranges no longer emit duplicate/internal ticks, while schedule runtime semantics and the editor's independent ranges remain unchanged.
+- Made Kotlin collision selection enforce the same cadence-first rule as JavaScript even when a malformed or future producer serializes tracks out of UI sort order.
+- Replaced user cue scheduling with alarm-clock alarms. The prior one-future-event design used exact-while-idle alarms, which Android rate-limits; a delayed late-cycle Sub-bell could therefore schedule a main gong inside the platform's next restricted window. Internal availability/DST maintenance remains on the lower-impact exact-while-idle path.
+- Kept the running notification promotable by using a standard BigText style rather than a custom view. Pattern notifications now identify the named interval, remain public on the lock screen, retain Stop, and let Android 16+ open the system-expanded Live Update from its status chip.
+- Reconfirmed release-version ownership: generated `/android` is excluded from the EAS archive, so `app.json` remains the 2.1.0 user-facing source and EAS remote versioning supplies the monotonically increasing Play Store `versionCode` during remote prebuild/build.
+
+**Migration impact:** The UI, dirty-state, ring, and Schedule-preview changes are JavaScript compatible. `setAlarmClock`, native collision arbitration, and expanded notification metadata change the Android runtime fingerprint and require the replacement binary requested for this round.
+
+**Verification run:** TypeScript compilation; all 70 Vitest tests; whitespace validation; interactive React Native Web inspection of the setup, Sub-bells library, and bell editor; native source/manifest/config-plugin review; and comparison with Android's official AlarmManager, Doze, notification, and Live Update guidance. Repository policy prohibits local Gradle/native compilation.
+
+**Native/on-device verification still required:** Install the remote build on the reporting device and test a 30-minute Cycle with cues at 25/28/29 minutes while the screen is off long enough to enter Doze; verify every cue timestamp, the final main gong, ring resets, Stop from the notification, reboot/process recovery, schedule exit/re-entry, alarm-mode full-screen flow, Android 16 chip expansion, and the ordinary notification fallback on earlier Android/OEM builds. Confirm the system's upcoming-alarm affordance is acceptable while Chandas runs.
+
+**Risks or follow-ups:** `setAlarmClock` is deliberately highly visible and more battery-sensitive than ordinary exact alarms; that is appropriate only while a user-started audible timer is active. Android/OEM policy still controls Live Update promotion. The remote build is the first native compile gate for these Kotlin edits, so any platform-API or manifest issue must be resolved there rather than by a prohibited local Gradle run.
+
+### 2026-09-05 — Optimistic, verified Stop reconciliation
+
+**Status:** Complete in source; OTA-compatible with Android production build 9.
+
+**Scope:** Prevent the setup screen from silently coexisting with a native timer after Stop, without making the interaction feel slower.
+
+**Decision referenced:** D-101.
+
+**Behavior implemented:**
+
+- Stop navigates to setup and gives haptic confirmation immediately.
+- The native bridge then calls Stop and reads Android's persisted timer state. The state read—not a secondary window-cleanup exception—is authoritative.
+- An unconfirmed stop is retried twice in the background. The first two failures are deliberately silent; after the third, a persistent, gentle warning exposes Stop again.
+- A setup-screen reconciliation guard detects an unexpected native session and runs the same verified stop flow.
+- Starting a new timer cancels and invalidates pending retries, preventing a delayed callback from stopping the replacement session.
+- Local running/session state is cleared only after Android confirms inactivity, preserving recovery truth if every attempt fails.
+
+**Migration impact:** JavaScript/OTA only. The installed binary already exposes synchronous `stop()` and `getState()` methods, so no native rebuild or runtime fingerprint change is required.
+
+**Verification run:** TypeScript compilation; 74 Vitest tests including success, cleanup-exception, still-active, and unreadable-native-state cases; whitespace validation; and diff inspection confirming no Kotlin, manifest, app configuration, bundled asset, or dependency changes.
+
+**Native/on-device verification still required:** Reproduce on Johannes's device by stopping during an ordinary cycle, during a just-fired bell, and after background/foreground transitions. Confirm setup appears immediately, no later bell fires, the running notification disappears, and a deliberately induced bridge failure produces the warning instead of silent limbo.
+
+### 2026-09-05 — Confirmed running clock alignment
+
+**Status:** Complete in source; OTA-compatible with Android production build 9.
+
+**Scope:** Intermittent-looking clock alignment changes and the re-anchor/Stop race.
+
+**Decision referenced:** D-102.
+
+**Behavior implemented:**
+
+- Removed mathematically duplicate presets: a 5-minute Pattern no longer offers `:05` as a second form of `:00`, and a 10-minute Pattern no longer offers duplicate `:10`.
+- Limited custom offsets to distinct phases below the Pattern duration when the main interval is shorter than one hour.
+- Kept the clock sheet open with the selected chip and an Aligning indicator until the live schedule replacement succeeds. A failure stays visible in context rather than closing the sheet with no apparent result.
+- Added brief success feedback naming the applied offset, plus explicit Already aligned feedback when the current phase is selected again.
+- Added synchronous request guards in the app and timer hook. Rapid operations cannot overlap, and Stop/new Start invalidate a re-anchor waiting for cached sound preparation before it can call native Start.
+- Centralized clock-anchor math in a dependency-free helper shared by the runtime and deterministic tests.
+
+**Migration impact:** JavaScript/OTA only. No Kotlin, manifest, app configuration, dependency, or bundled-asset change.
+
+**Verification run:** TypeScript compilation; all 78 Vitest tests; deterministic local-clock boundary and distinct-preset tests; and interactive Expo Web validation of the 30-minute `:05` change, repeated-selection acknowledgement, countdown redraw, active icon, and the corrected 10-minute `:00`/`:05` choices.
+
+**Native/on-device verification still required:** On Android, choose several offsets while the timer runs and confirm the sheet waits for native acceptance, the countdown jumps to the expected wall-clock lattice, the notification countdown follows, and rapid Snap → Stop or Snap → Stop → Start sequences never resurrect or cancel the wrong session.
+
+### 2026-09-05 — Deliberate Advanced reveal and Sub-bell editor polish
+
+**Status:** Complete in source; OTA-compatible with Android production build 9.
+
+**Scope:** Bottom-scroll disclosure, Appearance consolidation, shared horizontal continuation cues, and Sub-bell editor layout/state.
+
+**Decision referenced:** D-103.
+
+**Behavior implemented:**
+
+- Replaced prompt-visibility activation with a true bottom-pull interaction. A normal scroll cannot reveal Advanced accidentally; an extra 88-point upward pull supplies continuous brightness/position feedback and threshold haptics, then release commits the expansion. A short pull eases back to rest. Collapse clears every gesture ref so the interaction works again immediately.
+- Reduced the collapsed prompt to one `Show advanced` label and removed the instructional sentence and direction glyph.
+- Kept every Advanced row on the same root spacing and opacity as ordinary controls. Appearance now uses one row with the expandable current-color swatch and the circular lightbulb action beside it.
+- Added one shared edge-aware horizontal scroller for duration, clock phase, and color choices. Its right scrim appears only when later choices exist; its left scrim appears after scrolling and both fade away at their respective ends.
+- Gave BottomSheet headings an explicit minimum height and separation, then added Track-editor breathing room so editable names cannot collide with `Repeat every` on narrow Android screens.
+- Standardized Customize cues on the same right chevron as other disclosure rows, removed the empty-selection notice, and made cue selection authoritative: clearing the last cue disables the Sub-bell, while selecting a cue enables it again. Normalization also repairs persisted enabled-but-empty tracks.
+
+**Migration impact:** JavaScript/OTA only. This changes no Kotlin, manifest, app configuration, dependency, packaged asset, or native runtime fingerprint input.
+
+**Verification run:** TypeScript compilation; all 79 Vitest tests including cue-disable/re-enable coverage; whitespace validation; and interactive Expo Web inspection at 408×900 of collapsed/expanded Advanced, Appearance, color rails, the Sub-bells library, the compact Track editor, and Clear/Select all state. No page errors appeared; existing Reanimated development warnings remain unrelated to this slice.
+
+**Native/on-device verification still required:** On Android, make one ordinary scroll that only reveals Show advanced, then continue pulling until the prompt brightens and haptic feedback occurs; release below and above threshold; collapse and repeat. Also verify left/right scrims while swiping each rail and check the Track editor with long names, the keyboard open, and three-button navigation.
+
+### 2026-09-05 — Independent alarm level and circular Android notifications
+
+**Status:** Complete in source; JavaScript remains compatible with production build 9, while the native additions require the next Android build.
+
+**Scope:** Alarm-level configuration and persistence, native background alarm playback, Android small-notification artwork, the running Sound & mute interaction, Help accuracy, and deliberate OTA compatibility.
+
+**Decision referenced:** D-104.
+
+**Behavior implemented:**
+
+- Added a global saved Alarm volume to the existing Alarm sound editor. Preview and JavaScript fallback playback use `masterVolume × alarmVolume`; contract-v5 Android playback persists and uses the same product before the phone's Alarm-stream level is applied.
+- Advertised `supportsAlarmVolume` from the native module. The OTA layer neither shows the level nor sends its bridge field to older Android binaries, so production build 9 continues to use its existing alarm behavior without a misleading control.
+- Replaced the square launcher-art fallback with a transparent monochrome circle owned by the timer module. Running, event, and ringing notifications use it directly, and the config plugin assigns it as the default small icon for Expo/Firebase notifications too.
+- Made the running Sound & mute sheet match setup: Volume has a circular mixer control at the right; tapping it expands per-cue sliders in place, each with its own preview. The running toolbar now uses the volume glyph for this destination.
+- Right-aligned the Help sheet's Android DND action and refreshed Help for colored Sub-bells, bounded final gongs, tap-anywhere alarm dismissal, the mixer, Advanced disclosure, swipe deletion, and delayed Sequence reordering.
+- Pinned Android updates to production build 9's runtime `f8c55f24f4972e429d24120aa843e8a0e32f1aaf`. The production OTA workflow now verifies that exact runtime exists before publishing. iOS retains the fingerprint policy, and incompatible future Android bridge changes must move to a new runtime before release.
+
+**Migration impact:** `alarmVolume` is additive and normalizes to 1 for existing settings and legacy migration. Contract v5, the vector resource, and notification-manifest override require a new Android binary for actual background alarm-level control and circular system icons. All shared-runtime JavaScript paths are capability-gated; the current binary can safely receive the Help and running-mixer refinements while hiding the unsupported alarm level.
+
+**Verification run:** TypeScript compilation, the full Vitest suite, Expo public-config resolution, config-plugin source review, Android source review, and whitespace/diff validation. Repository policy prohibits local Gradle or native compilation.
+
+**Native/on-device verification still required:** On the next remote Android build, confirm the status-bar dot and notification-header icon on light/dark system themes, ordinary running/event notifications, the ringing foreground service, and any Expo-delivered notification. Test alarm levels 0%, 25%, and 100% through foreground, background, screen-off, lock-screen, process recreation, live setting changes while ringing, and sound-file fallback. Confirm build 9 still accepts the shared OTA, hides Alarm volume, and retains its existing alarm behavior.
+
+**Risks or follow-ups:** Android intentionally tints small icons from their alpha mask, so the result is a system-colored circle rather than the app's purple artwork. Manual runtime compatibility is safe here only because contract v5 is additive and feature-detected; the release checklist must assign a new runtime before any incompatible native assumption is introduced.
+
+### Implementation-entry template
+
+```md
+### YYYY-MM-DD — Short title
+
+**Status:** Complete / Partial / Blocked
+
+**Scope:**
+
+**Decisions referenced:** D-###
+
+**Files changed:**
+
+**Behavior implemented:**
+
+**Migration impact:**
+
+**Verification run:**
+
+**Results:**
+
+**Native/on-device verification still required:**
+
+**Risks or follow-ups:**
+```
+
+---
+
+## 25. Change log
+
+| Specification version | Date | Summary |
+| --- | --- | --- |
+| 1.0 | 2026-09-02 | Initial detailed specification, implementation architecture, acceptance criteria, and append-only log structure. |
+| 1.1 | 2026-09-03 | Recorded the completed source implementation, exact-alarm/full-day/DND decisions, final audit remediation, and remaining remote/device release gate. |
+| 1.2 | 2026-09-03 | Added the calm interaction-refinement pass covering motion, loading, empty states, permissions, recoverable feedback, and storage/UI failure handling. |
+| 1.3 | 2026-09-03 | Added bounded cycle/duration runs, exact terminal semantics, multi-window schedules, and the calendar-ready availability override contract. |
+| 1.4 | 2026-09-03 | Applied the first annotated-feedback pass: simpler Cycle/Sequence surfaces, immediate Alarm feedback, smoother nested rings, web-safe controls, compact Mixer, and sticky cue volume. |
+| 1.5 | 2026-09-03 | Extended the feedback direction across Timer v2 with compact Sequence rows, focused saved-configuration inspection, quiet routine transitions, and shorter setup/status language. |
+| 1.6 | 2026-09-04 | Added renameable Cycle intervals while deferring opening/ending gong overrides so the change remains compatible with the existing native binary. |
+| 1.7 | 2026-09-04 | Applied the third annotated-feedback pass: tap-to-edit titles, quick-only main duration, a progressive Sub-bells layer, cadence-first automatic priority, visible Master volume, and flatter setup/schedule rows. |
+| 1.8 | 2026-09-04 | Applied the fourth annotated-feedback pass: unified controls, expanded fixed-Custom shortcuts, repeating occurrence masks, Continuous-only schedules, hour/minute bounds, and a quieter live Sound sheet. |
+| 1.9 | 2026-09-04 | Hardened Android Stop and bottom-sheet scrolling, compacted Android access and Sub-bells into single-layer modal flows, and tightened the running layout and live sound controls. |
+| 2.0 | 2026-09-05 | Clarified Schedule ownership and range removal, hid the disabled preview, corrected overnight timeline transitions/counting, and repaired the guarded EAS archive inputs. |
+| 2.1 | 2026-09-05 | Flattened Chandas Focus to match other toggles and made both compact visualizers direct editor entry points. |
+| 2.2 | 2026-09-05 | Added persistent Sub-bell colors, centered the live timer, restored the Focus border and Cycle naming, simplified Sequence ordering, expanded step presets/preview, and renamed Android access to Permissions. |
+| 2.3 | 2026-09-05 | Restored an optional bounded-run final gong with saved sound/level controls and exactly-once JavaScript/native terminal replacement semantics. |
+| 2.4 | 2026-09-05 | Added immersive running status-bar behavior, standardized the running Help control, and replaced placeholder sounds with the eighteen-recording production library plus migration aliases. |
+| 2.5 | 2026-09-05 | Added an atomic OTA-to-native sound cache so future library recordings can ship without native mappings, retaining only gong, bell, and alarm binary fallbacks. |
+| 2.6 | 2026-09-05 | Stabilized Focus stop/snooze semantics, added raw-state and capability contracts, widened native safety ceilings, and made notification presentation OTA-owned. |
+| 2.7 | 2026-09-05 | Simplified setup hierarchy and Sub-bell selection, redesigned saved configurations, unified tactile feedback, and added an optional Android next-cue live countdown. |
+| 2.8 | 2026-09-05 | Made the alarm a tap-anywhere flashing-circle surface, added a global configurable alarm sound with Sine alarm default, and hardened full-screen lock-screen presentation. |
+| 2.9 | 2026-09-05 | Added persisted progressive Advanced mode, hybrid inline color/cue disclosure, shared swipe-to-delete rows, and simplified running controls. |
+| 3.0 | 2026-09-05 | Standardized modal hierarchy, guarded unsaved configuration loads, fixed nested-ring and overlapping-schedule visuals, moved user cues to Doze-safe alarm-clock scheduling, and refined the promoted running notification. |
+| 3.1 | 2026-09-05 | Added independent alarm volume, circular Android notification icons, an inline running mixer, refreshed Help, and capability-safe runtime anchoring across contract v4/v5. |

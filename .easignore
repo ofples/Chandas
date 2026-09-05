@@ -1,0 +1,56 @@
+# Keep this file in sync with .gitignore. EAS prioritizes .easignore when it exists.
+
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native output is generated from app.json and config plugins on EAS.
+/ios
+/android
+.kotlin/
+.gradle/
+build/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro and local tooling
+.metro-health-check*
+/.agents
+/.claude
+/.codex-remote-attachments
+/.vite
+/.vscode
+
+# Local-only product material
+/docs
+/legacy-web
+/mockups
+/migration-progress.md
+/PRIVACY_POLICY.md
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# OS and local environment
+.DS_Store
+*.pem
+.env
+.env*.local
+*.local
+
+# TypeScript and downloaded build artifacts
+*.tsbuildinfo
+*.apk
+*.aab
+*.ipa

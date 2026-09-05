@@ -1,55 +1,50 @@
 import { useState } from 'react'
+import { StyleSheet, Text, View } from 'react-native'
+import { useTheme } from '../theme/ThemeContext'
+import { Chip } from './Chip'
+import { Toggle } from './Toggle'
 import { CustomMinutePicker } from './CustomMinutePicker'
 
 const SNAP_PRESETS = [0, 10, 15]
 
 interface Props {
   enabled: boolean
-  offset: number           // minutes
+  offset: number
   onToggle: (v: boolean) => void
   onOffsetChange: (v: number) => void
 }
 
 export function SnapConfig({ enabled, offset, onToggle, onOffsetChange }: Props) {
+  const { tokens } = useTheme()
   const [showPicker, setShowPicker] = useState(false)
   const isCustomOffset = !SNAP_PRESETS.includes(offset)
 
   return (
-    <div className="config-section">
-      <div className="toggle-row">
-        <span className="section-label">Snap to clock</span>
-        <label className="toggle">
-          <input
-            type="checkbox"
-            checked={enabled}
-            onChange={e => onToggle(e.target.checked)}
-          />
-          <span className="toggle-track" />
-          <span className="toggle-thumb" />
-        </label>
-      </div>
+    <View style={styles.section}>
+      <View style={styles.toggleRow}>
+        <Text style={[styles.label, { color: tokens.textMuted }]}>Snap to clock</Text>
+        <Toggle value={enabled} onChange={onToggle} accessibilityLabel="Snap to clock" />
+      </View>
 
-      <div className={`snap-offset${enabled ? ' open' : ''}`}>
-        <div className="snap-offset-inner">
-          <div className="chips">
+      {enabled && (
+        <View style={styles.offsetInner}>
+          <View style={styles.chips}>
             {SNAP_PRESETS.map(p => (
-              <button
+              <Chip
                 key={p}
-                className={`chip${offset === p && !isCustomOffset ? ' active' : ''}`}
-                onClick={() => onOffsetChange(p)}
-              >
-                {p === 0 ? ':00' : `:${String(p).padStart(2, '0')}`}
-              </button>
+                label={p === 0 ? ':00' : `:${String(p).padStart(2, '0')}`}
+                active={offset === p && !isCustomOffset}
+                onPress={() => onOffsetChange(p)}
+              />
             ))}
-            <button
-              className={`chip${isCustomOffset ? ' active' : ''}`}
-              onClick={() => setShowPicker(true)}
-            >
-              {isCustomOffset ? `:${String(offset).padStart(2, '0')}` : '…'}
-            </button>
-          </div>
-        </div>
-      </div>
+            <Chip
+              label={isCustomOffset ? `:${String(offset).padStart(2, '0')}` : '…'}
+              active={isCustomOffset}
+              onPress={() => setShowPicker(true)}
+            />
+          </View>
+        </View>
+      )}
 
       {showPicker && (
         <CustomMinutePicker
@@ -61,6 +56,31 @@ export function SnapConfig({ enabled, offset, onToggle, onOffsetChange }: Props)
           onClose={() => setShowPicker(false)}
         />
       )}
-    </div>
+    </View>
   )
 }
+
+const styles = StyleSheet.create({
+  section: {
+    gap: 12,
+  },
+  label: {
+    fontSize: 11,
+    fontWeight: '500',
+    letterSpacing: 1.3,
+    textTransform: 'uppercase',
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  chips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  offsetInner: {
+    paddingTop: 12,
+  },
+})

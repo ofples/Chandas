@@ -1,185 +1,127 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { AppState } from 'react-native'
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake'
+import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio'
+import * as Notifications from 'expo-notifications'
 import { TimerConfig } from '../types'
 import { nextTick, nextSubTick, mainProgress, formatCountdown } from '../lib/snapLogic'
+import { loadSession, saveSession, clearSession } from '../lib/storage'
+import { ChandasTimerService, isNativeServiceAvailable } from '../native/ChandasTimerService'
+import { isWithinActiveHours, nextActiveHoursStart, type ActiveHoursSettings } from '../lib/activeHours'
 
-// ── Session persistence ────────────────────────────────────────
-// Saves enough state to resume the timer after a page refresh.
-// The phase is the only value that can't be recomputed from config.
+const KEEP_AWAKE_TAG = 'chandas-running'
 
-const SESSION_KEY = 'slottimer-session'
-
-interface TimerSession {
-  phase: number
-  mainMs: number
-  subMs: number
-}
-
-function saveSession(s: TimerSession) {
-  try { localStorage.setItem(SESSION_KEY, JSON.stringify(s)) } catch { /* ignore */ }
-}
-
-function loadSession(): TimerSession | null {
-  try {
-    const raw = localStorage.getItem(SESSION_KEY)
-    return raw ? (JSON.parse(raw) as TimerSession) : null
-  } catch { return null }
-}
-
-function clearSession() {
-  try { localStorage.removeItem(SESSION_KEY) } catch { /* ignore */ }
-}
-
-export function hasTimerSession(): boolean {
-  return localStorage.getItem(SESSION_KEY) !== null
-}
+const GONG_SOURCE = require('../../assets/sounds/gong.mp3')
+const BELL_SOURCE = require('../../assets/sounds/bell.mp3')
+const ALARM_SOURCE = require('../../assets/sounds/alarm.mp3')
 
 interface TimerState {
-  mainCountdown: string   // MM:SS
-  subCountdown: string    // MM:SS
-  progress: number        // 0–1
+  mainCountdown: string
+  subCountdown: string
+  progress: number
+  activeHoursPaused: boolean
+  activeHoursResumeAt: number
 }
 
 interface UseTimerReturn extends TimerState {
   isRunning: boolean
-  start: () => void
+  start: (overrideConfig?: TimerConfig) => Promise<void>
   stop: () => void
-  resumeBgAudio: () => void
-}
-
-// ── Audio ──────────────────────────────────────────────────────
-
-function loadAudio(src: string): HTMLAudioElement | null {
-  try {
-    const a = new Audio(src)
-    a.preload = 'auto'
-    return a
-  } catch {
-    return null
-  }
-}
-
-function playSound(audio: HTMLAudioElement | null, volume: number) {
-  if (!audio) return
-  audio.volume = Math.max(0, Math.min(1, volume))
-  audio.currentTime = 0
-  audio.play().catch(() => { /* sound file may not exist yet */ })
-}
-
-// ── Silent audio keep-alive ────────────────────────────────────
-//
-// Chrome/Android throttle setTimeout on backgrounded tabs, which causes bells
-// to fire late or not at all.  Playing audio via an HTMLAudioElement exempts
-// the page from background throttling AND activates the MediaSession API so
-// that lock-screen / notification-shade controls appear on Android.
-//
-// An AudioContext alone does NOT trigger MediaSession on Android — a real
-// HTMLAudioElement is required.  keepalive.mp3 is a 440 Hz sine at −60 dB:
-// audible frequency so Chrome/Android don't classify it as silent, but
-// −60 dB amplitude is imperceptible at any normal listening volume.
-
-// On mobile/Android Chrome a volume of 0 causes the browser to classify the
-// element as silent and eventually throttle/kill background tabs, so we clamp
-// to 0.01 (imperceptible but non-zero). On desktop this restriction isn't
-// needed and the user should be able to fully mute the bg track.
-const BG_VOL_MIN = navigator.maxTouchPoints > 0 ? 0.01 : 0
-
-function startBgAudio(
-  ref: React.MutableRefObject<HTMLAudioElement | null>,
-  track: 1 | 2 | 3,
-  volume: number,
-) {
-  if (ref.current) return
-  try {
-    const audio  = new Audio(`/sounds/bg${track}.mp3`)
-    audio.loop   = true
-    audio.volume = Math.max(BG_VOL_MIN, volume)
-    audio.play().catch(() => { /* blocked — caller should retry via resumeBgAudio */ })
-    ref.current  = audio
-  } catch (e) {
-    console.warn('[SlotTimer] bg audio setup failed:', e)
-  }
-}
-
-function stopBgAudio(ref: React.MutableRefObject<HTMLAudioElement | null>) {
-  if (ref.current) {
-    ref.current.pause()
-    ref.current.src = ''
-    ref.current     = null
-  }
-}
-
-// ── Wake Lock ──────────────────────────────────────────────────
-
-async function acquireWakeLock(ref: React.MutableRefObject<WakeLockSentinel | null>) {
-  if (!('wakeLock' in navigator)) return
-  try {
-    ref.current = await navigator.wakeLock.request('screen')
-  } catch {
-    // Permission denied or not supported — not critical
-  }
-}
-
-function releaseWakeLock(ref: React.MutableRefObject<WakeLockSentinel | null>) {
-  ref.current?.release().catch(() => {})
-  ref.current = null
-}
-
-// ── Service Worker messaging ───────────────────────────────────
-
-function postToSW(data: object) {
-  navigator.serviceWorker?.controller?.postMessage(data)
+  resyncPhase: (newPhase: number) => void
+  isAlarmRinging: boolean
+  dismissAlarm: () => void
+  alarmOnceArmed: boolean
+  mutedUntil: number
+  mutedIterationsRemaining: number
+  toggleAlarmOnce: () => void
+  muteForIterations: (count: number) => void
+  muteForMinutes: (minutes: number) => void
+  clearTimedMute: () => void
 }
 
 async function ensureNotificationPermission(): Promise<boolean> {
-  if (!('Notification' in window)) return false
-  if (Notification.permission === 'granted') return true
-  if (Notification.permission === 'denied') return false
-  const result = await Notification.requestPermission()
-  return result === 'granted'
+  const current = await Notifications.getPermissionsAsync()
+  if (current.granted) return true
+  const requested = await Notifications.requestPermissionsAsync()
+  return requested.granted
 }
 
 // ── Hook ───────────────────────────────────────────────────────
-
+//
+// The native Android scheduler owns exact alarms, one-shot sounds, persistence,
+// and notifications when available. This
+// hook always renders the ring/countdown itself (pure function of Date.now()
+// and the shared phase, so it can never drift from the service), and only
+// falls back to playing gong/bell audio in JS when the native module isn't
+// present yet (e.g. mid-development, or a platform without it) — matching the
+// legacy web app's foreground behavior minus the keep-alive hacks.
 export function useTimer(config: TimerConfig): UseTimerReturn {
   const [isRunning, setIsRunning] = useState(false)
+  const [isAlarmRinging, setIsAlarmRinging] = useState(false)
+  const [alarmOnceArmed, setAlarmOnceArmed] = useState(false)
+  const [mutedUntil, setMutedUntil] = useState(0)
+  const [mutedIterationsRemaining, setMutedIterationsRemaining] = useState(0)
   const [state, setState] = useState<TimerState>({
     mainCountdown: '--:--',
     subCountdown: '--:--',
     progress: 0,
+    activeHoursPaused: false,
+    activeHoursResumeAt: 0,
   })
 
   const phaseRef          = useRef(0)
-  const mainIntervalMsRef = useRef(0)
-  const subIntervalMsRef  = useRef(0)
+  const mainMsRef         = useRef(0)
+  const subMsRef          = useRef(0)
   const subEnabledRef     = useRef(true)
-  const tickTimerRef      = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const rafRef            = useRef<number | null>(null)
   const isRunningRef      = useRef(false)
-  const gongRef           = useRef<HTMLAudioElement | null>(null)
-  const bellRef           = useRef<HTMLAudioElement | null>(null)
-  const wakeLockRef       = useRef<WakeLockSentinel | null>(null)
-  const notifGrantedRef   = useRef(false)
-  const notifEnabledRef   = useRef(config.notificationsEnabled)
-  const silentAudioRef    = useRef<HTMLAudioElement | null>(null)
-  // true only when the user explicitly paused via MediaSession lock-screen control,
-  // OR when play() was rejected because another app owns audio focus (music player, call).
-  // In both cases we stop fighting and let the other app play.
-  // Cleared when the user returns to the app (visibilitychange) or taps the screen.
-  const userPausedRef = useRef(false)
+  const rafRef            = useRef<number | null>(null)
+  const tickTimeoutRef    = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const alarmSilenceRef   = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const alarmOnceRef      = useRef(false)
+  const mutedUntilRef     = useRef(0)
+  const mutedIterationsRef = useRef(0)
+  const activeHoursRef = useRef<ActiveHoursSettings>({
+    activeHoursEnabled: config.activeHoursEnabled,
+    activeHoursStart: config.activeHoursStart,
+    activeHoursEnd: config.activeHoursEnd,
+    activeHoursDays: config.activeHoursDays,
+  })
 
-  // Preload audio on mount
-  useEffect(() => {
-    gongRef.current = loadAudio('/sounds/gong.mp3')
-    bellRef.current = loadAudio('/sounds/bell.mp3')
+  const gongPlayerRef  = useRef<AudioPlayer | null>(null)
+  const bellPlayerRef  = useRef<AudioPlayer | null>(null)
+  const alarmPlayerRef = useRef<AudioPlayer | null>(null)
+
+  const applyControlState = useCallback((next: {
+    alarmOnceArmed: boolean
+    mutedUntil: number
+    mutedIterationsRemaining: number
+  }) => {
+    alarmOnceRef.current = next.alarmOnceArmed
+    mutedUntilRef.current = next.mutedUntil
+    mutedIterationsRef.current = next.mutedIterationsRemaining
+    setAlarmOnceArmed(next.alarmOnceArmed)
+    setMutedUntil(next.mutedUntil)
+    setMutedIterationsRemaining(next.mutedIterationsRemaining)
   }, [])
 
-  // ── Display update (RAF loop) ────────────────────────────────
+  // ── Display update (RAF loop) — always JS-side, always in sync ─
 
   const updateDisplay = useCallback(() => {
     const now      = Date.now()
-    const mainMs   = mainIntervalMsRef.current
-    const subMs    = subIntervalMsRef.current
+    const mainMs   = mainMsRef.current
+    const subMs    = subMsRef.current
     const phase    = phaseRef.current
+    const activeHours = activeHoursRef.current
+    if (!isWithinActiveHours(activeHours, now)) {
+      setState({
+        mainCountdown: '--:--',
+        subCountdown: '--:--',
+        progress: 0,
+        activeHoursPaused: true,
+        activeHoursResumeAt: nextActiveHoursStart(activeHours, now),
+      })
+      return
+    }
     const nextMain = nextTick(now, mainMs, phase)
     const prog     = mainProgress(now, mainMs, phase)
 
@@ -189,6 +131,8 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
         ? formatCountdown(nextSubTick(now, mainMs, subMs, phase) - now)
         : '--:--',
       progress: prog,
+      activeHoursPaused: false,
+      activeHoursResumeAt: 0,
     })
   }, [])
 
@@ -198,251 +142,426 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
     rafRef.current = requestAnimationFrame(rafLoop)
   }, [updateDisplay])
 
-  // ── Notification helper ──────────────────────────────────────
+  // ── JS-only fallback sound scheduler (used only when the native
+  //    foreground service isn't available) ───────────────────────
 
-  const fireNotification = useCallback(() => {
-    if (!notifGrantedRef.current || !notifEnabledRef.current) return
-    // Only notify when hidden — the renderer already plays the gong when visible,
-    // so firing a notification too would double up the sound.
-    if (!document.hidden) return
-    // Pass current timer state so the SW can self-heal if it was terminated
-    // and lost its module-level timerMainMs/timerPhase.
-    postToSW({
-      type:   'FIRE_NOTIFICATION',
-      mainMs: mainIntervalMsRef.current,
-      phase:  phaseRef.current,
-    })
-  }, [])
+  const playOneShot = (player: AudioPlayer | null, volume: number) => {
+    if (!player) return
+    player.volume = Math.max(0, Math.min(1, volume))
+    player.seekTo(0).catch(() => {})
+    player.play()
+  }
 
-  // ── Tick scheduler ───────────────────────────────────────────
+  // Starts a looping alarm sound and pauses tick scheduling until dismissed —
+  // the JS-fallback counterpart of the native service's alarm-ringing state.
+  const startFallbackAlarm = (volume: number) => {
+    alarmPlayerRef.current?.remove()
+    const player = createAudioPlayer(ALARM_SOURCE)
+    player.loop = true
+    player.volume = Math.max(0, Math.min(1, volume))
+    player.play()
+    alarmPlayerRef.current = player
+    setIsAlarmRinging(true)
+  }
 
-  const scheduleNextTick = useCallback(() => {
-    if (!isRunningRef.current) return
+  const scheduleFallbackTick = useCallback(() => {
+    if (isNativeServiceAvailable || !isRunningRef.current) return
     const now    = Date.now()
-    const mainMs = mainIntervalMsRef.current
-    const subMs  = subIntervalMsRef.current
+    const mainMs = mainMsRef.current
+    const subMs  = subMsRef.current
     const phase  = phaseRef.current
+    const activeHours = activeHoursRef.current
 
     const nextMain = nextTick(now, mainMs, phase)
     const nextSub  = subEnabledRef.current ? nextSubTick(now, mainMs, subMs, phase) : Infinity
-    const nextFire = Math.min(nextMain, nextSub)
-    const delay    = Math.max(0, nextFire - Date.now())
+    const nextEvent = Math.min(nextMain, nextSub)
+    const resumesActiveHours = !isWithinActiveHours(activeHours, now) ||
+      !isWithinActiveHours(activeHours, nextEvent)
+    const triggerAt = resumesActiveHours ? nextActiveHoursStart(activeHours, now) : nextEvent
+    const delay = Math.max(0, triggerAt - now)
 
-    tickTimerRef.current = setTimeout(() => {
+    tickTimeoutRef.current = setTimeout(() => {
       if (!isRunningRef.current) return
-      const fireTime = Date.now()
-
-      // Determine what fired (within 1s tolerance)
+      if (resumesActiveHours) {
+        scheduleFallbackTick()
+        return
+      }
+      const fireTime  = Date.now()
       const firedMain = Math.abs(fireTime - nextMain) < 1000
       const firedSub  = !firedMain && nextSub !== Infinity && Math.abs(fireTime - nextSub) < 1000
+      const alarmOnce = firedMain && alarmOnceRef.current
+      const temporarilyMuted = mutedUntilRef.current > fireTime || mutedIterationsRef.current > 0
+      const muted = config.volume <= 0 || temporarilyMuted
 
-      if (firedMain) {
-        playSound(gongRef.current, config.volume)
-        fireNotification()
-      } else if (firedSub) {
-        playSound(bellRef.current, config.volume)
+      if (alarmOnce) {
+        alarmOnceRef.current = false
+        setAlarmOnceArmed(false)
+      }
+      if (firedMain && mutedIterationsRef.current > 0) {
+        mutedIterationsRef.current -= 1
+        setMutedIterationsRemaining(mutedIterationsRef.current)
       }
 
-      scheduleNextTick()
+      if (firedMain && !muted && (config.alarmModeEnabled || alarmOnce)) {
+        startFallbackAlarm(config.volume)
+        if (alarmSilenceRef.current) clearTimeout(alarmSilenceRef.current)
+        alarmSilenceRef.current = setTimeout(() => {
+          alarmSilenceRef.current = null
+          alarmPlayerRef.current?.remove()
+          alarmPlayerRef.current = null
+        }, Math.max(5, Math.min(3_600, config.alarmDurationSeconds)) * 1_000)
+        scheduleFallbackTick()
+        return
+      }
+      if (!muted && firedMain) playOneShot(gongPlayerRef.current, config.volume)
+      else if (!muted && firedSub) playOneShot(bellPlayerRef.current, config.volume)
+
+      scheduleFallbackTick()
     }, delay)
-  }, [fireNotification])
-
-  // ── Visibility re-sync ───────────────────────────────────────
-
-  useEffect(() => {
-    const handleVisibility = async () => {
-      if (document.visibilityState === 'visible' && isRunningRef.current) {
-        // Restart RAF loop — browser suspends requestAnimationFrame in backgrounded tabs
-        if (rafRef.current) cancelAnimationFrame(rafRef.current)
-        rafRef.current = requestAnimationFrame(rafLoop)
-
-        if (tickTimerRef.current) clearTimeout(tickTimerRef.current)
-        scheduleNextTick()
-        updateDisplay()
-        // Re-acquire wake lock (it auto-releases when backgrounded)
-        await acquireWakeLock(wakeLockRef)
-        // Re-sync SW in case it was terminated while the page was backgrounded
-        if (notifGrantedRef.current) {
-          postToSW({
-            type:   'START_TIMER',
-            mainMs: mainIntervalMsRef.current,
-            phase:  phaseRef.current,
-          })
-        }
-        // Resume bg audio when returning to the app — clear any yielded state first
-        // so that even if we yielded to a music app, coming back to SlotTimer reclaims audio.
-        userPausedRef.current = false
-        const bgAudio = silentAudioRef.current
-        if (bgAudio?.paused) bgAudio.play().catch(() => {})
-      }
-    }
-    document.addEventListener('visibilitychange', handleVisibility)
-    return () => document.removeEventListener('visibilitychange', handleVisibility)
-  }, [scheduleNextTick, updateDisplay])
+  }, [config.volume, config.alarmModeEnabled, config.alarmDurationSeconds])
 
   // ── Start / Stop ─────────────────────────────────────────────
 
-  const start = useCallback(async () => {
+  const start = useCallback(async (overrideConfig?: TimerConfig) => {
+    const startConfig = overrideConfig ?? config
     const now    = Date.now()
-    const mainMs = config.mainInterval * 60_000
-    const subMs  = config.subInterval  * 60_000
+    const nativeState = isNativeServiceAvailable ? ChandasTimerService.getState() : null
+    const mainMs = nativeState?.active && nativeState.mainMs
+      ? nativeState.mainMs
+      : startConfig.mainInterval * 60_000
+    const subMs = nativeState?.active && nativeState.subMs
+      ? nativeState.subMs
+      : startConfig.subInterval * 60_000
 
-    mainIntervalMsRef.current = mainMs
-    subIntervalMsRef.current  = subMs
-    subEnabledRef.current     = config.subEnabled
+    mainMsRef.current     = mainMs
+    subMsRef.current      = subMs
+    subEnabledRef.current = nativeState?.active
+      ? nativeState.subEnabled ?? startConfig.subEnabled
+      : startConfig.subEnabled
+    activeHoursRef.current = {
+      activeHoursEnabled: startConfig.activeHoursEnabled,
+      activeHoursStart: startConfig.activeHoursStart,
+      activeHoursEnd: startConfig.activeHoursEnd,
+      activeHoursDays: startConfig.activeHoursDays,
+    }
 
-    // Restore saved phase if the interval settings match; otherwise compute fresh.
-    const session = loadSession()
-    phaseRef.current = (session?.mainMs === mainMs && session?.subMs === subMs)
-      ? session.phase
-      : config.snapEnabled
-        ? config.snapOffset * 60_000
-        : now % mainMs
+    const session = await loadSession()
+    phaseRef.current = nativeState?.active && nativeState.phase !== undefined
+      ? nativeState.phase
+      : (session?.mainMs === mainMs && session?.subMs === subMs)
+        ? session.phase
+        : startConfig.snapEnabled
+          ? startConfig.snapOffset * 60_000
+          : now % mainMs
 
-    saveSession({ phase: phaseRef.current, mainMs, subMs })
+    await saveSession({ phase: phaseRef.current, mainMs, subMs })
 
     isRunningRef.current = true
     setIsRunning(true)
+    setIsAlarmRinging(nativeState?.ringing ?? false)
+    applyControlState({
+      alarmOnceArmed: nativeState?.alarmOnceArmed ?? false,
+      mutedUntil: nativeState?.mutedUntil ?? 0,
+      mutedIterationsRemaining: nativeState?.mutedIterationsRemaining ?? 0,
+    })
     updateDisplay()
-    scheduleNextTick()
     rafRef.current = requestAnimationFrame(rafLoop)
+    await activateKeepAwakeAsync(KEEP_AWAKE_TAG)
 
-    // Background audio — prevents throttling and activates MediaSession
-    const bgWasNull = silentAudioRef.current === null
-    startBgAudio(silentAudioRef, config.bgTrack, config.bgVolume)
+    // Requested unconditionally: on Android, the foreground service must show
+    // *some* ongoing notification regardless of the user's "notifications"
+    // preference below — that preference only controls how much detail it shows.
+    const notifGranted = await ensureNotificationPermission()
 
-    // Attach auto-resume logic to the freshly created audio element.
-    // We only add listeners when the element is newly created (bgWasNull guard)
-    // to avoid stacking duplicate listeners across multiple start() calls.
-    if (bgWasNull && silentAudioRef.current) {
-      const bgAudio = silentAudioRef.current
-      bgAudio.addEventListener('pause', () => {
-        if (userPausedRef.current || !isRunningRef.current) return
-        // Retry up to 3 times (1.5 s apart) to ride out brief interruptions
-        // like notification ducks (~500 ms). If all 3 fail it means another app
-        // owns audio focus (music player, call) — yield rather than fight it.
-        // The SW still fires gong notifications on time regardless of bg audio state.
-        // Audio resumes when the user returns to the app or taps the screen.
-        let attempt = 0
-        const retry = () => {
-          if (userPausedRef.current || !isRunningRef.current) return
-          if (!silentAudioRef.current?.paused) return // already resumed by other means
-          silentAudioRef.current.play().catch(() => {
-            if (++attempt < 3) {
-              setTimeout(retry, 1500)
-            } else {
-              userPausedRef.current = true // yield gracefully after 3 failures
-            }
-          })
-        }
-        setTimeout(retry, 1500)
-      })
+    if (isNativeServiceAvailable) {
+      const nativeConfig = {
+        mainMs,
+        subMs,
+        phase: phaseRef.current,
+        subEnabled: subEnabledRef.current,
+        volume: startConfig.volume,
+        notificationsEnabled: notifGranted && startConfig.notificationsEnabled,
+        focusModeEnabled: startConfig.focusModeEnabled,
+        alarmModeEnabled: startConfig.alarmModeEnabled,
+        activeHoursEnabled: startConfig.activeHoursEnabled,
+        activeHoursStart: startConfig.activeHoursStart,
+        activeHoursEnd: startConfig.activeHoursEnd,
+        activeHoursDays: startConfig.activeHoursDays,
+        alarmDurationSeconds: startConfig.alarmDurationSeconds,
+      }
+      if (nativeState?.active) {
+        ChandasTimerService.update(nativeConfig)
+      } else {
+        ChandasTimerService.start(nativeConfig)
+      }
+    } else {
+      // JS fallback — foreground-only accuracy, mirrors legacy web behavior.
+      await setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: false })
+      gongPlayerRef.current = createAudioPlayer(GONG_SOURCE)
+      bellPlayerRef.current = createAudioPlayer(BELL_SOURCE)
+      scheduleFallbackTick()
     }
-
-    // MediaSession — lock screen / notification shade controls
-    if ('mediaSession' in navigator) {
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title:   'SlotTimer',
-        artist:  `Every ${config.mainInterval} min`,
-        artwork: [
-          { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
-          { src: '/icon-512.png', sizes: '512x512', type: 'image/png' },
-        ],
-      })
-      navigator.mediaSession.playbackState = 'playing'
-      navigator.mediaSession.setActionHandler('stop',  stop)
-      // pause/play only affect bg audio — not the timer itself.
-      // This prevents system audio interruptions (calls, other apps) from
-      // stopping the timer via the MediaSession pause action.
-      // userPausedRef tracks whether the user explicitly paused from the lock screen
-      // so we don't auto-resume against their wishes.
-      navigator.mediaSession.setActionHandler('pause', () => {
-        userPausedRef.current = true
-        silentAudioRef.current?.pause()
-        navigator.mediaSession.playbackState = 'paused'
-      })
-      navigator.mediaSession.setActionHandler('play', () => {
-        userPausedRef.current = false
-        silentAudioRef.current?.play().catch(() => {})
-        navigator.mediaSession.playbackState = 'playing'
-      })
-    }
-
-    // Wake lock — keep screen on
-    await acquireWakeLock(wakeLockRef)
-
-    // Notification permission — delegate all scheduling to the SW
-    notifGrantedRef.current = await ensureNotificationPermission()
-    if (notifGrantedRef.current && notifEnabledRef.current) {
-      postToSW({ type: 'START_TIMER', mainMs, phase: phaseRef.current })
-    }
-  }, [config, updateDisplay, scheduleNextTick, rafLoop])
+  }, [config, updateDisplay, rafLoop, scheduleFallbackTick, applyControlState])
 
   const stop = useCallback(() => {
     isRunningRef.current = false
     setIsRunning(false)
+    setIsAlarmRinging(false)
+    applyControlState({ alarmOnceArmed: false, mutedUntil: 0, mutedIterationsRemaining: 0 })
     clearSession()
 
-    if (tickTimerRef.current)  { clearTimeout(tickTimerRef.current);   tickTimerRef.current  = null }
-    if (rafRef.current)        { cancelAnimationFrame(rafRef.current); rafRef.current        = null }
-    userPausedRef.current = false
+    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
+    if (tickTimeoutRef.current) { clearTimeout(tickTimeoutRef.current); tickTimeoutRef.current = null }
+    if (alarmSilenceRef.current) { clearTimeout(alarmSilenceRef.current); alarmSilenceRef.current = null }
 
-    stopBgAudio(silentAudioRef)
-    if ('mediaSession' in navigator) {
-      navigator.mediaSession.metadata      = null
-      navigator.mediaSession.playbackState = 'none'
-      navigator.mediaSession.setActionHandler('stop',  null)
-      navigator.mediaSession.setActionHandler('pause', null)
-      navigator.mediaSession.setActionHandler('play',  null)
+    deactivateKeepAwake(KEEP_AWAKE_TAG)
+
+    if (isNativeServiceAvailable) {
+      ChandasTimerService.stop()
+    } else {
+      gongPlayerRef.current?.remove()
+      bellPlayerRef.current?.remove()
+      alarmPlayerRef.current?.remove()
+      gongPlayerRef.current = null
+      bellPlayerRef.current = null
+      alarmPlayerRef.current = null
     }
-    releaseWakeLock(wakeLockRef)
-    postToSW({ type: 'CLEAR_NOTIFICATION' })
-    setState({ mainCountdown: '--:--', subCountdown: '--:--', progress: 0 })
+
+    setState({
+      mainCountdown: '--:--',
+      subCountdown: '--:--',
+      progress: 0,
+      activeHoursPaused: false,
+      activeHoursResumeAt: 0,
+    })
+  }, [applyControlState])
+
+  // Dismisses an in-progress alarm ring without stopping the whole timer —
+  // ticking resumes for the next interval.
+  const dismissAlarm = useCallback(() => {
+    setIsAlarmRinging(false)
+    if (isNativeServiceAvailable) {
+      ChandasTimerService.stopAlarm()
+      return
+    }
+    if (alarmSilenceRef.current) {
+      clearTimeout(alarmSilenceRef.current)
+      alarmSilenceRef.current = null
+    }
+    alarmPlayerRef.current?.remove()
+    alarmPlayerRef.current = null
   }, [])
 
-  // Live-update bg track while running
-  useEffect(() => {
-    const audio = silentAudioRef.current
-    if (!audio) return
-    audio.src = `/sounds/bg${config.bgTrack}.mp3`
-    audio.load()
-    audio.play().catch(() => {})
-  }, [config.bgTrack])
+  const toggleAlarmOnce = useCallback(() => {
+    if (isNativeServiceAvailable) {
+      ChandasTimerService.toggleAlarmOnce()
+      const nativeState = ChandasTimerService.getState()
+      applyControlState({
+        alarmOnceArmed: nativeState.alarmOnceArmed ?? false,
+        mutedUntil: nativeState.mutedUntil ?? 0,
+        mutedIterationsRemaining: nativeState.mutedIterationsRemaining ?? 0,
+      })
+      return
+    }
+    applyControlState({
+      alarmOnceArmed: !alarmOnceRef.current,
+      mutedUntil: mutedUntilRef.current,
+      mutedIterationsRemaining: mutedIterationsRef.current,
+    })
+  }, [applyControlState])
 
-  // Live-update bg volume while running
+  const muteForIterations = useCallback((count: number) => {
+    if (isNativeServiceAvailable) ChandasTimerService.muteForIterations(count)
+    applyControlState({
+      alarmOnceArmed: alarmOnceRef.current,
+      mutedUntil: 0,
+      mutedIterationsRemaining: Math.max(1, Math.min(99, count)),
+    })
+  }, [applyControlState])
+
+  const muteForMinutes = useCallback((minutes: number) => {
+    const until = Date.now() + Math.max(1, Math.min(1_440, minutes)) * 60_000
+    if (isNativeServiceAvailable) ChandasTimerService.muteForMinutes(minutes)
+    applyControlState({
+      alarmOnceArmed: alarmOnceRef.current,
+      mutedUntil: until,
+      mutedIterationsRemaining: 0,
+    })
+  }, [applyControlState])
+
+  const clearTimedMute = useCallback(() => {
+    if (isNativeServiceAvailable) ChandasTimerService.clearMute()
+    applyControlState({
+      alarmOnceArmed: alarmOnceRef.current,
+      mutedUntil: 0,
+      mutedIterationsRemaining: 0,
+    })
+  }, [applyControlState])
+
+  // ── Manual re-sync ────────────────────────────────────────────
+  //
+  // Re-anchors the running timer to a new phase without a full restart (no
+  // re-acquiring keep-awake/permissions, no recreating players) — used by the
+  // "restart"/"snap to clock" button on the running screen. mainMs/subMs are
+  // unchanged; only the phase offset moves.
+
+  const resyncPhase = useCallback((newPhase: number) => {
+    if (!isRunningRef.current) return
+    phaseRef.current = newPhase
+    saveSession({ phase: newPhase, mainMs: mainMsRef.current, subMs: subMsRef.current })
+    updateDisplay()
+    if (isNativeServiceAvailable) {
+      ChandasTimerService.update({ phase: newPhase })
+    } else if (tickTimeoutRef.current) {
+      clearTimeout(tickTimeoutRef.current)
+      scheduleFallbackTick()
+    }
+  }, [updateDisplay, scheduleFallbackTick])
+
+  // Live-update sub-enabled + reschedule fallback ticking
   useEffect(() => {
-    if (!silentAudioRef.current) return
-    silentAudioRef.current.volume = Math.max(BG_VOL_MIN, config.bgVolume)
-  }, [config.bgVolume])
+    subEnabledRef.current = config.subEnabled
+    if (!isRunningRef.current) return
+    if (isNativeServiceAvailable) {
+      ChandasTimerService.update({ subEnabled: config.subEnabled })
+    } else if (tickTimeoutRef.current) {
+      clearTimeout(tickTimeoutRef.current)
+      scheduleFallbackTick()
+    }
+    updateDisplay()
+  }, [config.subEnabled, scheduleFallbackTick, updateDisplay])
+
+  useEffect(() => {
+    activeHoursRef.current = {
+      activeHoursEnabled: config.activeHoursEnabled,
+      activeHoursStart: config.activeHoursStart,
+      activeHoursEnd: config.activeHoursEnd,
+      activeHoursDays: config.activeHoursDays,
+    }
+    if (!isRunningRef.current) return
+    if (isNativeServiceAvailable) {
+      ChandasTimerService.update(activeHoursRef.current)
+    } else if (tickTimeoutRef.current) {
+      clearTimeout(tickTimeoutRef.current)
+      scheduleFallbackTick()
+    }
+    updateDisplay()
+  }, [
+    config.activeHoursEnabled,
+    config.activeHoursStart,
+    config.activeHoursEnd,
+    config.activeHoursDays,
+    scheduleFallbackTick,
+    updateDisplay,
+  ])
+
+  // Live-update volume / notifications / alarm-mode toggle → native service
+  useEffect(() => {
+    if (isRunningRef.current && isNativeServiceAvailable) {
+      ChandasTimerService.update({
+        volume: config.volume,
+        notificationsEnabled: config.notificationsEnabled,
+        alarmModeEnabled: config.alarmModeEnabled,
+        alarmDurationSeconds: config.alarmDurationSeconds,
+      })
+    }
+  }, [
+    config.volume,
+    config.notificationsEnabled,
+    config.alarmModeEnabled,
+    config.alarmDurationSeconds,
+  ])
+
+  // Live-update volume/alarm-mode in the JS fallback path — reschedule so the
+  // pending timeout (which closed over the previous values) picks up the new
+  // ones instead of firing once more at the stale value.
+  useEffect(() => {
+    if (!isRunningRef.current || isNativeServiceAvailable) return
+    if (tickTimeoutRef.current) {
+      clearTimeout(tickTimeoutRef.current)
+      scheduleFallbackTick()
+    }
+  }, [config.volume, config.alarmModeEnabled, config.alarmDurationSeconds, scheduleFallbackTick])
+
+  // Re-sync the RAF loop and (fallback) tick scheduler when the app returns
+  // to the foreground — timestamps are absolute, so this is just a resync,
+  // never a recompute.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', next => {
+      if (next !== 'active' || !isRunningRef.current) return
+      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+      rafRef.current = requestAnimationFrame(rafLoop)
+      updateDisplay()
+      if (!isNativeServiceAvailable) {
+        if (tickTimeoutRef.current) clearTimeout(tickTimeoutRef.current)
+        scheduleFallbackTick()
+      }
+    })
+    return () => sub.remove()
+  }, [rafLoop, updateDisplay, scheduleFallbackTick])
+
+  // ── Alarm-ringing state sync (native path only) ───────────────
+  //
+  // The native service can start ringing independently of the JS lifecycle
+  // (e.g. the app was killed and is relaunched from the alarm's full-screen
+  // notification), so this doesn't gate on isRunningRef — it just asks "is it
+  // ringing right now?" on mount and every time the app returns to the
+  // foreground, plus subscribes to live updates while mounted.
+  useEffect(() => {
+    if (!isNativeServiceAvailable) return
+    setIsAlarmRinging(ChandasTimerService.isRinging())
+
+    const listener = ChandasTimerService.addAlarmListener(setIsAlarmRinging)
+    const sub = AppState.addEventListener('change', next => {
+      if (next === 'active') setIsAlarmRinging(ChandasTimerService.isRinging())
+    })
+    return () => {
+      listener?.remove()
+      sub.remove()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!isNativeServiceAvailable) return
+    const listener = ChandasTimerService.addControlListener(applyControlState)
+    return () => listener?.remove()
+  }, [applyControlState])
+
+  useEffect(() => {
+    if (mutedUntil <= Date.now()) return
+    const timeout = setTimeout(() => {
+      if (isNativeServiceAvailable) ChandasTimerService.clearMute()
+      applyControlState({
+        alarmOnceArmed: alarmOnceRef.current,
+        mutedUntil: 0,
+        mutedIterationsRemaining: 0,
+      })
+    }, mutedUntil - Date.now())
+    return () => clearTimeout(timeout)
+  }, [mutedUntil, applyControlState])
 
   // Cleanup on unmount
   useEffect(() => () => {
-    if (tickTimerRef.current) clearTimeout(tickTimerRef.current)
-    if (rafRef.current)       cancelAnimationFrame(rafRef.current)
-    releaseWakeLock(wakeLockRef)
-    stopBgAudio(silentAudioRef)
+    if (rafRef.current) cancelAnimationFrame(rafRef.current)
+    if (tickTimeoutRef.current) clearTimeout(tickTimeoutRef.current)
+    if (alarmSilenceRef.current) clearTimeout(alarmSilenceRef.current)
+    deactivateKeepAwake(KEEP_AWAKE_TAG)
   }, [])
 
-  useEffect(() => { notifEnabledRef.current = config.notificationsEnabled }, [config.notificationsEnabled])
-
-  // Keep subEnabledRef in sync; reschedule so the next tick fires correctly.
-  useEffect(() => {
-    subEnabledRef.current = config.subEnabled
-    if (isRunningRef.current) {
-      if (tickTimerRef.current) clearTimeout(tickTimerRef.current)
-      scheduleNextTick()
-      updateDisplay()
-    }
-  }, [config.subEnabled, scheduleNextTick, updateDisplay])
-
-  // Called from any user interaction on the running screen to unblock autoplay
-  // when the timer was auto-restored after a page refresh.
-  // Also clears userPausedRef so a tap always resumes audio regardless of lock-screen state.
-  const resumeBgAudio = useCallback(() => {
-    userPausedRef.current = false
-    const audio = silentAudioRef.current
-    if (audio?.paused) audio.play().catch(() => {})
-  }, [])
-
-  return { ...state, isRunning, start, stop, resumeBgAudio }
+  return {
+    ...state,
+    isRunning,
+    start,
+    stop,
+    resyncPhase,
+    isAlarmRinging,
+    dismissAlarm,
+    alarmOnceArmed,
+    mutedUntil,
+    mutedIterationsRemaining,
+    toggleAlarmOnce,
+    muteForIterations,
+    muteForMinutes,
+    clearTimedMute,
+  }
 }

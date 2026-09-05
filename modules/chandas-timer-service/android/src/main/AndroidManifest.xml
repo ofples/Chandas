@@ -1,0 +1,45 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+  <!-- Android 12/12L do not know USE_EXACT_ALARM; retain the user-granted
+       special-access permission only on those platform versions. -->
+  <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
+  <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+  <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+  <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+  <uses-permission android:name="android.permission.VIBRATE" />
+  <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
+  <application>
+    <service
+      android:name=".ChandasAlarmService"
+      android:foregroundServiceType="mediaPlayback"
+      android:exported="false" />
+    <service
+      android:name=".FocusConditionProviderService"
+      android:label="Chandas Focus"
+      android:permission="android.permission.BIND_CONDITION_PROVIDER_SERVICE"
+      android:exported="true">
+      <intent-filter>
+        <action android:name="android.service.notification.ConditionProviderService" />
+      </intent-filter>
+    </service>
+    <receiver
+      android:name=".TimerEventReceiver"
+      android:exported="false" />
+    <receiver
+      android:name=".TimerRestoreReceiver"
+      android:enabled="true"
+      android:exported="false">
+      <intent-filter>
+        <action android:name="android.intent.action.BOOT_COMPLETED" />
+        <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+        <action android:name="android.intent.action.TIME_SET" />
+        <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+        <action android:name="android.intent.action.TIMEZONE_OFFSET_CHANGED" />
+        <action android:name="android.intent.action.DATE_CHANGED" />
+        <action android:name="android.app.action.NOTIFICATION_POLICY_ACCESS_GRANTED_CHANGED" />
+        <action android:name="android.app.action.AUTOMATIC_ZEN_RULE_STATUS_CHANGED" />
+        <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
+      </intent-filter>
+    </receiver>
+  </application>
+</manifest>

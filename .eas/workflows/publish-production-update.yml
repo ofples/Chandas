@@ -1,0 +1,52 @@
+name: Publish Android production update
+
+on:
+  workflow_dispatch:
+    inputs:
+      message:
+        type: string
+        required: true
+        description: User-visible summary for this OTA update
+
+jobs:
+  validate:
+    name: Verify update
+    environment: production
+    steps:
+      - uses: eas/checkout
+      - uses: eas/install_node_modules
+      - name: Type-check
+        run: npx tsc --noEmit
+      - name: Test
+        run: npm test
+
+  find_compatible_build:
+    name: Find compatible production build
+    needs: [validate]
+    type: get-build
+    params:
+      platform: android
+      profile: production
+      runtime_version: f8c55f24f4972e429d24120aa843e8a0e32f1aaf
+      wait_for_in_progress: false
+
+  reject_incompatible_update:
+    name: Require compatible production build
+    needs: [find_compatible_build]
+    if: ${{ !needs.find_compatible_build.outputs.build_id }}
+    steps:
+      - name: Stop before publishing
+        run: |
+          echo "No production AAB matches the pinned runtime. Create and test a compatible native build before publishing an OTA."
+          exit 1
+
+  publish_update:
+    name: Publish compatible Android update
+    needs: [find_compatible_build]
+    if: ${{ needs.find_compatible_build.outputs.build_id }}
+    type: update
+    environment: production
+    params:
+      channel: production
+      platform: android
+      message: ${{ inputs.message }}
