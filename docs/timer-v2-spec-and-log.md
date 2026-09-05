@@ -1422,6 +1422,7 @@ Do not edit old entries to reflect new conclusions. Add a superseding entry and 
 | 2026-09-05 | D-098 | Accepted | Every nested Sub-bell ring begins its first segment at the current main-cycle start and resets at each selected cue; it never borrows progress from the previous cycle. Schedule previews render the merged active union and label only that rendered union, so a subsumed range leaves neither a duplicate bar nor internal boundary ticks. |
 | 2026-09-05 | D-099 | Accepted | User-requested Android cue events use `AlarmManager.setAlarmClock`; internal schedule-resume and timezone-realignment wakeups retain `setExactAndAllowWhileIdle`. This accepts Android's visible upcoming-alarm semantics in exchange for preventing Doze rate limits from delaying a Sub-bell and then starving a closely following main gong. |
 | 2026-09-05 | D-100 | Accepted | The running notification stays on Android's standard/BigText template so it remains eligible for promoted Live Update treatment. It uses the named interval as its heading, a public countdown, and the existing Stop action. Android owns whether the status chip is promoted and the chip-to-expanded-card transition; Chandas does not use a custom `RemoteViews` layout. |
+| 2026-09-05 | D-101 | Accepted | Stop is optimistic but verified. The setup screen appears immediately, while the app checks Android's persisted native state and retries quietly after 160 ms and 640 ms. A native cleanup exception counts as success when the following state read is inactive. After three unconfirmed attempts, keep setup visible and show a persistent Stop again warning. Starting a new session invalidates every delayed stop attempt so an old retry can never cancel the new timer. |
 
 ### Decision-entry template
 
@@ -2345,7 +2346,7 @@ This section is append-only. Every implementation session should record scope, m
 
 ### 2026-09-05 — Doze-safe cue delivery and final interface alignment
 
-**Status:** Complete in source; remote Android build and physical-device validation pending.
+**Status:** Complete. Remote Android production build 9 passed; physical-device validation remains pending.
 
 **Scope:** Modal typography, guarded configuration loading, nested-ring phase, overlapping Schedule previews, collision parity, Android low-power scheduling, and the promoted running notification.
 
@@ -2369,6 +2370,29 @@ This section is append-only. Every implementation session should record scope, m
 **Native/on-device verification still required:** Install the remote build on the reporting device and test a 30-minute Cycle with cues at 25/28/29 minutes while the screen is off long enough to enter Doze; verify every cue timestamp, the final main gong, ring resets, Stop from the notification, reboot/process recovery, schedule exit/re-entry, alarm-mode full-screen flow, Android 16 chip expansion, and the ordinary notification fallback on earlier Android/OEM builds. Confirm the system's upcoming-alarm affordance is acceptable while Chandas runs.
 
 **Risks or follow-ups:** `setAlarmClock` is deliberately highly visible and more battery-sensitive than ordinary exact alarms; that is appropriate only while a user-started audible timer is active. Android/OEM policy still controls Live Update promotion. The remote build is the first native compile gate for these Kotlin edits, so any platform-API or manifest issue must be resolved there rather than by a prohibited local Gradle run.
+
+### 2026-09-05 — Optimistic, verified Stop reconciliation
+
+**Status:** Complete in source; OTA-compatible with Android production build 9.
+
+**Scope:** Prevent the setup screen from silently coexisting with a native timer after Stop, without making the interaction feel slower.
+
+**Decision referenced:** D-101.
+
+**Behavior implemented:**
+
+- Stop navigates to setup and gives haptic confirmation immediately.
+- The native bridge then calls Stop and reads Android's persisted timer state. The state read—not a secondary window-cleanup exception—is authoritative.
+- An unconfirmed stop is retried twice in the background. The first two failures are deliberately silent; after the third, a persistent, gentle warning exposes Stop again.
+- A setup-screen reconciliation guard detects an unexpected native session and runs the same verified stop flow.
+- Starting a new timer cancels and invalidates pending retries, preventing a delayed callback from stopping the replacement session.
+- Local running/session state is cleared only after Android confirms inactivity, preserving recovery truth if every attempt fails.
+
+**Migration impact:** JavaScript/OTA only. The installed binary already exposes synchronous `stop()` and `getState()` methods, so no native rebuild or runtime fingerprint change is required.
+
+**Verification run:** TypeScript compilation; 74 Vitest tests including success, cleanup-exception, still-active, and unreadable-native-state cases; whitespace validation; and diff inspection confirming no Kotlin, manifest, app configuration, bundled asset, or dependency changes.
+
+**Native/on-device verification still required:** Reproduce on Johannes's device by stopping during an ordinary cycle, during a just-fired bell, and after background/foreground transitions. Confirm setup appears immediately, no later bell fires, the running notification disappears, and a deliberately induced bridge failure produces the warning instead of silent limbo.
 
 ### Implementation-entry template
 

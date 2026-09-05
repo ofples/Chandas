@@ -87,6 +87,9 @@ function Root() {
   const deferredUpdateAnnounced = useRef(false)
   const readyUpdateAnnounced = useRef(false)
   const emergencyLaunchAnnounced = useRef(false)
+  const stopAttemptGeneration = useRef(0)
+  const stopRetryTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const stopNeedsAttention = useRef(false)
   const program = timerState ? selectedProgram(timerState) : null
   const timer = useTimerV2(program ?? FALLBACK_PROGRAM, timerState?.settings ?? FALLBACK_SETTINGS)
 
@@ -287,9 +290,63 @@ function Root() {
     setRestoreSession(null)
   }, [restoreSession, showNotice, timer, timerState])
 
+  const stop = useCallback(() => {
+    // Navigation is intentionally optimistic. Native verification and a few
+    // short retries happen behind the configuration surface so Stop always
+    // feels immediate, while a generation token prevents an old retry from
+    // stopping a newly started session.
+    setAppState('config')
+    const generation = ++stopAttemptGeneration.current
+    const clearStopWarningOnSuccess = stopNeedsAttention.current
+    stopNeedsAttention.current = false
+    if (stopRetryTimeout.current) clearTimeout(stopRetryTimeout.current)
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined)
+
+    const attempt = (index: number) => {
+      if (generation !== stopAttemptGeneration.current) return
+      if (timer.stop()) {
+        stopRetryTimeout.current = null
+        stopNeedsAttention.current = false
+        if (clearStopWarningOnSuccess) dismissNotice()
+        refreshFocusState()
+        return
+      }
+      const retryDelays = [160, 640]
+      const delay = retryDelays[index]
+      if (delay != null) {
+        stopRetryTimeout.current = setTimeout(() => attempt(index + 1), delay)
+        return
+      }
+      stopRetryTimeout.current = null
+      stopNeedsAttention.current = true
+      showNotice({
+        title: 'The timer may still be running',
+        message: 'Android did not confirm the stop after several tries. Your setup is safe; tap Stop again before leaving it unattended.',
+        tone: 'attention',
+        actionLabel: 'Stop again',
+        onAction: stop,
+        persistent: true,
+      })
+    }
+
+    attempt(0)
+  }, [dismissNotice, refreshFocusState, showNotice, timer.stop])
+
   useEffect(() => {
     if (ready && appState === 'running' && !restoreSession && !timer.isRunning) setAppState('config')
   }, [appState, ready, restoreSession, timer.isRunning])
+
+  useEffect(() => {
+    if (!ready || restoreSession || appState !== 'config' || Platform.OS !== 'android' || !isNativeServiceAvailable) return
+    let nativeActive = true
+    try { nativeActive = ChandasTimerService.getState().active } catch { /* unreadable state must fail closed */ }
+    if (nativeActive && stopRetryTimeout.current == null && !stopNeedsAttention.current) stop()
+  }, [appState, ready, restoreSession, stop])
+
+  useEffect(() => () => {
+    stopAttemptGeneration.current += 1
+    if (stopRetryTimeout.current) clearTimeout(stopRetryTimeout.current)
+  }, [])
 
   useEffect(() => {
     if (timer.completionPulse <= handledCompletionPulse.current) return
@@ -387,6 +444,12 @@ function Root() {
     // A fast second tap must not replace the just-created native session with
     // a slightly different anchor or open duplicate permission guidance.
     if (startingRef.current) return
+    // A new explicit start supersedes any delayed verification from a previous
+    // Stop press; otherwise that retry could cancel the new session.
+    stopAttemptGeneration.current += 1
+    stopNeedsAttention.current = false
+    if (stopRetryTimeout.current) clearTimeout(stopRetryTimeout.current)
+    stopRetryTimeout.current = null
     startingRef.current = true
     setStarting(true)
     void timer.start().then(started => {
@@ -438,18 +501,6 @@ function Root() {
         if (!native.alarmModeEnabled && !native.alarmOnceArmed) return
         showNotice({ title: 'Alarm sound is armed', message: 'To also show its dismiss screen over the lock screen, allow full-screen alarms.', actionLabel: 'Open settings', onAction: openFullScreenIntentSettings })
       }, 550)
-    }
-  }
-
-  const stop = () => {
-    // Leave the running surface first so even a device-specific teardown
-    // problem cannot strand the user on a blank/half-unmounted screen.
-    setAppState('config')
-    try {
-      timer.stop()
-    } finally {
-      refreshFocusState()
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined)
     }
   }
 

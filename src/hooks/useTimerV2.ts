@@ -66,7 +66,8 @@ export interface UseTimerV2Return extends TimerV2Display {
   mute: RuntimeMuteState
   start: (restore?: number | { anchor: number; startedAt?: number; endsAt?: number; mute: RuntimeMuteState; alarmBehavior: AlarmBehavior }) => Promise<boolean>
   attachNativeSession: (restore: { anchor: number; startedAt?: number; endsAt?: number; mute: RuntimeMuteState; alarmBehavior: AlarmBehavior }) => Promise<void>
-  stop: () => void
+  /** False means Android still reports an authoritative live schedule. */
+  stop: () => boolean
   dismissAlarm: () => void
   pressAlarm: () => void
   muteForIterations: (count: number) => void
@@ -429,6 +430,10 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
   }, [refreshDisplay, updateRuntimeState])
 
   const stop = useCallback(() => {
+    // Do not dismantle the local running surface until Android confirms that
+    // its durable schedule is inactive. This prevents a configuration-screen
+    // limbo state in which native bells can continue in the background.
+    if (isNativeServiceAvailable && !ChandasTimerService.stop()) return false
     runningRef.current = false
     setIsRunning(false)
     if (timeoutRef.current) clearTimeout(timeoutRef.current)
@@ -439,10 +444,6 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     alarmTapStartRef.current = null
     timeoutRef.current = null
     refreshIntervalRef.current = null
-    // A full stop goes directly to the authoritative native stop. Calling the
-    // narrower alarm-dismiss path first allowed an Android window-cleanup
-    // exception to prevent the timer itself from ever being stopped.
-    if (isNativeServiceAvailable) ChandasTimerService.stop()
     try { alarmPlayerRef.current?.remove() } catch { /* continue local teardown */ }
     alarmPlayerRef.current = null
     setIsAlarmRinging(false)
@@ -456,6 +457,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     releaseDisplayWakeLock()
     void clearTimerV2Session()
     setDisplay({ mainCountdown: '--:--', nextCueCountdown: '--:--', nextCueLabel: '', progress: 0, position: null, activeHoursPaused: false, activeHoursResumeAt: 0, runEndsAt: 0, runRemainingMs: 0 })
+    return true
   }, [])
 
   const applyAlarmBehavior = useCallback((current: AlarmBehavior, next: AlarmBehavior) => {

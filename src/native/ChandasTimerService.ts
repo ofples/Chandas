@@ -9,6 +9,7 @@ import { AppState, Platform } from 'react-native'
 import { requireOptionalNativeModule } from 'expo-modules-core'
 import { createAudioPlayer, type AudioPlayer } from 'expo-audio'
 import { Asset } from 'expo-asset'
+import { stopAndVerifyNativeTimer } from '../lib/verifiedTimerStop'
 import type { BuiltInSoundId, SoundRef } from '../types'
 import { BUILT_IN_SOUNDS, sourceForSound } from '../lib/soundLibrary'
 import { normalizeNativeFocusState } from '../lib/focusState'
@@ -259,16 +260,8 @@ export const ChandasTimerService = {
     native?.update(config)
   },
   stop() {
-    try {
-      native?.stop()
-      return true
-    } catch (error) {
-      // Older Android builds clear alarm-window flags synchronously after the
-      // persisted timer has already been stopped. Keep that UI cleanup error
-      // from taking down the React tree or trapping the running screen.
-      if (__DEV__) console.warn('Native timer stop cleanup failed', error)
-      return false
-    }
+    if (!native) return true
+    return stopAndVerifyNativeTimer(native)
   },
   // Dismisses an in-progress alarm-mode ring without stopping the whole timer —
   // normal tick scheduling resumes for the next interval.
