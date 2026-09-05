@@ -19,8 +19,8 @@ function pattern(): PatternProgram {
     mainCue: { sound: { kind: 'builtin', id: 'temple-gong' }, volume: 0.8 },
     subBellsEnabled: true,
     tracks: [
-      { id: 'top', label: 'Breathe', enabled: true, cadenceMinutes: 5, selectedOffsetsMinutes: [10], sound: { kind: 'builtin', id: 'soft-bowl' }, volume: 0.6 },
-      { id: 'bottom', label: 'Posture', enabled: true, cadenceMinutes: 2, selectedOffsetsMinutes: [10], sound: { kind: 'builtin', id: 'clear-bell' }, volume: 0.7 },
+      { id: 'top', label: 'Breathe', color: 'violet', enabled: true, cadenceMinutes: 5, selectedOffsetsMinutes: [10], sound: { kind: 'builtin', id: 'soft-bowl' }, volume: 0.6 },
+      { id: 'bottom', label: 'Posture', color: 'blue', enabled: true, cadenceMinutes: 2, selectedOffsetsMinutes: [10], sound: { kind: 'builtin', id: 'clear-bell' }, volume: 0.7 },
     ],
     alignment: { kind: 'elapsed' },
     runPolicy: { kind: 'continuous', cycleCount: 1, durationSeconds: 30 * 60 },
@@ -438,15 +438,18 @@ describe('timer v2 validation and presets', () => {
     expect(parseTimerProgram(JSON.stringify(pattern()))).toEqual(pattern())
   })
 
-  it('adds names to older Pattern records', () => {
+  it('adds names and stable visual colors to older Pattern records', () => {
     const old = pattern() as Partial<PatternProgram>
     delete old.label
     delete old.subBellsEnabled
     delete (old.tracks![0] as Partial<PatternProgram['tracks'][number]>).label
+    delete (old.tracks![0] as Partial<PatternProgram['tracks'][number]>).color
+    ;(old.tracks![1] as { color?: string }).color = 'not-a-palette-color'
     const normalized = normalizePatternProgram(old)
     expect(normalized.label).toBe('Main interval')
     expect(normalized.subBellsEnabled).toBe(true)
     expect(normalized.tracks[0].label).toBe('Sub-bell 1')
+    expect(normalized.tracks.map(track => track.color)).toEqual(['violet', 'blue'])
   })
 
   it('renumbers untouched default sub-bell labels after automatic sorting', () => {

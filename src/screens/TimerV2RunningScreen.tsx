@@ -19,6 +19,7 @@ import { useTheme } from '../theme/ThemeContext'
 import { ChandasTimerService } from '../native/ChandasTimerService'
 import { GentleNotice } from '../components/timer-v2/experience-feedback'
 import { formatDuration } from '../components/timer-v2/run-length-config'
+import { subBellColorValue } from '../lib/subBellColors'
 
 interface Props {
   program: TimerProgram
@@ -79,6 +80,9 @@ export function TimerV2RunningScreen(props: Props) {
   const sequenceLength = props.program.mode === 'sequence' ? props.program.steps.length : 0
   const currentStep = props.program.mode === 'sequence' ? props.program.steps[sequenceIndex] : null
   const nextStep = props.program.mode === 'sequence' ? props.program.steps[(sequenceIndex + 1) % props.program.steps.length] : null
+  const nextCueColor = props.program.mode === 'pattern'
+    ? subBellColorValue(props.program.tracks.find(track => track.id === props.position?.nextEvent?.winner.cueId)?.color, Math.max(0, props.program.tracks.findIndex(track => track.id === props.position?.nextEvent?.winner.cueId)))
+    : tokens.accent
 
   const dismissTooltip = () => {
     if (tooltipTimer.current) clearTimeout(tooltipTimer.current)
@@ -100,24 +104,26 @@ export function TimerV2RunningScreen(props: Props) {
   return <View onTouchStart={() => { if (tooltip) dismissTooltip() }} style={[styles.screen, { backgroundColor: tokens.bg, paddingTop: insets.top }]}>
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 140 }]}>
       <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 220)} style={styles.topline}>
-        <View>{props.program.mode === 'sequence' && currentStep ? <Text numberOfLines={1} style={[styles.stepTitle, { color: tokens.text }]}>{currentStep.label}</Text> : props.program.mode === 'pattern' ? <Text numberOfLines={1} style={[styles.stepTitle, { color: tokens.text }]}>Main interval</Text> : null}</View>
-        <View style={styles.topRight}>{props.realigning ? <Animated.View entering={FadeIn.duration(120)} exiting={FadeOut.duration(100)} style={styles.syncing}><ActivityIndicator size="small" color={tokens.accent} /><Text style={[styles.focusStatus, { color: tokens.textMuted }]}>UPDATING</Text></Animated.View> : null}{props.focusActive || focusPaused ? <Animated.Text entering={FadeIn.duration(160)} exiting={FadeOut.duration(120)} style={[styles.focusStatus, { color: tokens.accent }]}>{focusPaused ? 'FOCUS PAUSED' : 'FOCUS ON'}</Animated.Text> : null}<Pressable hitSlop={7} onPressIn={() => { helpLongPressed.current = false }} onLongPress={() => { helpLongPressed.current = true; showTooltip('Open Timer help') }} onPressOut={() => setTimeout(() => { helpLongPressed.current = false }, 0)} onPress={() => { if (!helpLongPressed.current) setHelpOpen(true) }} style={({ pressed }) => [styles.helpButton, { borderColor: tokens.border, transform: [{ scale: pressed && !reducedMotion ? 0.94 : 1 }] }]} accessibilityRole="button" accessibilityLabel="Timer help"><Text style={[styles.helpGlyph, { color: tokens.accent }]}>?</Text></Pressable></View>
+        <View>{props.program.mode === 'sequence' && currentStep ? <Text numberOfLines={1} style={[styles.stepTitle, { color: tokens.text }]}>{currentStep.label}</Text> : props.program.mode === 'pattern' ? <Text numberOfLines={1} style={[styles.stepTitle, { color: tokens.text }]}>{props.program.label}</Text> : null}</View>
+        <View style={styles.topRight}>{props.realigning ? <Animated.View entering={FadeIn.duration(120)} exiting={FadeOut.duration(100)} style={styles.syncing}><ActivityIndicator size="small" color={tokens.accent} /><Text style={[styles.focusStatus, { color: tokens.textMuted }]}>UPDATING</Text></Animated.View> : null}{focusPaused ? <Animated.Text entering={FadeIn.duration(160)} exiting={FadeOut.duration(120)} style={[styles.focusStatus, { color: tokens.warm }]}>FOCUS PAUSED</Animated.Text> : null}<Pressable hitSlop={7} onPressIn={() => { helpLongPressed.current = false }} onLongPress={() => { helpLongPressed.current = true; showTooltip('Open Timer help') }} onPressOut={() => setTimeout(() => { helpLongPressed.current = false }, 0)} onPress={() => { if (!helpLongPressed.current) setHelpOpen(true) }} style={({ pressed }) => [styles.helpButton, { borderColor: tokens.border, transform: [{ scale: pressed && !reducedMotion ? 0.94 : 1 }] }]} accessibilityRole="button" accessibilityLabel="Timer help"><Text style={[styles.helpGlyph, { color: tokens.accent }]}>?</Text></Pressable></View>
       </Animated.View>
 
-      <Animated.View entering={reducedMotion ? FadeIn.duration(100) : ZoomIn.duration(260)}>
-      <Pressable onPress={runtimeMuted ? props.onClearMute : undefined} style={({ pressed }) => [styles.ringWrap, { width: size, height: size, transform: [{ scale: pressed && runtimeMuted && !reducedMotion ? 0.985 : 1 }] }]} accessibilityRole={runtimeMuted ? 'button' : undefined} accessibilityLabel={runtimeMuted ? 'Clear timer mute' : undefined}>
-        <TimerRings size={size} progress={props.progress} position={props.position} program={props.program} muted={muted} eventPulse={props.eventPulse} />
-        <View style={[styles.center, { pointerEvents: 'none' }]}>
-          <Text style={[styles.mainTime, { color: tokens.text }]} adjustsFontSizeToFit numberOfLines={1}>{mainLabel}</Text>
-          {endsBeforeResume || props.activeHoursPaused || props.program.mode === 'sequence' ? <Text style={[styles.mainCaption, { color: tokens.textMuted }]}>{endsBeforeResume ? 'session ends quietly' : props.activeHoursPaused ? 'Resumes' : `step ${sequenceIndex + 1} of ${sequenceLength}`}</Text> : null}
-          {!props.activeHoursPaused && props.program.mode === 'pattern' && props.position?.nextEvent?.boundary !== 'pattern-main' ? <Animated.View key={props.nextCueLabel} entering={FadeIn.duration(reducedMotion ? 80 : 180)} style={styles.nextCue}><Text numberOfLines={1} style={[styles.nextCueName, { color: tokens.accent }]}>{props.nextCueLabel}</Text><Text style={[styles.nextCueTime, { color: tokens.accent }]}>{props.nextCueCountdown}</Text></Animated.View> : null}
-          {!props.activeHoursPaused && props.program.mode === 'sequence' && nextStep ? <Animated.View key={nextStep.id} entering={FadeIn.duration(reducedMotion ? 80 : 180)} style={styles.nextCue}><Text style={[styles.nextLabel, { color: tokens.textMuted }]}>NEXT</Text><Text numberOfLines={1} style={[styles.nextCueName, { color: tokens.accent }]}>{nextStep.label} · {nextStep.durationMinutes}m</Text></Animated.View> : null}
-        </View>
-        {muted ? <View style={[styles.slash, { width: size * 0.72, backgroundColor: tokens.accent, pointerEvents: 'none' }]} /> : null}
-      </Pressable>
-      </Animated.View>
-      {props.mute.iteration ? <Animated.Text entering={FadeIn.duration(150)} exiting={FadeOut.duration(120)} style={[styles.muteStatus, { color: tokens.textMuted }]}>Muted · final {props.program.mode === 'pattern' ? 'gong' : 'cycle bell'} will sound · tap to clear</Animated.Text> : props.mute.mutedUntil > Date.now() ? <Animated.Text entering={FadeIn.duration(150)} exiting={FadeOut.duration(120)} style={[styles.muteStatus, { color: tokens.textMuted }]}>Muted until {new Date(props.mute.mutedUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · tap to clear</Animated.Text> : props.masterVolume <= 0 ? <Animated.Text entering={FadeIn.duration(150)} exiting={FadeOut.duration(120)} style={[styles.muteStatus, { color: tokens.textMuted }]}>Volume 0% · open sound controls</Animated.Text> : null}
-      {props.runEndsAt > 0 ? <Animated.Text entering={FadeIn.duration(150)} style={[styles.runStatus, { color: tokens.accent }]}>Ends in {formatDuration(Math.ceil(props.runRemainingMs / 1_000))}</Animated.Text> : null}
+      <View style={[styles.visualStage, { minHeight: size + 72 }]}>
+        <Animated.View entering={reducedMotion ? FadeIn.duration(100) : ZoomIn.duration(260)}>
+          <Pressable onPress={runtimeMuted ? props.onClearMute : undefined} style={({ pressed }) => [styles.ringWrap, { width: size, height: size, transform: [{ scale: pressed && runtimeMuted && !reducedMotion ? 0.985 : 1 }] }]} accessibilityRole={runtimeMuted ? 'button' : undefined} accessibilityLabel={runtimeMuted ? 'Clear timer mute' : undefined}>
+            <TimerRings size={size} progress={props.progress} position={props.position} program={props.program} muted={muted} eventPulse={props.eventPulse} />
+            <View style={[styles.center, { pointerEvents: 'none' }]}>
+              <Text style={[styles.mainTime, { color: tokens.text }]} adjustsFontSizeToFit numberOfLines={1}>{mainLabel}</Text>
+              {endsBeforeResume || props.activeHoursPaused || props.program.mode === 'sequence' ? <Text style={[styles.mainCaption, { color: tokens.textMuted }]}>{endsBeforeResume ? 'session ends quietly' : props.activeHoursPaused ? 'Resumes' : `step ${sequenceIndex + 1} of ${sequenceLength}`}</Text> : null}
+              {!props.activeHoursPaused && props.program.mode === 'pattern' && props.position?.nextEvent?.boundary !== 'pattern-main' ? <Animated.View key={props.nextCueLabel} entering={FadeIn.duration(reducedMotion ? 80 : 180)} style={styles.nextCue}><Text numberOfLines={1} style={[styles.nextCueName, { color: nextCueColor }]}>{props.nextCueLabel}</Text><Text style={[styles.nextCueTime, { color: nextCueColor }]}>{props.nextCueCountdown}</Text></Animated.View> : null}
+              {!props.activeHoursPaused && props.program.mode === 'sequence' && nextStep ? <Animated.View key={nextStep.id} entering={FadeIn.duration(reducedMotion ? 80 : 180)} style={styles.nextCue}><Text style={[styles.nextLabel, { color: tokens.textMuted }]}>NEXT</Text><Text numberOfLines={1} style={[styles.nextCueName, { color: tokens.accent }]}>{nextStep.label} · {nextStep.durationMinutes}m</Text></Animated.View> : null}
+            </View>
+            {muted ? <View style={[styles.slash, { width: size * 0.72, backgroundColor: tokens.accent, pointerEvents: 'none' }]} /> : null}
+          </Pressable>
+        </Animated.View>
+        {props.mute.iteration ? <Animated.Text entering={FadeIn.duration(150)} exiting={FadeOut.duration(120)} style={[styles.muteStatus, { color: tokens.textMuted }]}>Muted · final {props.program.mode === 'pattern' ? 'gong' : 'cycle bell'} will sound · tap to clear</Animated.Text> : props.mute.mutedUntil > Date.now() ? <Animated.Text entering={FadeIn.duration(150)} exiting={FadeOut.duration(120)} style={[styles.muteStatus, { color: tokens.textMuted }]}>Muted until {new Date(props.mute.mutedUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · tap to clear</Animated.Text> : props.masterVolume <= 0 ? <Animated.Text entering={FadeIn.duration(150)} exiting={FadeOut.duration(120)} style={[styles.muteStatus, { color: tokens.textMuted }]}>Volume 0% · open sound controls</Animated.Text> : null}
+        {props.runEndsAt > 0 ? <Animated.Text entering={FadeIn.duration(150)} style={[styles.runStatus, { color: tokens.accent }]}>Ends in {formatDuration(Math.ceil(props.runRemainingMs / 1_000))}</Animated.Text> : null}
+      </View>
     </ScrollView>
 
     <View style={[styles.bottom, { backgroundColor: tokens.bg, paddingBottom: insets.bottom + 17 }]}>
@@ -132,6 +138,7 @@ export function TimerV2RunningScreen(props: Props) {
       <Pressable onPress={props.onStop} style={[styles.stop, { borderColor: tokens.border, backgroundColor: tokens.surfaceHi }]} accessibilityRole="button"><Text style={[styles.stopText, { color: tokens.textMuted }]}>Stop</Text></Pressable>
     </View>
 
+    {props.focusActive ? <Animated.View entering={FadeIn.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 140)} pointerEvents="none" style={[styles.focusBorder, { borderColor: tokens.accent }]} /> : null}
     <RunningMixerSheet visible={mixerOpen} onClose={() => setMixerOpen(false)} program={props.program} masterVolume={props.masterVolume} onMasterVolumeChange={props.onMasterVolumeChange} onCueVolumeChange={props.onCueVolumeChange} mute={props.mute} onMuteIterations={props.onMuteForIterations} onClearMute={props.onClearMute} onCustom={() => { setMixerOpen(false); setCustomMute(true) }} />
     <SnapSheet visible={snapOpen} mainMinutes={props.program.mode === 'pattern' ? props.program.mainMinutes : 30} current={props.program.mode === 'pattern' && props.program.alignment.kind === 'local-clock' ? props.program.alignment.offsetMinutes : 0} onSelect={offset => { props.onSnapToClock(offset); setSnapOpen(false) }} onClose={() => setSnapOpen(false)} />
     {customMute ? <CustomMinutePicker title="Mute duration" initial={15} min={1} max={1440} onConfirm={minutes => { props.onMuteForMinutes(minutes); setCustomMute(false) }} onClose={() => setCustomMute(false)} /> : null}
@@ -151,19 +158,26 @@ function TimerRings({ size, progress, position, program, muted, eventPulse }: { 
     flash.setValue(0.7)
     RNAnimated.timing(flash, { toValue: 0, duration: 650, useNativeDriver: true }).start()
   }, [eventPulse, flash])
-  const ringProgress = useMemo(() => {
-    if (program.mode === 'sequence') return [position?.stepProgress ?? progress]
+  const rings = useMemo(() => {
+    if (program.mode === 'sequence') return [{ progress: position?.stepProgress ?? progress, stroke: tokens.accent, background: tokens.surfaceHi, backgroundOpacity: 1 }]
     const elapsedMinutes = Math.max(0, Math.min(program.mainMinutes, progress * program.mainMinutes))
-    return [progress, ...(program.subBellsEnabled ? program.tracks : []).filter(track => track.enabled && track.selectedOffsetsMinutes.length > 0).map(track => trackProgress(track.selectedOffsetsMinutes, program.mainMinutes, elapsedMinutes))]
-  }, [position?.stepProgress, program, progress])
+    const activeTracks = (program.subBellsEnabled ? program.tracks : []).filter(track => track.enabled && track.selectedOffsetsMinutes.length > 0)
+    return [
+      { progress, stroke: tokens.accent, background: tokens.surfaceHi, backgroundOpacity: 1 },
+      ...activeTracks.map((track, index) => {
+        const stroke = subBellColorValue(track.color, index)
+        return { progress: trackProgress(track.selectedOffsetsMinutes, program.mainMinutes, elapsedMinutes), stroke, background: stroke, backgroundOpacity: 0.17 }
+      }),
+    ]
+  }, [position?.stepProgress, program, progress, tokens.accent, tokens.surfaceHi])
   const center = 100
   return <View style={StyleSheet.absoluteFill}>
     <RNAnimated.View style={[styles.flash, { width: size, height: size, borderRadius: size / 2, backgroundColor: tokens.accent, opacity: flash, pointerEvents: 'none' }]} />
     <Svg width={size} height={size} viewBox="0 0 200 200" style={styles.svg}>
-      {ringProgress.map((value, index) => {
+      {rings.map((ring, index) => {
         const radius = 83 - index * 7
         const width = index === 0 ? 3 : 2
-        return <Fragment key={index}><Circle cx={center} cy={center} r={radius} fill="none" stroke={index === 0 ? tokens.surfaceHi : tokens.border} strokeWidth={width} /><SmoothProgressCircle radius={radius} progress={value} stroke={tokens.accent} strokeWidth={width} opacity={muted ? 0.3 : Math.max(0.35, 1 - index * 0.12)} reducedMotion={reducedMotion} /></Fragment>
+        return <Fragment key={index}><Circle cx={center} cy={center} r={radius} fill="none" stroke={ring.background} strokeOpacity={ring.backgroundOpacity} strokeWidth={width} /><SmoothProgressCircle radius={radius} progress={ring.progress} stroke={ring.stroke} strokeWidth={width} opacity={muted ? 0.3 : Math.max(0.52, 1 - index * 0.08)} reducedMotion={reducedMotion} /></Fragment>
       })}
     </Svg>
   </View>
@@ -236,9 +250,9 @@ function SnapSheet({ visible, mainMinutes, current, onSelect, onClose }: { visib
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1 }, content: { flexGrow: 1, alignItems: 'center', justifyContent: 'flex-start', paddingHorizontal: 20, paddingTop: 28, gap: 18 },
+  screen: { flex: 1 }, content: { flexGrow: 1, alignItems: 'center', paddingHorizontal: 20, paddingTop: 28 },
   topline: { width: '100%', maxWidth: 480, minHeight: 30, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }, mode: { fontSize: 10, letterSpacing: 1.25, fontWeight: '800' }, stepTitle: { maxWidth: 240, fontSize: 17, fontWeight: '700' }, topRight: { flexDirection: 'row', alignItems: 'center', gap: 10 }, syncing: { flexDirection: 'row', alignItems: 'center', gap: 6 }, focusStatus: { fontSize: 9, letterSpacing: 1.1, fontWeight: '800' }, helpButton: { width: 30, height: 30, borderWidth: 1.5, borderRadius: 15, alignItems: 'center', justifyContent: 'center' }, helpGlyph: { fontSize: 14, fontWeight: '800' },
-  ringWrap: { alignItems: 'center', justifyContent: 'center' }, svg: { position: 'absolute' }, flash: { position: 'absolute' }, center: { alignItems: 'center', gap: 5, maxWidth: '69%' }, mainTime: { width: '100%', textAlign: 'center', fontFamily: 'JetBrainsMono-Light', fontSize: 55, fontVariant: ['tabular-nums'] }, mainCaption: { fontSize: 10, letterSpacing: 1.05, textTransform: 'uppercase' }, nextCue: { marginTop: 11, alignItems: 'center', gap: 2, maxWidth: '100%' }, nextCueName: { fontSize: 13, fontWeight: '700' }, nextCueTime: { fontFamily: 'JetBrainsMono-Regular', fontSize: 12 }, nextLabel: { fontSize: 8, letterSpacing: 1.1, fontWeight: '800' }, slash: { position: 'absolute', height: 4, borderRadius: 3, transform: [{ rotate: '-45deg' }] }, muteStatus: { maxWidth: 330, fontSize: 11, lineHeight: 16, textAlign: 'center' }, runStatus: { fontFamily: 'JetBrainsMono-Regular', fontSize: 11, lineHeight: 16, textAlign: 'center', fontVariant: ['tabular-nums'] },
+  visualStage: { flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 14 }, ringWrap: { alignItems: 'center', justifyContent: 'center' }, svg: { position: 'absolute' }, flash: { position: 'absolute' }, center: { alignItems: 'center', gap: 5, maxWidth: '69%' }, mainTime: { width: '100%', textAlign: 'center', fontFamily: 'JetBrainsMono-Light', fontSize: 55, fontVariant: ['tabular-nums'] }, mainCaption: { fontSize: 10, letterSpacing: 1.05, textTransform: 'uppercase' }, nextCue: { marginTop: 11, alignItems: 'center', gap: 2, maxWidth: '100%' }, nextCueName: { fontSize: 13, fontWeight: '700' }, nextCueTime: { fontFamily: 'JetBrainsMono-Regular', fontSize: 12 }, nextLabel: { fontSize: 8, letterSpacing: 1.1, fontWeight: '800' }, slash: { position: 'absolute', height: 4, borderRadius: 3, transform: [{ rotate: '-45deg' }] }, muteStatus: { maxWidth: 330, fontSize: 11, lineHeight: 16, textAlign: 'center' }, runStatus: { fontFamily: 'JetBrainsMono-Regular', fontSize: 11, lineHeight: 16, textAlign: 'center', fontVariant: ['tabular-nums'] }, focusBorder: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderWidth: 3, zIndex: 100 },
   bottom: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 20, alignItems: 'center' }, controls: { width: '100%', maxWidth: 480, flexDirection: 'row', gap: 8, marginBottom: 10 }, spacer: { flex: 1 }, iconButton: { width: 40, height: 40, borderWidth: 1.5, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }, badge: { position: 'absolute', right: -2, top: -3, minWidth: 14, height: 14, borderRadius: 7, paddingHorizontal: 3, alignItems: 'center', justifyContent: 'center' }, badgeText: { color: '#fff', fontSize: 8, fontWeight: '900' }, stop: { width: '100%', maxWidth: 480, borderWidth: 1.5, paddingVertical: 16, borderRadius: 99, alignItems: 'center' }, stopText: { fontSize: 14, textTransform: 'uppercase', letterSpacing: 1.1, fontWeight: '800' },
   channel: { minHeight: 50, flexDirection: 'row', alignItems: 'center', gap: 8 }, masterBlock: { gap: 3 }, masterSlider: { width: '100%', height: 38 }, channelLabel: { width: 114, gap: 2 }, channelTitle: { fontSize: 13, fontWeight: '700' }, channelSound: { fontSize: 10 }, channelSlider: { flex: 1, height: 34 }, channelValue: { width: 28, fontFamily: 'JetBrainsMono-Regular', fontSize: 10, textAlign: 'right' }, divider: { height: 1 }, sheetHelp: { fontSize: 12, lineHeight: 18 }, muteRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, clearMute: { alignSelf: 'flex-start', paddingHorizontal: 13, paddingVertical: 9, borderWidth: 1.5, borderRadius: 99 }, clearText: { fontSize: 12, fontWeight: '700' },
   channelToggle: { minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, channelToggleGlyph: { width: 22, textAlign: 'center', fontSize: 22, fontWeight: '400' }, channels: { gap: 2 },

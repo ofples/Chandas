@@ -50,10 +50,24 @@ export interface RunPolicy {
 export interface PatternTrack extends CueSettings {
   id: string
   label: string
+  /** Visual identity only; timing and collision precedence remain unchanged. */
+  color?: SubBellColorId
   enabled: boolean
   cadenceMinutes: number
   selectedOffsetsMinutes: number[]
 }
+
+export type SubBellColorId =
+  | 'violet'
+  | 'blue'
+  | 'cyan'
+  | 'teal'
+  | 'green'
+  | 'lime'
+  | 'amber'
+  | 'orange'
+  | 'coral'
+  | 'rose'
 
 export interface PatternProgram {
   schemaVersion: 2

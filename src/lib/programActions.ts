@@ -20,6 +20,7 @@ import {
   normalizeSequenceProgram,
   validOffsets,
 } from './timerV2'
+import { defaultSubBellColor } from './subBellColors'
 
 function selectedProgram(state: TimerV2State): TimerProgram {
   return state.workingPrograms[state.workingPrograms.selectedMode]
@@ -72,6 +73,7 @@ export function addPatternTrack(state: TimerV2State): TimerV2State {
     const track: PatternTrack = {
       id: createProgramId(),
       label: `Sub-bell ${program.tracks.length + 1}`,
+      color: defaultSubBellColor(program.tracks.length),
       enabled: true,
       cadenceMinutes,
       selectedOffsetsMinutes: validOffsets(program.mainMinutes, cadenceMinutes),

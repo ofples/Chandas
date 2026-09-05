@@ -173,6 +173,13 @@ Timer v2 replaces these assumptions rather than layering special cases over them
 | D-073 | The compact Schedule timeline paints merged current-day active spans but labels only genuine user-authored start/end transitions. Midnight segment splits created to render overnight ranges are not labelled as schedule boundaries. Closely spaced real labels alternate between two lanes, and the summary counts each contributing configured range once rather than counting its rendered overnight pieces. |
 | D-074 | Chandas Focus uses the same flat section-label-and-switch treatment as Schedule, Sub-bells, and Align to clock. It has no enclosing card. Exceptional Android/DND state and its recovery action remain progressively disclosed beneath the row only when relevant. |
 | D-075 | Compact Schedule and Sub-bell timelines are direct editor controls, not decoration. Tapping anywhere on either visualizer opens its corresponding sheet, with a generous hit target, pressed feedback, and an explicit accessibility hint. Existing labelled configuration rows remain equivalent entry points. |
+| D-076 | Every Sub-bell has one optional semantic color chosen from a fixed ten-color palette. New and legacy tracks receive stable order-based defaults; the setting is stored with presets but remains visual metadata ignored by timing, audio, collision precedence, and the Android scheduler. The color appears in setup previews and identifies that track's nested running ring. |
+| D-077 | When Chandas Focus is actually active, a restrained accent border around the running screen replaces the persistent `FOCUS ON` label. Exceptional `FOCUS PAUSED` status remains explicit because it requires user understanding or recovery. |
+| D-078 | The running timer visualization is centered within the usable space between its compact header and fixed controls. On short screens the same region gains sufficient minimum height and remains scrollable. This supersedes D-070's temporary top-aligned running composition. |
+| D-079 | The Cycle main interval name is once again tap-to-edit and is shown consistently in setup and while running. Its normalized `label` remains part of saved configurations. This supersedes D-053 and restores the Pattern-main portion of D-047/D-051. |
+| D-080 | Sequence reorder feedback is direct rather than springy: rows preview their insertion positions and prospective order numbers, but the held row does not scale and release settles with a short non-bouncing transition. The two-digit order number sits immediately beside the interval title instead of occupying its own column. |
+| D-081 | The Sequence step sheet uses the shared horizontally scrollable duration selector with shortcuts for 1, 2, 3, 5, 10, 15, 20, 25, 30, 45, and 60 minutes plus Custom. A circular play action beside the Volume slider previews the selected sound at the effective master × step level and reports preview failure gently without changing the timer. |
+| D-082 | The Android setup collection is labelled `Permissions` in both its compact row and sheet. Chandas Focus stays separate because it is a first-class timer behavior rather than merely an access grant. |
 
 ---
 
@@ -2081,6 +2088,35 @@ This section is append-only. Every implementation session should record scope, m
 
 **Native/on-device verification still required:** Confirm Android switch alignment, pressed-state feel, and TalkBack naming/activation on both visualizers.
 
+### 2026-09-05 — Colored cues and running/sequence refinement
+
+**Status:** Complete in source and OTA-compatible.
+
+**Scope:** Sub-bell visual identity, running-screen balance and Focus state, Cycle naming, Sequence row/reorder behavior, step duration/preview controls, and Android settings terminology.
+
+**Decisions referenced:** D-076–D-082; supersedes D-053 and the running alignment portion of D-070.
+
+**Files changed:** TypeScript domain types and normalization, Pattern actions, Cycle/Sequence configuration UI, running timer UI, reorder handle, domain tests, and this specification/log. Android source, resources, manifests, and dependencies are unchanged.
+
+**Behavior implemented:**
+
+- Added ten semantic Sub-bell colors in a reusable palette. Existing records are repaired deterministically by track order, new tracks receive the next default, saved configurations retain selections, and malformed values fall back safely.
+- Added a compact two-row color selector to each Sub-bell editor, small color keys in the track list, colored setup cue dots, colored nested running strokes, and matching next-cue text.
+- Centered the timer rings in the space between header and controls. Active Chandas Focus now uses the familiar accent edge border instead of an always-visible label; a paused Android rule still displays its exceptional state.
+- Restored tap-to-edit naming for the Cycle main interval and use of that name in the running header.
+- Moved Sequence order numbers beside titles, removed held-row scaling and spring release, expanded the shared scrolling duration shortcuts, and added an inline Volume preview action with gentle failure feedback and cleanup on close or sound drill-down.
+- Renamed `Android access` / `System access` to the simpler `Permissions`, leaving Chandas Focus as its own control.
+
+**Migration impact:** No schema-version or native migration. `PatternTrack.color` is optional visual metadata; normalizing old state fills it, presets naturally preserve it, and the Kotlin `JSONObject` parser reads only its established fields. This changes the JavaScript bundle only and remains compatible with the current v2 Android runtime.
+
+**Verification run:** `npx tsc --noEmit`; full Vitest suite; `git diff --check`; source-level review of native `JSONObject` parsing and responsive running layout.
+
+**Results:** Type checking passed and all 60 tests passed, including legacy/malformed color repair. No native contract or permission changed.
+
+**Native/on-device verification still required:** Confirm the visual center across compact and tall Android devices, palette contrast under system display adjustments, TalkBack reading/selection for all ten colors, focus-border visibility around cutouts/system bars, sound preview routing through the Alarm stream, and delayed reorder/auto-scroll feel.
+
+**Risks or follow-ups:** The palette is intentionally semantic. Its actual color values can be tuned later without migrating saved configurations. A future user-defined color picker can extend the metadata contract separately if the fixed palette proves too limiting.
+
 ### Implementation-entry template
 
 ```md
@@ -2125,3 +2161,4 @@ This section is append-only. Every implementation session should record scope, m
 | 1.9 | 2026-09-04 | Hardened Android Stop and bottom-sheet scrolling, compacted Android access and Sub-bells into single-layer modal flows, and tightened the running layout and live sound controls. |
 | 2.0 | 2026-09-05 | Clarified Schedule ownership and range removal, hid the disabled preview, corrected overnight timeline transitions/counting, and repaired the guarded EAS archive inputs. |
 | 2.1 | 2026-09-05 | Flattened Chandas Focus to match other toggles and made both compact visualizers direct editor entry points. |
+| 2.2 | 2026-09-05 | Added persistent Sub-bell colors, centered the live timer, restored the Focus border and Cycle naming, simplified Sequence ordering, expanded step presets/preview, and renamed Android access to Permissions. |

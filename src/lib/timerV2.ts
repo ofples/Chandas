@@ -18,6 +18,7 @@ import type {
   WorkingProgramState,
   WeeklyAvailabilityWindow,
 } from '../types'
+import { defaultSubBellColor, normalizeSubBellColor } from './subBellColors'
 
 export const TIMER_V2_SCHEMA_VERSION = 2 as const
 export const MAX_PATTERN_TRACKS = 5
@@ -91,6 +92,7 @@ export function defaultPatternProgram(): PatternProgram {
     tracks: [{
       id: createProgramId(),
       label: 'Sub-bell 1',
+      color: defaultSubBellColor(0),
       enabled: true,
       cadenceMinutes: 5,
       selectedOffsetsMinutes: validOffsets(30, 5),
@@ -179,7 +181,7 @@ export function normalizeSoundRef(value: unknown, fallback: SoundRef): SoundRef 
   return fallback
 }
 
-export function normalizeTrack(track: Partial<PatternTrack>, mainMinutes: number, fallbackLabel = 'Sub-bell'): PatternTrack {
+export function normalizeTrack(track: Partial<PatternTrack>, mainMinutes: number, fallbackLabel = 'Sub-bell', fallbackColorIndex = 0): PatternTrack {
   const main = clampDuration(mainMinutes, 30)
   const cadence = clampDuration(track.cadenceMinutes, 1)
   const selected = Array.isArray(track.selectedOffsetsMinutes) ? track.selectedOffsetsMinutes.slice(0, MAX_DURATION_MINUTES - 1) : []
@@ -190,6 +192,7 @@ export function normalizeTrack(track: Partial<PatternTrack>, mainMinutes: number
   return {
     id: typeof track.id === 'string' && track.id.length > 0 && track.id.length <= MAX_ID_CHARACTERS ? track.id : createProgramId(),
     label: normalizeLabel(track.label, fallbackLabel),
+    color: normalizeSubBellColor(track.color, fallbackColorIndex),
     enabled: track.enabled !== false,
     cadenceMinutes: cadence,
     selectedOffsetsMinutes,
@@ -202,7 +205,7 @@ export function normalizePatternProgram(value: Partial<PatternProgram> | undefin
   const rawTracks = Array.isArray(value?.tracks) ? value.tracks : []
   const trackIds = new Set<string>()
   const tracks = rawTracks.slice(0, MAX_PATTERN_TRACKS).map((track, index) => {
-    const normalized = normalizeTrack(track, mainMinutes, `Sub-bell ${index + 1}`)
+    const normalized = normalizeTrack(track, mainMinutes, `Sub-bell ${index + 1}`, index)
     if (trackIds.has(normalized.id)) normalized.id = createProgramId()
     trackIds.add(normalized.id)
     return normalized
@@ -338,6 +341,7 @@ export function migrateLegacyConfig(legacy: Partial<TimerConfig>): TimerV2State 
     tracks: [{
       id: createProgramId(),
       label: 'Sub-bell 1',
+      color: defaultSubBellColor(0),
       enabled: legacy.subEnabled !== false,
       cadenceMinutes: cadence,
       selectedOffsetsMinutes: validOffsets(mainMinutes, cadence),

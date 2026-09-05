@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { PanResponder, StyleSheet, Text } from 'react-native'
 import * as Haptics from 'expo-haptics'
-import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withSpring, type SharedValue } from 'react-native-reanimated'
+import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withTiming, type SharedValue } from 'react-native-reanimated'
 import { useTheme } from '../../theme/ThemeContext'
 import { reorderGestureIntent } from '../../lib/reorder-preview'
 
@@ -95,7 +95,7 @@ export function ReorderHandle({ index, itemCount, rowHeight = 72, onMove, onPrev
     stopAutoScroll()
     const origin = originRef.current
     const target = latestTargetRef.current
-    translation.value = reducedMotion ? 0 : withSpring(0, { damping: 20, stiffness: 230 })
+    translation.value = reducedMotion ? 0 : withTiming(0, { duration: 110 })
     onPreviewEnd?.()
     onDragStateChange?.(false)
     clearPress()
