@@ -171,6 +171,8 @@ Timer v2 replaces these assumptions rather than layering special cases over them
 | D-071 | The Schedule timeline is progressive disclosure for an enabled schedule only. The setup switch is its sole on/off control; when Off, no preview is shown. The Schedule sheet edits ranges only and never repeats the global Active times toggle. |
 | D-072 | Each Schedule range is one visually continuous editing unit: summary and per-range switch, expanded time/day controls, an explicit outlined `Remove this time range` action with confirmation, then the separator. A separator never divides a range header from its active editor. |
 | D-073 | The compact Schedule timeline paints merged current-day active spans but labels only genuine user-authored start/end transitions. Midnight segment splits created to render overnight ranges are not labelled as schedule boundaries. Closely spaced real labels alternate between two lanes, and the summary counts each contributing configured range once rather than counting its rendered overnight pieces. |
+| D-074 | Chandas Focus uses the same flat section-label-and-switch treatment as Schedule, Sub-bells, and Align to clock. It has no enclosing card. Exceptional Android/DND state and its recovery action remain progressively disclosed beneath the row only when relevant. |
+| D-075 | Compact Schedule and Sub-bell timelines are direct editor controls, not decoration. Tapping anywhere on either visualizer opens its corresponding sheet, with a generous hit target, pressed feedback, and an explicit accessibility hint. Existing labelled configuration rows remain equivalent entry points. |
 
 ---
 
@@ -2059,6 +2061,26 @@ This section is append-only. Every implementation session should record scope, m
 
 **Risks or follow-ups:** Very dense schedules can still contain many genuine transitions. The compact preview intentionally preserves their ticks while alternating close labels; if real-world schedules exceed comfortable density, a later pass can suppress selected labels without changing schedule semantics.
 
+### 2026-09-05 — Flat Focus and tappable visualizers
+
+**Status:** Complete in source and OTA-compatible.
+
+**Scope:** Chandas Focus visual consistency and direct manipulation of compact Schedule/Sub-bell timelines.
+
+**Decisions referenced:** D-074–D-075.
+
+**Behavior implemented:**
+
+- Removed the Chandas Focus card and restyled it as the same uppercase section label plus trailing switch used by the other setup toggles. Normal Off/Ready/active states add no redundant copy; actionable DND access, Android-disabled, and paused states remain available without a container.
+- Made the Cycle cue timeline open the Sub-bells sheet directly. The existing Configure sub-bells row remains available as a more descriptive secondary target.
+- Confirmed the Schedule timeline already owned its editor action and strengthened both timelines with larger hit areas, restrained pressed feedback, and accessibility hints.
+
+**Migration impact:** None. TypeScript/UI-only; no stored, native, permission, dependency, or runtime-fingerprint change.
+
+**Verification run:** `npx tsc --noEmit`; full Vitest suite; `git diff --check`; mobile web interaction review.
+
+**Native/on-device verification still required:** Confirm Android switch alignment, pressed-state feel, and TalkBack naming/activation on both visualizers.
+
 ### Implementation-entry template
 
 ```md
@@ -2102,3 +2124,4 @@ This section is append-only. Every implementation session should record scope, m
 | 1.8 | 2026-09-04 | Applied the fourth annotated-feedback pass: unified controls, expanded fixed-Custom shortcuts, repeating occurrence masks, Continuous-only schedules, hour/minute bounds, and a quieter live Sound sheet. |
 | 1.9 | 2026-09-04 | Hardened Android Stop and bottom-sheet scrolling, compacted Android access and Sub-bells into single-layer modal flows, and tightened the running layout and live sound controls. |
 | 2.0 | 2026-09-05 | Clarified Schedule ownership and range removal, hid the disabled preview, corrected overnight timeline transitions/counting, and repaired the guarded EAS archive inputs. |
+| 2.1 | 2026-09-05 | Flattened Chandas Focus to match other toggles and made both compact visualizers direct editor entry points. |

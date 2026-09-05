@@ -22,8 +22,10 @@ export function ScheduleTimelinePreview({ value, onPress }: { value: Availabilit
 
   return <Pressable
     onPress={onPress}
+    hitSlop={6}
     accessibilityRole="button"
     accessibilityLabel={`Edit schedule. ${summary}`}
+    accessibilityHint="Opens the Schedule editor"
     style={({ pressed }) => [styles.preview, { opacity: pressed ? 0.7 : 1, transform: [{ scale: pressed && !reducedMotion ? 0.995 : 1 }] }]}
   >
     <View style={styles.timeline}>
