@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, Text, View, type ViewStyle } from 'react-native'
 import { useReducedMotion } from 'react-native-reanimated'
 import type { AvailabilityPolicy } from '../../types'
-import { scheduleBoundaryMinutesForDay, scheduleRangeCountForDay, scheduleSegmentsForDay } from '../../lib/activeHours'
+import { scheduleRangeCountForDay, scheduleRenderedBoundaryMinutesForDay, scheduleSegmentsForDay } from '../../lib/activeHours'
 import { useTheme } from '../../theme/ThemeContext'
 import { tapHaptic } from '../../lib/haptics'
 
@@ -10,7 +10,7 @@ export function ScheduleTimelinePreview({ value, onPress }: { value: Availabilit
   const reducedMotion = useReducedMotion()
   const day = new Date().getDay()
   const segments = scheduleSegmentsForDay(value, day)
-  const boundaries = scheduleBoundaryMinutesForDay(value, day)
+  const boundaries = scheduleRenderedBoundaryMinutesForDay(value, day)
   const activeRangeCount = scheduleRangeCountForDay(value, day)
   const labelLanes = boundaryLabelLanes(boundaries)
   const summary = !value.enabled

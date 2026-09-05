@@ -31,6 +31,15 @@ export interface TimelinePosition {
 
 const MINUTE_MS = 60_000
 
+/** Visual progress between cue boundaries inside the current Pattern cycle. */
+export function cueSegmentProgress(offsets: number[], mainMinutes: number, elapsedMinutes: number): number {
+  const selected = [...offsets].sort((left, right) => left - right)
+  const next = selected.find(offset => offset > elapsedMinutes) ?? mainMinutes
+  const previous = [...selected].reverse().find(offset => offset <= elapsedMinutes) ?? 0
+  if (next <= previous) return 0
+  return Math.max(0, Math.min(1, (elapsedMinutes - previous) / (next - previous)))
+}
+
 function cycleIndexAt(now: number, anchor: number, duration: number): number {
   return Math.max(0, Math.floor((now - anchor) / duration))
 }

@@ -81,7 +81,7 @@ function ClockTimeInput({ label, value, onChange }: { label: string; value: numb
     else { onChange(parsed); setDraft(formatTimeOfDay(parsed)) }
   }
   return <View style={styles.timeField}>
-    <Text style={[styles.timeLabel, { color: tokens.textMuted }]}>{label.toUpperCase()}</Text>
+    <Text style={[styles.timeLabel, { color: tokens.text }]}>{label}</Text>
     <TextInput
       value={draft}
       onFocus={() => setFocused(true)}
@@ -136,7 +136,7 @@ function windowSummary(window: WeeklyAvailabilityWindow): string {
 const styles = StyleSheet.create({
   section: { gap: 12 }, toggleRow: { flexDirection: 'row', alignItems: 'center', gap: 14 }, flex: { flex: 1, minWidth: 0, gap: 3 }, eyebrow: { fontSize: 11, fontWeight: '700', letterSpacing: 1.3 }, helper: { fontSize: 12, lineHeight: 17 }, rowTitle: { fontSize: 14, fontWeight: '700' },
   windowList: { gap: 0 }, window: { paddingVertical: 10, gap: 12, borderBottomWidth: StyleSheet.hairlineWidth }, windowHead: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 12 }, editor: { gap: 12 },
-  range: { flexDirection: 'row', alignItems: 'flex-end', gap: 9 }, timeField: { flex: 1, gap: 5 }, timeLabel: { fontSize: 9, fontWeight: '700', letterSpacing: 1 }, time: { width: '100%', minHeight: 44, borderWidth: 1.5, borderRadius: 12, textAlign: 'center', paddingHorizontal: 12, paddingVertical: 10 }, timeText: { fontFamily: 'JetBrainsMono-Regular', fontSize: 14, fontVariant: ['tabular-nums'] }, to: { fontSize: 12, paddingBottom: 14 },
+  range: { flexDirection: 'row', alignItems: 'flex-end', gap: 9 }, timeField: { flex: 1, gap: 5 }, timeLabel: { fontSize: 14, lineHeight: 20, fontWeight: '700' }, time: { width: '100%', minHeight: 44, borderWidth: 1.5, borderRadius: 12, textAlign: 'center', paddingHorizontal: 12, paddingVertical: 10 }, timeText: { fontFamily: 'JetBrainsMono-Regular', fontSize: 14, fontVariant: ['tabular-nums'] }, to: { fontSize: 12, paddingBottom: 14 },
   days: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 }, day: { width: 40, height: 40, borderWidth: 1.5, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }, dayText: { fontSize: 10, fontWeight: '700' },
   empty: { paddingVertical: 9, gap: 4 },
 })

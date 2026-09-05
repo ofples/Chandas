@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { PatternProgram, SequenceProgram } from '../../types'
-import { chooseProgramMode, deleteProgramPreset, loadProgramPreset, patchSequenceStep, saveProgramPreset, setPatternSubBellsEnabled, setTrackCadence, updatePatternMainMinutes } from '../programActions'
+import { chooseProgramMode, deleteProgramPreset, hasUnsavedProgramChanges, loadProgramPreset, patchSequenceStep, saveProgramPreset, setPatternSubBellsEnabled, setTrackCadence, updatePatternMainMinutes } from '../programActions'
 import { alarmBehaviorAfterGesture, gateProgramAudio, isFreshScheduledEvent, iterationMuteFor, muteAfterScheduleChange, shouldSurfaceTimerSignal } from '../runtimeV2'
 import { defaultTimerV2State, migrateLegacyConfig, normalizeAvailabilityPolicy, normalizePatternProgram, normalizeSequenceProgram, normalizeSoundRef, parseTimerProgram, validOffsets } from '../timerV2'
-import { nextPatternEvent, nextProgramEvent, nextSequenceEvent, runEndAt, timelinePosition } from '../timeline'
-import { effectiveAvailabilityForProgram, hasAvailableTime, isWithinActiveHours, nextActiveHoursStart, scheduleBoundaryMinutesForDay, scheduleRangeCountForDay, scheduleSegmentsForDay, windowsOverlap } from '../activeHours'
+import { cueSegmentProgress, nextPatternEvent, nextProgramEvent, nextSequenceEvent, runEndAt, timelinePosition } from '../timeline'
+import { effectiveAvailabilityForProgram, hasAvailableTime, isWithinActiveHours, nextActiveHoursStart, scheduleBoundaryMinutesForDay, scheduleRangeCountForDay, scheduleRenderedBoundaryMinutesForDay, scheduleSegmentsForDay, windowsOverlap } from '../activeHours'
 import { edgeAutoScrollStep, previewIndexForItem, previewOffsetForItem, reorderGestureIntent } from '../reorder-preview'
 import timelineFixtures from '../../../fixtures/timer-v2-timeline.json'
 
@@ -381,7 +381,15 @@ describe('bounded runs and availability policies', () => {
   it('builds merged current-day segments for the compact schedule timeline', () => {
     const policy = { enabled: true, weeklyWindows: [window('first', 4 * 60, 10 * 60), window('overlap', 9 * 60, 11 * 60), window('second', 12 * 60, 18 * 60)], overrides: [] }
     expect(scheduleSegmentsForDay(policy, 4)).toEqual([{ start: 4 * 60, end: 11 * 60 }, { start: 12 * 60, end: 18 * 60 }])
+    expect(scheduleRenderedBoundaryMinutesForDay(policy, 4)).toEqual([4 * 60, 11 * 60, 12 * 60, 18 * 60])
     expect(scheduleSegmentsForDay({ ...policy, enabled: false }, 4)).toEqual([{ start: 0, end: 1_440 }])
+  })
+
+  it('starts every sub-bell ring at the current cycle boundary', () => {
+    expect(cueSegmentProgress([5, 10, 25], 30, 0)).toBe(0)
+    expect(cueSegmentProgress([5, 10, 25], 30, 2.5)).toBe(0.5)
+    expect(cueSegmentProgress([5, 10, 25], 30, 5)).toBe(0)
+    expect(cueSegmentProgress([5, 10, 25], 30, 27.5)).toBe(0.5)
   })
 
   it('includes the previous day carry-in for overnight schedule previews', () => {
@@ -542,6 +550,17 @@ describe('timer v2 validation and presets', () => {
     expect(edited.workingPrograms.sourcePreset?.id).toBe(saved.presets[0].id)
     expect(edited.presets[0].program).toEqual(presetSnapshot)
     expect(edited.workingPrograms.sequence.steps[0].label).toBe('Changed working copy')
+    expect(hasUnsavedProgramChanges(saved)).toBe(false)
+    expect(hasUnsavedProgramChanges(edited)).toBe(true)
+  })
+
+  it('detects unsaved default working-copy changes without treating generated IDs as edits', () => {
+    const initial = defaultTimerV2State()
+    expect(hasUnsavedProgramChanges(initial)).toBe(false)
+    expect(hasUnsavedProgramChanges(updatePatternMainMinutes(initial, 45))).toBe(true)
+    const loaded = loadProgramPreset({ ...initial, presets: [{ id: 'preset', name: 'Default copy', createdAt: 1, program: initial.workingPrograms.pattern }] }, 'preset')
+    expect(hasUnsavedProgramChanges(loaded)).toBe(false)
+    expect(hasUnsavedProgramChanges(deleteProgramPreset(loaded, 'preset'))).toBe(true)
   })
 
   it('loads a deep working copy and permits duplicate names without ID reuse', () => {

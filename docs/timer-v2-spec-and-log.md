@@ -1418,6 +1418,10 @@ Do not edit old entries to reflect new conclusions. Add a superseding entry and 
 | 2026-09-05 | D-094 | Accepted | Put destructive collection actions on their list rows: a deliberate left swipe reveals one trash action and removal animates in place. Editors no longer duplicate Delete/Remove actions; the single required Sequence step remains protected. |
 | 2026-09-05 | D-095 | Accepted | Use one hybrid color control everywhere: show the current color as a compact circle and expand the shared horizontal palette in place. Keep Sub-bell cue masks collapsed behind Customize cues and expose only the contextually useful Clear or Select all action. |
 | 2026-09-05 | D-096 | Accepted | Default setup to a calm essential surface. Schedule, configurations, appearance, system integrations, alarm sound, and Chandas Focus live in a persisted Advanced mode that opens by tap or a progressive bottom-scroll reveal. Hide Alarm and Focus runtime controls while Advanced mode is hidden. |
+| 2026-09-05 | D-097 | Accepted | Modal section labels use the same sentence-case, white, 14-point/700 hierarchy as setup entries. Positional sheet metadata remains smaller but loses all-caps tracking. Loading a saved configuration asks before discarding a working program only when its user-editable content differs from its source snapshot or the untouched default. |
+| 2026-09-05 | D-098 | Accepted | Every nested Sub-bell ring begins its first segment at the current main-cycle start and resets at each selected cue; it never borrows progress from the previous cycle. Schedule previews render the merged active union and label only that rendered union, so a subsumed range leaves neither a duplicate bar nor internal boundary ticks. |
+| 2026-09-05 | D-099 | Accepted | User-requested Android cue events use `AlarmManager.setAlarmClock`; internal schedule-resume and timezone-realignment wakeups retain `setExactAndAllowWhileIdle`. This accepts Android's visible upcoming-alarm semantics in exchange for preventing Doze rate limits from delaying a Sub-bell and then starving a closely following main gong. |
+| 2026-09-05 | D-100 | Accepted | The running notification stays on Android's standard/BigText template so it remains eligible for promoted Live Update treatment. It uses the named interval as its heading, a public countdown, and the existing Stop action. Android owns whether the status chip is promoted and the chip-to-expanded-card transition; Chandas does not use a custom `RemoteViews` layout. |
 
 ### Decision-entry template
 
@@ -2339,6 +2343,33 @@ This section is append-only. Every implementation session should record scope, m
 
 **Risks or follow-ups:** The shared swipe row uses React Native's platform responder because the project does not currently include Gesture Handler. If dense gesture composition expands later, migrate the shared primitive—not individual lists—to a simultaneous native gesture implementation.
 
+### 2026-09-05 — Doze-safe cue delivery and final interface alignment
+
+**Status:** Complete in source; remote Android build and physical-device validation pending.
+
+**Scope:** Modal typography, guarded configuration loading, nested-ring phase, overlapping Schedule previews, collision parity, Android low-power scheduling, and the promoted running notification.
+
+**Decisions referenced:** D-097–D-100.
+
+**Behavior implemented:**
+
+- Added one shared sheet-section heading and applied the setup screen's sentence-case hierarchy to Repeat every, Cue volume, Mute for, schedule time fields, sheet metadata, and related secondary flows.
+- Configuration loading now compares user-editable program content rather than generated IDs. Untouched defaults and unchanged loaded snapshots open directly; changed or source-deleted working copies receive a clear Keep editing / Load confirmation.
+- Corrected nested Sub-bell ring phase so the first visual segment starts at the current cycle boundary. Added deterministic tests for the start, midpoint, cue reset, and final-to-main segment.
+- Reduced Schedule preview geometry to the merged current-day union. Fully subsumed and partially overlapping author ranges no longer emit duplicate/internal ticks, while schedule runtime semantics and the editor's independent ranges remain unchanged.
+- Made Kotlin collision selection enforce the same cadence-first rule as JavaScript even when a malformed or future producer serializes tracks out of UI sort order.
+- Replaced user cue scheduling with alarm-clock alarms. The prior one-future-event design used exact-while-idle alarms, which Android rate-limits; a delayed late-cycle Sub-bell could therefore schedule a main gong inside the platform's next restricted window. Internal availability/DST maintenance remains on the lower-impact exact-while-idle path.
+- Kept the running notification promotable by using a standard BigText style rather than a custom view. Pattern notifications now identify the named interval, remain public on the lock screen, retain Stop, and let Android 16+ open the system-expanded Live Update from its status chip.
+- Reconfirmed release-version ownership: generated `/android` is excluded from the EAS archive, so `app.json` remains the 2.1.0 user-facing source and EAS remote versioning supplies the monotonically increasing Play Store `versionCode` during remote prebuild/build.
+
+**Migration impact:** The UI, dirty-state, ring, and Schedule-preview changes are JavaScript compatible. `setAlarmClock`, native collision arbitration, and expanded notification metadata change the Android runtime fingerprint and require the replacement binary requested for this round.
+
+**Verification run:** TypeScript compilation; all 70 Vitest tests; whitespace validation; interactive React Native Web inspection of the setup, Sub-bells library, and bell editor; native source/manifest/config-plugin review; and comparison with Android's official AlarmManager, Doze, notification, and Live Update guidance. Repository policy prohibits local Gradle/native compilation.
+
+**Native/on-device verification still required:** Install the remote build on the reporting device and test a 30-minute Cycle with cues at 25/28/29 minutes while the screen is off long enough to enter Doze; verify every cue timestamp, the final main gong, ring resets, Stop from the notification, reboot/process recovery, schedule exit/re-entry, alarm-mode full-screen flow, Android 16 chip expansion, and the ordinary notification fallback on earlier Android/OEM builds. Confirm the system's upcoming-alarm affordance is acceptable while Chandas runs.
+
+**Risks or follow-ups:** `setAlarmClock` is deliberately highly visible and more battery-sensitive than ordinary exact alarms; that is appropriate only while a user-started audible timer is active. Android/OEM policy still controls Live Update promotion. The remote build is the first native compile gate for these Kotlin edits, so any platform-API or manifest issue must be resolved there rather than by a prohibited local Gradle run.
+
 ### Implementation-entry template
 
 ```md
@@ -2391,3 +2422,4 @@ This section is append-only. Every implementation session should record scope, m
 | 2.7 | 2026-09-05 | Simplified setup hierarchy and Sub-bell selection, redesigned saved configurations, unified tactile feedback, and added an optional Android next-cue live countdown. |
 | 2.8 | 2026-09-05 | Made the alarm a tap-anywhere flashing-circle surface, added a global configurable alarm sound with Sine alarm default, and hardened full-screen lock-screen presentation. |
 | 2.9 | 2026-09-05 | Added persisted progressive Advanced mode, hybrid inline color/cue disclosure, shared swipe-to-delete rows, and simplified running controls. |
+| 3.0 | 2026-09-05 | Standardized modal hierarchy, guarded unsaved configuration loads, fixed nested-ring and overlapping-schedule visuals, moved user cues to Doze-safe alarm-clock scheduling, and refined the promoted running notification. |

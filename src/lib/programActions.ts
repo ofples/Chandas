@@ -16,6 +16,8 @@ import {
   clampDuration,
   clampVolume,
   createProgramId,
+  defaultPatternProgram,
+  defaultSequenceProgram,
   normalizeLabel,
   normalizePatternProgram,
   normalizeSequenceProgram,
@@ -25,6 +27,31 @@ import { defaultSubBellColor } from './subBellColors'
 
 function selectedProgram(state: TimerV2State): TimerProgram {
   return state.workingPrograms[state.workingPrograms.selectedMode]
+}
+
+/** IDs are implementation details; dirty state describes what the user can edit. */
+function comparableProgram(program: TimerProgram): unknown {
+  if (program.mode === 'pattern') {
+    return {
+      ...program,
+      tracks: program.tracks.map(({ id: _id, ...track }) => track),
+    }
+  }
+  return {
+    ...program,
+    steps: program.steps.map(({ id: _id, ...step }) => step),
+  }
+}
+
+/** True only when loading another snapshot would discard user-visible edits. */
+export function hasUnsavedProgramChanges(state: TimerV2State): boolean {
+  const current = selectedProgram(state)
+  const source = state.workingPrograms.sourcePreset
+  const baseline = source
+    ? state.presets.find(preset => preset.id === source.id)?.program
+    : current.mode === 'pattern' ? defaultPatternProgram() : defaultSequenceProgram()
+  if (!baseline || source?.deleted || baseline.mode !== current.mode) return true
+  return JSON.stringify(comparableProgram(current)) !== JSON.stringify(comparableProgram(baseline))
 }
 
 function withWorkingProgram(state: TimerV2State, mode: TimerMode, program: TimerProgram): TimerV2State {

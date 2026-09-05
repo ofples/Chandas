@@ -30,6 +30,7 @@ data class TimerV2Candidate(
   val kind: String,
   val soundId: String,
   val volume: Float,
+  val cadenceMinutes: Int? = null,
   val trackOrder: Int? = null,
 )
 
@@ -157,6 +158,16 @@ object TimerV2Timeline {
     if (root.optString("mode") == "pattern") cueSound(root.optJSONObject("mainCue")) else "temple-gong"
   }.getOrDefault("temple-gong")
 
+  /** Short, user-authored heading for the system's expanded running notification. */
+  fun notificationTitle(serialized: String): String? = runCatching {
+    val root = JSONObject(serialized)
+    when (root.optString("mode")) {
+      "pattern" -> root.optString("label").trim().takeIf { it.isNotEmpty() && it.codePointCount(0, it.length) <= 60 }
+      "sequence" -> "Chandas sequence"
+      else -> null
+    }
+  }.getOrNull()
+
   /** Exact seasonal-offset boundary so local-clock patterns can realign even on pre-API 37 Android. */
   fun nextTimezoneTransition(now: Long): Long? {
     val timezone = TimeZone.getDefault()
@@ -191,7 +202,7 @@ object TimerV2Timeline {
     while (cycle < Long.MAX_VALUE / 2) {
       val start = anchor + cycle * duration
       val candidates = mutableMapOf<Long, MutableList<Candidate>>()
-      candidates.getOrPut(start + duration) { mutableListOf() }.add(Candidate("main", "pattern-main", true, -1, cueSound(root.optJSONObject("mainCue")), cueVolume(root.optJSONObject("mainCue"))))
+      candidates.getOrPut(start + duration) { mutableListOf() }.add(Candidate("main", "pattern-main", true, -1, 0, cueSound(root.optJSONObject("mainCue")), cueVolume(root.optJSONObject("mainCue"))))
       for (trackIndex in 0 until tracks.length()) {
         val track = tracks.optJSONObject(trackIndex) ?: continue
         if (!track.optBoolean("enabled", true)) continue
@@ -199,14 +210,14 @@ object TimerV2Timeline {
         for (offsetIndex in 0 until offsets.length()) {
           val offset = offsets.optInt(offsetIndex, -1)
           if (offset <= 0 || offset >= mainMinutes) continue
-          candidates.getOrPut(start + offset * MINUTE) { mutableListOf() }.add(Candidate(track.optString("id", "track:$trackIndex"), "pattern-track", false, trackIndex, cueSound(track), cueVolume(track)))
+          candidates.getOrPut(start + offset * MINUTE) { mutableListOf() }.add(Candidate(track.optString("id", "track:$trackIndex"), "pattern-track", false, trackIndex, track.optInt("cadenceMinutes", 0), cueSound(track), cueVolume(track)))
         }
       }
       val at = candidates.keys.filter { it > now }.minOrNull()
       if (at != null) {
         val items = candidates.getValue(at)
         val main = items.firstOrNull { it.main }
-        val winner = main ?: items.minBy { it.trackOrder }
+        val winner = main ?: items.sortedWith(compareByDescending<Candidate> { it.cadenceMinutes }.thenBy { it.trackOrder }).first()
         val boundary = if (winner.main) "main" else "offset:${(at - start) / MINUTE}"
         val resolved = items.map { it.toPublic() }
         return TimerV2Event(
@@ -256,8 +267,8 @@ object TimerV2Timeline {
     return if (sound.optString("kind") == "builtin") sound.optString("id", "clear-bell") else sound.optString("uri", "clear-bell")
   }
   private fun cueVolume(cue: JSONObject?): Float = cue?.optDouble("volume", 1.0)?.toFloat()?.coerceIn(0f, 1f) ?: 1f
-  private data class Candidate(val cueId: String, val kind: String, val main: Boolean, val trackOrder: Int, val soundId: String, val volume: Float) {
-    fun toPublic() = TimerV2Candidate(cueId, kind, soundId, volume, trackOrder.takeUnless { main })
+  private data class Candidate(val cueId: String, val kind: String, val main: Boolean, val trackOrder: Int, val cadenceMinutes: Int, val soundId: String, val volume: Float) {
+    fun toPublic() = TimerV2Candidate(cueId, kind, soundId, volume, cadenceMinutes.takeUnless { main }, trackOrder.takeUnless { main })
   }
 
   private fun runEndAt(root: JSONObject, anchor: Long, startedAt: Long): Long? {
@@ -306,6 +317,8 @@ object TimerV2Timeline {
 
   private fun validatePattern(root: JSONObject): Boolean {
     val mainMinutes = root.optInt("mainMinutes", -1)
+    val label = root.optString("label")
+    if (root.has("label") && (label.isBlank() || label.codePointCount(0, label.length) > 60)) return false
     if (mainMinutes !in 1..MAX_DURATION_MINUTES || !validCue(root.optJSONObject("mainCue")) || !validOptionalCompletionCue(root)) return false
     val tracks = root.optJSONArray("tracks") ?: return false
     if (tracks.length() > MAX_TRACKS) return false

@@ -13,7 +13,7 @@ class TimerV2TimelineTest {
     JSONObject(stream.use { String(it.readBytes(), StandardCharsets.UTF_8) })
   }
 
-  @Test fun patternCollisionUsesTrackOrderAndStableIdentity() {
+  @Test fun patternCollisionUsesSlowerCadenceAndStableIdentity() {
     val fixture = fixtures.getJSONObject("patternCollision")
     val program = fixture.getJSONObject("program").toString()
     val expected = fixture.getJSONObject("expected")
@@ -24,6 +24,27 @@ class TimerV2TimelineTest {
     assertEquals(expected.getString("winnerCueId"), event.winner.cueId)
     assertEquals(TimerV2Boundary.PATTERN_OFFSET, event.boundary)
     assertEquals(expected.getBoolean("collision"), event.candidates.size > 1)
+  }
+
+  @Test fun patternCollisionDoesNotDependOnUntrustedSerializedTrackOrder() {
+    val root = JSONObject(fixtures.getJSONObject("patternCollision").getJSONObject("program").toString())
+    val tracks = root.getJSONArray("tracks")
+    root.put("tracks", org.json.JSONArray().put(tracks.getJSONObject(1)).put(tracks.getJSONObject(0)))
+    val event = requireNotNull(TimerV2Timeline.next(root.toString(), 0L, 9 * 60_000L))
+    assertEquals("higher", event.winner.cueId)
+    assertEquals(5, event.winner.cadenceMinutes)
+  }
+
+  @Test fun notificationTitleIsBoundedAndOldProgramsWithoutLabelsStillRestore() {
+    val root = JSONObject(fixtures.getJSONObject("patternCollision").getJSONObject("program").toString())
+    assertTrue(TimerV2Timeline.isValid(root.toString()))
+    assertEquals(null, TimerV2Timeline.notificationTitle(root.toString()))
+    root.put("label", "Meditation")
+    assertTrue(TimerV2Timeline.isValid(root.toString()))
+    assertEquals("Meditation", TimerV2Timeline.notificationTitle(root.toString()))
+    root.put("label", "x".repeat(61))
+    assertFalse(TimerV2Timeline.isValid(root.toString()))
+    assertEquals(null, TimerV2Timeline.notificationTitle(root.toString()))
   }
 
   @Test fun sequenceBoundariesRepeatStrictlyAfterNow() {

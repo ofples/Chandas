@@ -7,6 +7,7 @@ import Animated, { FadeIn, FadeInDown, FadeOut, ZoomIn, useReducedMotion } from 
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import type { AlarmBehavior, CueSettings, TimerProgram } from '../types'
 import type { TimelinePosition } from '../lib/timeline'
+import { cueSegmentProgress } from '../lib/timeline'
 import { AlarmIcon, BellIcon, ClockIcon, FocusIcon, RestartIcon } from '../components/Icons'
 import { Chip } from '../components/Chip'
 import { CustomMinutePicker } from '../components/CustomMinutePicker'
@@ -22,6 +23,7 @@ import { formatDuration } from '../components/timer-v2/run-length-config'
 import { subBellColorValue } from '../lib/subBellColors'
 import { SheetTextButton } from '../components/timer-v2/SheetTextButton'
 import { tapHaptic } from '../lib/haptics'
+import { SheetSectionTitle } from '../components/timer-v2/SheetSectionTitle'
 
 interface Props {
   program: TimerProgram
@@ -169,7 +171,7 @@ function TimerRings({ size, progress, position, program, muted, eventPulse }: { 
       { progress, stroke: tokens.accent, background: tokens.surfaceHi, backgroundOpacity: 1 },
       ...activeTracks.map((track, index) => {
         const stroke = subBellColorValue(track.color, index)
-        return { progress: trackProgress(track.selectedOffsetsMinutes, program.mainMinutes, elapsedMinutes), stroke, background: stroke, backgroundOpacity: 0.17 }
+        return { progress: cueSegmentProgress(track.selectedOffsetsMinutes, program.mainMinutes, elapsedMinutes), stroke, background: stroke, backgroundOpacity: 0.17 }
       }),
     ]
   }, [position?.stepProgress, program, progress, tokens.accent, tokens.surfaceHi])
@@ -199,13 +201,6 @@ function SmoothProgressCircle({ radius, progress, stroke, strokeWidth, opacity, 
     RNAnimated.timing(animatedProgress, { toValue: progress, duration: 320, useNativeDriver: false }).start()
   }, [animatedProgress, progress, reducedMotion])
   return <AnimatedCircle cx={100} cy={100} r={radius} fill="none" stroke={stroke} strokeWidth={strokeWidth} strokeLinecap="round" strokeDasharray={`${circumference}, ${circumference}`} strokeDashoffset={animatedProgress.interpolate({ inputRange: [0, 1], outputRange: [circumference, 0] })} transform="rotate(-90 100 100)" opacity={opacity} />
-}
-
-function trackProgress(offsets: number[], mainMinutes: number, elapsed: number): number {
-  const selected = [...offsets].sort((left, right) => left - right)
-  const next = selected.find(offset => offset > elapsed) ?? selected[0] + mainMinutes
-  const previous = [...selected].reverse().find(offset => offset <= elapsed) ?? selected[selected.length - 1] - mainMinutes
-  return Math.max(0, Math.min(1, (elapsed - previous) / (next - previous)))
 }
 
 function ControlButton({ children, label, tooltip, active = false, disabled = false, badge, onPress, onTooltip }: { children: ReactNode; label: string; tooltip: string; active?: boolean; disabled?: boolean; badge?: string; onPress: () => void; onTooltip: (message: string) => void }) {
@@ -240,7 +235,7 @@ function RunningMixerSheet({ visible, onClose, program, masterVolume, onMasterVo
     <View style={[styles.divider, { backgroundColor: tokens.border }]} />
     <Pressable onPress={() => setChannelsOpen(value => !value)} style={styles.channelToggle} accessibilityRole="button" accessibilityState={{ expanded: channelsOpen }}><Text style={[styles.channelTitle, { color: tokens.text }]}>Sound levels</Text><Text style={[styles.channelToggleGlyph, { color: tokens.accent }]}>{channelsOpen ? '⌄' : '›'}</Text></Pressable>
     {channelsOpen ? <Animated.View entering={FadeIn.duration(140)} exiting={FadeOut.duration(100)} style={styles.channels}>{channels.map(channel)}</Animated.View> : null}
-    <Text style={[styles.mode, { color: tokens.textMuted }]}>MUTE FOR</Text>
+    <SheetSectionTitle>Mute for</SheetSectionTitle>
     <View style={styles.muteRow}>{[1, 2, 3].map(count => <Chip key={count} label={`${count}×`} active={mute.iteration?.iterations === count} onPress={() => onMuteIterations(count)} />)}<Chip label="Minutes…" active={mute.mutedUntil > Date.now()} onPress={onCustom} /></View>
     {muted ? <SheetTextButton label="Clear mute" onPress={onClearMute} /> : null}
   </BottomSheet>
@@ -248,7 +243,7 @@ function RunningMixerSheet({ visible, onClose, program, masterVolume, onMasterVo
 
 function SnapSheet({ visible, mainMinutes, current, onSelect, onClose }: { visible: boolean; mainMinutes: number; current: number; onSelect: (offset: number) => void; onClose: () => void }) {
   const { tokens } = useTheme()
-  return <BottomSheet visible={visible} eyebrow="CLOCK" title="Snap to clock" onClose={onClose} scroll={false}>
+  return <BottomSheet visible={visible} eyebrow="Clock" title="Snap to clock" onClose={onClose} scroll={false}>
     <Text style={[styles.sheetHelp, { color: tokens.textMuted }]}>Choose where each interval lands on the clock.</Text>
     <ClockSnapSelector mainMinutes={mainMinutes} value={current} onChange={onSelect} />
   </BottomSheet>

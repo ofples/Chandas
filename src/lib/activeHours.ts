@@ -41,6 +41,13 @@ export function scheduleSegmentsForDay(value: AvailabilityPolicy, day: number): 
   }, [])
 }
 
+/** Boundaries of the rendered union; hidden/subsumed ranges add no internal ticks. */
+export function scheduleRenderedBoundaryMinutesForDay(value: AvailabilityPolicy, day: number): number[] {
+  if (!value.enabled) return []
+  return [...new Set(scheduleSegmentsForDay(value, day).flatMap(segment => [segment.start, segment.end]))]
+    .sort((left, right) => left - right)
+}
+
 /**
  * User-authored availability transitions for one civil day. Unlike rendered
  * segments, an overnight range does not invent labels at 00:00 or 24:00: only

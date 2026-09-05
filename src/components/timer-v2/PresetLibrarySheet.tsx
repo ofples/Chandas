@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Alert, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import * as Haptics from 'expo-haptics'
 import Animated, { FadeIn, FadeInDown, FadeOut, LinearTransition, useReducedMotion } from 'react-native-reanimated'
 import type { ProgramPreset, TimerMode, TimerProgram, TimerV2State } from '../../types'
-import { deleteProgramPreset, loadProgramPreset, saveProgramPreset, updatePattern } from '../../lib/programActions'
+import { deleteProgramPreset, hasUnsavedProgramChanges, loadProgramPreset, saveProgramPreset, updatePattern } from '../../lib/programActions'
 import { soundTitle } from '../../lib/soundLibrary'
 import { useTheme } from '../../theme/ThemeContext'
 import { BottomSheet } from './BottomSheet'
@@ -62,9 +62,30 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedba
     setSelectedId(current => current === preset.id ? null : current)
     onFeedback({ title: 'Configuration removed', message: 'Your current working copy was not changed.', tone: 'info' })
   }
+  const load = (preset: ProgramPreset) => {
+    const apply = () => {
+      onChange(loadProgramPreset(state, preset.id))
+      setSelectedId(null)
+      onClose()
+      onFeedback({ title: 'Configuration loaded', message: `“${preset.name}” is ready to adjust.`, tone: 'success' })
+    }
+    if (!hasUnsavedProgramChanges(state)) {
+      apply()
+      return
+    }
+    const message = 'Your current changes have not been saved as a configuration. Load this one anyway?'
+    if (Platform.OS === 'web') {
+      if (globalThis.confirm?.(message)) apply()
+      return
+    }
+    Alert.alert('Discard unsaved changes?', message, [
+      { text: 'Keep editing', style: 'cancel' },
+      { text: 'Load', style: 'destructive', onPress: apply },
+    ])
+  }
 
   return (
-    <BottomSheet visible={visible} eyebrow="SAVED SETUPS" title="Configurations" onClose={onClose}>
+    <BottomSheet visible={visible} eyebrow="Saved setups" title="Configurations" onClose={onClose}>
       {!selected ? <View style={styles.current}><Text style={[styles.presetTitle, { color: tokens.text }]}>Save current {state.workingPrograms.selectedMode === 'pattern' ? 'Cycle' : 'Sequence'}</Text><PresetVisual program={state.workingPrograms[state.workingPrograms.selectedMode]} /></View> : null}
       {!selected ? <View style={styles.saveRow}>
         <TextInput
@@ -83,7 +104,7 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedba
       {!selected ? <SegmentedControl items={FILTERS} value={filter} onChange={setFilter} accessibilityLabel="Configuration type" /> : null}
       {selected ? <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 130)} style={[styles.inspector, { borderColor: tokens.border, backgroundColor: tokens.surfaceHi }]}>
         <View style={styles.copy}><Text style={[styles.presetTitle, { color: tokens.text }]}>{selected.name}</Text><PresetVisual program={selected.program} /><Text style={[styles.date, { color: tokens.textMuted }]}>Saved {new Date(selected.createdAt).toLocaleString()}</Text><PresetDetails preset={selected} /><Text style={[styles.helper, { color: tokens.text }]}>Loads as a new working copy.</Text></View>
-        <View style={styles.inspectorActions}><SheetTextButton label="Cancel" tone="muted" onPress={() => setSelectedId(null)} /><SheetTextButton label="Load" onPress={() => { onChange(loadProgramPreset(state, selected.id)); setSelectedId(null); onClose(); onFeedback({ title: 'Configuration loaded', message: `“${selected.name}” is ready to adjust.`, tone: 'success' }) }} /></View>
+        <View style={styles.inspectorActions}><SheetTextButton label="Cancel" tone="muted" onPress={() => setSelectedId(null)} /><SheetTextButton label="Load" onPress={() => load(selected)} /></View>
       </Animated.View> : null}
       {!selected ? <View style={styles.list}>
         {presets.length === 0 ? <GentleNotice title={state.presets.length === 0 ? 'No saved configurations yet' : `No ${filter === 'pattern' ? 'Cycle' : 'Sequence'} configurations`} message={state.presets.length === 0 ? 'Name the current setup above to save it.' : 'Try All or save the current setup.'} /> : presets.map(preset => {

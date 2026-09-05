@@ -11,6 +11,7 @@ import { BottomSheet } from './BottomSheet'
 import { useSoundAvailability } from '../../hooks/use-sound-availability'
 import { GentleNotice, type AppNotice } from './experience-feedback'
 import { SegmentedControl } from './SegmentedControl'
+import { SheetSectionTitle } from './SheetSectionTitle'
 
 type SoundTab = 'built-in' | 'android' | 'device'
 const SOUND_TABS = [{ value: 'built-in', label: 'Built-in' }, { value: 'android', label: 'Android' }, { value: 'device', label: 'Device' }] as const
@@ -92,12 +93,12 @@ export function SoundPickerSheet({ visible, title, cue, masterVolume, onChange, 
       <View style={styles.optionCopy}><Text style={[styles.label, { color: selectedAvailable ? tokens.textMuted : tokens.accent }]}>{selectedAvailable ? 'SELECTED' : 'UNAVAILABLE · CHOOSE A REPLACEMENT'}</Text><Text numberOfLines={1} style={[styles.optionTitle, { color: tokens.text }]}>{soundTitle(cue.sound)}</Text></View>
       {!showVolume ? <Pressable onPress={() => void preview(cue.sound)} style={[styles.preview, { borderColor: tokens.border }]} accessibilityRole="button" accessibilityLabel={`${previewing === selectedKey ? 'Stop' : 'Preview'} selected sound`}><Text style={[styles.previewText, { color: tokens.accent }]}>{previewing === selectedKey ? '■' : '▶'}</Text></Pressable> : null}
     </View>
-    {showVolume ? <><View style={styles.volumeHeader}><Text style={[styles.label, { color: tokens.textMuted }]}>CUE VOLUME</Text><Text style={[styles.value, { color: tokens.text }]}>{Math.round(cue.volume * 100)}%</Text></View>
+    {showVolume ? <><View style={styles.volumeHeader}><SheetSectionTitle>Cue volume</SheetSectionTitle><Text style={[styles.value, { color: tokens.text }]}>{Math.round(cue.volume * 100)}%</Text></View>
     <View style={styles.volumeRow}><Slider style={styles.slider} minimumValue={0} maximumValue={1} step={0.05} value={cue.volume} onSlidingStart={stopPreview} onValueChange={volume => onChange({ volume })} minimumTrackTintColor={tokens.accent} maximumTrackTintColor={tokens.surfaceHi} thumbTintColor={tokens.accent} accessibilityLabel={`${title} volume`} accessibilityValue={{ min: 0, max: 100, now: Math.round(cue.volume * 100), text: `${Math.round(cue.volume * 100)} percent` }} /><Pressable onPress={() => void preview(cue.sound)} style={[styles.preview, { borderColor: tokens.border }]} accessibilityRole="button" accessibilityLabel={`${previewing === selectedKey ? 'Stop' : 'Preview'} selected sound`}><Text style={[styles.previewText, { color: tokens.accent }]}>{previewing === selectedKey ? '■' : '▶'}</Text></Pressable></View></> : null}
   </View>
 
   return (
-    <BottomSheet visible={visible} eyebrow={showVolume ? 'SOUND & LEVEL' : 'SOUND'} title={title} onClose={close} onBack={onBack ? () => { stopPreview(); onBack() } : undefined} footer={volumeFooter}>
+    <BottomSheet visible={visible} eyebrow={showVolume ? 'Sound and level' : 'Sound'} title={title} onClose={close} onBack={onBack ? () => { stopPreview(); onBack() } : undefined} footer={volumeFooter}>
       <SegmentedControl items={SOUND_TABS} value={tab} onChange={value => { stopPreview(); setTab(value) }} accessibilityLabel="Sound source" />
 
       {message ? <GentleNotice title={message.title} message={message.detail} tone="attention" /> : null}

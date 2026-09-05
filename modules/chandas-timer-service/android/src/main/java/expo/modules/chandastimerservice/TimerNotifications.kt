@@ -86,6 +86,7 @@ object TimerNotifications {
       activeNow && activeAtNext -> copy.nextCue(formatTime(next))
       else -> copy.resumes(formatTime(resumesAt))
     }
+    val title = config.timerV2Program?.let(TimerV2Timeline::notificationTitle) ?: copy.runningTitle
     val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
     val contentIntent = launchIntent?.let {
       PendingIntent.getActivity(
@@ -102,14 +103,17 @@ object TimerNotifications {
       PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
     val builder = NotificationCompat.Builder(context, RUNNING_CHANNEL)
-        .setContentTitle(copy.runningTitle)
+        .setContentTitle(title)
         .setContentText(content)
+        .setStyle(NotificationCompat.BigTextStyle().setBigContentTitle(title).bigText(content))
         .setSmallIcon(smallIcon(context))
         .setOngoing(true)
         .setOnlyAlertOnce(true)
         .setShowWhen(false)
         .setContentIntent(contentIntent)
         .addAction(0, copy.stopTimerAction, stopIntent)
+        .setCategory(NotificationCompat.CATEGORY_STOPWATCH)
+        .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
         .setPriority(NotificationCompat.PRIORITY_LOW)
     if (config.liveCountdownEnabled && countdownAt > now) {
       builder

@@ -7,7 +7,7 @@ import { BottomSheet } from './BottomSheet'
 export function TimerHelpSheet({ visible, onClose, onOpenFocusSettings }: { visible: boolean; onClose: () => void; onOpenFocusSettings?: () => void }) {
   const { tokens } = useTheme()
   const item = (icon: ReactNode, title: string, body: string) => <View style={styles.item}><View style={[styles.icon, { borderColor: tokens.border }]}>{icon}</View><View style={styles.copy}><Text style={[styles.title, { color: tokens.text }]}>{title}</Text><Text style={[styles.body, { color: tokens.textMuted }]}>{body}</Text></View></View>
-  return <BottomSheet visible={visible} eyebrow="HOW IT WORKS" title="Timer help" onClose={onClose}>
+  return <BottomSheet visible={visible} eyebrow="How it works" title="Timer help" onClose={onClose}>
     {item(<BellIcon on color={tokens.accent} />, 'Cycle', 'One main interval repeats. Turn on up to five named sub-bells at selected points, each with its own sound and level. If two meet, the longer repeat interval sounds.')}
     {item(<RestartIcon color={tokens.accent} />, 'Sequence', 'Steps run in order and repeat. Each step has its own duration, label, sound and level.')}
     {item(<ClockIcon color={tokens.accent} />, 'Run length', 'Keep going until you stop, or finish after a chosen number of cycles or an exact duration.')}
@@ -18,7 +18,7 @@ export function TimerHelpSheet({ visible, onClose, onOpenFocusSettings }: { visi
     {item(<VolumeIcon muted color={tokens.accent} />, 'Mute', 'Mute one or more cycles, or choose a number of minutes. Your volume levels stay unchanged.')}
     {Platform.OS === 'android' ? item(<FocusIcon color={tokens.accent} />, 'Calls and Focus', 'Bells can stay quiet during calls. Optional Chandas Focus manages its own Android Do Not Disturb rule while allowing alarms.') : null}
     {Platform.OS === 'android' && onOpenFocusSettings ? <Pressable accessibilityRole="link" onPress={onOpenFocusSettings} style={[styles.action, { borderColor: tokens.accent }]}><Text style={[styles.actionText, { color: tokens.accent }]}>Open Android DND access</Text></Pressable> : null}
-    {item(<BellIcon on color={tokens.accent} />, 'Shortcuts', 'Use the quick choices for common values. Drag across cue positions to select several; dotted handles reorder Sequence steps.')}
+    {item(<BellIcon on color={tokens.accent} />, 'Shortcuts', 'Use the quick choices for common values. Tap cue positions to select them; dotted handles reorder Sequence steps.')}
   </BottomSheet>
 }
 

@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ScrollView, StyleSheet, View } from 'react-native'
 import { Chip } from '../Chip'
 import { CustomMinutePicker } from '../CustomMinutePicker'
 import { useTheme } from '../../theme/ThemeContext'
 import { ScrollEdgeFade } from './ScrollEdgeFade'
+import { SheetSectionTitle } from './SheetSectionTitle'
 
 interface Props {
   value: number
@@ -22,7 +23,7 @@ export function DurationSelector({ value, presets, onChange, label, min = 1, max
   const isPreset = presets.includes(value)
   return (
     <View style={styles.wrap}>
-      {label ? <Text style={[styles.label, { color: tokens.textMuted }]}>{label}</Text> : null}
+      {label ? <SheetSectionTitle>{label}</SheetSectionTitle> : null}
       <View style={styles.choiceRow}>
         <View style={styles.scrollSlot}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.scroller} contentContainerStyle={styles.presets}>
@@ -45,7 +46,6 @@ export function DurationSelector({ value, presets, onChange, label, min = 1, max
 
 const styles = StyleSheet.create({
   wrap: { gap: 9 },
-  label: { fontSize: 11, fontWeight: '700', letterSpacing: 1.25 },
   choiceRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   scrollSlot: { flex: 1, minWidth: 0, position: 'relative' },
   scroller: { flex: 1, minWidth: 0 },

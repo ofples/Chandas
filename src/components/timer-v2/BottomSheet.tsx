@@ -64,7 +64,7 @@ const styles = StyleSheet.create({
   actionSpacer: { width: 44 },
   header: { gap: 3 },
   heading: { flex: 1, gap: 3 },
-  eyebrow: { fontSize: 11, fontWeight: '700', letterSpacing: 1.35 },
+  eyebrow: { fontSize: 11, lineHeight: 16, fontWeight: '600' },
   title: { fontSize: 20, fontWeight: '700' },
   body: { gap: 14, paddingBottom: 8 },
 })

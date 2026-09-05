@@ -165,7 +165,20 @@ object TimerScheduler {
     TimerStateStore.setNext(context, triggerAt, type, logicalId, generation)
     val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
     try {
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+      val showIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.let { launchIntent ->
+        PendingIntent.getActivity(
+          context,
+          8202,
+          launchIntent,
+          PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+      }
+      if (type in setOf(TimerEventType.V2, TimerEventType.MAIN, TimerEventType.SUB) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && showIntent != null) {
+        // Interval cues are explicitly user-scheduled alarms. Alarm-clock alarms
+        // are not batched or rate-limited in Doze, which preserves a main gong
+        // even when it follows a closely spaced sub-bell while the screen is off.
+        alarmManager.setAlarmClock(AlarmManager.AlarmClockInfo(triggerAt, showIntent), operation)
+      } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
         alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, operation)
       } else {
         @Suppress("DEPRECATION")
