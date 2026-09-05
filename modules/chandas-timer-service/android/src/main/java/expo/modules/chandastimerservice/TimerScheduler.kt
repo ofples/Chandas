@@ -241,6 +241,7 @@ object TimerScheduler {
     val alarmOnce = type == TimerEventType.MAIN && TimerStateStore.consumeAlarmOnce(context)
 
     if (type == TimerEventType.MAIN && (config.alarmModeEnabled || alarmOnce)) {
+      TimerHaptics.cue(context, strong = true)
       scheduleNext(context, config)
       TimerStateStore.setRinging(context, true)
       TimerStateStore.setAlarmVisible(context, true)
@@ -254,6 +255,7 @@ object TimerScheduler {
       return
     }
 
+    TimerHaptics.cue(context, strong = type == TimerEventType.MAIN)
     scheduleNext(context, config)
     val sound = if (type == TimerEventType.MAIN) R.raw.gong else R.raw.bell
     TimerSoundPlayer.play(
@@ -302,6 +304,7 @@ object TimerScheduler {
     }
     val alarmOnce = isPatternMain && !event.completesRun && TimerStateStore.consumeAlarmOnce(context)
     if (isPatternMain && !event.completesRun && (config.alarmModeEnabled || alarmOnce)) {
+      TimerHaptics.cue(context, strong = true)
       scheduleNext(context, config)
       TimerStateStore.setRinging(context, true)
       TimerStateStore.setAlarmVisible(context, true)
@@ -316,6 +319,12 @@ object TimerScheduler {
       onFinished()
       return
     }
+    TimerHaptics.cue(
+      context,
+      strong = event.boundary == TimerV2Boundary.PATTERN_MAIN ||
+        event.boundary == TimerV2Boundary.SEQUENCE_CYCLE ||
+        event.boundary == TimerV2Boundary.RUN_COMPLETE,
+    )
     if (event.completesRun) completeSession(context) else scheduleNext(context, config)
     emitV2Event(event, suppressed = false, reason = "none")
     TimerSoundPlayer.play(

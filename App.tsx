@@ -21,11 +21,11 @@ import { AppErrorBoundary } from './src/components/timer-v2/app-error-boundary'
 
 const FALLBACK_PROGRAM = {
   schemaVersion: 2 as const, mode: 'pattern' as const, mainMinutes: 30,
-  label: 'Main interval',
+  label: 'Main Interval',
   mainCue: { sound: { kind: 'builtin' as const, id: 'temple-gong' as const }, volume: 1 }, completionCue: null, subBellsEnabled: false, tracks: [], alignment: { kind: 'elapsed' as const },
   runPolicy: { kind: 'continuous' as const, cycleCount: 1, durationSeconds: 30 * 60 },
 }
-const FALLBACK_SETTINGS = { masterVolume: 0.8, notificationsEnabled: true, muteDuringCallsEnabled: true, availability: { enabled: false, weeklyWindows: [], overrides: [] }, focusAutomationEnabled: false, alarmDurationSeconds: 60 }
+const FALLBACK_SETTINGS = { masterVolume: 0.8, notificationsEnabled: true, liveCountdownEnabled: false, muteDuringCallsEnabled: true, availability: { enabled: false, weeklyWindows: [], overrides: [] }, focusAutomationEnabled: false, alarmDurationSeconds: 60 }
 const DEFAULT_FOCUS_STATE: NativeFocusState = { policyAccess: false, automationEnabled: false, ruleExists: false, ruleEnabled: false, actual: 'unknown', reason: 'off' }
 
 interface PendingRestore {
@@ -55,6 +55,7 @@ function settingsFromNative(current: AppTimerSettings, native: ReturnType<typeof
   return {
     masterVolume: native.volume ?? current.masterVolume,
     notificationsEnabled: native.notificationsEnabled ?? current.notificationsEnabled,
+    liveCountdownEnabled: native.liveCountdownEnabled ?? current.liveCountdownEnabled,
     muteDuringCallsEnabled: native.muteDuringCallsEnabled ?? current.muteDuringCallsEnabled,
     availability,
     focusAutomationEnabled: native.focusModeEnabled ?? current.focusAutomationEnabled,

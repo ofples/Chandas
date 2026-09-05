@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { Animated, Pressable, StyleSheet } from 'react-native'
 import { useReducedMotion } from 'react-native-reanimated'
 import { useTheme } from '../theme/ThemeContext'
+import { selectionHaptic } from '../lib/haptics'
 
 interface Props {
   value: boolean
@@ -38,7 +39,7 @@ export function Toggle({ value, onChange, accessibilityLabel }: Props) {
 
   return (
     <Pressable
-      onPress={() => onChange(!value)}
+      onPress={() => { selectionHaptic(); onChange(!value) }}
       accessibilityRole="switch"
       accessibilityState={{ checked: value }}
       accessibilityLabel={accessibilityLabel}

@@ -30,6 +30,7 @@ class TimerConfigRecord : Record {
   @Field var subEnabled: Boolean? = null
   @Field var volume: Float? = null
   @Field var notificationsEnabled: Boolean? = null
+  @Field var liveCountdownEnabled: Boolean? = null
   @Field var notificationPresentation: String? = null
   @Field var muteDuringCallsEnabled: Boolean? = null
   @Field var focusModeEnabled: Boolean? = null
@@ -111,6 +112,7 @@ class ChandasTimerServiceModule : Module() {
         "supportsCachedBuiltInSounds" to true,
         "supportsRawFocusState" to true,
         "supportsNotificationPresentation" to true,
+        "supportsLiveCountdown" to true,
       )
     }
 
@@ -189,6 +191,7 @@ class ChandasTimerServiceModule : Module() {
           "subEnabled" to config.subEnabled,
           "volume" to config.volume,
           "notificationsEnabled" to config.notificationsEnabled,
+          "liveCountdownEnabled" to config.liveCountdownEnabled,
           "notificationPresentation" to config.notificationPresentation,
           "muteDuringCallsEnabled" to config.muteDuringCallsEnabled,
           "focusModeEnabled" to config.focusModeEnabled,
@@ -457,6 +460,7 @@ class ChandasTimerServiceModule : Module() {
       subEnabled = record.subEnabled ?: previous?.subEnabled ?: true,
       volume = (record.volume ?: previous?.volume ?: 0.8f).coerceIn(0f, 1f),
       notificationsEnabled = record.notificationsEnabled ?: previous?.notificationsEnabled ?: true,
+      liveCountdownEnabled = record.liveCountdownEnabled ?: previous?.liveCountdownEnabled ?: false,
       notificationPresentation = (record.notificationPresentation ?: previous?.notificationPresentation)
         ?.takeIf { it.length <= TimerNotificationCopy.MAX_SERIALIZED_CHARACTERS },
       muteDuringCallsEnabled = record.muteDuringCallsEnabled ?: previous?.muteDuringCallsEnabled ?: true,

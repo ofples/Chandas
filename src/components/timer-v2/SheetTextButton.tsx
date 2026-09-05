@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, Text } from 'react-native'
 import { useReducedMotion } from 'react-native-reanimated'
 import { useTheme } from '../../theme/ThemeContext'
+import { tapHaptic } from '../../lib/haptics'
 
 interface Props {
   label: string
@@ -18,7 +19,7 @@ export function SheetTextButton({ label, onPress, disabled = false, accessibilit
   return <Pressable
     disabled={disabled}
     hitSlop={6}
-    onPress={onPress}
+    onPress={() => { tapHaptic(); onPress() }}
     accessibilityRole="button"
     accessibilityLabel={accessibilityLabel ?? label}
     accessibilityState={{ disabled }}

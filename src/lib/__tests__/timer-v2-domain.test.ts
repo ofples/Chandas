@@ -487,7 +487,7 @@ describe('timer v2 validation and presets', () => {
     delete (old.tracks![0] as Partial<PatternProgram['tracks'][number]>).color
     ;(old.tracks![1] as { color?: string }).color = 'not-a-palette-color'
     const normalized = normalizePatternProgram(old)
-    expect(normalized.label).toBe('Main interval')
+    expect(normalized.label).toBe('Main Interval')
     expect(normalized.subBellsEnabled).toBe(true)
     expect(normalized.tracks[0].label).toBe('Sub-bell 1')
     expect(normalized.tracks.map(track => track.color)).toEqual(['violet', 'blue'])

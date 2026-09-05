@@ -1411,6 +1411,9 @@ Do not edit old entries to reflect new conclusions. Add a superseding entry and 
 | 2026-09-04 | D-049 | Accepted | Restore the cadence-first overlap rule and automatic longest-first sorting. This supersedes manual Pattern priority from D-028 and removes a control that does not change the interval structure. |
 | 2026-09-04 | D-050–D-052 | Accepted | Apply the third feedback round as progressive disclosure, title-based editing, visible Master volume, and one flat indentation level. The explicitly excluded custom ending-gong idea remains deferred under D-048. |
 | 2026-09-04 | D-053–D-058 | Accepted | Apply the fourth annotated-feedback round: remove the main-name and pencil affordances, expand and align quick choices, repeat cue masks on growth, keep schedules Continuous-only, unify segmented/Add controls, and simplify the live Sound sheet. |
+| 2026-09-05 | D-090 | Accepted | Use content hierarchy rather than category labels on the setup screen: the editable interval name, run guidance, Align to clock, Sub Bells, sound controls, Schedule, Chandas Focus, and navigation rows stand on their own without redundant all-caps headings. |
+| 2026-09-05 | D-091 | Accepted | Prefer discrete tap selection for sub-bell offsets. Remove gesture painting so vertical sheet scrolling remains predictable, and use restrained shared haptics for controls plus light/strong cue accents. |
+| 2026-09-05 | D-092 | Accepted | Offer an opt-in next-cue countdown in System integrations. The ongoing notification owns the reliable chronometer; Android 16+ may additionally promote it to a status-bar Live Update chip, but Chandas must not promise OEM-controlled promotion. |
 
 ### Decision-entry template
 
@@ -2265,6 +2268,31 @@ This section is append-only. Every implementation session should record scope, m
 
 **Risks or follow-ups:** Android documents `AUTOMATIC_RULE_STATUS_DEACTIVATED` as a user snooze, but the additional requested-active/timer-running guard intentionally tolerates delayed or OEM-divergent broadcasts. Native ceilings are safety bounds rather than a commitment to expose larger editors. Manifest permissions, new platform integrations, incompatible timer math, native dependency/SDK changes, and defects inside native platform mechanisms will always require a replacement build.
 
+### 2026-09-05 — Quiet setup hierarchy, tactile cues, and live countdown
+
+**Status:** Complete in source; native additions require a replacement Android build and device validation.
+
+**Scope:** Setup-screen hierarchy, Sub-bell editing, saved-configuration presentation, Appearance controls, shared interaction feedback, exact cue haptics, and Android running-notification countdowns.
+
+**Decisions referenced:** D-090–D-092.
+
+**Behavior implemented:**
+
+- Removed redundant Main interval, Run Length, Sound, and duplicate Sub-bells headings. Fresh and legacy-default Cycle names now read “Main Interval”; Align to clock, Sub Bells, Schedule, and Chandas Focus use the same primary row-title treatment and concise one-line help.
+- Reduced Sub Bells to its title/count row, toggle, and tappable timeline. The nested editor no longer repeats an Enabled row beside the rename flow. Bell offsets are tap-only so the sheet never captures a drag intended for scrolling.
+- Added Dark mode to the Appearance sheet alongside the existing horizontally scrolling accent selector.
+- Reworked saved configurations around compact Pattern/Sequence timeline previews, stronger light-theme contrast, neutral selection surfaces, and the shared text-action component for Save, Load, Cancel, and Delete.
+- Centralized light control haptics in shared buttons, toggles, chips, segmented controls, schedule controls, and live timer actions. Audible native cues receive a light tick for sub-bells/steps and a strong click for main/cycle/final boundaries; muted, call-suppressed, and out-of-hours cues remain silent and still.
+- Added an opt-in Next cue countdown under System integrations. Android’s notification chronometer updates without JavaScript wakeups. The notification requests promoted ongoing treatment on supported Android 16+ devices and falls back to the normal ongoing notification/lock-screen countdown elsewhere.
+
+**Migration impact:** `liveCountdownEnabled` is additive and defaults off for existing installations. Native contract v3 adds this field, promoted-notification capability reporting, the non-runtime promoted-notification permission, AndroidX Core 1.17, and native cue vibration. These native changes produce a new Expo runtime fingerprint and require a new store/development binary before the integration appears.
+
+**Verification run:** TypeScript compilation, Vitest, source/diff validation, and interactive Expo Web review at 390×844 and 1280×900, including the main Cycle setup, Appearance sheet, light-theme configuration list/detail, and Sub-bell rename/timing sheet. Native builds remain prohibited locally by repository policy.
+
+**Native/on-device verification still required:** On the next remote Android build, verify the System integrations toggle, countdown rollover at sub-bell/main/cycle/final boundaries, schedule pause/resume, bounded completion, notification-disabled behavior, Android 16 promoted-chip eligibility/settings, pre-Android-16 notification fallback, and light/strong vibration on at least one Pixel and one OEM device.
+
+**Risks or follow-ups:** Android and OEM policy decides whether a qualifying Live Update is promoted and whether chip text fits; Chandas guarantees only the ongoing notification countdown. Users can independently disable notifications or Live Updates in system settings. The short cue haptics use standard predefined Android effects where available, so their physical intensity varies by device.
+
 ### Implementation-entry template
 
 ```md
@@ -2314,3 +2342,4 @@ This section is append-only. Every implementation session should record scope, m
 | 2.4 | 2026-09-05 | Added immersive running status-bar behavior, standardized the running Help control, and replaced placeholder sounds with the eighteen-recording production library plus migration aliases. |
 | 2.5 | 2026-09-05 | Added an atomic OTA-to-native sound cache so future library recordings can ship without native mappings, retaining only gong, bell, and alarm binary fallbacks. |
 | 2.6 | 2026-09-05 | Stabilized Focus stop/snooze semantics, added raw-state and capability contracts, widened native safety ceilings, and made notification presentation OTA-owned. |
+| 2.7 | 2026-09-05 | Simplified setup hierarchy and Sub-bell selection, redesigned saved configurations, unified tactile feedback, and added an optional Android next-cue live countdown. |

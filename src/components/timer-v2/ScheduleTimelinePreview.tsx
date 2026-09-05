@@ -3,6 +3,7 @@ import { useReducedMotion } from 'react-native-reanimated'
 import type { AvailabilityPolicy } from '../../types'
 import { scheduleBoundaryMinutesForDay, scheduleRangeCountForDay, scheduleSegmentsForDay } from '../../lib/activeHours'
 import { useTheme } from '../../theme/ThemeContext'
+import { tapHaptic } from '../../lib/haptics'
 
 export function ScheduleTimelinePreview({ value, onPress }: { value: AvailabilityPolicy; onPress: () => void }) {
   const { tokens } = useTheme()
@@ -21,7 +22,7 @@ export function ScheduleTimelinePreview({ value, onPress }: { value: Availabilit
         : `Today · ${activeRangeCount} active ${activeRangeCount === 1 ? 'range' : 'ranges'}`
 
   return <Pressable
-    onPress={onPress}
+    onPress={() => { tapHaptic(); onPress() }}
     hitSlop={6}
     accessibilityRole="button"
     accessibilityLabel={`Edit schedule. ${summary}`}

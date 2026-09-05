@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, Text } from 'react-native'
 import { useReducedMotion } from 'react-native-reanimated'
 import { useTheme } from '../theme/ThemeContext'
+import { selectionHaptic } from '../lib/haptics'
 
 interface Props {
   label: string
@@ -17,7 +18,7 @@ export function Chip({ label, active, disabled, onPress, compact = false, access
   const reducedMotion = useReducedMotion()
   return (
     <Pressable
-      onPress={onPress}
+      onPress={() => { selectionHaptic(); onPress() }}
       disabled={disabled}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}

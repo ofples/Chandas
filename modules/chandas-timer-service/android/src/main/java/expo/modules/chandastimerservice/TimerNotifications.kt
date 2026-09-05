@@ -74,6 +74,12 @@ object TimerNotifications {
     val activeAtNext = ActiveHours.isActive(config, next)
     val resumesAt = if (!activeNow || !activeAtNext) ActiveHours.nextStart(config, if (activeNow) next else now) else 0L
     val endsBeforeResume = config.timerV2EndsAt > 0L && resumesAt > 0L && resumesAt >= config.timerV2EndsAt
+    val countdownAt = when {
+      event?.completesRun == true -> next
+      endsBeforeResume -> config.timerV2EndsAt
+      activeNow && activeAtNext -> next
+      else -> 0L
+    }
     val content = when {
       event?.completesRun == true -> copy.sessionEnds(formatTime(next))
       endsBeforeResume -> copy.sessionEnds(formatTime(config.timerV2EndsAt))
@@ -95,19 +101,28 @@ object TimerNotifications {
       Intent(context, TimerEventReceiver::class.java).setAction(TimerEventReceiver.ACTION_STOP),
       PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
-    runCatching { manager.notify(
-      RUNNING_ID,
-      NotificationCompat.Builder(context, RUNNING_CHANNEL)
+    val builder = NotificationCompat.Builder(context, RUNNING_CHANNEL)
         .setContentTitle(copy.runningTitle)
         .setContentText(content)
         .setSmallIcon(smallIcon(context))
         .setOngoing(true)
         .setOnlyAlertOnce(true)
+        .setShowWhen(false)
         .setContentIntent(contentIntent)
         .addAction(0, copy.stopTimerAction, stopIntent)
         .setPriority(NotificationCompat.PRIORITY_LOW)
-        .build(),
-    ) }
+    if (config.liveCountdownEnabled && countdownAt > now) {
+      builder
+        .setWhen(countdownAt)
+        .setShowWhen(true)
+        .setUsesChronometer(true)
+        .setChronometerCountDown(true)
+        // Android 16+ may promote this user-started, time-sensitive timer to a
+        // status-bar chip. The notification countdown remains useful when the
+        // OS or OEM chooses standard presentation instead.
+        .setRequestPromotedOngoing(true)
+    }
+    runCatching { manager.notify(RUNNING_ID, builder.build()) }
   }
 
   fun postEvent(context: Context, config: TimerConfig, type: TimerEventType) {

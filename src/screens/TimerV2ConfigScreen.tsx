@@ -38,6 +38,7 @@ import { edgeAutoScrollStep, previewIndexForItem, previewOffsetForItem, type Reo
 import { normalizeSubBellColor, subBellColorValue } from '../lib/subBellColors'
 import { ColorSelector } from '../components/timer-v2/ColorSelector'
 import { SheetTextButton } from '../components/timer-v2/SheetTextButton'
+import { tapHaptic } from '../lib/haptics'
 
 const MAIN_PRESETS = [5, 10, 15, 30, 45, 60] as const
 const STEP_PRESETS = [1, 2, 3, 5, 10, 15, 20, 25, 30, 45, 60] as const
@@ -93,13 +94,12 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
     else if (cueTarget.kind === 'step') onChange(patchSequenceStep(state, cueTarget.id, patch))
     else onChange(patchCompletionCue(state, cueTarget.mode, patch))
   }
-  const addTrack = () => { void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined); onChange(addPatternTrack(state)) }
-  const addStep = () => { void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined); onChange(addSequenceStep(state)) }
+  const addTrack = () => onChange(addPatternTrack(state))
+  const addStep = () => onChange(addSequenceStep(state))
   const validToStart = program.runPolicy.kind !== 'continuous' || hasAvailableTime(settings.availability)
   const exactTimingNeedsSetup = Platform.OS === 'android' && !androidAccess.checking && !androidAccess.exactAlarms
   const selectMode = (mode: 'pattern' | 'sequence') => {
     if (state.workingPrograms.selectedMode === mode) return
-    void Haptics.selectionAsync().catch(() => undefined)
     onChange(chooseProgramMode(state, mode))
   }
   const handleSequenceReordering = useCallback((active: boolean) => {
@@ -132,14 +132,13 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
         </Reanimated.View>
 
         <View style={styles.section}>
-          <Text style={[styles.eyebrow, { color: tokens.textMuted }]}>SOUND</Text>
           <VolumeControl label="Volume" value={settings.masterVolume} onChange={masterVolume => changeSettings({ masterVolume })} onOpenMixer={() => setMixerOpen(true)} />
           {program.mode === 'pattern' ? <CueRow title="Main gong" detail={soundTitle(program.mainCue.sound)} sound={program.mainCue.sound} onPress={() => setCueTarget({ kind: 'main' })} /> : null}
           <CompletionCueControls state={state} onChange={onChange} onEditCue={setCueTarget} onFeedback={onFeedback} />
         </View>
 
         {program.runPolicy.kind === 'continuous' ? <View style={styles.section}>
-          <View style={styles.settingRow}><Text style={[styles.eyebrow, styles.flex, { color: tokens.textMuted }]}>SCHEDULE</Text><Toggle value={settings.availability.enabled} onChange={enabled => changeSettings({ availability: { ...settings.availability, enabled } })} accessibilityLabel="Timer schedule" /></View>
+          <View style={styles.settingRow}><Pressable style={styles.flex} onPress={() => { tapHaptic(); setScheduleOpen(true) }} accessibilityRole="button" accessibilityLabel="Edit schedule"><Text style={[styles.rowTitle, { color: tokens.text }]}>Schedule</Text><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>{settings.availability.enabled ? `${settings.availability.weeklyWindows.filter(window => window.enabled && window.days !== 0).length} active time ranges` : 'Limit bells to chosen active times.'}</Text></Pressable><Toggle value={settings.availability.enabled} onChange={enabled => changeSettings({ availability: { ...settings.availability, enabled } })} accessibilityLabel="Timer schedule" /></View>
           {settings.availability.enabled ? <Reanimated.View entering={FadeInDown.duration(reducedMotion ? 80 : 160)} exiting={FadeOut.duration(reducedMotion ? 70 : 110)}><ScheduleTimelinePreview value={settings.availability} onPress={() => setScheduleOpen(true)} /></Reanimated.View> : null}
         </View> : null}
 
@@ -149,11 +148,11 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
 
         <ActionRow title="Appearance" detail={`${accentColor[0].toUpperCase()}${accentColor.slice(1)} · ${theme === 'dark' ? 'Dark' : 'Light'}`} onPress={() => setAppearanceOpen(true)} accessory={<LightbulbIcon color={tokens.accent} />} onAccessoryPress={toggleTheme} accessoryLabel={`Use ${theme === 'dark' ? 'light' : 'dark'} mode`} />
 
-        {Platform.OS === 'android' ? <ActionRow title="Permissions" detail={androidAccessSummary(androidAccess)} onPress={() => setSystemAccessOpen(true)} /> : null}
+        {Platform.OS === 'android' ? <ActionRow title="System integrations" detail={androidAccessSummary(androidAccess)} onPress={() => setSystemAccessOpen(true)} /> : null}
       </ScrollView>
 
       <View style={[styles.bottom, { backgroundColor: tokens.bg, paddingBottom: insets.bottom + 16 }]}>
-        <Pressable disabled={!validToStart || starting} onPress={onStart} style={({ pressed }) => [styles.start, { backgroundColor: tokens.accent, opacity: !validToStart || starting ? 0.48 : pressed ? 0.76 : 1, transform: [{ scale: pressed && !starting && !reducedMotion ? 0.985 : 1 }] }]} accessibilityRole="button" accessibilityState={{ disabled: !validToStart || starting, busy: starting }}>
+        <Pressable disabled={!validToStart || starting} onPress={() => { tapHaptic(); onStart() }} style={({ pressed }) => [styles.start, { backgroundColor: tokens.accent, opacity: !validToStart || starting ? 0.48 : pressed ? 0.76 : 1, transform: [{ scale: pressed && !starting && !reducedMotion ? 0.985 : 1 }] }]} accessibilityRole="button" accessibilityState={{ disabled: !validToStart || starting, busy: starting }}>
           {starting ? <ActivityIndicator color="#fff" size="small" /> : null}
           <Text style={styles.startText}>{starting ? 'Anchoring timer…' : !validToStart ? 'Add an active time' : exactTimingNeedsSetup ? 'Set up exact timing' : 'Start timer'}</Text>
         </Pressable>
@@ -164,8 +163,8 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
       <MixerSheet visible={mixerOpen} state={state} onChange={onChange} onEditCue={setCueTarget} onClose={() => setMixerOpen(false)} onFeedback={onFeedback} />
       {cue ? <SoundPickerSheet visible title={cueTitle} cue={cue} masterVolume={settings.masterVolume} onChange={patchCue} onBack={trackId || cueTarget?.kind === 'step' || mixerOpen ? () => setCueTarget(null) : undefined} onClose={() => setCueTarget(null)} onFeedback={onFeedback} /> : null}
       <BottomSheet visible={scheduleOpen} title="Schedule" onClose={() => setScheduleOpen(false)}><ScheduleConfig showHeading={false} showEnabledControl={false} value={settings.availability} onChange={availability => changeSettings({ availability })} /></BottomSheet>
-      <BottomSheet visible={appearanceOpen} title="Primary color" onClose={() => setAppearanceOpen(false)} scroll={false}><Text style={[styles.helper, { color: tokens.textMuted }]}>Choose the accent used for controls, progress and focus.</Text><ColorSelector label="" value={accentColor} onChange={setAccentColor} accessibilityLabel="Primary interface color" /></BottomSheet>
-      {Platform.OS === 'android' ? <BottomSheet visible={systemAccessOpen} title="Permissions" onClose={() => setSystemAccessOpen(false)}><SystemAccessPanel access={androidAccess} settings={settings} onChangeSettings={changeSettings} onOpenExactAlarmSettings={onOpenExactAlarmSettings} onRequestCallMuteAccess={onRequestCallMuteAccess} onRequestNotificationAccess={onRequestNotificationAccess} /></BottomSheet> : null}
+      <BottomSheet visible={appearanceOpen} title="Appearance" onClose={() => setAppearanceOpen(false)} scroll={false}><View style={styles.settingRow}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Dark mode</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>Use the darker interface.</Text></View><Toggle value={theme === 'dark'} onChange={toggleTheme} accessibilityLabel="Dark mode" /></View><Text style={[styles.helper, { color: tokens.textMuted }]}>Primary color</Text><ColorSelector label="" value={accentColor} onChange={setAccentColor} accessibilityLabel="Primary interface color" /></BottomSheet>
+      {Platform.OS === 'android' ? <BottomSheet visible={systemAccessOpen} title="System integrations" onClose={() => setSystemAccessOpen(false)}><SystemAccessPanel access={androidAccess} settings={settings} onChangeSettings={changeSettings} onOpenExactAlarmSettings={onOpenExactAlarmSettings} onRequestCallMuteAccess={onRequestCallMuteAccess} onRequestNotificationAccess={onRequestNotificationAccess} /></BottomSheet> : null}
       <PresetLibrarySheet visible={presetsOpen} state={state} onChange={onChange} onClose={() => setPresetsOpen(false)} onFeedback={onFeedback} />
       <TimerHelpSheet visible={helpOpen} onClose={() => setHelpOpen(false)} onOpenFocusSettings={onOpenFocusSettings} />
     </KeyboardAvoidingView>
@@ -174,6 +173,7 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
 
 function SystemAccessPanel({ access, settings, onChangeSettings, onOpenExactAlarmSettings, onRequestCallMuteAccess, onRequestNotificationAccess }: { access: Props['androidAccess']; settings: TimerV2State['settings']; onChangeSettings: (patch: Partial<TimerV2State['settings']>) => void; onOpenExactAlarmSettings: () => void; onRequestCallMuteAccess: () => void; onRequestNotificationAccess: () => void }) {
   const { tokens } = useTheme()
+  const liveCountdownSupported = ChandasTimerService.getCapabilities()?.supportsLiveCountdown === true
   const toggleCallMute = (enabled: boolean) => {
     onChangeSettings({ muteDuringCallsEnabled: enabled })
     if (enabled && !access.callMute) onRequestCallMuteAccess()
@@ -182,11 +182,16 @@ function SystemAccessPanel({ access, settings, onChangeSettings, onOpenExactAlar
     onChangeSettings({ notificationsEnabled: enabled })
     if (enabled && !access.notifications) onRequestNotificationAccess()
   }
+  const toggleLiveCountdown = (enabled: boolean) => {
+    onChangeSettings({ liveCountdownEnabled: enabled, ...(enabled ? { notificationsEnabled: true } : {}) })
+    if (enabled && !access.notifications) onRequestNotificationAccess()
+  }
   return <View style={styles.accessPanel}>
     {!access.exactAlarms ? <><View style={styles.accessRow}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Exact timing</Text><Text style={[styles.helper, { color: tokens.warm }]}>Needed for precise timing with the screen off.</Text></View><SheetTextButton label="Set up" tone="danger" onPress={onOpenExactAlarmSettings} /></View><View style={[styles.divider, { backgroundColor: tokens.border }]} /></> : null}
     <PermissionToggleRow title="Mute during calls" detail={access.callMute ? 'Keeps timer cues quiet during calls.' : 'Optional phone-state access.'} value={settings.muteDuringCallsEnabled && access.callMute} pending={access.pending === 'call-mute'} checking={access.checking} onChange={toggleCallMute} />
     <View style={[styles.divider, { backgroundColor: tokens.border }]} />
     <PermissionToggleRow title="Timer notifications" detail={access.notifications ? 'Shows running status and controls.' : 'Optional notification access.'} value={settings.notificationsEnabled && access.notifications} pending={access.pending === 'notifications'} checking={access.checking} onChange={toggleNotifications} />
+    {liveCountdownSupported ? <><View style={[styles.divider, { backgroundColor: tokens.border }]} /><PermissionToggleRow title="Next cue countdown" detail={!settings.notificationsEnabled || !access.notifications ? 'Requires timer notifications.' : 'Notification and supported status bars.'} value={settings.liveCountdownEnabled} pending={false} checking={access.checking} onChange={toggleLiveCountdown} /></> : null}
   </View>
 }
 
@@ -198,7 +203,7 @@ function PermissionToggleRow({ title, detail, value, pending, checking, onChange
 function androidAccessSummary(access: Props['androidAccess']): string {
   if (access.checking) return 'Checking permissions…'
   if (!access.exactAlarms) return 'Exact timing needs setup'
-  return 'Manage calls and notifications'
+  return 'Timing, notifications and call mute'
 }
 
 function ProgramRunLength({ state, mode, onChange }: { state: TimerV2State; mode: 'pattern' | 'sequence'; onChange: (state: TimerV2State) => void }) {
@@ -247,18 +252,17 @@ function PatternEditor({ state, onChange, onOpenSubBells, onOpenHelp }: { state:
   const cueCount = activeTracks.reduce((count, track) => count + track.selectedOffsetsMinutes.length, 0)
   return <>
     <View style={styles.section}>
-      <View style={styles.titleWithHelp}><View style={[styles.headingBlock, styles.flex]}><Text style={[styles.eyebrow, { color: tokens.textMuted }]}>MAIN INTERVAL</Text><EditableTitle value={program.label} onCommit={label => onChange(updatePattern(state, value => ({ ...value, label })))} accessibilityLabel="main interval name" /></View><HelpButton onPress={onOpenHelp} /></View>
+      <View style={styles.titleWithHelp}><EditableTitle value={program.label} onCommit={label => onChange(updatePattern(state, value => ({ ...value, label })))} accessibilityLabel="main interval name" /><HelpButton onPress={onOpenHelp} /></View>
       <DurationSelector value={program.mainMinutes} presets={MAIN_PRESETS} fadeColor={tokens.bg} onChange={minutes => changeMainMinutes(state, minutes, onChange)} />
       <ProgramRunLength state={state} mode="pattern" onChange={onChange} />
-      <View style={styles.settingRow}><View style={styles.flex}><Text style={[styles.eyebrow, { color: tokens.textMuted }]}>ALIGN TO CLOCK</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>Keep intervals on a wall-clock rhythm.</Text></View><Toggle value={program.alignment.kind === 'local-clock'} onChange={enabled => onChange(updatePattern(state, value => ({ ...value, alignment: enabled ? { kind: 'local-clock', offsetMinutes: 0 } : { kind: 'elapsed' } })))} accessibilityLabel="Align pattern to clock" /></View>
+      <View style={styles.settingRow}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Align to clock</Text><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>Keep intervals on a wall-clock rhythm.</Text></View><Toggle value={program.alignment.kind === 'local-clock'} onChange={enabled => onChange(updatePattern(state, value => ({ ...value, alignment: enabled ? { kind: 'local-clock', offsetMinutes: 0 } : { kind: 'elapsed' } })))} accessibilityLabel="Align pattern to clock" /></View>
       {program.alignment.kind === 'local-clock' ? <ClockSnapSelector mainMinutes={program.mainMinutes} value={snapOffset} compact fadeColor={tokens.bg} onChange={offsetMinutes => onChange(updatePattern(state, value => ({ ...value, alignment: { kind: 'local-clock', offsetMinutes } })))} /> : null}
     </View>
 
     <View style={styles.section}>
-      <View style={styles.settingRow}><Text style={[styles.eyebrow, styles.flex, { color: tokens.textMuted }]}>SUB-BELLS</Text><Toggle value={program.subBellsEnabled} onChange={enabled => onChange(setPatternSubBellsEnabled(state, enabled))} accessibilityLabel="Sub-bells" /></View>
+      <View style={styles.settingRow}><Pressable style={styles.flex} onPress={() => { tapHaptic(); onOpenSubBells() }} accessibilityRole="button" accessibilityLabel="Configure sub-bells"><Text style={[styles.rowTitle, { color: tokens.text }]}>Sub Bells</Text><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>{program.tracks.length === 0 ? 'No sub-bells yet' : `${program.subBellsEnabled ? activeTracks.length : 0} active · ${program.subBellsEnabled ? cueCount : 0} selected`}</Text></Pressable><Toggle value={program.subBellsEnabled} onChange={enabled => onChange(setPatternSubBellsEnabled(state, enabled))} accessibilityLabel="Sub-bells" /></View>
       {program.subBellsEnabled ? <Reanimated.View entering={FadeInDown.duration(180)} exiting={FadeOut.duration(120)} style={styles.subBellBody}>
         <PatternTimelinePreview tracks={program.tracks} mainMinutes={program.mainMinutes} onPress={onOpenSubBells} />
-        <ActionRow title="Configure sub-bells" detail={program.tracks.length === 0 ? 'No sub-bells yet' : `${activeTracks.length} active · ${cueCount} selected ${cueCount === 1 ? 'cue' : 'cues'}`} onPress={onOpenSubBells} />
       </Reanimated.View> : null}
     </View>
   </>
@@ -381,13 +385,12 @@ function TrackEditorSheet({ visible, state, trackId, onChange, onEditCue, onBack
     edgeOffsets.forEach(offset => shouldClear ? selected.delete(offset) : selected.add(offset))
     onChange(setTrackOffsets(state, track.id, offsets.filter(offset => selected.has(offset))))
   }
-  return <BottomSheet visible={visible} eyebrow={`SUB-BELL ${index + 1}${track.enabled ? '' : ' · OFF'}`} title={<EditableTitle value={track.label} onCommit={label => onChange(patchPatternTrack(state, track.id, { label }))} accessibilityLabel={`Sub-bell ${index + 1} name`} large />} accessibilityTitle={track.label} onBack={onBack} onClose={onClose}>
-    <View style={styles.settingRow}><Text style={[styles.rowTitle, styles.flex, { color: tokens.text }]}>Enabled</Text><Toggle value={track.enabled} onChange={enabled => onChange(patchPatternTrack(state, track.id, { enabled }))} accessibilityLabel="Enable sub-bell" /></View>
+  return <BottomSheet visible={visible} eyebrow={`SUB-BELL ${index + 1}`} title={<EditableTitle value={track.label} onCommit={label => onChange(patchPatternTrack(state, track.id, { label }))} accessibilityLabel={`Sub-bell ${index + 1} name`} large />} accessibilityTitle={track.label} onBack={onBack} onClose={onClose}>
     <DurationSelector value={track.cadenceMinutes} presets={CADENCE_PRESETS} min={1} max={240} onChange={minutes => onChange(setTrackCadence(state, track.id, minutes))} label="REPEAT EVERY" />
     <ColorSelector value={normalizeSubBellColor(track.color, index)} onChange={color => onChange(patchPatternTrack(state, track.id, { color }))} accessibilityLabel="Sub-bell color" />
     <VolumeControl label="Volume" value={track.volume} onChange={volume => onChange(patchPatternTrack(state, track.id, { volume }))} onPreview={() => void preview()} />
     <CueRow title="Sound" detail={soundTitle(track.sound)} sound={track.sound} onPress={onEditCue} />
-    <View style={styles.gridHeading}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Bell times</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>Minutes after the main gong. Tap or drag.</Text></View><View style={styles.inlineActions}><SheetTextButton label="Clear all" onPress={() => onChange(setTrackOffsets(state, track.id, []))} /><SheetTextButton label="First & last" onPress={toggleFirstAndLast} /><SheetTextButton label="Select all" onPress={() => onChange(setTrackOffsets(state, track.id, offsets))} /></View></View>
+    <View style={styles.gridHeading}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Bell times</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>Minutes after the main gong. Tap to toggle.</Text></View><View style={styles.inlineActions}><SheetTextButton label="Clear all" onPress={() => onChange(setTrackOffsets(state, track.id, []))} /><SheetTextButton label="First & last" onPress={toggleFirstAndLast} /><SheetTextButton label="Select all" onPress={() => onChange(setTrackOffsets(state, track.id, offsets))} /></View></View>
     <OffsetGrid offsets={offsets} selected={track.selectedOffsetsMinutes} onChange={selectedOffsetsMinutes => onChange(setTrackOffsets(state, track.id, selectedOffsetsMinutes))} />
     {offsets.length === 0 ? <GentleNotice title="No bell times fit" message="Choose a shorter repeat interval or a longer main interval." /> : track.selectedOffsetsMinutes.length === 0 ? <GentleNotice title="No bell times selected" message="Select at least one time above." /> : null}
     <SheetTextButton label="Remove sub-bell" onPress={() => confirmRemove('this sub-bell', () => { onChange(removePatternTrack(state, track.id)); onBack() })} />
@@ -420,19 +423,20 @@ function FocusControl({ state, enabled, onChange, onResume, onOpenAccessSettings
   const paused = state.reason === 'paused-by-android'
   const ruleDisabled = state.reason === 'rule-disabled'
   const status = ruleDisabled ? 'Disabled in Android' : !state.policyAccess ? 'Needs DND access' : paused ? 'Paused in Android' : null
-  return <View style={styles.section}><View style={styles.settingRow}><View style={styles.flex}><Text style={[styles.eyebrow, { color: tokens.textMuted }]}>CHANDAS FOCUS</Text>{enabled && status ? <Text style={[styles.helper, { color: paused || ruleDisabled ? tokens.warm : tokens.textMuted }]}>{status}</Text> : null}</View><Toggle value={enabled} onChange={onChange} accessibilityLabel="Chandas Focus automation" /></View>{enabled && !state.policyAccess ? <Pressable onPress={onOpenAccessSettings} style={[styles.outline, { borderColor: tokens.accent }]} accessibilityRole="button"><Text style={[styles.link, { color: tokens.accent }]}>Allow DND access</Text></Pressable> : ruleDisabled ? <Pressable onPress={onOpenRuleSettings} style={[styles.outline, { borderColor: tokens.accent }]} accessibilityRole="button"><Text style={[styles.link, { color: tokens.accent }]}>Open Android settings</Text></Pressable> : paused ? <Pressable onPress={onResume} style={[styles.outline, { borderColor: tokens.accent }]} accessibilityRole="button"><Text style={[styles.link, { color: tokens.accent }]}>Resume Focus</Text></Pressable> : null}</View>
+  const detail = enabled && status ? status : 'Manages Chandas’ own Do Not Disturb rule.'
+  return <View style={styles.section}><View style={styles.settingRow}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Chandas Focus</Text><Text numberOfLines={1} style={[styles.helper, { color: enabled && (paused || ruleDisabled) ? tokens.warm : tokens.textMuted }]}>{detail}</Text></View><Toggle value={enabled} onChange={onChange} accessibilityLabel="Chandas Focus automation" /></View>{enabled && !state.policyAccess ? <SheetTextButton label="Allow DND access" onPress={onOpenAccessSettings} /> : ruleDisabled ? <SheetTextButton label="Open Android settings" onPress={onOpenRuleSettings} /> : paused ? <SheetTextButton label="Resume Focus" onPress={onResume} /> : null}</View>
 }
 
 function HelpButton({ onPress }: { onPress: () => void }) {
   const { tokens } = useTheme()
-  return <Pressable hitSlop={5} onPress={onPress} style={[styles.question, { borderColor: tokens.border }]} accessibilityRole="button" accessibilityLabel="Timer help"><Text style={[styles.questionText, { color: tokens.accent }]}>?</Text></Pressable>
+  return <Pressable hitSlop={5} onPress={() => { tapHaptic(); onPress() }} style={[styles.question, { borderColor: tokens.border }]} accessibilityRole="button" accessibilityLabel="Timer help"><Text style={[styles.questionText, { color: tokens.accent }]}>?</Text></Pressable>
 }
 
 function ActionRow({ title, detail, onPress, accessibilityLabel, accessory, onAccessoryPress, accessoryLabel }: { title: string; detail: string; onPress: () => void; accessibilityLabel?: string; accessory?: ReactNode; onAccessoryPress?: () => void; accessoryLabel?: string }) {
   const { tokens } = useTheme()
   const reducedMotion = useReducedMotion()
-  if (accessory && onAccessoryPress) return <View style={styles.actionRow}><Pressable onPress={onPress} style={({ pressed }) => [styles.actionMain, { opacity: pressed ? 0.68 : 1, transform: [{ scale: pressed && !reducedMotion ? 0.99 : 1 }] }]} accessibilityRole="button" accessibilityLabel={accessibilityLabel ?? title}><View style={styles.flex}><Text numberOfLines={1} style={[styles.rowTitle, { color: tokens.text }]}>{title}</Text><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>{detail}</Text></View><Text style={[styles.chevron, { color: tokens.accent }]}>›</Text></Pressable><Pressable hitSlop={8} onPress={onAccessoryPress} style={({ pressed }) => [styles.roundIcon, { borderColor: tokens.border, opacity: pressed ? 0.68 : 1, transform: [{ scale: pressed && !reducedMotion ? 0.92 : 1 }] }]} accessibilityRole="button" accessibilityLabel={accessoryLabel}>{accessory}</Pressable></View>
-  return <Pressable onPress={onPress} style={({ pressed }) => [styles.actionRow, { opacity: pressed ? 0.68 : 1, transform: [{ scale: pressed && !reducedMotion ? 0.99 : 1 }] }]} accessibilityRole="button" accessibilityLabel={accessibilityLabel ?? title}><View style={styles.flex}><Text numberOfLines={1} style={[styles.rowTitle, { color: tokens.text }]}>{title}</Text><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>{detail}</Text></View>{accessory ?? <Text style={[styles.chevron, { color: tokens.accent }]}>›</Text>}</Pressable>
+  if (accessory && onAccessoryPress) return <View style={styles.actionRow}><Pressable onPress={() => { tapHaptic(); onPress() }} style={({ pressed }) => [styles.actionMain, { opacity: pressed ? 0.68 : 1, transform: [{ scale: pressed && !reducedMotion ? 0.99 : 1 }] }]} accessibilityRole="button" accessibilityLabel={accessibilityLabel ?? title}><View style={styles.flex}><Text numberOfLines={1} style={[styles.rowTitle, { color: tokens.text }]}>{title}</Text><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>{detail}</Text></View><Text style={[styles.chevron, { color: tokens.accent }]}>›</Text></Pressable><Pressable hitSlop={8} onPress={() => { tapHaptic(); onAccessoryPress() }} style={({ pressed }) => [styles.roundIcon, { borderColor: tokens.border, opacity: pressed ? 0.68 : 1, transform: [{ scale: pressed && !reducedMotion ? 0.92 : 1 }] }]} accessibilityRole="button" accessibilityLabel={accessoryLabel}>{accessory}</Pressable></View>
+  return <Pressable onPress={() => { tapHaptic(); onPress() }} style={({ pressed }) => [styles.actionRow, { opacity: pressed ? 0.68 : 1, transform: [{ scale: pressed && !reducedMotion ? 0.99 : 1 }] }]} accessibilityRole="button" accessibilityLabel={accessibilityLabel ?? title}><View style={styles.flex}><Text numberOfLines={1} style={[styles.rowTitle, { color: tokens.text }]}>{title}</Text><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>{detail}</Text></View>{accessory ?? <Text style={[styles.chevron, { color: tokens.accent }]}>›</Text>}</Pressable>
 }
 
 function CueRow({ title, detail, sound, onPress }: { title: string; detail: string; sound?: SoundRef; onPress: () => void }) {
@@ -477,7 +481,7 @@ function PatternTimelinePreview({ tracks, mainMinutes, onPress }: { tracks: Patt
   const { tokens } = useTheme()
   const reducedMotion = useReducedMotion()
   const active = tracks.filter(track => track.enabled)
-  return <Pressable disabled={!onPress} onPress={onPress} hitSlop={onPress ? 6 : undefined} style={({ pressed }) => [styles.timeline, { opacity: pressed && onPress ? 0.7 : 1, transform: [{ scale: pressed && onPress && !reducedMotion ? 0.995 : 1 }] }]} accessibilityRole={onPress ? 'button' : undefined} accessibilityLabel={onPress ? 'Configure sub-bells from cue timeline' : 'One main interval cue preview'} accessibilityHint={onPress ? 'Opens the Sub-bells editor' : undefined}>
+  return <Pressable disabled={!onPress} onPress={onPress ? () => { tapHaptic(); onPress() } : undefined} hitSlop={onPress ? 6 : undefined} style={({ pressed }) => [styles.timeline, { opacity: pressed && onPress ? 0.7 : 1, transform: [{ scale: pressed && onPress && !reducedMotion ? 0.995 : 1 }] }]} accessibilityRole={onPress ? 'button' : undefined} accessibilityLabel={onPress ? 'Configure sub-bells from cue timeline' : 'One main interval cue preview'} accessibilityHint={onPress ? 'Opens the Sub-bells editor' : undefined}>
     <View style={[styles.timelineLine, { backgroundColor: tokens.border }]} />
     <View style={[styles.timelineBoundary, { left: 0, backgroundColor: tokens.accent }]} />
     <View style={[styles.timelineBoundary, { right: 0, backgroundColor: tokens.accent }]} />
@@ -509,12 +513,12 @@ function removeSequenceStepWithConfirmation(state: TimerV2State, stepId: string,
 
 const styles = StyleSheet.create({
   screen: { flex: 1 }, content: { width: '100%', maxWidth: 620, alignSelf: 'center', paddingHorizontal: 20, gap: 23 }, modeContent: { gap: 23 },
-  modeRow: { flexDirection: 'row', alignItems: 'center', gap: 10 }, eyebrow: { fontSize: 11, fontWeight: '700', letterSpacing: 1.4 }, titleWithHelp: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  modeRow: { flexDirection: 'row', alignItems: 'center', gap: 10 }, eyebrow: { fontSize: 11, fontWeight: '700', letterSpacing: 1.4 }, titleWithHelp: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   question: { width: 36, height: 36, borderWidth: 1.5, borderRadius: 18, alignItems: 'center', justifyContent: 'center' }, questionText: { fontSize: 17, fontWeight: '800' },
   modeTabs: { flex: 1 },
   chevron: { width: 22, textAlign: 'center', fontSize: 25, lineHeight: 27, fontWeight: '300' },
   section: { gap: 13 }, sectionValue: { fontFamily: 'JetBrainsMono-Light', fontSize: 31, marginTop: 2 }, headingBlock: { gap: 3 }, subBellBody: { gap: 10 }, trackList: { gap: 0 }, accessPanel: { gap: 4 },
-  editableTitle: { alignSelf: 'flex-start', maxWidth: '100%', minHeight: 34, justifyContent: 'center', borderBottomWidth: 1, borderStyle: 'dotted' }, editableTitleText: { flexShrink: 1, fontSize: 17, fontWeight: '700' }, editableTitleTextLarge: { fontSize: 20 }, editableTitleInput: { alignSelf: 'stretch', minWidth: 180, maxWidth: '100%', borderBottomWidth: 1.5, fontSize: 17, fontWeight: '700', paddingVertical: 4 }, editableTitleLarge: { fontSize: 20 },
+  editableTitle: { alignSelf: 'flex-start', flexShrink: 1, maxWidth: '100%', minHeight: 34, justifyContent: 'center', borderBottomWidth: 1, borderStyle: 'dotted' }, editableTitleText: { flexShrink: 1, fontSize: 17, fontWeight: '700' }, editableTitleTextLarge: { fontSize: 20 }, editableTitleInput: { flexShrink: 1, minWidth: 160, maxWidth: '100%', borderBottomWidth: 1.5, fontSize: 17, fontWeight: '700', paddingVertical: 4 }, editableTitleLarge: { fontSize: 20 },
   helper: { fontSize: 12, lineHeight: 17 }, rowTitle: { fontSize: 14, fontWeight: '700' }, flex: { flex: 1, gap: 3, minWidth: 0 }, settingRow: { flexDirection: 'row', alignItems: 'center', gap: 14 }, chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   actionRow: { minHeight: 54, paddingVertical: 7, flexDirection: 'row', alignItems: 'center', gap: 8 }, actionMain: { flex: 1, minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 8 }, link: { fontSize: 12, fontWeight: '700' }, roundIcon: { width: 38, height: 38, borderWidth: 1.5, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
   volumeBlock: { gap: 2 }, volumeControlRow: { minHeight: 42, flexDirection: 'row', alignItems: 'center', gap: 8 }, inlineSlider: { flex: 1, height: 38 }, completionCueControls: { gap: 7, paddingTop: 4 },

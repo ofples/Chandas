@@ -8,7 +8,7 @@ package expo.modules.chandastimerservice
  * a replacement binary.
  */
 object NativeTimerContract {
-  const val CONTRACT_VERSION = 2
+  const val CONTRACT_VERSION = 3
   const val PROGRAM_SCHEMA_MIN = 2
   const val PROGRAM_SCHEMA_MAX = 2
   const val MAX_PATTERN_TRACKS = 32

@@ -93,7 +93,7 @@ export function defaultPatternProgram(): PatternProgram {
   return {
     schemaVersion: TIMER_V2_SCHEMA_VERSION,
     mode: 'pattern',
-    label: 'Main interval',
+    label: 'Main Interval',
     mainMinutes: 30,
     mainCue: defaultCue('temple-gong'),
     completionCue: null,
@@ -147,6 +147,7 @@ export function defaultAppTimerSettings(): AppTimerSettings {
   return {
     masterVolume: 0.8,
     notificationsEnabled: true,
+    liveCountdownEnabled: false,
     muteDuringCallsEnabled: true,
     availability: defaultAvailabilityPolicy(),
     focusAutomationEnabled: false,
@@ -226,10 +227,11 @@ export function normalizePatternProgram(value: Partial<PatternProgram> | undefin
     if (/^Sub-bell \d+$/.test(track.label)) track.label = `Sub-bell ${index + 1}`
   })
   const offset = value?.alignment?.kind === 'local-clock' ? clampSnapOffset(value.alignment.offsetMinutes) : undefined
+  const label = normalizeLabel(value?.label, 'Main Interval')
   return {
     schemaVersion: TIMER_V2_SCHEMA_VERSION,
     mode: 'pattern',
-    label: normalizeLabel(value?.label, 'Main interval'),
+    label: label === 'Main interval' ? 'Main Interval' : label,
     mainMinutes,
     mainCue: normalizeCue(value?.mainCue, defaultCue('temple-gong')),
     completionCue: value?.completionCue ? normalizeCue(value.completionCue, defaultCue('temple-gong')) : null,
@@ -348,7 +350,7 @@ export function migrateLegacyConfig(legacy: Partial<TimerConfig>): TimerV2State 
   const pattern: PatternProgram = {
     schemaVersion: TIMER_V2_SCHEMA_VERSION,
     mode: 'pattern',
-    label: 'Main interval',
+    label: 'Main Interval',
     mainMinutes,
     mainCue: defaultCue('temple-gong'),
     completionCue: null,
@@ -372,6 +374,7 @@ export function migrateLegacyConfig(legacy: Partial<TimerConfig>): TimerV2State 
     settings: {
       masterVolume: clampVolume(legacy.volume, defaults.masterVolume),
       notificationsEnabled: legacy.notificationsEnabled !== false,
+      liveCountdownEnabled: false,
       muteDuringCallsEnabled: true,
       availability: {
         enabled: legacy.activeHoursEnabled === true,

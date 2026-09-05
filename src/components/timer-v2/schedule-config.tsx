@@ -8,6 +8,7 @@ import { Toggle } from '../Toggle'
 import { formatTimeOfDay } from '../ActiveHoursConfig'
 import { AddRowButton } from './AddRowButton'
 import { SheetTextButton } from './SheetTextButton'
+import { selectionHaptic, tapHaptic } from '../../lib/haptics'
 
 interface Props {
   value: AvailabilityPolicy
@@ -51,10 +52,10 @@ export function ScheduleConfig({ value, onChange, showHeading = true, showEnable
       {value.weeklyWindows.map((window, index) => {
         const editing = editingId === window.id
         return <Animated.View key={window.id} layout={reducedMotion ? undefined : LinearTransition.duration(150)} style={[styles.window, { borderBottomColor: tokens.border, opacity: window.enabled ? 1 : 0.55 }]}>
-          <View style={styles.windowHead}><Pressable onPress={() => setEditingId(editing ? null : window.id)} style={styles.flex} accessibilityRole="button" accessibilityLabel={`Edit ${windowSummary(window)}`}><Text style={[styles.rowTitle, { color: tokens.text }]}>{formatRange(window)}</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{daySummary(window.days)}</Text></Pressable><Toggle value={window.enabled} onChange={enabled => patchWindow(window.id, { enabled })} accessibilityLabel={`Enable time range ${index + 1}`} /></View>
+          <View style={styles.windowHead}><Pressable onPress={() => { tapHaptic(); setEditingId(editing ? null : window.id) }} style={styles.flex} accessibilityRole="button" accessibilityLabel={`Edit ${windowSummary(window)}`}><Text style={[styles.rowTitle, { color: tokens.text }]}>{formatRange(window)}</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{daySummary(window.days)}</Text></Pressable><Toggle value={window.enabled} onChange={enabled => patchWindow(window.id, { enabled })} accessibilityLabel={`Enable time range ${index + 1}`} /></View>
           {editing ? <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 150)} exiting={FadeOut.duration(reducedMotion ? 70 : 100)} style={styles.editor}>
             <View style={styles.range}><ClockTimeInput label="Starts" value={window.startMinutes} onChange={startMinutes => patchWindow(window.id, { startMinutes })} /><Text style={[styles.to, { color: tokens.textMuted }]}>to</Text><ClockTimeInput label="Ends" value={window.endMinutes} onChange={endMinutes => patchWindow(window.id, { endMinutes })} /></View>
-            <View style={styles.days}>{DAYS.map(day => { const selected = (window.days & day.bit) !== 0; return <Pressable key={day.name} onPress={() => patchWindow(window.id, { days: selected ? window.days & ~day.bit : window.days | day.bit })} accessibilityRole="button" accessibilityLabel={day.name} accessibilityState={{ selected }} style={[styles.day, { borderColor: selected ? tokens.accent : tokens.border, backgroundColor: selected ? tokens.accentGlow : 'transparent' }]}><Text style={[styles.dayText, { color: selected ? tokens.accent : tokens.textMuted }]}>{day.short}</Text></Pressable> })}</View>
+            <View style={styles.days}>{DAYS.map(day => { const selected = (window.days & day.bit) !== 0; return <Pressable key={day.name} onPress={() => { selectionHaptic(); patchWindow(window.id, { days: selected ? window.days & ~day.bit : window.days | day.bit }) }} accessibilityRole="button" accessibilityLabel={day.name} accessibilityState={{ selected }} style={[styles.day, { borderColor: selected ? tokens.accent : tokens.border, backgroundColor: selected ? tokens.accentGlow : 'transparent' }]}><Text style={[styles.dayText, { color: selected ? tokens.accent : tokens.textMuted }]}>{day.short}</Text></Pressable> })}</View>
             {window.startMinutes === window.endMinutes ? <Text style={[styles.helper, { color: tokens.textMuted }]}>Same start and end means all day on these days.</Text> : null}
             {window.days === 0 ? <Text accessibilityRole="alert" style={[styles.helper, { color: tokens.warm }]}>Choose at least one day, or switch this range off.</Text> : null}
             <SheetTextButton label="Remove time range" tone="danger" onPress={() => removeWindow(window)} accessibilityLabel={`Remove ${windowSummary(window)}`} />

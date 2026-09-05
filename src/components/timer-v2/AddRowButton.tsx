@@ -1,13 +1,14 @@
 import { Pressable, StyleSheet, Text } from 'react-native'
 import { useReducedMotion } from 'react-native-reanimated'
 import { useTheme } from '../../theme/ThemeContext'
+import { tapHaptic } from '../../lib/haptics'
 
 export function AddRowButton({ title, disabled = false, onPress }: { title: string; disabled?: boolean; onPress: () => void }) {
   const { tokens } = useTheme()
   const reducedMotion = useReducedMotion()
   return <Pressable
     disabled={disabled}
-    onPress={onPress}
+    onPress={() => { tapHaptic(); onPress() }}
     accessibilityRole="button"
     accessibilityLabel={title}
     accessibilityState={{ disabled }}

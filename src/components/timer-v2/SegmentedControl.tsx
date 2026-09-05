@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native'
 import { useReducedMotion } from 'react-native-reanimated'
 import { useTheme } from '../../theme/ThemeContext'
+import { selectionHaptic } from '../../lib/haptics'
 
 interface Segment<T extends string> {
   value: T
@@ -21,7 +22,7 @@ export function SegmentedControl<T extends string>({ items, value, onChange, acc
       const selected = item.value === value
       return <Pressable
         key={item.value}
-        onPress={() => onChange(item.value)}
+        onPress={() => { if (!selected) selectionHaptic(); onChange(item.value) }}
         accessibilityRole="tab"
         accessibilityState={{ selected }}
         style={({ pressed }) => [styles.segment, selected && { backgroundColor: tokens.accent }, { opacity: pressed ? 0.78 : 1, transform: [{ scale: pressed && !reducedMotion ? 0.985 : 1 }] }]}

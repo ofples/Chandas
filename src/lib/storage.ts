@@ -207,6 +207,7 @@ function normalizeSettings(value: Partial<AppTimerSettings> | null): AppTimerSet
       ? Math.max(0, Math.min(1, value.masterVolume))
       : defaults.masterVolume,
     notificationsEnabled: value.notificationsEnabled !== false,
+    liveCountdownEnabled: value.liveCountdownEnabled === true,
     muteDuringCallsEnabled: value.muteDuringCallsEnabled !== false,
     availability,
     focusAutomationEnabled: value.focusAutomationEnabled === true,

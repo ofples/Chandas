@@ -20,6 +20,7 @@ export interface NativeTimerConfig {
   subEnabled: boolean
   volume: number       // 0–1, gong/bell volume
   notificationsEnabled: boolean
+  liveCountdownEnabled?: boolean
   /** Serialized user-facing notification copy for the stable native engine. */
   notificationPresentation?: string
   muteDuringCallsEnabled?: boolean
@@ -67,6 +68,7 @@ export interface NativeTimerState {
   subEnabled?: boolean
   volume?: number
   notificationsEnabled?: boolean
+  liveCountdownEnabled?: boolean
   notificationPresentation?: string
   muteDuringCallsEnabled?: boolean
   focusModeEnabled?: boolean
@@ -126,6 +128,7 @@ export interface NativeTimerCapabilities {
   supportsCachedBuiltInSounds: boolean
   supportsRawFocusState: boolean
   supportsNotificationPresentation: boolean
+  supportsLiveCountdown?: boolean
 }
 
 export interface NativeFocusState {

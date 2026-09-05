@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { LayoutChangeEvent, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native'
-import * as Haptics from 'expo-haptics'
+import { useMemo, useState } from 'react'
+import { LayoutChangeEvent, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useReducedMotion } from 'react-native-reanimated'
 import { useTheme } from '../../theme/ThemeContext'
+import { selectionHaptic } from '../../lib/haptics'
 
 const GAP = 8
 const MIN_CELL = 52
@@ -13,90 +13,25 @@ interface Props {
   onChange: (offsets: number[]) => void
 }
 
-/** Tap or paint over a deterministic minute grid; the initial cell decides select vs clear. */
+/** A deterministic tap-to-toggle minute grid. It deliberately never captures scrolling gestures. */
 export function OffsetGrid({ offsets, selected, onChange }: Props) {
   const { tokens } = useTheme()
   const reducedMotion = useReducedMotion()
   const [width, setWidth] = useState(0)
-  const selectionRef = useRef(new Set(selected))
-  const offsetsRef = useRef(offsets)
-  const onChangeRef = useRef(onChange)
-  const paintRef = useRef<{ selecting?: boolean; last?: number; x?: number; y?: number } | null>(null)
-  offsetsRef.current = offsets
-  onChangeRef.current = onChange
-  useEffect(() => { selectionRef.current = new Set(selected) }, [selected])
   const renderedSelection = useMemo(() => new Set(selected), [selected])
 
   const columns = Math.max(1, Math.floor((width + GAP) / (MIN_CELL + GAP)))
   const cellWidth = width > 0 ? (width - GAP * (columns - 1)) / columns : MIN_CELL
-  const cellHeight = 48
-  const offsetsKey = offsets.join(',')
-
-  const offsetAt = (x: number, y: number): number | undefined => {
-    if (x < 0 || y < 0 || width <= 0) return undefined
-    const column = Math.floor(x / (cellWidth + GAP))
-    const row = Math.floor(y / (cellHeight + GAP))
-    if (column >= columns || x - column * (cellWidth + GAP) > cellWidth || y - row * (cellHeight + GAP) > cellHeight) return undefined
-    return offsets[row * columns + column]
-  }
-
-  const paint = (offset: number | undefined) => {
-    const paintState = paintRef.current
-    if (offset === undefined || !paintState || paintState.last === offset) return
-    paintState.last = offset
-    if (paintState.selecting === undefined) paintState.selecting = !selectionRef.current.has(offset)
-    const next = new Set(selectionRef.current)
-    if (paintState.selecting) next.add(offset)
-    else next.delete(offset)
-    selectionRef.current = next
-    onChangeRef.current(offsetsRef.current.filter(value => next.has(value)))
-    void Haptics.selectionAsync().catch(() => undefined)
-  }
-
-  const paintPoint = (x: number, y: number) => {
-    const state = paintRef.current
-    if (!state) return
-    const fromX = state.x ?? x
-    const fromY = state.y ?? y
-    const distance = Math.hypot(x - fromX, y - fromY)
-    const samples = Math.max(1, Math.ceil(distance / Math.max(8, Math.min(cellWidth, cellHeight) / 3)))
-    for (let sample = 0; sample <= samples; sample += 1) {
-      const amount = sample / samples
-      paint(offsetAt(fromX + (x - fromX) * amount, fromY + (y - fromY) * amount))
-    }
-    state.x = x
-    state.y = y
-  }
-
-  const responder = useMemo(() => PanResponder.create({
-    // The grid owns a gesture from touch-down so painting is predictable even
-    // when a finger begins over a selected cell or moves vertically first.
-    onStartShouldSetPanResponder: () => true,
-    onStartShouldSetPanResponderCapture: () => true,
-    onMoveShouldSetPanResponder: () => true,
-    onMoveShouldSetPanResponderCapture: () => true,
-    onPanResponderGrant: (event: { nativeEvent: { locationX: number; locationY: number } }) => {
-      const offset = offsetAt(event.nativeEvent.locationX, event.nativeEvent.locationY)
-      paintRef.current = { x: event.nativeEvent.locationX, y: event.nativeEvent.locationY }
-      paint(offset)
-    },
-    onPanResponderMove: (event: { nativeEvent: { locationX: number; locationY: number } }) => paintPoint(event.nativeEvent.locationX, event.nativeEvent.locationY),
-    onPanResponderRelease: () => { paintRef.current = null },
-    onPanResponderTerminate: () => { paintRef.current = null },
-  // Geometry deliberately rebuilds the responder map after layout changes.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [cellWidth, columns, offsetsKey, width])
-
   const onLayout = (event: LayoutChangeEvent) => setWidth(event.nativeEvent.layout.width)
-  const toggleAccessible = (offset: number) => {
-    const next = new Set(selectionRef.current)
+  const toggle = (offset: number) => {
+    const next = new Set(selected)
     if (next.has(offset)) next.delete(offset); else next.add(offset)
-    selectionRef.current = next
-    onChangeRef.current(offsetsRef.current.filter(value => next.has(value)))
+    selectionHaptic()
+    onChange(offsets.filter(value => next.has(value)))
   }
 
   return (
-    <View onLayout={onLayout} {...responder.panHandlers} style={styles.grid} accessible={false}>
+    <View onLayout={onLayout} style={styles.grid} accessible={false}>
       {offsets.map(offset => {
         // Render from props so external Clear all / Select all / cadence changes
         // are visible immediately; the ref exists only for an in-flight paint.
@@ -104,12 +39,12 @@ export function OffsetGrid({ offsets, selected, onChange }: Props) {
         return (
           <Pressable
             key={offset}
-            style={({ pressed }) => [styles.cell, { width: cellWidth, height: cellHeight, borderColor: active ? tokens.accent : tokens.border, backgroundColor: active ? tokens.accentGlow : 'transparent', opacity: pressed ? 0.78 : 1, transform: [{ scale: pressed && !reducedMotion ? 0.96 : 1 }] }]}
+            style={({ pressed }) => [styles.cell, { width: cellWidth, height: 48, borderColor: active ? tokens.accent : tokens.border, backgroundColor: active ? tokens.accentGlow : 'transparent', opacity: pressed ? 0.78 : 1, transform: [{ scale: pressed && !reducedMotion ? 0.96 : 1 }] }]}
             accessible
             accessibilityRole="button"
             accessibilityLabel={`${offset} minutes after start, ${active ? 'selected' : 'not selected'}`}
             accessibilityState={{ selected: active }}
-            onPress={() => { toggleAccessible(offset); void Haptics.selectionAsync().catch(() => undefined) }}
+            onPress={() => toggle(offset)}
           >
             <Text style={[styles.minute, { color: active ? tokens.text : tokens.textMuted }]}>{offset}m</Text>
             <Text style={[styles.status, { color: tokens.textDisabled }]}>{active ? 'on' : 'off'}</Text>

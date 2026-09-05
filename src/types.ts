@@ -158,6 +158,8 @@ export interface AvailabilityPolicy {
 export interface AppTimerSettings {
   masterVolume: number
   notificationsEnabled: boolean
+  /** Shows a native countdown to the next cue in the running notification. */
+  liveCountdownEnabled: boolean
   muteDuringCallsEnabled: boolean
   availability: AvailabilityPolicy
   focusAutomationEnabled: boolean
