@@ -1,22 +1,24 @@
 import { Pressable, StyleSheet, Text, View, type ViewStyle } from 'react-native'
 import { useReducedMotion } from 'react-native-reanimated'
 import type { AvailabilityPolicy } from '../../types'
-import { scheduleSegmentsForDay } from '../../lib/activeHours'
+import { scheduleBoundaryMinutesForDay, scheduleRangeCountForDay, scheduleSegmentsForDay } from '../../lib/activeHours'
 import { useTheme } from '../../theme/ThemeContext'
 
 export function ScheduleTimelinePreview({ value, onPress }: { value: AvailabilityPolicy; onPress: () => void }) {
   const { tokens } = useTheme()
   const reducedMotion = useReducedMotion()
-  const segments = scheduleSegmentsForDay(value, new Date().getDay())
-  const actualBoundaries = [...new Set(segments.flatMap(segment => [segment.start, segment.end]))]
-  const boundaries = actualBoundaries.length <= 6 ? actualBoundaries : [0, 360, 720, 1_080, 1_440]
+  const day = new Date().getDay()
+  const segments = scheduleSegmentsForDay(value, day)
+  const boundaries = scheduleBoundaryMinutesForDay(value, day)
+  const activeRangeCount = scheduleRangeCountForDay(value, day)
+  const labelLanes = boundaryLabelLanes(boundaries)
   const summary = !value.enabled
     ? 'Available at any time'
     : segments.length === 0
       ? 'No active time today'
       : segments.length === 1
         ? `Today · ${formatClock(segments[0].start)}–${formatClock(segments[0].end)}`
-        : `Today · ${segments.length} active ranges`
+        : `Today · ${activeRangeCount} active ${activeRangeCount === 1 ? 'range' : 'ranges'}`
 
   return <Pressable
     onPress={onPress}
@@ -25,12 +27,12 @@ export function ScheduleTimelinePreview({ value, onPress }: { value: Availabilit
     style={({ pressed }) => [styles.preview, { opacity: pressed ? 0.7 : 1, transform: [{ scale: pressed && !reducedMotion ? 0.995 : 1 }] }]}
   >
     <View style={styles.timeline}>
-      <View style={[styles.baseline, { backgroundColor: tokens.border }]} />
-      {segments.map(segment => <View key={`${segment.start}:${segment.end}`} style={[styles.activeRange, { left: `${segment.start / 1_440 * 100}%`, width: `${(segment.end - segment.start) / 1_440 * 100}%`, backgroundColor: tokens.accent }]} />)}
-      {boundaries.map((minute, index) => <View key={minute} style={[styles.boundaryWrap, boundaryPosition(minute)]}>
-        <View style={[styles.boundary, { backgroundColor: segments.length > 0 ? tokens.accent : tokens.border }]} />
-        <Text style={[styles.boundaryLabel, index > 0 && minute - boundaries[index - 1] < 120 && styles.staggeredLabel, { color: tokens.textMuted }]}>{formatBoundary(minute)}</Text>
-      </View>)}
+      <View style={styles.track}>
+        <View style={[styles.baseline, { backgroundColor: tokens.border }]} />
+        {segments.map(segment => <View key={`${segment.start}:${segment.end}`} style={[styles.activeRange, { left: `${segment.start / 1_440 * 100}%`, width: `${(segment.end - segment.start) / 1_440 * 100}%`, backgroundColor: tokens.accent }]} />)}
+        {boundaries.map(minute => <View key={`tick:${minute}`} style={[styles.boundary, boundaryPosition(minute), { backgroundColor: tokens.accent }]} />)}
+      </View>
+      {boundaries.map((minute, index) => <Text key={`label:${minute}`} style={[styles.boundaryLabel, boundaryLabelPosition(minute), labelLanes[index] === 1 && styles.secondLabelLane, { color: tokens.textMuted }]}>{formatBoundary(minute)}</Text>)}
     </View>
     <View style={styles.summaryRow}><Text style={[styles.summary, { color: tokens.textMuted }]}>{summary}</Text><Text style={[styles.chevron, { color: tokens.accent }]}>›</Text></View>
   </Pressable>
@@ -39,7 +41,22 @@ export function ScheduleTimelinePreview({ value, onPress }: { value: Availabilit
 function boundaryPosition(minute: number): ViewStyle {
   if (minute <= 0) return { left: 0 }
   if (minute >= 1_440) return { right: 0 }
-  return { left: `${minute / 1_440 * 100}%` as `${number}%`, marginLeft: -20 }
+  return { left: `${minute / 1_440 * 100}%` as `${number}%`, transform: [{ translateX: -1 }] }
+}
+
+function boundaryLabelPosition(minute: number): ViewStyle {
+  if (minute <= 60) return { left: 0 }
+  if (minute >= 1_380) return { right: 0 }
+  return { left: `${minute / 1_440 * 100}%` as `${number}%`, marginLeft: -22 }
+}
+
+/** Alternate close labels so adjacent one-hour boundaries remain legible. */
+function boundaryLabelLanes(boundaries: number[]): number[] {
+  let lane = 0
+  return boundaries.map((minute, index) => {
+    lane = index > 0 && minute - boundaries[index - 1] < 120 ? 1 - lane : 0
+    return lane
+  })
 }
 
 function formatBoundary(minute: number): string {
@@ -58,13 +75,13 @@ function formatClock(minute: number): string {
 
 const styles = StyleSheet.create({
   preview: { gap: 4, paddingTop: 2 },
-  timeline: { height: 45, position: 'relative', marginHorizontal: 2 },
+  timeline: { height: 51, position: 'relative', marginHorizontal: 2 },
+  track: { position: 'absolute', left: 0, right: 0, top: 0, height: 24 },
   baseline: { position: 'absolute', left: 0, right: 0, top: 12, height: 1 },
   activeRange: { position: 'absolute', top: 10, height: 5, borderRadius: 3 },
-  boundaryWrap: { position: 'absolute', top: 5, width: 40, alignItems: 'center' },
-  boundary: { width: 2, height: 15, borderRadius: 1 },
-  boundaryLabel: { marginTop: 6, fontFamily: 'JetBrainsMono-Regular', fontSize: 8, fontVariant: ['tabular-nums'] },
-  staggeredLabel: { marginTop: 16 },
+  boundary: { position: 'absolute', top: 5, width: 2, height: 15, borderRadius: 1 },
+  boundaryLabel: { position: 'absolute', top: 28, width: 44, textAlign: 'center', fontFamily: 'JetBrainsMono-Regular', fontSize: 8, fontVariant: ['tabular-nums'] },
+  secondLabelLane: { top: 39 },
   summaryRow: { minHeight: 24, flexDirection: 'row', alignItems: 'center', gap: 8 },
   summary: { flex: 1, fontSize: 12 },
   chevron: { width: 22, textAlign: 'center', fontSize: 22, lineHeight: 24, fontWeight: '300' },

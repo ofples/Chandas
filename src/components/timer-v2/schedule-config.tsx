@@ -13,6 +13,7 @@ interface Props {
   value: AvailabilityPolicy
   onChange: (value: AvailabilityPolicy) => void
   showHeading?: boolean
+  showEnabledControl?: boolean
 }
 
 const DAYS = [
@@ -25,7 +26,7 @@ const DAYS = [
   { short: 'S', compact: 'Sat', name: 'Saturday', bit: 1 << 6 },
 ] as const
 
-export function ScheduleConfig({ value, onChange, showHeading = true }: Props) {
+export function ScheduleConfig({ value, onChange, showHeading = true, showEnabledControl = true }: Props) {
   const { tokens } = useTheme()
   const reducedMotion = useReducedMotion()
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -42,20 +43,22 @@ export function ScheduleConfig({ value, onChange, showHeading = true }: Props) {
     setEditingId(window.id)
   }
 
+  const showWindows = showEnabledControl ? value.enabled : true
+
   return <View style={styles.section}>
-    <View style={styles.toggleRow}><View style={styles.flex}><Text style={[showHeading ? styles.eyebrow : styles.rowTitle, { color: showHeading ? tokens.textMuted : tokens.text }]}>{showHeading ? 'SCHEDULE' : 'Active times'}</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{value.enabled ? `${activeCount} active time ${activeCount === 1 ? 'range' : 'ranges'}` : 'Available at any time'}</Text></View><Toggle value={value.enabled} onChange={enabled => onChange({ ...value, enabled })} accessibilityLabel="Timer schedule" /></View>
-    {value.enabled ? <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 120)} layout={reducedMotion ? undefined : LinearTransition.duration(150)} style={styles.windowList}>
-      {value.weeklyWindows.length === 0 ? <View style={styles.empty}><Text style={[styles.rowTitle, { color: tokens.text }]}>No active times yet</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>Add a time range, or switch Schedule off to run at any time.</Text></View> : null}
+    {showEnabledControl ? <View style={styles.toggleRow}><View style={styles.flex}><Text style={[showHeading ? styles.eyebrow : styles.rowTitle, { color: showHeading ? tokens.textMuted : tokens.text }]}>{showHeading ? 'SCHEDULE' : 'Active times'}</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{value.enabled ? `${activeCount} active time ${activeCount === 1 ? 'range' : 'ranges'}` : 'Available at any time'}</Text></View><Toggle value={value.enabled} onChange={enabled => onChange({ ...value, enabled })} accessibilityLabel="Timer schedule" /></View> : null}
+    {showWindows ? <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 120)} layout={reducedMotion ? undefined : LinearTransition.duration(150)} style={styles.windowList}>
+      {value.weeklyWindows.length === 0 ? <View style={styles.empty}><Text style={[styles.rowTitle, { color: tokens.text }]}>No active times yet</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>Add a time range to define when the timer may sound.</Text></View> : null}
       {value.weeklyWindows.map((window, index) => {
         const editing = editingId === window.id
-        return <Animated.View key={window.id} layout={reducedMotion ? undefined : LinearTransition.duration(150)} style={[styles.window, index > 0 && { borderTopColor: tokens.border, borderTopWidth: StyleSheet.hairlineWidth }, { opacity: window.enabled ? 1 : 0.55 }]}>
+        return <Animated.View key={window.id} layout={reducedMotion ? undefined : LinearTransition.duration(150)} style={[styles.window, { borderBottomColor: tokens.border, opacity: window.enabled ? 1 : 0.55 }]}>
           <View style={styles.windowHead}><Pressable onPress={() => setEditingId(editing ? null : window.id)} style={styles.flex} accessibilityRole="button" accessibilityLabel={`Edit ${windowSummary(window)}`}><Text style={[styles.rowTitle, { color: tokens.text }]}>{formatRange(window)}</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{daySummary(window.days)}</Text></Pressable><Toggle value={window.enabled} onChange={enabled => patchWindow(window.id, { enabled })} accessibilityLabel={`Enable time range ${index + 1}`} /></View>
           {editing ? <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 150)} exiting={FadeOut.duration(reducedMotion ? 70 : 100)} style={styles.editor}>
             <View style={styles.range}><TimeButton label={`Starts ${formatTimeOfDay(window.startMinutes)}`} value={formatTimeOfDay(window.startMinutes)} onPress={() => setTimePicker({ id: window.id, edge: 'start' })} /><Text style={[styles.to, { color: tokens.textMuted }]}>to</Text><TimeButton label={`Ends ${formatTimeOfDay(window.endMinutes)}`} value={formatTimeOfDay(window.endMinutes)} onPress={() => setTimePicker({ id: window.id, edge: 'end' })} /></View>
             <View style={styles.days}>{DAYS.map(day => { const selected = (window.days & day.bit) !== 0; return <Pressable key={day.name} onPress={() => patchWindow(window.id, { days: selected ? window.days & ~day.bit : window.days | day.bit })} accessibilityRole="button" accessibilityLabel={day.name} accessibilityState={{ selected }} style={[styles.day, { borderColor: selected ? tokens.accent : tokens.border, backgroundColor: selected ? tokens.accentGlow : 'transparent' }]}><Text style={[styles.dayText, { color: selected ? tokens.accent : tokens.textMuted }]}>{day.short}</Text></Pressable> })}</View>
             {window.startMinutes === window.endMinutes ? <Text style={[styles.helper, { color: tokens.textMuted }]}>Same start and end means all day on these days.</Text> : null}
             {window.days === 0 ? <Text accessibilityRole="alert" style={[styles.helper, { color: tokens.warm }]}>Choose at least one day, or switch this range off.</Text> : null}
-            <Pressable onPress={() => removeWindow(window)} accessibilityRole="button"><Text style={[styles.remove, { color: tokens.textMuted }]}>Remove time range</Text></Pressable>
+            <Pressable onPress={() => removeWindow(window)} accessibilityRole="button" accessibilityLabel={`Remove ${windowSummary(window)}`} style={({ pressed }) => [styles.removeButton, { borderColor: tokens.warm, backgroundColor: pressed ? tokens.warmGlow : 'transparent' }]}><Text style={[styles.remove, { color: tokens.warm }]}>Remove this time range</Text></Pressable>
           </Animated.View> : null}
         </Animated.View>
       })}
@@ -89,8 +92,8 @@ function windowSummary(window: WeeklyAvailabilityWindow): string {
 
 const styles = StyleSheet.create({
   section: { gap: 12 }, toggleRow: { flexDirection: 'row', alignItems: 'center', gap: 14 }, flex: { flex: 1, minWidth: 0, gap: 3 }, eyebrow: { fontSize: 11, fontWeight: '700', letterSpacing: 1.3 }, helper: { fontSize: 12, lineHeight: 17 }, rowTitle: { fontSize: 14, fontWeight: '700' },
-  windowList: { gap: 0 }, window: { paddingVertical: 10, gap: 12 }, windowHead: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 12 }, editor: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: 'rgba(127,127,127,0.25)', paddingTop: 12, gap: 12 },
+  windowList: { gap: 0 }, window: { paddingVertical: 10, gap: 12, borderBottomWidth: StyleSheet.hairlineWidth }, windowHead: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 12 }, editor: { gap: 12 },
   range: { flexDirection: 'row', alignItems: 'center', gap: 9 }, time: { minWidth: 92, minHeight: 42, borderWidth: 1.5, borderRadius: 99, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 }, timeText: { fontFamily: 'JetBrainsMono-Regular', fontSize: 13, fontVariant: ['tabular-nums'] }, to: { fontSize: 12 },
-  days: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 }, day: { width: 40, height: 40, borderWidth: 1.5, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }, dayText: { fontSize: 10, fontWeight: '700' }, remove: { fontSize: 11, textDecorationLine: 'underline', paddingVertical: 3 },
+  days: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 }, day: { width: 40, height: 40, borderWidth: 1.5, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }, dayText: { fontSize: 10, fontWeight: '700' }, removeButton: { minHeight: 42, borderWidth: 1.25, borderRadius: 14, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 }, remove: { fontSize: 12, fontWeight: '700' },
   empty: { paddingVertical: 9, gap: 4 },
 })

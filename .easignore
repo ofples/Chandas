@@ -31,7 +31,6 @@ build/
 
 # Local-only product material
 /docs
-/fixtures
 /legacy-web
 /mockups
 /migration-progress.md

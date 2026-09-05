@@ -41,6 +41,44 @@ export function scheduleSegmentsForDay(value: AvailabilityPolicy, day: number): 
   }, [])
 }
 
+/**
+ * User-authored availability transitions for one civil day. Unlike rendered
+ * segments, an overnight range does not invent labels at 00:00 or 24:00: only
+ * its real end and start remain visible in the compact timeline.
+ */
+export function scheduleBoundaryMinutesForDay(value: AvailabilityPolicy, day: number): number[] {
+  if (!value.enabled) return []
+  const normalizedDay = ((day % 7) + 7) % 7
+  const previousDay = (normalizedDay + 6) % 7
+  const boundaries = value.weeklyWindows.flatMap(window => {
+    if (!window.enabled) return []
+    const start = normalizeMinute(window.startMinutes)
+    const end = normalizeMinute(window.endMinutes)
+    const selected = (candidate: number) => ((window.days & 0b1111111) & (1 << candidate)) !== 0
+    if (start === end) return selected(normalizedDay) ? [0, 1_440] : []
+    if (start < end) return selected(normalizedDay) ? [start, end] : []
+    const result: number[] = []
+    if (selected(previousDay)) result.push(end)
+    if (selected(normalizedDay)) result.push(start)
+    return result
+  })
+  return [...new Set(boundaries)].sort((left, right) => left - right)
+}
+
+/** Count configured ranges that contribute time to this day, once per range. */
+export function scheduleRangeCountForDay(value: AvailabilityPolicy, day: number): number {
+  if (!value.enabled) return 0
+  const normalizedDay = ((day % 7) + 7) % 7
+  const previousDay = (normalizedDay + 6) % 7
+  return value.weeklyWindows.filter(window => {
+    if (!window.enabled) return false
+    const start = normalizeMinute(window.startMinutes)
+    const end = normalizeMinute(window.endMinutes)
+    const selectedToday = isDayEnabled(window, normalizedDay)
+    return selectedToday || (start > end && end > 0 && isDayEnabled(window, previousDay))
+  }).length
+}
+
 const DAY_MS = 86_400_000
 
 function minuteOfDay(timestamp: number): number {

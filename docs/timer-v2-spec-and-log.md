@@ -168,6 +168,9 @@ Timer v2 replaces these assumptions rather than layering special cases over them
 | D-068 | A bottom sheet's dimming backdrop and sheet surface are siblings. The backdrop dismisses only direct backdrop presses and never wraps the scrollable sheet, so vertical gestures begun anywhere in Help or another sheet remain available to its ScrollView on Android. |
 | D-069 | Advanced sheet drill-down uses one visible modal layer with an explicit Back action. Cycle setup shows a compact Sub-bells summary and opens the library in a sheet; selecting a track replaces that sheet with its editor, and sound selection temporarily replaces the editor before returning to it. Schedule follows the same compact-summary-to-sheet pattern. |
 | D-070 | Chandas Focus remains a visible first-class setup control. Less frequently changed Android permissions live behind one compact `System access` summary that opens a dedicated sheet. The running screen is top-aligned beneath its header, and its combined live-audio sheet is called `Sound & mute` with the same simple Volume treatment as configuration. |
+| D-071 | The Schedule timeline is progressive disclosure for an enabled schedule only. The setup switch is its sole on/off control; when Off, no preview is shown. The Schedule sheet edits ranges only and never repeats the global Active times toggle. |
+| D-072 | Each Schedule range is one visually continuous editing unit: summary and per-range switch, expanded time/day controls, an explicit outlined `Remove this time range` action with confirmation, then the separator. A separator never divides a range header from its active editor. |
+| D-073 | The compact Schedule timeline paints merged current-day active spans but labels only genuine user-authored start/end transitions. Midnight segment splits created to render overnight ranges are not labelled as schedule boundaries. Closely spaced real labels alternate between two lanes, and the summary counts each contributing configured range once rather than counting its rendered overnight pieces. |
 
 ---
 
@@ -2030,6 +2033,32 @@ This section is append-only. Every implementation session should record scope, m
 
 **Risks or follow-ups:** The installed native module still clears `FLAG_SHOW_WHEN_LOCKED`/screen-on activity state from a synchronous exported function. The next store build should move activity-window work explicitly onto Android's main queue. This OTA pass deliberately avoids that Kotlin change so it can repair the currently distributed binary without requiring a replacement AAB.
 
+### 2026-09-05 — Schedule editor and timeline clarity pass
+
+**Status:** Complete in source and OTA-compatible.
+
+**Scope:** Schedule progressive disclosure, modal ownership, range grouping/removal, overnight timeline geometry, and the production workflow's missing test fixture.
+
+**Decisions referenced:** D-071–D-073.
+
+**Behavior implemented:**
+
+- Hide the compact Schedule timeline whenever Schedule is Off. Enabling the setup switch reveals it with a gentle transition; the preview remains the entry point to detailed editing.
+- Removed the redundant Active times control from the Schedule sheet. The sheet now owns only individual ranges, while the setup switch remains the sole global schedule control.
+- Moved every separator below the complete range/editor block. Replaced the faint underlined removal link with a warm outlined `Remove this time range` button while retaining the destructive confirmation.
+- Separated rendered active spans from labelled transitions. Overnight carry-in/out still paints correctly to the day edges, but no longer invents `0`/`24` labels. Nearby genuine transitions alternate label lanes, and one overnight range is counted once in the summary even when it produces two visual pieces.
+- Included the small shared timeline fixture in EAS upload archives so the guarded production workflow's cloud type-check can run instead of failing on an excluded test dependency.
+
+**Migration impact:** None. Schedule storage and runtime resolution are unchanged; this is rendering, interaction hierarchy, and release-archive configuration only. No native files or dependencies changed.
+
+**Verification run:** `npx tsc --noEmit`; full Vitest suite; `git diff --check`; React Native Web review at 390×844 using the reported 08:00–22:00, 23:00–01:00, and 02:00–04:00 ranges.
+
+**Results:** Type checking passed, all 60 tests passed, whitespace validation passed, Off removed the preview entirely, the modal contained no global toggle, the expanded editor and removal action remained above their separator, and the timeline showed only 01:00/02:00/04:00/08:00/22:00/23:00 with a truthful three-range summary. No new runtime error was logged.
+
+**Native/on-device verification still required:** Confirm two-lane label spacing at the exact Android font scale, destructive confirmation appearance, modal scroll reachability, and switch/transition feel on a representative device.
+
+**Risks or follow-ups:** Very dense schedules can still contain many genuine transitions. The compact preview intentionally preserves their ticks while alternating close labels; if real-world schedules exceed comfortable density, a later pass can suppress selected labels without changing schedule semantics.
+
 ### Implementation-entry template
 
 ```md
@@ -2072,3 +2101,4 @@ This section is append-only. Every implementation session should record scope, m
 | 1.7 | 2026-09-04 | Applied the third annotated-feedback pass: tap-to-edit titles, quick-only main duration, a progressive Sub-bells layer, cadence-first automatic priority, visible Master volume, and flatter setup/schedule rows. |
 | 1.8 | 2026-09-04 | Applied the fourth annotated-feedback pass: unified controls, expanded fixed-Custom shortcuts, repeating occurrence masks, Continuous-only schedules, hour/minute bounds, and a quieter live Sound sheet. |
 | 1.9 | 2026-09-04 | Hardened Android Stop and bottom-sheet scrolling, compacted Android access and Sub-bells into single-layer modal flows, and tightened the running layout and live sound controls. |
+| 2.0 | 2026-09-05 | Clarified Schedule ownership and range removal, hid the disabled preview, corrected overnight timeline transitions/counting, and repaired the guarded EAS archive inputs. |

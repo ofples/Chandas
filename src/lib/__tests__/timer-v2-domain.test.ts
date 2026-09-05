@@ -4,7 +4,7 @@ import { chooseProgramMode, deleteProgramPreset, loadProgramPreset, patchSequenc
 import { alarmBehaviorAfterGesture, gateProgramAudio, isFreshScheduledEvent, iterationMuteFor, muteAfterScheduleChange, shouldSurfaceTimerSignal } from '../runtimeV2'
 import { defaultTimerV2State, migrateLegacyConfig, normalizeAvailabilityPolicy, normalizePatternProgram, normalizeSequenceProgram, normalizeSoundRef, parseTimerProgram, validOffsets } from '../timerV2'
 import { nextPatternEvent, nextProgramEvent, nextSequenceEvent, runEndAt, timelinePosition } from '../timeline'
-import { effectiveAvailabilityForProgram, hasAvailableTime, isWithinActiveHours, nextActiveHoursStart, scheduleSegmentsForDay, windowsOverlap } from '../activeHours'
+import { effectiveAvailabilityForProgram, hasAvailableTime, isWithinActiveHours, nextActiveHoursStart, scheduleBoundaryMinutesForDay, scheduleRangeCountForDay, scheduleSegmentsForDay, windowsOverlap } from '../activeHours'
 import { edgeAutoScrollStep, previewIndexForItem, previewOffsetForItem, reorderGestureIntent } from '../reorder-preview'
 import timelineFixtures from '../../../fixtures/timer-v2-timeline.json'
 
@@ -356,6 +356,17 @@ describe('bounded runs and availability policies', () => {
     const policy = { enabled: true, weeklyWindows: [fridayNight], overrides: [] }
     expect(scheduleSegmentsForDay(policy, 5)).toEqual([{ start: 22 * 60, end: 1_440 }])
     expect(scheduleSegmentsForDay(policy, 6)).toEqual([{ start: 0, end: 2 * 60 }])
+  })
+
+  it('labels real overnight transitions without inventing midnight boundaries', () => {
+    const policy = {
+      enabled: true,
+      weeklyWindows: [window('day', 8 * 60, 22 * 60), window('overnight', 23 * 60, 60), window('early', 2 * 60, 4 * 60)],
+      overrides: [],
+    }
+    expect(scheduleBoundaryMinutesForDay(policy, 5)).toEqual([60, 120, 240, 480, 1_320, 1_380])
+    expect(scheduleRangeCountForDay(policy, 5)).toBe(3)
+    expect(scheduleBoundaryMinutesForDay({ ...policy, enabled: false }, 5)).toEqual([])
   })
 
   it('normalizes bounds, duplicate window ids, expired overrides, and maximum payload sizes', () => {
