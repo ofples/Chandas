@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '../../theme/ThemeContext'
+import { SheetTextButton } from './SheetTextButton'
 
 interface Props {
   visible: boolean
@@ -24,8 +25,8 @@ export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClo
     : <View style={styles.body}>{children}</View>
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
-      <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onBack ?? onClose} statusBarTranslucent>
+      <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}>
         <View style={styles.backdrop}>
           <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessible={false} accessibilityRole="button" accessibilityLabel="Close sheet" />
           <View
@@ -34,15 +35,15 @@ export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClo
             accessibilityViewIsModal
           >
             <View style={[styles.grabber, { backgroundColor: tokens.textDisabled }]} />
+            <View style={styles.actions}>
+              {onBack ? <SheetTextButton label="‹ Back" onPress={onBack} accessibilityLabel="Back" /> : <View style={styles.actionSpacer} />}
+              <SheetTextButton label="Done" onPress={onClose} accessibilityLabel={`Close ${accessibilityTitle ?? (typeof title === 'string' ? title : 'sheet')}`} />
+            </View>
             <View style={styles.header}>
-              {onBack ? <Pressable onPress={onBack} hitSlop={10} accessibilityRole="button" accessibilityLabel="Back"><Text style={[styles.back, { color: tokens.accent }]}>‹ Back</Text></Pressable> : null}
               <View style={styles.heading}>
                 {eyebrow ? <Text style={[styles.eyebrow, { color: tokens.textMuted }]}>{eyebrow}</Text> : null}
                 {typeof title === 'string' ? <Text style={[styles.title, { color: tokens.text }]}>{title}</Text> : title}
               </View>
-              <Pressable onPress={onClose} hitSlop={10} accessibilityRole="button" accessibilityLabel={`Close ${accessibilityTitle ?? (typeof title === 'string' ? title : 'sheet')}`}>
-                <Text style={[styles.done, { color: tokens.accent }]}>Done</Text>
-              </Pressable>
             </View>
             {body}
             {footer}
@@ -59,11 +60,11 @@ const styles = StyleSheet.create({
   backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.58)' },
   sheet: { width: '100%', maxWidth: 680, maxHeight: '92%', minHeight: 220, alignSelf: 'center', borderWidth: 1.5, borderBottomWidth: 0, borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 20, paddingTop: 10, gap: 16 },
   grabber: { width: 36, height: 4, borderRadius: 2, alignSelf: 'center', opacity: 0.55 },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16 },
+  actions: { minHeight: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  actionSpacer: { width: 44 },
+  header: { gap: 3 },
   heading: { flex: 1, gap: 3 },
   eyebrow: { fontSize: 11, fontWeight: '700', letterSpacing: 1.35 },
   title: { fontSize: 20, fontWeight: '700' },
-  done: { fontSize: 13, fontWeight: '700' },
-  back: { fontSize: 13, fontWeight: '700' },
   body: { gap: 14, paddingBottom: 8 },
 })

@@ -21,7 +21,7 @@ export function OffsetGrid({ offsets, selected, onChange }: Props) {
   const selectionRef = useRef(new Set(selected))
   const offsetsRef = useRef(offsets)
   const onChangeRef = useRef(onChange)
-  const paintRef = useRef<{ selecting?: boolean; last?: number } | null>(null)
+  const paintRef = useRef<{ selecting?: boolean; last?: number; x?: number; y?: number } | null>(null)
   offsetsRef.current = offsets
   onChangeRef.current = onChange
   useEffect(() => { selectionRef.current = new Set(selected) }, [selected])
@@ -53,17 +53,34 @@ export function OffsetGrid({ offsets, selected, onChange }: Props) {
     void Haptics.selectionAsync().catch(() => undefined)
   }
 
+  const paintPoint = (x: number, y: number) => {
+    const state = paintRef.current
+    if (!state) return
+    const fromX = state.x ?? x
+    const fromY = state.y ?? y
+    const distance = Math.hypot(x - fromX, y - fromY)
+    const samples = Math.max(1, Math.ceil(distance / Math.max(8, Math.min(cellWidth, cellHeight) / 3)))
+    for (let sample = 0; sample <= samples; sample += 1) {
+      const amount = sample / samples
+      paint(offsetAt(fromX + (x - fromX) * amount, fromY + (y - fromY) * amount))
+    }
+    state.x = x
+    state.y = y
+  }
+
   const responder = useMemo(() => PanResponder.create({
-    // Vertical swipes remain available to the sheet for long (up to 239-cell)
-    // grids. Deliberate horizontal/diagonal movement enters paint mode.
-    onStartShouldSetPanResponder: () => false,
-    onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dx) > 5 && Math.abs(gesture.dx) >= Math.abs(gesture.dy) * 0.65,
+    // The grid owns a gesture from touch-down so painting is predictable even
+    // when a finger begins over a selected cell or moves vertically first.
+    onStartShouldSetPanResponder: () => true,
+    onStartShouldSetPanResponderCapture: () => true,
+    onMoveShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponderCapture: () => true,
     onPanResponderGrant: (event: { nativeEvent: { locationX: number; locationY: number } }) => {
       const offset = offsetAt(event.nativeEvent.locationX, event.nativeEvent.locationY)
-      paintRef.current = {}
+      paintRef.current = { x: event.nativeEvent.locationX, y: event.nativeEvent.locationY }
       paint(offset)
     },
-    onPanResponderMove: (event: { nativeEvent: { locationX: number; locationY: number } }) => paint(offsetAt(event.nativeEvent.locationX, event.nativeEvent.locationY)),
+    onPanResponderMove: (event: { nativeEvent: { locationX: number; locationY: number } }) => paintPoint(event.nativeEvent.locationX, event.nativeEvent.locationY),
     onPanResponderRelease: () => { paintRef.current = null },
     onPanResponderTerminate: () => { paintRef.current = null },
   // Geometry deliberately rebuilds the responder map after layout changes.

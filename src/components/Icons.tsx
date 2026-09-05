@@ -86,6 +86,14 @@ export function MixerIcon({ color }: { color: string }) {
   )
 }
 
+export function LightbulbIcon({ color }: { color: string }) {
+  return (
+    <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+      <Path d="M9 18h6M10 22h4M8.2 14.8A7 7 0 1 1 15.8 14.8C14.7 15.6 14.2 16.3 14 18h-4c-.2-1.7-.7-2.4-1.8-3.2Z" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  )
+}
+
 // Circular-arrow "restart" icon — used when unsyncing from the clock.
 export function RestartIcon({ color }: { color: string }) {
   return (

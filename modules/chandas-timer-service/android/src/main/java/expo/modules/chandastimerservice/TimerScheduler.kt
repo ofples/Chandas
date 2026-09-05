@@ -223,7 +223,7 @@ object TimerScheduler {
       (config.alarmModeEnabled || controls.alarmOnceArmed)
     // A user-armed continuous alarm still follows Android alarm/audio-focus
     // policy; it is not downgraded into an ordinary call-muted chime.
-    if (CallState.isActive(context) && !continuousAlarmRequested) {
+    if (config.muteDuringCallsEnabled && CallState.isActive(context) && !continuousAlarmRequested) {
       scheduleNext(context, config)
       onFinished()
       return
@@ -285,7 +285,7 @@ object TimerScheduler {
       (config.alarmModeEnabled || controls.alarmOnceArmed)
     // Phone calls are an external, transient mute gate. They do not consume
     // one-shot alarm or timed/cycle mute state, and no missed cue is replayed.
-    if (CallState.isActive(context) && !continuousAlarmRequested) {
+    if (config.muteDuringCallsEnabled && CallState.isActive(context) && !continuousAlarmRequested) {
       if (event.completesRun) completeSession(context) else scheduleNext(context, config)
       emitV2Event(event, suppressed = true, reason = "call-active")
       onFinished()

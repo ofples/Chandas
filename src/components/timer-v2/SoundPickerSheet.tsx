@@ -22,10 +22,11 @@ interface Props {
   masterVolume: number
   onChange: (patch: Partial<CueSettings>) => void
   onClose: () => void
+  onBack?: () => void
   onFeedback: (notice: Omit<AppNotice, 'id'>) => void
 }
 
-export function SoundPickerSheet({ visible, title, cue, masterVolume, onChange, onClose, onFeedback }: Props) {
+export function SoundPickerSheet({ visible, title, cue, masterVolume, onChange, onClose, onBack, onFeedback }: Props) {
   const { tokens } = useTheme()
   const reducedMotion = useReducedMotion()
   const [tab, setTab] = useState<SoundTab>('built-in')
@@ -88,14 +89,13 @@ export function SoundPickerSheet({ visible, title, cue, masterVolume, onChange, 
   const volumeFooter = <View style={[styles.footer, { backgroundColor: tokens.surface, borderTopColor: tokens.border }]}>
     <View style={[styles.selected, { backgroundColor: tokens.surfaceHi }]}>
       <View style={styles.optionCopy}><Text style={[styles.label, { color: selectedAvailable ? tokens.textMuted : tokens.accent }]}>{selectedAvailable ? 'SELECTED' : 'UNAVAILABLE · CHOOSE A REPLACEMENT'}</Text><Text numberOfLines={1} style={[styles.optionTitle, { color: tokens.text }]}>{soundTitle(cue.sound)}</Text></View>
-      <Pressable onPress={() => void preview(cue.sound)} style={[styles.preview, { borderColor: tokens.border }]} accessibilityRole="button" accessibilityLabel={`${previewing === selectedKey ? 'Stop' : 'Preview'} selected sound`}><Text style={[styles.previewText, { color: tokens.accent }]}>{previewing === selectedKey ? '■' : '▶'}</Text></Pressable>
     </View>
     <View style={styles.volumeHeader}><Text style={[styles.label, { color: tokens.textMuted }]}>CUE VOLUME</Text><Text style={[styles.value, { color: tokens.text }]}>{Math.round(cue.volume * 100)}%</Text></View>
-    <Slider minimumValue={0} maximumValue={1} step={0.05} value={cue.volume} onSlidingStart={stopPreview} onValueChange={volume => onChange({ volume })} minimumTrackTintColor={tokens.accent} maximumTrackTintColor={tokens.surfaceHi} thumbTintColor={tokens.accent} accessibilityLabel={`${title} volume`} accessibilityValue={{ min: 0, max: 100, now: Math.round(cue.volume * 100), text: `${Math.round(cue.volume * 100)} percent` }} />
+    <View style={styles.volumeRow}><Slider style={styles.slider} minimumValue={0} maximumValue={1} step={0.05} value={cue.volume} onSlidingStart={stopPreview} onValueChange={volume => onChange({ volume })} minimumTrackTintColor={tokens.accent} maximumTrackTintColor={tokens.surfaceHi} thumbTintColor={tokens.accent} accessibilityLabel={`${title} volume`} accessibilityValue={{ min: 0, max: 100, now: Math.round(cue.volume * 100), text: `${Math.round(cue.volume * 100)} percent` }} /><Pressable onPress={() => void preview(cue.sound)} style={[styles.preview, { borderColor: tokens.border }]} accessibilityRole="button" accessibilityLabel={`${previewing === selectedKey ? 'Stop' : 'Preview'} selected sound`}><Text style={[styles.previewText, { color: tokens.accent }]}>{previewing === selectedKey ? '■' : '▶'}</Text></Pressable></View>
   </View>
 
   return (
-    <BottomSheet visible={visible} eyebrow="SOUND & LEVEL" title={title} onClose={close} footer={volumeFooter}>
+    <BottomSheet visible={visible} eyebrow="SOUND & LEVEL" title={title} onClose={close} onBack={onBack ? () => { stopPreview(); onBack() } : undefined} footer={volumeFooter}>
       <SegmentedControl items={SOUND_TABS} value={tab} onChange={value => { stopPreview(); setTab(value) }} accessibilityLabel="Sound source" />
 
       {message ? <GentleNotice title={message.title} message={message.detail} tone="attention" /> : null}
@@ -152,5 +152,6 @@ const styles = StyleSheet.create({
   footer: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 12, gap: 9 },
   label: { fontSize: 10, letterSpacing: 1.2, fontWeight: '700' },
   volumeHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  volumeRow: { flexDirection: 'row', alignItems: 'center', gap: 8 }, slider: { flex: 1, height: 38 },
   value: { fontFamily: 'JetBrainsMono-Regular', fontSize: 13 },
 })

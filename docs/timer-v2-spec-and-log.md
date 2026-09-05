@@ -2040,6 +2040,25 @@ This section is append-only. Every implementation session should record scope, m
 
 **Native/on-device verification still required:** Reproduce full Stop from the running activity and notification on the affected Android device; verify lock-screen alarm dismissal, Android Back behavior across the Sub-bell and sound drill-down, TalkBack order, keyboard handling, and sheet scrolling with native gesture dispatch. Local native builds remain prohibited by repository policy.
 
+### 2026-09-05 — Interaction and visual consistency pass
+
+- Added a persistent, ten-color primary-accent choice under Appearance. The palette opens in a sheet; the adjacent lightbulb independently switches dark/light mode. Accent-derived fills and glows now follow the chosen color throughout the UI.
+- Reused the same horizontal, single-row color rail for sub-bells and Appearance. Sub-bell progress rings retain their individual colors and now use the same stroke weight as the main ring.
+- Moved setup Help beside the active Cycle/Sequence heading, below the mode selector, so it no longer compresses the selector.
+- Simplified the Sub-bells library to its useful hierarchy: active/cue summary, timing diagram, track rows and Add. The redundant mode eyebrow, duplicate title and group toggle were removed.
+- Kept parent sheets mounted during Sub-bell → track → sound and Mixer → sound drill-down. Back returns one level, Android hardware Back follows the same route, and Done remains available without shifting editable titles.
+- Introduced one shared text-action component for Done, Back, Duplicate, Remove, Delete, Cancel and Clear mute actions. Add-row controls remain intentionally visually distinct.
+- Expanded sub-bell cadence presets and added a one-tap First & last selection action. The timing grid now captures from touch-down and interpolates crossed cells, making taps and rapid paint gestures deterministic regardless of starting cell or direction.
+- Standardized cue-volume layouts: each cue has a full-width slider row with a fixed circular preview control; the global setup volume retains its circular Mixer control. The running mixer can preview the main/current reference cue at the selected master level.
+- Replaced Schedule's nested time picker with in-place, keyboard-safe `HH:MM` clock fields. Custom elapsed durations now use explicit hours/minutes fields and continue to support values beyond 24 hours; they deliberately do not use a time-of-day picker because that would change duration semantics.
+- Restored concise guidance under Run length and Align to clock, strengthened the editable-title underline, and made the shared sheet/config surfaces keyboard-avoiding on Android and iOS.
+- Configuration names now default to the current Cycle name (or loaded Sequence name). Saving a Cycle configuration applies that name to the working main interval as well as the saved copy.
+- Permissions now separate Android authorization from the user's feature preference. Exact timing is hidden once ready; notifications and call auto-mute are reversible switches. Call auto-mute's preference is serialized through the Android service so granted phone-state access never forces the behavior on.
+
+**Compatibility note:** `muteDuringCallsEnabled` is a new native timer-service field. The rest of this pass is JavaScript/asset compatible, but honoring a user-disabled call auto-mute setting while the app is backgrounded requires a new Android binary. Do not publish this commit as an OTA to an older production runtime.
+
+**Verification:** TypeScript (`npx tsc --noEmit`) and 60 Vitest cases passed. A 390×844 local web pass verified the Cycle setup, Appearance/light-dark switch, simplified Sub-bell library, track editor hierarchy, horizontal palettes, and inline Schedule editor with no render errors. Kotlin compilation and physical-device checks remain pending because local native builds are prohibited by repository policy. Verify stacked sheet transitions, Android Back, keyboard resizing, notification/call toggles, rapid grid painting, and call-active suppression on the next remote development build.
+
 **Risks or follow-ups:** The installed native module still clears `FLAG_SHOW_WHEN_LOCKED`/screen-on activity state from a synchronous exported function. The next store build should move activity-window work explicitly onto Android's main queue. This OTA pass deliberately avoids that Kotlin change so it can repair the currently distributed binary without requiring a replacement AAB.
 
 ### 2026-09-05 — Schedule editor and timeline clarity pass

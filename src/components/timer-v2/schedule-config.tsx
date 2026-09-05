@@ -1,13 +1,13 @@
-import { useState } from 'react'
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native'
+import { useEffect, useState } from 'react'
+import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import Animated, { FadeInDown, FadeOut, LinearTransition, useReducedMotion } from 'react-native-reanimated'
 import type { AvailabilityPolicy, WeeklyAvailabilityWindow } from '../../types'
 import { createProgramId, MAX_WEEKLY_WINDOWS } from '../../lib/timerV2'
 import { useTheme } from '../../theme/ThemeContext'
-import { TimeOfDayPicker } from '../TimeOfDayPicker'
 import { Toggle } from '../Toggle'
 import { formatTimeOfDay } from '../ActiveHoursConfig'
 import { AddRowButton } from './AddRowButton'
+import { SheetTextButton } from './SheetTextButton'
 
 interface Props {
   value: AvailabilityPolicy
@@ -30,7 +30,6 @@ export function ScheduleConfig({ value, onChange, showHeading = true, showEnable
   const { tokens } = useTheme()
   const reducedMotion = useReducedMotion()
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [timePicker, setTimePicker] = useState<{ id: string; edge: 'start' | 'end' } | null>(null)
   const activeCount = value.weeklyWindows.filter(window => window.enabled && (window.days & 0b1111111) !== 0).length
   const patchWindow = (id: string, patch: Partial<WeeklyAvailabilityWindow>) => onChange({ ...value, weeklyWindows: value.weeklyWindows.map(window => window.id === id ? { ...window, ...patch } : window) })
   const removeWindow = (window: WeeklyAvailabilityWindow) => Alert.alert('Remove time range?', `${windowSummary(window)} will be removed.`, [{ text: 'Cancel', style: 'cancel' }, { text: 'Remove', style: 'destructive', onPress: () => { onChange({ ...value, weeklyWindows: value.weeklyWindows.filter(item => item.id !== window.id) }); setEditingId(current => current === window.id ? null : current) } }])
@@ -54,23 +53,64 @@ export function ScheduleConfig({ value, onChange, showHeading = true, showEnable
         return <Animated.View key={window.id} layout={reducedMotion ? undefined : LinearTransition.duration(150)} style={[styles.window, { borderBottomColor: tokens.border, opacity: window.enabled ? 1 : 0.55 }]}>
           <View style={styles.windowHead}><Pressable onPress={() => setEditingId(editing ? null : window.id)} style={styles.flex} accessibilityRole="button" accessibilityLabel={`Edit ${windowSummary(window)}`}><Text style={[styles.rowTitle, { color: tokens.text }]}>{formatRange(window)}</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{daySummary(window.days)}</Text></Pressable><Toggle value={window.enabled} onChange={enabled => patchWindow(window.id, { enabled })} accessibilityLabel={`Enable time range ${index + 1}`} /></View>
           {editing ? <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 150)} exiting={FadeOut.duration(reducedMotion ? 70 : 100)} style={styles.editor}>
-            <View style={styles.range}><TimeButton label={`Starts ${formatTimeOfDay(window.startMinutes)}`} value={formatTimeOfDay(window.startMinutes)} onPress={() => setTimePicker({ id: window.id, edge: 'start' })} /><Text style={[styles.to, { color: tokens.textMuted }]}>to</Text><TimeButton label={`Ends ${formatTimeOfDay(window.endMinutes)}`} value={formatTimeOfDay(window.endMinutes)} onPress={() => setTimePicker({ id: window.id, edge: 'end' })} /></View>
+            <View style={styles.range}><ClockTimeInput label="Starts" value={window.startMinutes} onChange={startMinutes => patchWindow(window.id, { startMinutes })} /><Text style={[styles.to, { color: tokens.textMuted }]}>to</Text><ClockTimeInput label="Ends" value={window.endMinutes} onChange={endMinutes => patchWindow(window.id, { endMinutes })} /></View>
             <View style={styles.days}>{DAYS.map(day => { const selected = (window.days & day.bit) !== 0; return <Pressable key={day.name} onPress={() => patchWindow(window.id, { days: selected ? window.days & ~day.bit : window.days | day.bit })} accessibilityRole="button" accessibilityLabel={day.name} accessibilityState={{ selected }} style={[styles.day, { borderColor: selected ? tokens.accent : tokens.border, backgroundColor: selected ? tokens.accentGlow : 'transparent' }]}><Text style={[styles.dayText, { color: selected ? tokens.accent : tokens.textMuted }]}>{day.short}</Text></Pressable> })}</View>
             {window.startMinutes === window.endMinutes ? <Text style={[styles.helper, { color: tokens.textMuted }]}>Same start and end means all day on these days.</Text> : null}
             {window.days === 0 ? <Text accessibilityRole="alert" style={[styles.helper, { color: tokens.warm }]}>Choose at least one day, or switch this range off.</Text> : null}
-            <Pressable onPress={() => removeWindow(window)} accessibilityRole="button" accessibilityLabel={`Remove ${windowSummary(window)}`} style={({ pressed }) => [styles.removeButton, { borderColor: tokens.warm, backgroundColor: pressed ? tokens.warmGlow : 'transparent' }]}><Text style={[styles.remove, { color: tokens.warm }]}>Remove this time range</Text></Pressable>
+            <SheetTextButton label="Remove time range" tone="danger" onPress={() => removeWindow(window)} accessibilityLabel={`Remove ${windowSummary(window)}`} />
           </Animated.View> : null}
         </Animated.View>
       })}
       <AddRowButton disabled={value.weeklyWindows.length >= MAX_WEEKLY_WINDOWS} onPress={addWindow} title={value.weeklyWindows.length >= MAX_WEEKLY_WINDOWS ? '16 range limit reached' : '+ Add time range'} />
     </Animated.View> : null}
-    {timePicker ? <TimeOfDayPicker title={timePicker.edge === 'start' ? 'Starts at' : 'Ends at'} initial={(value.weeklyWindows.find(window => window.id === timePicker.id)?.[timePicker.edge === 'start' ? 'startMinutes' : 'endMinutes']) ?? 0} onConfirm={minutes => { patchWindow(timePicker.id, timePicker.edge === 'start' ? { startMinutes: minutes } : { endMinutes: minutes }); setTimePicker(null) }} onClose={() => setTimePicker(null)} /> : null}
   </View>
 }
 
-function TimeButton({ label, value, onPress }: { label: string; value: string; onPress: () => void }) {
+function ClockTimeInput({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
   const { tokens } = useTheme()
-  return <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={label} style={({ pressed }) => [styles.time, { borderColor: tokens.border, opacity: pressed ? 0.72 : 1 }]}><Text style={[styles.timeText, { color: tokens.text }]}>{value}</Text></Pressable>
+  const [draft, setDraft] = useState(formatTimeOfDay(value))
+  const [focused, setFocused] = useState(false)
+  useEffect(() => { if (!focused) setDraft(formatTimeOfDay(value)) }, [focused, value])
+  const commit = () => {
+    const parsed = parseClockTime(draft)
+    setFocused(false)
+    if (parsed === null) setDraft(formatTimeOfDay(value))
+    else { onChange(parsed); setDraft(formatTimeOfDay(parsed)) }
+  }
+  return <View style={styles.timeField}>
+    <Text style={[styles.timeLabel, { color: tokens.textMuted }]}>{label.toUpperCase()}</Text>
+    <TextInput
+      value={draft}
+      onFocus={() => setFocused(true)}
+      onChangeText={text => setDraft(formatClockDraft(text))}
+      onBlur={commit}
+      onSubmitEditing={commit}
+      selectTextOnFocus
+      keyboardType="number-pad"
+      returnKeyType="done"
+      maxLength={5}
+      accessibilityLabel={`${label} time`}
+      style={[styles.time, styles.timeText, { color: tokens.text, borderColor: focused ? tokens.accent : tokens.border }]}
+    />
+  </View>
+}
+
+function formatClockDraft(value: string): string {
+  const digits = value.replace(/\D/g, '').slice(0, 4)
+  if (digits.length <= 2) return digits
+  return digits.length === 3 ? `0${digits[0]}:${digits.slice(1)}` : `${digits.slice(0, 2)}:${digits.slice(2)}`
+}
+
+function parseClockTime(value: string): number | null {
+  if (/^\d{1,2}$/.test(value.trim())) {
+    const hours = Number(value.trim())
+    return hours <= 23 ? hours * 60 : null
+  }
+  const match = value.trim().match(/^(\d{1,2}):?(\d{2})$/)
+  if (!match) return null
+  const hours = Number(match[1])
+  const minutes = Number(match[2])
+  return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59 ? hours * 60 + minutes : null
 }
 
 function daySummary(days: number): string {
@@ -93,7 +133,7 @@ function windowSummary(window: WeeklyAvailabilityWindow): string {
 const styles = StyleSheet.create({
   section: { gap: 12 }, toggleRow: { flexDirection: 'row', alignItems: 'center', gap: 14 }, flex: { flex: 1, minWidth: 0, gap: 3 }, eyebrow: { fontSize: 11, fontWeight: '700', letterSpacing: 1.3 }, helper: { fontSize: 12, lineHeight: 17 }, rowTitle: { fontSize: 14, fontWeight: '700' },
   windowList: { gap: 0 }, window: { paddingVertical: 10, gap: 12, borderBottomWidth: StyleSheet.hairlineWidth }, windowHead: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 12 }, editor: { gap: 12 },
-  range: { flexDirection: 'row', alignItems: 'center', gap: 9 }, time: { minWidth: 92, minHeight: 42, borderWidth: 1.5, borderRadius: 99, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 }, timeText: { fontFamily: 'JetBrainsMono-Regular', fontSize: 13, fontVariant: ['tabular-nums'] }, to: { fontSize: 12 },
-  days: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 }, day: { width: 40, height: 40, borderWidth: 1.5, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }, dayText: { fontSize: 10, fontWeight: '700' }, removeButton: { minHeight: 42, borderWidth: 1.25, borderRadius: 14, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 }, remove: { fontSize: 12, fontWeight: '700' },
+  range: { flexDirection: 'row', alignItems: 'flex-end', gap: 9 }, timeField: { flex: 1, gap: 5 }, timeLabel: { fontSize: 9, fontWeight: '700', letterSpacing: 1 }, time: { width: '100%', minHeight: 44, borderWidth: 1.5, borderRadius: 12, textAlign: 'center', paddingHorizontal: 12, paddingVertical: 10 }, timeText: { fontFamily: 'JetBrainsMono-Regular', fontSize: 14, fontVariant: ['tabular-nums'] }, to: { fontSize: 12, paddingBottom: 14 },
+  days: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 }, day: { width: 40, height: 40, borderWidth: 1.5, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }, dayText: { fontSize: 10, fontWeight: '700' },
   empty: { paddingVertical: 9, gap: 4 },
 })

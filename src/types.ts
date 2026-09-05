@@ -141,6 +141,7 @@ export interface AvailabilityPolicy {
 export interface AppTimerSettings {
   masterVolume: number
   notificationsEnabled: boolean
+  muteDuringCallsEnabled: boolean
   availability: AvailabilityPolicy
   focusAutomationEnabled: boolean
   alarmDurationSeconds: number

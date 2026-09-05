@@ -3,13 +3,14 @@ import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-nativ
 import * as Haptics from 'expo-haptics'
 import Animated, { FadeIn, FadeInDown, FadeOut, LinearTransition, useReducedMotion } from 'react-native-reanimated'
 import type { ProgramPreset, TimerMode, TimerV2State } from '../../types'
-import { deleteProgramPreset, loadProgramPreset, saveProgramPreset } from '../../lib/programActions'
+import { deleteProgramPreset, loadProgramPreset, saveProgramPreset, updatePattern } from '../../lib/programActions'
 import { soundTitle } from '../../lib/soundLibrary'
 import { useTheme } from '../../theme/ThemeContext'
 import { BottomSheet } from './BottomSheet'
 import { GentleNotice, type AppNotice } from './experience-feedback'
 import { formatDuration } from './run-length-config'
 import { SegmentedControl } from './SegmentedControl'
+import { SheetTextButton } from './SheetTextButton'
 
 const FILTERS = [{ value: 'all', label: 'All' }, { value: 'pattern', label: 'Cycle' }, { value: 'sequence', label: 'Sequence' }] as const
 
@@ -48,7 +49,10 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedba
   const canSave = name.trim().length > 0
 
   useEffect(() => {
-    if (!visible) {
+    if (visible) {
+      const sourceName = state.workingPrograms.sourcePreset?.name
+      setName(state.workingPrograms.selectedMode === 'pattern' ? state.workingPrograms.pattern.label : sourceName ?? 'Sequence')
+    } else {
       setSavedName(null)
       setSelectedId(null)
     }
@@ -57,10 +61,13 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedba
   const save = () => {
     if (!canSave) return
     const cleanName = name.trim()
-    onChange(saveProgramPreset(state, cleanName))
+    const namedState = state.workingPrograms.selectedMode === 'pattern'
+      ? updatePattern(state, program => ({ ...program, label: cleanName }))
+      : state
+    onChange(saveProgramPreset(namedState, cleanName))
     setSavedName(cleanName)
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined)
-    setName('')
+    setName(cleanName)
   }
   const remove = (preset: ProgramPreset) => Alert.alert('Delete configuration?', `“${preset.name}”, saved ${new Date(preset.createdAt).toLocaleString()}, will be removed. Your current working copy will not change.`, [
     { text: 'Cancel', style: 'cancel' },
@@ -87,7 +94,7 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedba
       {!selected ? <SegmentedControl items={FILTERS} value={filter} onChange={setFilter} accessibilityLabel="Configuration type" /> : null}
       {selected ? <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 130)} style={[styles.inspector, { borderColor: tokens.accent, backgroundColor: tokens.accentGlow }]}>
         <View style={styles.copy}><Text style={[styles.presetTitle, { color: tokens.text }]}>{selected.name}</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{selected.program.mode === 'pattern' ? `Cycle · ${summary(selected)}` : `Sequence · ${summary(selected)}`}</Text><Text style={[styles.date, { color: tokens.textMuted }]}>Saved {new Date(selected.createdAt).toLocaleString()}</Text><PresetDetails preset={selected} /><Text style={[styles.helper, { color: tokens.textMuted }]}>Loads as a new working copy.</Text></View>
-        <View style={styles.inspectorActions}><Pressable onPress={() => remove(selected)} accessibilityRole="button"><Text style={[styles.delete, { color: tokens.textMuted }]}>Delete</Text></Pressable><View style={styles.inspectorPrimary}><Pressable onPress={() => setSelectedId(null)} accessibilityRole="button"><Text style={[styles.action, { color: tokens.textMuted }]}>Cancel</Text></Pressable><Pressable onPress={() => { onChange(loadProgramPreset(state, selected.id)); setSelectedId(null); onClose(); onFeedback({ title: 'Configuration loaded', message: `“${selected.name}” is ready to adjust.`, tone: 'success' }) }} style={[styles.loadButton, { backgroundColor: tokens.accent }]} accessibilityRole="button"><Text style={styles.loadText}>Load</Text></Pressable></View></View>
+        <View style={styles.inspectorActions}><SheetTextButton label="Delete" tone="muted" onPress={() => remove(selected)} /><View style={styles.inspectorPrimary}><SheetTextButton label="Cancel" tone="muted" onPress={() => setSelectedId(null)} /><Pressable onPress={() => { onChange(loadProgramPreset(state, selected.id)); setSelectedId(null); onClose(); onFeedback({ title: 'Configuration loaded', message: `“${selected.name}” is ready to adjust.`, tone: 'success' }) }} style={[styles.loadButton, { backgroundColor: tokens.accent }]} accessibilityRole="button"><Text style={styles.loadText}>Load</Text></Pressable></View></View>
       </Animated.View> : null}
       {!selected ? <View style={styles.list}>
         {presets.length === 0 ? <GentleNotice title={state.presets.length === 0 ? 'No saved configurations yet' : `No ${filter === 'pattern' ? 'Cycle' : 'Sequence'} configurations`} message={state.presets.length === 0 ? 'Name the current setup above to save it.' : 'Try All or save the current setup.'} /> : presets.map(preset => {

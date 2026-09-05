@@ -30,6 +30,7 @@ class TimerConfigRecord : Record {
   @Field var subEnabled: Boolean? = null
   @Field var volume: Float? = null
   @Field var notificationsEnabled: Boolean? = null
+  @Field var muteDuringCallsEnabled: Boolean? = null
   @Field var focusModeEnabled: Boolean? = null
   @Field var alarmModeEnabled: Boolean? = null
   @Field var activeHoursEnabled: Boolean? = null
@@ -168,6 +169,7 @@ class ChandasTimerServiceModule : Module() {
           "subEnabled" to config.subEnabled,
           "volume" to config.volume,
           "notificationsEnabled" to config.notificationsEnabled,
+          "muteDuringCallsEnabled" to config.muteDuringCallsEnabled,
           "focusModeEnabled" to config.focusModeEnabled,
           "alarmModeEnabled" to config.alarmModeEnabled,
           "activeHoursEnabled" to config.activeHoursEnabled,
@@ -429,6 +431,7 @@ class ChandasTimerServiceModule : Module() {
       subEnabled = record.subEnabled ?: previous?.subEnabled ?: true,
       volume = (record.volume ?: previous?.volume ?: 0.8f).coerceIn(0f, 1f),
       notificationsEnabled = record.notificationsEnabled ?: previous?.notificationsEnabled ?: true,
+      muteDuringCallsEnabled = record.muteDuringCallsEnabled ?: previous?.muteDuringCallsEnabled ?: true,
       focusModeEnabled = record.focusModeEnabled ?: previous?.focusModeEnabled ?: false,
       alarmModeEnabled = record.alarmModeEnabled ?: previous?.alarmModeEnabled ?: false,
       activeHoursEnabled = record.activeHoursEnabled ?: previous?.activeHoursEnabled ?: false,

@@ -25,7 +25,7 @@ export function RunLengthConfig({ mode, value, cycleDurationSeconds, onChange }:
   const totalSeconds = value.kind === 'cycles' ? value.cycleCount * cycleDurationSeconds : value.durationSeconds
 
   return <View style={styles.section}>
-    <Text style={[styles.eyebrow, { color: tokens.textMuted }]}>RUN LENGTH</Text>
+    <View style={styles.heading}><Text style={[styles.eyebrow, { color: tokens.textMuted }]}>RUN LENGTH</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>Choose when this run finishes.</Text></View>
     <SegmentedControl items={choices} value={value.kind} onChange={kind => onChange({ ...value, kind })} accessibilityLabel="Run length" />
     {value.kind !== 'continuous' ? <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 170)} exiting={FadeOut.duration(reducedMotion ? 70 : 110)} layout={reducedMotion ? undefined : LinearTransition.duration(150)}>
       {value.kind === 'cycles'
@@ -85,7 +85,7 @@ function formatCompactDuration(seconds: number): string {
 }
 
 const styles = StyleSheet.create({
-  section: { gap: 10 }, eyebrow: { fontSize: 11, fontWeight: '700', letterSpacing: 1.3 },
+  section: { gap: 10 }, heading: { gap: 3 }, eyebrow: { fontSize: 11, fontWeight: '700', letterSpacing: 1.3 }, helper: { fontSize: 11, lineHeight: 15 },
   cycleRow: { alignItems: 'center' }, stepper: { alignItems: 'center', gap: 5 }, valueRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12 }, cycleCaption: { flexDirection: 'row', alignItems: 'center', gap: 6 }, equivalent: { fontFamily: 'JetBrainsMono-Regular', fontSize: 10 }, step: { width: 44, height: 44, borderWidth: 1.5, borderRadius: 22, alignItems: 'center', justifyContent: 'center' }, stepGlyph: { fontSize: 22, lineHeight: 24, textAlignVertical: 'center' },
   durationRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'center', gap: 8 }, colon: { fontFamily: 'JetBrainsMono-Regular', fontSize: 24, paddingTop: 8 }, fieldWrap: { alignItems: 'center', gap: 5 }, field: { width: 70, minHeight: 44, borderWidth: 1.5, borderRadius: 12, textAlign: 'center', fontFamily: 'JetBrainsMono-Regular', fontSize: 19, fontVariant: ['tabular-nums'], paddingHorizontal: 5 }, fieldLabel: { fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.6 },
 })

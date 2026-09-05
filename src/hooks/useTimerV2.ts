@@ -126,6 +126,7 @@ function nativeConfigFor(program: TimerProgram, settings: AppTimerSettings, anch
     subEnabled: false,
     volume: settings.masterVolume,
     notificationsEnabled: settings.notificationsEnabled,
+    muteDuringCallsEnabled: settings.muteDuringCallsEnabled,
     focusModeEnabled: settings.focusAutomationEnabled,
     alarmModeEnabled,
     activeHoursEnabled: availability.enabled,

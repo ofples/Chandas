@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useTheme } from '../theme/ThemeContext'
+import { BottomSheet } from './timer-v2/BottomSheet'
 
 interface Props {
   title: string
@@ -12,115 +12,45 @@ interface Props {
   onClose: () => void
 }
 
-// Bottom-sheet numeric picker — ported from legacy-web .modal-overlay/.modal-sheet.
+/** Elapsed-duration editor. Deliberately not a clock picker: durations may exceed 24 hours. */
 export function CustomMinutePicker({ title, initial, min = 1, max = 59, onConfirm, onClose }: Props) {
   const { tokens } = useTheme()
-  const insets = useSafeAreaInsets()
-  const [text, setText] = useState(String(initial))
+  const [hours, setHours] = useState(String(Math.floor(initial / 60)))
+  const [minutes, setMinutes] = useState(String(initial % 60))
 
   const handleConfirm = () => {
-    const parsed = parseInt(text, 10)
-    const value = Number.isFinite(parsed) ? parsed : initial
-    onConfirm(Math.max(min, Math.min(max, value)))
+    const parsedHours = Number.parseInt(hours, 10)
+    const parsedMinutes = Number.parseInt(minutes, 10)
+    const total = (Number.isFinite(parsedHours) ? parsedHours : 0) * 60 + (Number.isFinite(parsedMinutes) ? parsedMinutes : 0)
+    onConfirm(Math.max(min, Math.min(max, total || initial)))
   }
 
-  return (
-    <Modal transparent animationType="fade" visible onRequestClose={onClose}>
-      <KeyboardAvoidingView
-        style={styles.keyboardAvoider}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
-        <Pressable style={styles.overlay} onPress={onClose} accessible={false}>
-          <Pressable
-            style={[
-              styles.sheet,
-              { backgroundColor: tokens.surface, borderColor: tokens.border, paddingBottom: insets.bottom + 32 },
-            ]}
-            onPress={e => e.stopPropagation()}
-            accessibilityViewIsModal
-          >
-            <Text style={[styles.title, { color: tokens.textMuted }]}>{title}</Text>
-            <View style={styles.inputRow}>
-              <TextInput
-                style={[styles.input, { backgroundColor: tokens.surfaceHi, borderColor: tokens.border, color: tokens.text }]}
-                value={text}
-                onChangeText={setText}
-                keyboardType="number-pad"
-                autoFocus
-                selectTextOnFocus
-                onSubmitEditing={handleConfirm}
-                accessibilityLabel={title}
-              />
-              <Text style={[styles.unit, { color: tokens.textMuted }]}>min</Text>
-            </View>
-            <Pressable
-              style={[styles.confirm, { backgroundColor: tokens.accent }]}
-              onPress={handleConfirm}
-              accessibilityRole="button"
-              accessibilityLabel={`Set ${title}`}
-            >
-              <Text style={styles.confirmLabel}>Set</Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      </KeyboardAvoidingView>
-    </Modal>
-  )
+  return <BottomSheet visible title={title} onClose={onClose} scroll={false}>
+    <Text style={[styles.helper, { color: tokens.textMuted }]}>Set an elapsed duration.</Text>
+    <View style={styles.fields}>
+      <DurationField label="Hours" value={hours} onChange={setHours} maxLength={3} />
+      <Text style={[styles.colon, { color: tokens.textMuted }]}>:</Text>
+      <DurationField label="Minutes" value={minutes} onChange={value => setMinutes(value ? String(Math.min(59, Number(value))) : '')} maxLength={2} />
+    </View>
+    <Pressable onPress={handleConfirm} accessibilityRole="button" accessibilityLabel={`Set ${title}`} style={({ pressed }) => [styles.confirm, { backgroundColor: tokens.accent, opacity: pressed ? 0.76 : 1 }]}><Text style={styles.confirmLabel}>Set duration</Text></Pressable>
+  </BottomSheet>
+}
+
+function DurationField({ label, value, onChange, maxLength }: { label: string; value: string; onChange: (value: string) => void; maxLength: number }) {
+  const { tokens } = useTheme()
+  return <View style={styles.fieldWrap}>
+    <TextInput autoFocus={label === 'Hours'} value={value} onChangeText={text => onChange(text.replace(/\D/g, '').slice(0, maxLength))} keyboardType="number-pad" selectTextOnFocus maxLength={maxLength} style={[styles.input, { backgroundColor: tokens.surfaceHi, borderColor: tokens.border, color: tokens.text }]} accessibilityLabel={label} />
+    <Text style={[styles.label, { color: tokens.textMuted }]}>{label.toUpperCase()}</Text>
+  </View>
 }
 
 const styles = StyleSheet.create({
-  keyboardAvoider: {
-    flex: 1,
-  },
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    borderWidth: 1.5,
-    borderBottomWidth: 0,
-    padding: 24,
-    gap: 16,
-  },
-  title: {
-    fontSize: 13,
-    fontWeight: '500',
-    letterSpacing: 1.3,
-    textTransform: 'uppercase',
-  },
-  inputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-  },
-  input: {
-    width: 170,
-    borderWidth: 1.5,
-    borderRadius: 10,
-    fontFamily: 'JetBrainsMono-Light',
-    fontSize: 32,
-    fontWeight: '300',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    textAlign: 'center',
-  },
-  unit: {
-    width: 28,
-    fontSize: 13,
-  },
-  confirm: {
-    paddingVertical: 14,
-    borderRadius: 9999,
-    alignItems: 'center',
-  },
-  confirmLabel: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-    letterSpacing: 0.8,
-  },
+  helper: { fontSize: 12, lineHeight: 17 },
+  fields: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'center', gap: 9, paddingVertical: 4 },
+  fieldWrap: { alignItems: 'center', gap: 6 },
+  input: { width: 86, minHeight: 52, borderWidth: 1.5, borderRadius: 12, fontFamily: 'JetBrainsMono-Regular', fontSize: 24, paddingHorizontal: 8, textAlign: 'center', fontVariant: ['tabular-nums'] },
+  label: { fontSize: 9, fontWeight: '700', letterSpacing: 1 },
+  colon: { fontFamily: 'JetBrainsMono-Regular', fontSize: 24, paddingTop: 10 },
+  confirm: { minHeight: 48, borderRadius: 99, alignItems: 'center', justifyContent: 'center' },
+  confirmLabel: { color: '#fff', fontSize: 14, fontWeight: '700' },
 })

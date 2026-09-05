@@ -18,6 +18,7 @@ export interface NativeTimerConfig {
   subEnabled: boolean
   volume: number       // 0–1, gong/bell volume
   notificationsEnabled: boolean
+  muteDuringCallsEnabled?: boolean
   focusModeEnabled: boolean
   alarmModeEnabled: boolean // main gong becomes a continuous, dismissable alarm
   activeHoursEnabled: boolean
@@ -62,6 +63,7 @@ export interface NativeTimerState {
   subEnabled?: boolean
   volume?: number
   notificationsEnabled?: boolean
+  muteDuringCallsEnabled?: boolean
   focusModeEnabled?: boolean
   alarmModeEnabled?: boolean
   activeHoursEnabled?: boolean

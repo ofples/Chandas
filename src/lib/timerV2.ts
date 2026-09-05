@@ -137,6 +137,7 @@ export function defaultAppTimerSettings(): AppTimerSettings {
   return {
     masterVolume: 0.8,
     notificationsEnabled: true,
+    muteDuringCallsEnabled: true,
     availability: defaultAvailabilityPolicy(),
     focusAutomationEnabled: false,
     alarmDurationSeconds: 60,
@@ -357,6 +358,7 @@ export function migrateLegacyConfig(legacy: Partial<TimerConfig>): TimerV2State 
     settings: {
       masterVolume: clampVolume(legacy.volume, defaults.masterVolume),
       notificationsEnabled: legacy.notificationsEnabled !== false,
+      muteDuringCallsEnabled: true,
       availability: {
         enabled: legacy.activeHoursEnabled === true,
         weeklyWindows: [{
