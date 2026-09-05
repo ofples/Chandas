@@ -30,6 +30,7 @@ class TimerConfigRecord : Record {
   @Field var subEnabled: Boolean? = null
   @Field var volume: Float? = null
   @Field var notificationsEnabled: Boolean? = null
+  @Field var notificationPresentation: String? = null
   @Field var muteDuringCallsEnabled: Boolean? = null
   @Field var focusModeEnabled: Boolean? = null
   @Field var alarmModeEnabled: Boolean? = null
@@ -93,6 +94,25 @@ class ChandasTimerServiceModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("ChandasTimerService")
     Events("onAlarmStateChanged", "onControlStateChanged", "onTimerEventFired", "onFocusStateChanged", "onTimerStateChanged")
+
+    Function("getCapabilities") {
+      bundleOf(
+        "contractVersion" to NativeTimerContract.CONTRACT_VERSION,
+        "programSchemaMin" to NativeTimerContract.PROGRAM_SCHEMA_MIN,
+        "programSchemaMax" to NativeTimerContract.PROGRAM_SCHEMA_MAX,
+        "maxPatternTracks" to NativeTimerContract.MAX_PATTERN_TRACKS,
+        "maxSequenceSteps" to NativeTimerContract.MAX_SEQUENCE_STEPS,
+        "maxCueDurationMinutes" to NativeTimerContract.MAX_CUE_DURATION_MINUTES,
+        "maxRunCycles" to NativeTimerContract.MAX_RUN_CYCLES,
+        "maxRunDurationSeconds" to NativeTimerContract.MAX_RUN_DURATION_SECONDS,
+        "maxMuteIterations" to NativeTimerContract.MAX_MUTE_ITERATIONS,
+        "maxMuteMinutes" to NativeTimerContract.MAX_MUTE_MINUTES,
+        "maxNotificationPresentationCharacters" to TimerNotificationCopy.MAX_SERIALIZED_CHARACTERS,
+        "supportsCachedBuiltInSounds" to true,
+        "supportsRawFocusState" to true,
+        "supportsNotificationPresentation" to true,
+      )
+    }
 
     Function("start") { record: TimerConfigRecord ->
       val context = appContext.reactContext ?: return@Function false
@@ -169,6 +189,7 @@ class ChandasTimerServiceModule : Module() {
           "subEnabled" to config.subEnabled,
           "volume" to config.volume,
           "notificationsEnabled" to config.notificationsEnabled,
+          "notificationPresentation" to config.notificationPresentation,
           "muteDuringCallsEnabled" to config.muteDuringCallsEnabled,
           "focusModeEnabled" to config.focusModeEnabled,
           "alarmModeEnabled" to config.alarmModeEnabled,
@@ -436,6 +457,8 @@ class ChandasTimerServiceModule : Module() {
       subEnabled = record.subEnabled ?: previous?.subEnabled ?: true,
       volume = (record.volume ?: previous?.volume ?: 0.8f).coerceIn(0f, 1f),
       notificationsEnabled = record.notificationsEnabled ?: previous?.notificationsEnabled ?: true,
+      notificationPresentation = (record.notificationPresentation ?: previous?.notificationPresentation)
+        ?.takeIf { it.length <= TimerNotificationCopy.MAX_SERIALIZED_CHARACTERS },
       muteDuringCallsEnabled = record.muteDuringCallsEnabled ?: previous?.muteDuringCallsEnabled ?: true,
       focusModeEnabled = record.focusModeEnabled ?: previous?.focusModeEnabled ?: false,
       alarmModeEnabled = record.alarmModeEnabled ?: previous?.alarmModeEnabled ?: false,
@@ -469,6 +492,11 @@ class ChandasTimerServiceModule : Module() {
     "ruleEnabled" to state.ruleEnabled,
     "actual" to state.actual,
     "reason" to state.reason,
+    "timerRunning" to state.timerRunning,
+    "requestedActive" to state.requestedActive,
+    "pausedByAndroid" to state.pausedByAndroid,
+    "ruleWasRemoved" to state.ruleWasRemoved,
+    "withinActiveHours" to state.withinActiveHours,
   )
 
   private companion object {

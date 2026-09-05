@@ -98,7 +98,7 @@ class ChandasAlarmService : Service() {
     }
     stopHandled = false
     TimerNotifications.ensureChannels(this)
-    promoteForeground(buildNotification())
+    promoteForeground(buildNotification(config))
     TimerStateStore.setRinging(this, true)
     TimerStateStore.setAlarmVisible(this, true)
     AlarmStateRegistry.notify(true)
@@ -184,7 +184,8 @@ class ChandasAlarmService : Service() {
     stopSelf()
   }
 
-  private fun buildNotification(): Notification {
+  private fun buildNotification(config: TimerConfig): Notification {
+    val copy = TimerNotificationCopy.from(config.notificationPresentation)
     val launchIntent = (packageManager.getLaunchIntentForPackage(packageName) ?: Intent())
       .apply {
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -204,14 +205,14 @@ class ChandasAlarmService : Service() {
       PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
     val builder = NotificationCompat.Builder(this, TimerNotifications.ALARM_CHANNEL)
-      .setContentTitle("Chandas - Time's up")
-      .setContentText("Alarm is ringing")
+      .setContentTitle(copy.alarmTitle)
+      .setContentText(copy.alarmBody)
       .setSmallIcon(TimerNotifications.smallIcon(this))
       .setOngoing(true)
       .setCategory(NotificationCompat.CATEGORY_ALARM)
       .setPriority(NotificationCompat.PRIORITY_MAX)
       .setContentIntent(fullScreenIntent)
-      .addAction(0, "Stop alarm", stopPendingIntent)
+      .addAction(0, copy.stopAlarmAction, stopPendingIntent)
 
     val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     val canUseFullScreen = Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE ||

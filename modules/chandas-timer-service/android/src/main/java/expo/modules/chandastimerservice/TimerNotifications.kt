@@ -61,6 +61,7 @@ object TimerNotifications {
 
   fun postRunning(context: Context, config: TimerConfig) {
     val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    val copy = TimerNotificationCopy.from(config.notificationPresentation)
     if (!config.notificationsEnabled) {
       manager.cancel(RUNNING_ID)
       return
@@ -74,10 +75,10 @@ object TimerNotifications {
     val resumesAt = if (!activeNow || !activeAtNext) ActiveHours.nextStart(config, if (activeNow) next else now) else 0L
     val endsBeforeResume = config.timerV2EndsAt > 0L && resumesAt > 0L && resumesAt >= config.timerV2EndsAt
     val content = when {
-      event?.completesRun == true -> "Session ends at ${formatTime(next)}"
-      endsBeforeResume -> "Session ends at ${formatTime(config.timerV2EndsAt)}"
-      activeNow && activeAtNext -> "Next cue at ${formatTime(next)}"
-      else -> "Resumes at ${formatTime(resumesAt)}"
+      event?.completesRun == true -> copy.sessionEnds(formatTime(next))
+      endsBeforeResume -> copy.sessionEnds(formatTime(config.timerV2EndsAt))
+      activeNow && activeAtNext -> copy.nextCue(formatTime(next))
+      else -> copy.resumes(formatTime(resumesAt))
     }
     val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
     val contentIntent = launchIntent?.let {
@@ -97,13 +98,13 @@ object TimerNotifications {
     runCatching { manager.notify(
       RUNNING_ID,
       NotificationCompat.Builder(context, RUNNING_CHANNEL)
-        .setContentTitle("Chandas")
+        .setContentTitle(copy.runningTitle)
         .setContentText(content)
         .setSmallIcon(smallIcon(context))
         .setOngoing(true)
         .setOnlyAlertOnce(true)
         .setContentIntent(contentIntent)
-        .addAction(0, "Stop timer", stopIntent)
+        .addAction(0, copy.stopTimerAction, stopIntent)
         .setPriority(NotificationCompat.PRIORITY_LOW)
         .build(),
     ) }
@@ -113,6 +114,7 @@ object TimerNotifications {
     if (type == TimerEventType.ACTIVE_START || type == TimerEventType.REALIGN) return
     if (!config.notificationsEnabled) return
     ensureChannels(context)
+    val copy = TimerNotificationCopy.from(config.notificationPresentation)
     val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
     val contentIntent = launchIntent?.let {
@@ -123,12 +125,12 @@ object TimerNotifications {
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
       )
     }
-    val label = if (type == TimerEventType.MAIN) "Gong" else if (type == TimerEventType.V2) "Cue" else "Bell"
+    val title = if (type == TimerEventType.MAIN) copy.mainEventTitle else if (type == TimerEventType.V2) copy.cueEventTitle else copy.bellEventTitle
     runCatching { manager.notify(
       EVENT_ID,
       NotificationCompat.Builder(context, EVENT_CHANNEL)
-        .setContentTitle("Chandas $label")
-        .setContentText("Timer interval reached")
+        .setContentTitle(title)
+        .setContentText(copy.eventBody)
         .setSmallIcon(smallIcon(context))
         .setAutoCancel(true)
         .setTimeoutAfter(8_000L)

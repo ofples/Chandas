@@ -29,6 +29,7 @@ object TimerStateStore {
       .putBoolean("subEnabled", config.subEnabled)
       .putFloat("volume", config.volume)
       .putBoolean("notificationsEnabled", config.notificationsEnabled)
+      .putString("notificationPresentation", config.notificationPresentation)
       .putBoolean("muteDuringCallsEnabled", config.muteDuringCallsEnabled)
       .putBoolean("focusModeEnabled", config.focusModeEnabled)
       .putBoolean("alarmModeEnabled", config.alarmModeEnabled)
@@ -60,6 +61,7 @@ object TimerStateStore {
       subEnabled = prefs.getBoolean("subEnabled", true),
       volume = prefs.getFloat("volume", 0.8f).coerceIn(0f, 1f),
       notificationsEnabled = prefs.getBoolean("notificationsEnabled", true),
+      notificationPresentation = prefs.getString("notificationPresentation", null),
       muteDuringCallsEnabled = prefs.getBoolean("muteDuringCallsEnabled", true),
       focusModeEnabled = prefs.getBoolean("focusModeEnabled", false),
       alarmModeEnabled = prefs.getBoolean("alarmModeEnabled", false),
@@ -187,19 +189,19 @@ object TimerStateStore {
     val config = load(context)
     val v2End = config?.timerV2Program?.let { TimerV2Timeline.iterationEnd(it, config.timerV2Anchor, System.currentTimeMillis(), count) }
     if (v2End != null) {
-      editor.putInt(MUTED_ITERATIONS, count.coerceIn(1, 99))
+      editor.putInt(MUTED_ITERATIONS, count.coerceIn(1, NativeTimerContract.MAX_MUTE_ITERATIONS))
         .putString(MUTED_ITERATION_END_ID, v2End.logicalId)
         .putLong(MUTED_ITERATION_END_AT, v2End.at)
     } else {
       editor.remove(MUTED_ITERATION_END_ID).remove(MUTED_ITERATION_END_AT)
-        .putInt(MUTED_ITERATIONS, count.coerceIn(1, 99))
+        .putInt(MUTED_ITERATIONS, count.coerceIn(1, NativeTimerContract.MAX_MUTE_ITERATIONS))
     }
     editor.commit()
     return getControlState(context).also(TimerControlRegistry::notify)
   }
 
   fun muteForMinutes(context: Context, minutes: Int): TimerControlState {
-    val until = System.currentTimeMillis() + minutes.coerceIn(1, 1_440) * 60_000L
+    val until = System.currentTimeMillis() + minutes.coerceIn(1, NativeTimerContract.MAX_MUTE_MINUTES) * 60_000L
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
       .putLong(MUTED_UNTIL, until)
       .remove(MUTED_ITERATIONS)
@@ -237,7 +239,7 @@ object TimerStateStore {
     if (!mutedIterationEndId.isNullOrBlank() && mutedIterationEndAt > 0L) {
       editor.putString(MUTED_ITERATION_END_ID, mutedIterationEndId)
         .putLong(MUTED_ITERATION_END_AT, mutedIterationEndAt)
-        .putInt(MUTED_ITERATIONS, mutedIterationCount.coerceIn(1, 99))
+        .putInt(MUTED_ITERATIONS, mutedIterationCount.coerceIn(1, NativeTimerContract.MAX_MUTE_ITERATIONS))
     }
     editor.commit()
     return getControlState(context).also(TimerControlRegistry::notify)

@@ -149,7 +149,20 @@ object FocusModeController {
         setAutomationEnabled(context, true)
         TimerStateStore.load(context)?.let { TimerStateStore.save(context, it.copy(focusModeEnabled = true)) }
       }
-      NotificationManager.AUTOMATIC_RULE_STATUS_DEACTIVATED -> setPausedByAndroid(context, true)
+      NotificationManager.AUTOMATIC_RULE_STATUS_DEACTIVATED -> {
+        // Android 15 defines this status as a user snooze, but some devices can
+        // deliver it after our own false condition. Once Chandas has stopped or
+        // left an active window, that late broadcast must not manufacture a
+        // persistent "Paused by Android" state.
+        setPausedByAndroid(
+          context,
+          shouldTreatDeactivationAsPause(
+            requestedActive = requestedActive(context),
+            automationEnabled = automationEnabled(context),
+            timerRunning = TimerStateStore.load(context) != null,
+          ),
+        )
+      }
       NotificationManager.AUTOMATIC_RULE_STATUS_DISABLED -> disableAutomationFromAndroid(context)
       NotificationManager.AUTOMATIC_RULE_STATUS_REMOVED -> {
         clearStoredRule(context)
@@ -174,7 +187,24 @@ object FocusModeController {
     val access = hasPolicyAccess(context)
     var automation = automationEnabled(context)
     val config = TimerStateStore.load(context)
-    if (!access) return NativeFocusState(false, automation, false, false, "unknown", if (automation) "access-required" else "off")
+    val timerRunning = config != null
+    var requested = requestedActive(context)
+    var paused = pausedByAndroid(context)
+    var removed = ruleWasRemoved(context)
+    val withinActiveHours = config?.let(ActiveHours::isActive) == true
+    if (!access) return NativeFocusState(
+      policyAccess = false,
+      automationEnabled = automation,
+      ruleExists = false,
+      ruleEnabled = false,
+      actual = "unknown",
+      reason = if (automation) "access-required" else "off",
+      timerRunning = timerRunning,
+      requestedActive = requested,
+      pausedByAndroid = paused,
+      ruleWasRemoved = removed,
+      withinActiveHours = withinActiveHours,
+    )
 
     val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     val id = storedRuleId(context)
@@ -191,6 +221,11 @@ object FocusModeController {
       disableAutomationFromAndroid(context)
       automation = false
     }
+    // A missing/disabled rule can repair persisted state above. Report the
+    // repaired facts rather than the snapshot captured before that repair.
+    requested = requestedActive(context)
+    paused = pausedByAndroid(context)
+    removed = ruleWasRemoved(context)
     val exists = rule != null
     val enabled = rule?.isEnabled == true
     val actual = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM && id != null && enabled) {
@@ -207,19 +242,37 @@ object FocusModeController {
     }
 
     val reason = when {
-      ruleWasRemoved(context) -> "rule-disabled"
+      removed -> "rule-disabled"
       exists && !enabled -> "rule-disabled"
       !automation -> "off"
-      !exists && config == null -> "timer-stopped"
-      pausedByAndroid(context) -> "paused-by-android"
+      !timerRunning -> "timer-stopped"
+      paused && requested -> "paused-by-android"
       actual == "active" -> "active"
-      config == null -> "timer-stopped"
-      !ActiveHours.isActive(config) -> "outside-active-hours"
+      !withinActiveHours -> "outside-active-hours"
       !exists -> "unknown"
       else -> "unknown"
     }
-    return NativeFocusState(access, automation, exists, enabled, actual, reason)
+    return NativeFocusState(
+      policyAccess = access,
+      automationEnabled = automation,
+      ruleExists = exists,
+      ruleEnabled = enabled,
+      actual = actual,
+      reason = reason,
+      timerRunning = timerRunning,
+      requestedActive = requested,
+      pausedByAndroid = paused,
+      ruleWasRemoved = removed,
+      withinActiveHours = withinActiveHours,
+    )
   }
+
+  /** Pure policy seam kept independently testable from Android framework state. */
+  internal fun shouldTreatDeactivationAsPause(
+    requestedActive: Boolean,
+    automationEnabled: Boolean,
+    timerRunning: Boolean,
+  ): Boolean = requestedActive && automationEnabled && timerRunning
 
   private fun disableAutomationFromAndroid(context: Context) {
     setAutomationEnabled(context, false)

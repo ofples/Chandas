@@ -11,6 +11,7 @@ import { createAudioPlayer, type AudioPlayer } from 'expo-audio'
 import { Asset } from 'expo-asset'
 import type { BuiltInSoundId, SoundRef } from '../types'
 import { BUILT_IN_SOUNDS, sourceForSound } from '../lib/soundLibrary'
+import { normalizeNativeFocusState } from '../lib/focusState'
 
 export interface NativeTimerConfig {
   mainMs: number
@@ -19,6 +20,8 @@ export interface NativeTimerConfig {
   subEnabled: boolean
   volume: number       // 0–1, gong/bell volume
   notificationsEnabled: boolean
+  /** Serialized user-facing notification copy for the stable native engine. */
+  notificationPresentation?: string
   muteDuringCallsEnabled?: boolean
   focusModeEnabled: boolean
   alarmModeEnabled: boolean // main gong becomes a continuous, dismissable alarm
@@ -64,6 +67,7 @@ export interface NativeTimerState {
   subEnabled?: boolean
   volume?: number
   notificationsEnabled?: boolean
+  notificationPresentation?: string
   muteDuringCallsEnabled?: boolean
   focusModeEnabled?: boolean
   alarmModeEnabled?: boolean
@@ -107,6 +111,23 @@ export interface NativeScheduleState {
   exactTimingAvailable: boolean
 }
 
+export interface NativeTimerCapabilities {
+  contractVersion: number
+  programSchemaMin: number
+  programSchemaMax: number
+  maxPatternTracks: number
+  maxSequenceSteps: number
+  maxCueDurationMinutes: number
+  maxRunCycles: number
+  maxRunDurationSeconds: number
+  maxMuteIterations: number
+  maxMuteMinutes: number
+  maxNotificationPresentationCharacters: number
+  supportsCachedBuiltInSounds: boolean
+  supportsRawFocusState: boolean
+  supportsNotificationPresentation: boolean
+}
+
 export interface NativeFocusState {
   policyAccess: boolean
   automationEnabled: boolean
@@ -114,6 +135,12 @@ export interface NativeFocusState {
   ruleEnabled: boolean
   actual: 'inactive' | 'active' | 'unknown'
   reason: 'off' | 'timer-stopped' | 'outside-active-hours' | 'active' | 'paused-by-android' | 'rule-disabled' | 'access-required' | 'unknown'
+  /** Optional for compatibility with binaries predating native contract v2. */
+  timerRunning?: boolean
+  requestedActive?: boolean
+  pausedByAndroid?: boolean
+  ruleWasRemoved?: boolean
+  withinActiveHours?: boolean
 }
 
 interface EventSubscription {
@@ -121,6 +148,7 @@ interface EventSubscription {
 }
 
 interface ChandasTimerServiceModule {
+  getCapabilities?(): NativeTimerCapabilities
   start(config: NativeTimerConfig): boolean
   update(config: Partial<NativeTimerConfig>): void
   stop(): void
@@ -210,6 +238,13 @@ AppState.addEventListener('change', state => {
 })
 
 export const ChandasTimerService = {
+  getCapabilities(): NativeTimerCapabilities | null {
+    try {
+      return native?.getCapabilities?.() ?? null
+    } catch {
+      return null
+    }
+  },
   start(config: NativeTimerConfig) {
     return native?.start(config) ?? false
   },
@@ -272,7 +307,8 @@ export const ChandasTimerService = {
     return native?.isFocusModeActive() ?? false
   },
   getFocusState(): NativeFocusState {
-    return native?.getFocusState() ?? { policyAccess: false, automationEnabled: false, ruleExists: false, ruleEnabled: false, actual: 'unknown', reason: 'unknown' }
+    const state = native?.getFocusState() ?? { policyAccess: false, automationEnabled: false, ruleExists: false, ruleEnabled: false, actual: 'unknown', reason: 'unknown' }
+    return normalizeNativeFocusState(state)
   },
   openNotificationPolicySettings() {
     native?.openNotificationPolicySettings()
@@ -346,7 +382,7 @@ export const ChandasTimerService = {
     return native?.addListener('onTimerEventFired', listener) ?? null
   },
   addFocusListener(listener: (state: NativeFocusState) => void): EventSubscription | null {
-    return native?.addListener('onFocusStateChanged', listener) ?? null
+    return native?.addListener('onFocusStateChanged', state => listener(normalizeNativeFocusState(state))) ?? null
   },
   addTimerStateListener(listener: (state: NativeScheduleState) => void): EventSubscription | null {
     return native?.addListener('onTimerStateChanged', listener) ?? null

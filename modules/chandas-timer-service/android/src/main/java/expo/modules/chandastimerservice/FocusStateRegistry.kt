@@ -7,6 +7,12 @@ data class NativeFocusState(
   val ruleEnabled: Boolean,
   val actual: String,
   val reason: String,
+  /** Raw facts let the OTA layer revise presentation without changing Android code. */
+  val timerRunning: Boolean = false,
+  val requestedActive: Boolean = false,
+  val pausedByAndroid: Boolean = false,
+  val ruleWasRemoved: Boolean = false,
+  val withinActiveHours: Boolean = false,
 )
 
 object FocusStateRegistry {

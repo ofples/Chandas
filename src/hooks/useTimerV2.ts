@@ -14,6 +14,20 @@ import { ChandasTimerService, isNativeServiceAvailable, type NativeTimerConfig }
 
 const KEEP_AWAKE_TAG = 'chandas-running-v2'
 const ALARM_SOURCE = require('../../assets/sounds/alarm.mp3')
+const NATIVE_NOTIFICATION_PRESENTATION = JSON.stringify({
+  runningTitle: 'Chandas',
+  nextCueAt: 'Next cue at {time}',
+  resumesAt: 'Resumes at {time}',
+  sessionEndsAt: 'Session ends at {time}',
+  stopTimerAction: 'Stop timer',
+  mainEventTitle: 'Chandas Gong',
+  bellEventTitle: 'Chandas Bell',
+  cueEventTitle: 'Chandas Cue',
+  eventBody: 'Timer interval reached',
+  alarmTitle: "Chandas — Time's up",
+  alarmBody: 'Alarm is ringing',
+  stopAlarmAction: 'Stop alarm',
+})
 
 /**
  * A wake lock improves the foreground experience, but it is never part of the
@@ -126,6 +140,7 @@ function nativeConfigFor(program: TimerProgram, settings: AppTimerSettings, anch
     subEnabled: false,
     volume: settings.masterVolume,
     notificationsEnabled: settings.notificationsEnabled,
+    notificationPresentation: NATIVE_NOTIFICATION_PRESENTATION,
     muteDuringCallsEnabled: settings.muteDuringCallsEnabled,
     focusModeEnabled: settings.focusAutomationEnabled,
     alarmModeEnabled,
@@ -380,10 +395,23 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
   }, [persistSession, refreshDisplay, scheduleNext, updateRuntimeState])
 
   const attachNativeSession = useCallback(async (restore: { anchor: number; startedAt?: number; endsAt?: number; mute: RuntimeMuteState; alarmBehavior: AlarmBehavior }) => {
-    if (isNativeServiceAvailable) await ChandasTimerService.prepareBuiltInSounds(builtInSoundsFor(programRef.current))
     anchorRef.current = restore.anchor
     startedAtRef.current = restore.startedAt ?? restore.anchor
     endsAtRef.current = restore.endsAt && restore.endsAt > 0 ? restore.endsAt : runEndAt(programRef.current, restore.anchor, restore.startedAt ?? restore.anchor)
+    if (isNativeServiceAvailable) {
+      await ChandasTimerService.prepareBuiltInSounds(builtInSoundsFor(programRef.current))
+      // Reapply the OTA-owned envelope when reconnecting after a launch. This
+      // refreshes presentation metadata and additive settings without touching
+      // mute/alarm-once controls or replacing the authoritative native anchor.
+      ChandasTimerService.update(nativeConfigFor(
+        programRef.current,
+        settingsRef.current,
+        anchorRef.current,
+        startedAtRef.current,
+        endsAtRef.current,
+        restore.alarmBehavior === 'locked',
+      ))
+    }
     runningRef.current = true
     updateRuntimeState(restore.mute, restore.alarmBehavior)
     setIsRunning(true)

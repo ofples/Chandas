@@ -8,7 +8,7 @@
 | Product | Chandas Android interval timer |
 | Scope | Timer v2 program model, advanced scheduling, audio, Focus/DND, presets, runtime controls, and help |
 | Primary platform | Android |
-| Specification version | 1.8 |
+| Specification version | 2.6 |
 | Created | 2026-09-02 |
 | Implementation rule | Deliver as one cohesive refactor; intermediate builds do not have to be usable |
 | Build rule | Never run a local native build, Gradle task, Expo native run, prebuild, or export. Remote EAS only when explicitly requested. |
@@ -183,6 +183,9 @@ Timer v2 replaces these assumptions rather than layering special cases over them
 | D-084 | Running mode is immersive: entering it hides the system status bar with an animated transition, and Stop/completion restores the status bar in setup. The running Help button uses the same 40×40 circular geometry as every other running control. |
 | D-085 | Superseded in part by D-086. The built-in library contains the existing Temple gong and Clear bell plus all sixteen supplied production recordings. Placeholder Soft bowl, Wood block, and Bright chime choices are removed from the picker; persisted references migrate respectively to Handpan, Instamatic, and Bloom. |
 | D-086 | Built-in sound IDs are OTA-owned data. Temple gong, Clear bell, and the alarm loop remain packaged native fallbacks; every other built-in is materialized from its Expo asset into an atomic, app-private persistent cache before preview, Start, restore attachment, reanchor, or a live schedule update. Native validation accepts constrained future IDs without an allowlist, and playback resolves legacy aliases before the cache. Cache failure never invalidates or stops a timer: the packaged Clear bell (or alarm loop for continuous alarm playback) is used. |
+| D-087 | `Paused by Android` is a running-session state, not a synonym for an inactive rule. A deactivation broadcast is treated as a snooze only while automation is enabled, a timer still exists, and Chandas still requests the rule active. Stop, bounded completion, failed Start, and schedule exit clear native timer state before publishing the false Focus condition. |
+| D-088 | The Android module exposes a versioned capability record and uses native safety ceilings substantially above current product limits. JavaScript retains the intentionally simple five-track/twenty-step UI, while later increases within the advertised engine envelope remain OTA-compatible. Additive program fields remain forward-compatible within schema v2; an incompatible timeline change still requires a schema/runtime increment and native build. |
+| D-089 | Changeable notification wording is an optional, bounded serialized presentation record persisted with the active native session. Kotlin owns notification channels, platform categories, intents, timing and safe fallback copy; JavaScript owns ordinary titles, bodies, actions and time templates so copy refinements do not require a new binary. Raw Focus facts are likewise bridged to JavaScript, which derives presentation precedence while preserving older-binary reasons. |
 
 ---
 
@@ -2236,6 +2239,32 @@ This section is append-only. Every implementation session should record scope, m
 
 **Risks or follow-ups:** Persistent dynamic sounds are intentionally retained when a later library removes an entry so a still-running or restored timer cannot lose it. If the catalog grows substantially, add a bounded garbage collector that protects IDs referenced by active native state before removing stale files.
 
+### 2026-09-05 — Native stabilization and OTA-owned presentation
+
+**Status:** Complete in source; requires one replacement Android build and focused device validation.
+
+**Scope:** Focus stop/snooze state transitions, raw Focus telemetry, bridge capability discovery, forward-compatible native safety ceilings, persisted notification presentation, reconnect synchronization, and regression coverage.
+
+**Decisions referenced:** D-020–D-022, D-032, D-067, D-087–D-089.
+
+**Behavior implemented:**
+
+- Made Stop, failed Start, bounded completion, and exact-alarm-access failure clear the authoritative timer record before publishing Focus inactive. A late Android 15 deactivation status is retained as a manual pause only if automation is enabled, a timer still runs, and Chandas still requests Focus active.
+- Added raw `timerRunning`, `requestedActive`, `pausedByAndroid`, `ruleWasRemoved`, and `withinActiveHours` facts to Focus state. New binaries let the TypeScript layer derive the user-facing reason; older binaries continue using their existing native reason without failing.
+- Added native contract v2 capability discovery with supported program schemas, safety ceilings, dynamic-sound support, raw-Focus support, and notification-presentation support. Product limits remain deliberately smaller and simpler in JavaScript.
+- Raised native-only safety ceilings to 32 Pattern tracks, 64 Sequence steps, seven-day cue durations, a 448-day maximum program cycle, 100,000 run cycles, one-year duration bounds, and larger mute limits. Native Start additionally verifies that the supplied main duration exactly matches the serialized program cycle.
+- Moved ordinary notification titles, bodies, action labels, and time templates into a bounded serialized record. Kotlin retains conservative English defaults and rejects blank, oversized, malformed, or placeholder-free copy. Reconnecting to a persisted native session reapplies this OTA-owned envelope without changing its anchor or runtime mute controls.
+- Kept native-only responsibilities unchanged: exact alarm delivery, persistent scheduling, audio routing, system intents, DND ownership, permissions, receivers/services, notification channels, and packaged emergency sounds.
+- Aligned the stabilization binary with SDK 57's expected `expo` 57.0.20 and `expo-notifications` 57.0.17 patch releases instead of carrying known dependency drift into the next store artifact.
+
+**Migration impact:** The additional bridge function, raw state fields, validation behavior, and notification record require a new native runtime. All fields are additive. TypeScript feature-detects capability discovery, preserves legacy Focus reasons when raw facts are absent, and the new notification record is optional with native defaults. Once this binary is installed, ordinary notification-copy changes, product-limit increases within the advertised ceiling, Focus status wording/precedence, and new library recordings can ship by OTA.
+
+**Verification run:** Expo SDK dependency compatibility, TypeScript compilation, the complete Vitest suite including new Focus presentation tests, whitespace validation, and source review against Android 15 automatic-rule status semantics. Native Gradle tests were added for Focus deactivation policy, notification-copy validation, and engine headroom but were not run locally because repository policy prohibits native compilation.
+
+**Native/on-device verification still required:** On Android 15+, exercise in-app Stop, notification Stop, bounded completion, schedule exit/re-entry, manual rule snooze, manual reactivation, rule disable/removal, loss/restoration of DND access, and process death between state transitions. Confirm notification copy after a cold reconnect and verify that the native capability record is available to the release bundle.
+
+**Risks or follow-ups:** Android documents `AUTOMATIC_RULE_STATUS_DEACTIVATED` as a user snooze, but the additional requested-active/timer-running guard intentionally tolerates delayed or OEM-divergent broadcasts. Native ceilings are safety bounds rather than a commitment to expose larger editors. Manifest permissions, new platform integrations, incompatible timer math, native dependency/SDK changes, and defects inside native platform mechanisms will always require a replacement build.
+
 ### Implementation-entry template
 
 ```md
@@ -2284,3 +2313,4 @@ This section is append-only. Every implementation session should record scope, m
 | 2.3 | 2026-09-05 | Restored an optional bounded-run final gong with saved sound/level controls and exactly-once JavaScript/native terminal replacement semantics. |
 | 2.4 | 2026-09-05 | Added immersive running status-bar behavior, standardized the running Help control, and replaced placeholder sounds with the eighteen-recording production library plus migration aliases. |
 | 2.5 | 2026-09-05 | Added an atomic OTA-to-native sound cache so future library recordings can ship without native mappings, retaining only gong, bell, and alarm binary fallbacks. |
+| 2.6 | 2026-09-05 | Stabilized Focus stop/snooze semantics, added raw-state and capability contracts, widened native safety ceilings, and made notification presentation OTA-owned. |

@@ -10,7 +10,7 @@ import kotlin.math.min
 
 object TimerScheduler {
   private const val TIMER_REQUEST = 8201
-  private const val MAX_NATIVE_INTERVAL_MS = 80L * 60L * 60L * 1_000L
+  private const val MAX_NATIVE_INTERVAL_MS = NativeTimerContract.MAX_PROGRAM_CYCLE_MS
 
   fun canScheduleExactAlarms(context: Context): Boolean {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
@@ -31,8 +31,8 @@ object TimerScheduler {
     FocusModeController.reconcile(context, config)
     val scheduled = scheduleNext(context)
     if (!scheduled) {
-      FocusModeController.deactivate(context)
       TimerStateStore.clear(context)
+      FocusModeController.deactivate(context)
       TimerNotifications.cancelRunning(context)
     }
     return scheduled
@@ -62,8 +62,8 @@ object TimerScheduler {
   fun stop(context: Context) {
     cancelScheduledEvent(context)
     TimerSoundPlayer.stopAll()
-    FocusModeController.deactivate(context)
     TimerStateStore.clear(context)
+    FocusModeController.deactivate(context)
     TimerNotifications.cancelRunning(context)
     TimerNotifications.cancelAlarm(context)
     context.stopService(Intent(context, ChandasAlarmService::class.java))
@@ -376,6 +376,7 @@ object TimerScheduler {
     val program = config.timerV2Program ?: return true
     if (!TimerV2Timeline.isValid(program)) return false
     val duration = TimerV2Timeline.cycleDuration(program) ?: return false
+    if (duration > NativeTimerContract.MAX_PROGRAM_CYCLE_MS || config.mainMs != duration) return false
     if (config.timerV2Anchor !in 1L..(Long.MAX_VALUE - duration)) return false
     if (config.timerV2StartedAt <= 0L) return false
     if (config.timerV2EndsAt > 0L && config.timerV2EndsAt <= config.timerV2StartedAt) return false
@@ -388,8 +389,8 @@ object TimerScheduler {
   private fun completeSession(context: Context) {
     cancelScheduledEvent(context)
     TimerSoundPlayer.stopAll()
-    FocusModeController.deactivate(context)
     TimerStateStore.clear(context)
+    FocusModeController.deactivate(context)
     TimerNotifications.cancelRunning(context)
     TimerNotifications.cancelAlarm(context)
     context.stopService(Intent(context, ChandasAlarmService::class.java))
@@ -404,8 +405,8 @@ object TimerScheduler {
     // closed and make the inactive state authoritative everywhere.
     cancelScheduledEvent(context)
     TimerSoundPlayer.stopAll()
-    FocusModeController.deactivate(context)
     TimerStateStore.clear(context)
+    FocusModeController.deactivate(context)
     TimerNotifications.cancelRunning(context)
     TimerNotifications.cancelAlarm(context)
     context.stopService(Intent(context, ChandasAlarmService::class.java))

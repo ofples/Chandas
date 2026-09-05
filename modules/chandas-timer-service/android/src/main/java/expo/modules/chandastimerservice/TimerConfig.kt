@@ -7,6 +7,8 @@ data class TimerConfig(
   val subEnabled: Boolean,
   val volume: Float,
   val notificationsEnabled: Boolean,
+  /** OTA-owned notification wording; null uses native fallback copy. */
+  val notificationPresentation: String? = null,
   val muteDuringCallsEnabled: Boolean = true,
   val focusModeEnabled: Boolean,
   val alarmModeEnabled: Boolean,

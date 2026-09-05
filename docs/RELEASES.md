@@ -16,6 +16,8 @@ Chandas uses the Expo fingerprint runtime policy. The runtime includes native de
 
 Use a new store build when any native dependency, Expo SDK package, config plugin, Android permission, app configuration field, or native timer-service code changes. JavaScript, TypeScript, styling, and bundled asset changes can normally ship as an EAS Update. The fingerprint is the final safety check rather than human memory.
 
+Native contract v2 (`ChandasTimerService.getCapabilities`) advertises the installed engine's program schemas and safety ceilings. Keep product limits, Focus status presentation, notification wording, and the dynamic sound catalog in the OTA layer when they fit that contract. The native ceilings are intentionally larger than the current UI and must not be treated as product defaults. A missing capability function identifies an older binary; OTA code must preserve its documented fallback instead of assuming the new method exists.
+
 ## Before every release
 
 1. Start from the exact commit intended for release and ensure unrelated working-tree changes are not included.

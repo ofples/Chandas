@@ -142,4 +142,19 @@ class TimerV2TimelineTest {
     assertEquals(TimerV2Boundary.RUN_COMPLETE, event.boundary)
     assertTrue(event.completesRun)
   }
+
+  @Test fun nativeSafetyEnvelopeExceedsCurrentProductLimits() {
+    val pattern = JSONObject(fixtures.getJSONObject("patternCollision").getJSONObject("program").toString())
+    pattern.put("mainMinutes", 241)
+    pattern.getJSONObject("mainCue").put("volume", 1.0)
+    pattern.put("tracks", org.json.JSONArray())
+    assertTrue(TimerV2Timeline.isValid(pattern.toString()))
+
+    val sequence = JSONObject(fixtures.getJSONObject("sequence").getJSONObject("program").toString())
+    val steps = sequence.getJSONArray("steps")
+    while (steps.length() < 21) {
+      steps.put(JSONObject(steps.getJSONObject(0).toString()).put("id", "future-step-${steps.length()}"))
+    }
+    assertTrue(TimerV2Timeline.isValid(sequence.toString()))
+  }
 }

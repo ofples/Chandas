@@ -38,13 +38,13 @@ object TimerV2Timeline {
   private const val MINUTE = 60_000L
   private const val TIMEZONE_TRANSITION_SCAN_STEP_MS = 6L * 60L * 60L * 1_000L
   private const val TIMEZONE_TRANSITION_LOOKAHEAD_MS = 5L * 366L * 24L * 60L * 60L * 1_000L
-  private const val SCHEMA_VERSION = 2
-  private const val MAX_TRACKS = 5
-  private const val MAX_STEPS = 20
-  private const val MAX_DURATION_MINUTES = 240
-  private const val MAX_RUN_CYCLES = 999
-  private const val MAX_RUN_DURATION_SECONDS = 1_295_999L
-  private const val MAX_PROGRAM_CHARACTERS = 262_144
+  private const val SCHEMA_VERSION = NativeTimerContract.PROGRAM_SCHEMA_MAX
+  private const val MAX_TRACKS = NativeTimerContract.MAX_PATTERN_TRACKS
+  private const val MAX_STEPS = NativeTimerContract.MAX_SEQUENCE_STEPS
+  private const val MAX_DURATION_MINUTES = NativeTimerContract.MAX_CUE_DURATION_MINUTES
+  private const val MAX_RUN_CYCLES = NativeTimerContract.MAX_RUN_CYCLES
+  private const val MAX_RUN_DURATION_SECONDS = NativeTimerContract.MAX_RUN_DURATION_SECONDS
+  private const val MAX_PROGRAM_CHARACTERS = NativeTimerContract.MAX_PROGRAM_CHARACTERS
   private const val MAX_ID_CHARACTERS = 200
   private const val MAX_URI_CHARACTERS = 8_192
 
@@ -94,7 +94,7 @@ object TimerV2Timeline {
 
   fun iterationEnd(serialized: String, anchor: Long, now: Long, count: Int): TimerV2IterationEnd? = runCatching {
     val root = JSONObject(serialized)
-    val iterations = count.coerceIn(1, 99)
+    val iterations = count.coerceIn(1, NativeTimerContract.MAX_MUTE_ITERATIONS)
     when (root.optString("mode")) {
       "pattern" -> {
         val duration = root.optInt("mainMinutes", 0).toLong() * MINUTE
