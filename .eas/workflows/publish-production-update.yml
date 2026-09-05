@@ -20,20 +20,14 @@ jobs:
       - name: Test
         run: npm test
 
-  fingerprint:
-    name: Fingerprint Android runtime
-    needs: [validate]
-    type: fingerprint
-    environment: production
-
   find_compatible_build:
     name: Find compatible production build
-    needs: [fingerprint]
+    needs: [validate]
     type: get-build
     params:
       platform: android
       profile: production
-      fingerprint_hash: ${{ needs.fingerprint.outputs.android_fingerprint_hash }}
+      runtime_version: f8c55f24f4972e429d24120aa843e8a0e32f1aaf
       wait_for_in_progress: false
 
   reject_incompatible_update:
@@ -43,7 +37,7 @@ jobs:
     steps:
       - name: Stop before publishing
         run: |
-          echo "No production AAB matches this native fingerprint. Create and test a new native build before publishing an OTA."
+          echo "No production AAB matches the pinned runtime. Create and test a compatible native build before publishing an OTA."
           exit 1
 
   publish_update:

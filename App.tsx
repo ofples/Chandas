@@ -26,7 +26,7 @@ const FALLBACK_PROGRAM = {
   mainCue: { sound: { kind: 'builtin' as const, id: 'temple-gong' as const }, volume: 1 }, completionCue: null, subBellsEnabled: false, tracks: [], alignment: { kind: 'elapsed' as const },
   runPolicy: { kind: 'continuous' as const, cycleCount: 1, durationSeconds: 30 * 60 },
 }
-const FALLBACK_SETTINGS = { masterVolume: 0.8, advancedModeEnabled: false, alarmSound: { kind: 'builtin' as const, id: 'alarm-tone' as const }, notificationsEnabled: true, liveCountdownEnabled: false, muteDuringCallsEnabled: true, availability: { enabled: false, weeklyWindows: [], overrides: [] }, focusAutomationEnabled: false, alarmDurationSeconds: 60 }
+const FALLBACK_SETTINGS = { masterVolume: 0.8, advancedModeEnabled: false, alarmSound: { kind: 'builtin' as const, id: 'alarm-tone' as const }, alarmVolume: 1, notificationsEnabled: true, liveCountdownEnabled: false, muteDuringCallsEnabled: true, availability: { enabled: false, weeklyWindows: [], overrides: [] }, focusAutomationEnabled: false, alarmDurationSeconds: 60 }
 const DEFAULT_FOCUS_STATE: NativeFocusState = { policyAccess: false, automationEnabled: false, ruleExists: false, ruleEnabled: false, actual: 'unknown', reason: 'off' }
 
 interface PendingRestore {
@@ -58,6 +58,7 @@ function settingsFromNative(current: AppTimerSettings, native: ReturnType<typeof
     masterVolume: native.volume ?? current.masterVolume,
     advancedModeEnabled: current.advancedModeEnabled,
     alarmSound: current.alarmSound,
+    alarmVolume: native.alarmVolume ?? current.alarmVolume,
     notificationsEnabled: native.notificationsEnabled ?? current.notificationsEnabled,
     liveCountdownEnabled: native.liveCountdownEnabled ?? current.liveCountdownEnabled,
     muteDuringCallsEnabled: native.muteDuringCallsEnabled ?? current.muteDuringCallsEnabled,

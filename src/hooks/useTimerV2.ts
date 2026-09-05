@@ -143,6 +143,7 @@ function nativeConfigFor(program: TimerProgram, settings: AppTimerSettings, anch
     subEnabled: false,
     volume: settings.masterVolume,
     alarmSoundId: settings.alarmSound.kind === 'builtin' ? settings.alarmSound.id : settings.alarmSound.uri,
+    ...(ChandasTimerService.getCapabilities()?.supportsAlarmVolume === true ? { alarmVolume: settings.alarmVolume } : {}),
     notificationsEnabled: settings.notificationsEnabled,
     liveCountdownEnabled: settings.liveCountdownEnabled,
     notificationPresentation: NATIVE_NOTIFICATION_PRESENTATION,
@@ -280,7 +281,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
       dismissAlarm()
       const player = createAudioPlayer(sourceForSound(activeSettings.alarmSound) ?? ALARM_SOURCE)
       player.loop = true
-      player.volume = Math.max(0, Math.min(1, activeSettings.masterVolume * event.winner.volume))
+      player.volume = Math.max(0, Math.min(1, activeSettings.masterVolume * activeSettings.alarmVolume))
       player.play()
       alarmPlayerRef.current = player
       setIsAlarmRinging(true)

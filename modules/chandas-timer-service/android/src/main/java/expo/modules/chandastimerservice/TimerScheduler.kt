@@ -47,12 +47,8 @@ object TimerScheduler {
     TimerStateStore.save(context, config)
     FocusModeController.reconcile(context, config)
     if (TimerStateStore.isRinging(context)) {
-      val cueVolume = config.timerV2Program?.let(TimerV2Timeline::mainCueVolume) ?: 1f
       context.startService(Intent(context, ChandasAlarmService::class.java).apply {
         action = ChandasAlarmService.ACTION_UPDATE_VOLUME
-        putExtra(ChandasAlarmService.EXTRA_VOLUME, config.volume)
-        putExtra(ChandasAlarmService.EXTRA_CUE_VOLUME, cueVolume)
-        putExtra(ChandasAlarmService.EXTRA_DURATION_SECONDS, config.alarmDurationSeconds)
       })
     }
     cancelScheduledEvent(context)
@@ -330,7 +326,6 @@ object TimerScheduler {
       ContextCompat.startForegroundService(context, Intent(context, ChandasAlarmService::class.java).apply {
         action = ChandasAlarmService.ACTION_START
         putExtra(ChandasAlarmService.EXTRA_SOUND_ID, config.alarmSoundId)
-        putExtra(ChandasAlarmService.EXTRA_CUE_VOLUME, event.winner.volume)
       })
       onFinished()
       return

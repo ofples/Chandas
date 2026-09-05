@@ -13,6 +13,7 @@
     },
     "android": {
       "package": "com.yukti.chandas",
+      "runtimeVersion": "f8c55f24f4972e429d24120aa843e8a0e32f1aaf",
       "adaptiveIcon": {
         "backgroundColor": "#0b0c10",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -48,10 +49,10 @@
         }
       ],
       "expo-font",
+      "./modules/chandas-timer-service/app.plugin.js",
       [
         "expo-notifications",
         {
-          "icon": "./assets/icon.png",
           "color": "#7c6ff7"
         }
       ],
@@ -66,8 +67,7 @@
             "backgroundColor": "#0b0c10"
           }
         }
-      ],
-      "./modules/chandas-timer-service/app.plugin.js"
+      ]
     ],
     "owner": "ofples",
     "runtimeVersion": {

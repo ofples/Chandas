@@ -8,6 +8,8 @@ data class TimerConfig(
   val volume: Float,
   /** Global repeat-until-dismissed alarm sound, independent of the main gong. */
   val alarmSoundId: String = "alarm-tone",
+  /** Per-alarm level, multiplied by the master and Android Alarm volumes. */
+  val alarmVolume: Float = 1f,
   val notificationsEnabled: Boolean,
   val liveCountdownEnabled: Boolean = false,
   /** OTA-owned notification wording; null uses native fallback copy. */

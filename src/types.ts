@@ -162,6 +162,8 @@ export interface AppTimerSettings {
   advancedModeEnabled: boolean
   /** Global looping sound used by Alarm Once and Alarm Locked. */
   alarmSound: SoundRef
+  /** Per-alarm level multiplied by the master and Android Alarm volumes. */
+  alarmVolume: number
   notificationsEnabled: boolean
   /** Shows a native countdown to the next cue in the running notification. */
   liveCountdownEnabled: boolean

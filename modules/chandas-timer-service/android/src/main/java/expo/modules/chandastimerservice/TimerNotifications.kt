@@ -21,11 +21,8 @@ object TimerNotifications {
   const val EVENT_CHANNEL = "chandas-events"
   const val ALARM_CHANNEL = "chandas-alarm"
 
-  /** Prefer Expo's monochrome notification resource; never assume an adaptive launcher icon is valid here. */
-  fun smallIcon(context: Context): Int {
-    val generated = context.resources.getIdentifier("notification_icon", "drawable", context.packageName)
-    return if (generated != 0) generated else context.applicationInfo.icon
-  }
+  /** Android renders this transparent monochrome mask in the status bar and notification header. */
+  fun smallIcon(): Int = R.drawable.chandas_notification
 
   fun ensureChannels(context: Context) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -106,7 +103,7 @@ object TimerNotifications {
         .setContentTitle(title)
         .setContentText(content)
         .setStyle(NotificationCompat.BigTextStyle().setBigContentTitle(title).bigText(content))
-        .setSmallIcon(smallIcon(context))
+        .setSmallIcon(smallIcon())
         .setOngoing(true)
         .setOnlyAlertOnce(true)
         .setShowWhen(false)
@@ -150,7 +147,7 @@ object TimerNotifications {
       NotificationCompat.Builder(context, EVENT_CHANNEL)
         .setContentTitle(title)
         .setContentText(copy.eventBody)
-        .setSmallIcon(smallIcon(context))
+        .setSmallIcon(smallIcon())
         .setAutoCancel(true)
         .setTimeoutAfter(8_000L)
         .setContentIntent(contentIntent)

@@ -22,6 +22,8 @@ export interface NativeTimerConfig {
   volume: number       // 0–1, gong/bell volume
   /** Built-in ID or persisted content URI for the looping alarm. */
   alarmSoundId?: string
+  /** Per-alarm multiplier; older native engines safely ignore this field. */
+  alarmVolume?: number
   notificationsEnabled: boolean
   liveCountdownEnabled?: boolean
   /** Serialized user-facing notification copy for the stable native engine. */
@@ -71,6 +73,7 @@ export interface NativeTimerState {
   subEnabled?: boolean
   volume?: number
   alarmSoundId?: string
+  alarmVolume?: number
   notificationsEnabled?: boolean
   liveCountdownEnabled?: boolean
   notificationPresentation?: string
@@ -134,6 +137,7 @@ export interface NativeTimerCapabilities {
   supportsNotificationPresentation: boolean
   supportsLiveCountdown?: boolean
   supportsAlarmSound?: boolean
+  supportsAlarmVolume?: boolean
 }
 
 export interface NativeFocusState {

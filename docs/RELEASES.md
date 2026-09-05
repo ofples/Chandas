@@ -12,11 +12,11 @@ EAS owns the Android `versionCode` remotely and increments it for every build. T
 
 ## Compatibility model
 
-Chandas uses the Expo fingerprint runtime policy. The runtime includes native dependencies, app configuration, permissions, and the local timer service. An over-the-air update is therefore eligible only for a binary with the same native contract. This is especially important here: a JavaScript release must never assume a different alarm, focus-mode, or scheduling API than the installed Android service provides.
+Chandas currently pins Android updates to the production build-9 runtime (`f8c55f24f4972e429d24120aa843e8a0e32f1aaf`). The contract-v5 additions are capability-gated and backward compatible with contract v4, so this deliberate compatibility line lets the current and replacement binaries receive the same JavaScript while exposing native-only additions only where supported.
 
-Use a new store build when any native dependency, Expo SDK package, config plugin, Android permission, app configuration field, or native timer-service code changes. JavaScript, TypeScript, styling, and bundled asset changes can normally ship as an EAS Update. The fingerprint is the final safety check rather than human memory.
+Use a new store build when any native dependency, Expo SDK package, config plugin, Android permission, app configuration field, or native timer-service code changes. JavaScript, TypeScript, styling, and bundled asset changes can normally ship as an EAS Update. Before making an incompatible native or bridge change, assign a new manual runtime version first; never publish code that assumes an unavailable capability to this compatibility line.
 
-Native contract v2 (`ChandasTimerService.getCapabilities`) advertises the installed engine's program schemas and safety ceilings. Keep product limits, Focus status presentation, notification wording, and the dynamic sound catalog in the OTA layer when they fit that contract. The native ceilings are intentionally larger than the current UI and must not be treated as product defaults. A missing capability function identifies an older binary; OTA code must preserve its documented fallback instead of assuming the new method exists.
+`ChandasTimerService.getCapabilities` advertises the installed engine's program schemas, safety ceilings, and additive features. Keep product limits, Focus status presentation, notification wording, and the dynamic sound catalog in the OTA layer when they fit that contract. The native ceilings are intentionally larger than the current UI and must not be treated as product defaults. A missing capability function or flag identifies an older binary; OTA code must preserve its documented fallback instead of assuming the new method exists.
 
 ## Before every release
 
@@ -70,7 +70,7 @@ Direct production publishing remains available for an urgent, already-verified c
 eas workflow:run .eas/workflows/publish-production-update.yml -F "message=Describe the hotfix" --non-interactive --wait
 ```
 
-This dedicated workflow performs the bundle export on EAS, runs type-checking and tests, computes the native fingerprint, and refuses to publish unless a compatible production AAB already exists. It never creates a native build as a side effect. Use the local `publish:production` script only on a machine explicitly provisioned for local Expo exports.
+This dedicated workflow performs the bundle export on EAS, runs type-checking and tests, and refuses to publish unless a production AAB exists for the pinned Android runtime. It never creates a native build as a side effect. Use the local `publish:production` script only on a machine explicitly provisioned for local Expo exports.
 
 For a cautious rollout, use EAS Update's rollout percentage on the production command and increase it from the dashboard after monitoring successful launches.
 

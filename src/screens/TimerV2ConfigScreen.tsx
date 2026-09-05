@@ -90,6 +90,7 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
   const program = state.workingPrograms[state.workingPrograms.selectedMode]
   const settings = state.settings
   const alarmSoundSupported = !isNativeServiceAvailable || ChandasTimerService.getCapabilities()?.supportsAlarmSound === true
+  const alarmVolumeSupported = !isNativeServiceAvailable || ChandasTimerService.getCapabilities()?.supportsAlarmVolume === true
 
   const changeSettings = (patch: Partial<typeof settings>) => onChange({ ...state, settings: { ...settings, ...patch } })
   const cue = cueTarget ? cueForTarget(state, cueTarget) : null
@@ -98,7 +99,10 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
     if (!cueTarget) return
     if (cueTarget.kind === 'main') onChange(updatePattern(state, value => ({ ...value, mainCue: { ...value.mainCue, ...patch } })))
     else if (cueTarget.kind === 'alarm') {
-      if (patch.sound) changeSettings({ alarmSound: patch.sound })
+      changeSettings({
+        ...(patch.sound ? { alarmSound: patch.sound } : {}),
+        ...(typeof patch.volume === 'number' ? { alarmVolume: patch.volume } : {}),
+      })
     }
     else if (cueTarget.kind === 'track') onChange(patchPatternTrack(state, cueTarget.id, patch))
     else if (cueTarget.kind === 'step') onChange(patchSequenceStep(state, cueTarget.id, patch))
@@ -229,7 +233,7 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
       <SubBellLibrarySheet visible={subBellsOpen} state={state} onChange={onChange} onEditTrack={setTrackId} onAdd={addTrack} onClose={() => { setTrackId(null); setSubBellsOpen(false) }} />
       {trackId ? <TrackEditorSheet visible={subBellsOpen} state={state} trackId={trackId} onChange={onChange} onEditCue={() => setCueTarget({ kind: 'track', id: trackId })} onBack={() => setTrackId(null)} onClose={() => { setTrackId(null); setSubBellsOpen(false) }} onFeedback={onFeedback} /> : null}
       <MixerSheet visible={mixerOpen} state={state} onChange={onChange} onEditCue={setCueTarget} onClose={() => setMixerOpen(false)} onFeedback={onFeedback} />
-      {cue ? <SoundPickerSheet visible title={cueTitle} cue={cue} masterVolume={settings.masterVolume} onChange={patchCue} onBack={trackId || cueTarget?.kind === 'step' || mixerOpen ? () => setCueTarget(null) : undefined} onClose={() => setCueTarget(null)} showVolume={cueTarget?.kind !== 'alarm'} onFeedback={onFeedback} /> : null}
+      {cue ? <SoundPickerSheet visible title={cueTitle} cue={cue} masterVolume={settings.masterVolume} onChange={patchCue} onBack={trackId || cueTarget?.kind === 'step' || mixerOpen ? () => setCueTarget(null) : undefined} onClose={() => setCueTarget(null)} showVolume={cueTarget?.kind !== 'alarm' || alarmVolumeSupported} onFeedback={onFeedback} /> : null}
       <BottomSheet visible={scheduleOpen} title="Schedule" onClose={() => setScheduleOpen(false)}><ScheduleConfig showHeading={false} showEnabledControl={false} value={settings.availability} onChange={availability => changeSettings({ availability })} /></BottomSheet>
       {Platform.OS === 'android' ? <BottomSheet visible={systemAccessOpen} title="System integrations" onClose={() => setSystemAccessOpen(false)}><SystemAccessPanel access={androidAccess} settings={settings} onChangeSettings={changeSettings} onOpenExactAlarmSettings={onOpenExactAlarmSettings} onOpenFullScreenIntentSettings={onOpenFullScreenIntentSettings} onRequestCallMuteAccess={onRequestCallMuteAccess} onRequestNotificationAccess={onRequestNotificationAccess} /></BottomSheet> : null}
       <PresetLibrarySheet visible={presetsOpen} state={state} onChange={onChange} onClose={() => setPresetsOpen(false)} onFeedback={onFeedback} />
@@ -521,7 +525,7 @@ function VolumeControl({ label, value, onChange, onOpenMixer, onPreview }: { lab
 }
 
 function cueForTarget(state: TimerV2State, target: CueTarget): CueSettings | null {
-  if (target.kind === 'alarm') return { sound: state.settings.alarmSound, volume: 1 }
+  if (target.kind === 'alarm') return { sound: state.settings.alarmSound, volume: state.settings.alarmVolume }
   if (target.kind === 'main') return state.workingPrograms.pattern.mainCue
   if (target.kind === 'track') return state.workingPrograms.pattern.tracks.find(track => track.id === target.id) ?? null
   if (target.kind === 'step') return state.workingPrograms.sequence.steps.find(step => step.id === target.id) ?? null

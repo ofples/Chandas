@@ -25,20 +25,15 @@ class ChandasAlarmService : Service() {
     const val ACTION_START = "expo.modules.chandastimerservice.action.START_ALARM"
     const val ACTION_STOP = "expo.modules.chandastimerservice.action.STOP_ALARM"
     const val ACTION_UPDATE_VOLUME = "expo.modules.chandastimerservice.action.UPDATE_ALARM_VOLUME"
-    const val EXTRA_VOLUME = "volume"
-    const val EXTRA_CUE_VOLUME = "cueVolume"
     const val EXTRA_SOUND_ID = "soundId"
-    const val EXTRA_DURATION_SECONDS = "durationSeconds"
     @Volatile private var live = false
 
     /** Repairs a ringing alarm after process recreation without restarting a live player. */
     fun ensureRunning(context: Context, config: TimerConfig) {
       if (live || !TimerStateStore.isRinging(context)) return
-      val cue = config.timerV2Program?.let(TimerV2Timeline::mainCueVolume) ?: 1f
       ContextCompat.startForegroundService(context, Intent(context, ChandasAlarmService::class.java).apply {
         action = ACTION_START
         putExtra(EXTRA_SOUND_ID, config.alarmSoundId)
-        putExtra(EXTRA_CUE_VOLUME, cue)
       })
     }
   }
@@ -56,7 +51,6 @@ class ChandasAlarmService : Service() {
   private val autoSilence = Runnable { silenceAndResume() }
   private var stopHandled = false
   private var soundId = "alarm-tone"
-  private var cueVolume = 1f
 
   override fun onBind(intent: Intent?): IBinder? = null
 
@@ -69,21 +63,21 @@ class ChandasAlarmService : Service() {
     when (intent?.action) {
       ACTION_STOP -> dismissAndResume()
       ACTION_UPDATE_VOLUME -> {
-        val volume = intent.getFloatExtra(EXTRA_VOLUME, 0.8f).coerceIn(0f, 1f)
-        cueVolume = intent.getFloatExtra(EXTRA_CUE_VOLUME, cueVolume).coerceIn(0f, 1f)
-        val duration = intent.getIntExtra(EXTRA_DURATION_SECONDS, 60).coerceIn(5, 3_600)
+        val config = TimerStateStore.load(this) ?: run {
+          stopSelf()
+          return START_NOT_STICKY
+        }
         if (player == null && TimerStateStore.isRinging(this)) {
-          soundId = TimerStateStore.load(this)?.alarmSoundId ?: "alarm-tone"
+          soundId = config.alarmSoundId
           startRinging()
         } else {
-          val effective = (volume * cueVolume).coerceIn(0f, 1f)
+          val effective = (config.volume * config.alarmVolume).coerceIn(0f, 1f)
           player?.setVolume(effective, effective)
-          if (TimerStateStore.load(this)?.timerV2Program == null) scheduleAutoSilence(duration)
+          if (config.timerV2Program == null) scheduleAutoSilence(config.alarmDurationSeconds)
         }
       }
       ACTION_START -> {
         soundId = intent.getStringExtra(EXTRA_SOUND_ID) ?: "alarm-tone"
-        cueVolume = intent.getFloatExtra(EXTRA_CUE_VOLUME, 1f).coerceIn(0f, 1f)
         startRinging()
       }
       else -> stopSelf()
@@ -125,7 +119,7 @@ class ChandasAlarmService : Service() {
             TimerSoundPlayer.setDataSource(this@ChandasAlarmService, this, soundId)
           }
         isLooping = true
-        val volume = (config.volume * cueVolume).coerceIn(0f, 1f)
+        val volume = (config.volume * config.alarmVolume).coerceIn(0f, 1f)
         setVolume(volume, volume)
         setOnPreparedListener { it.start() }
         setOnErrorListener { _, _, _ ->
@@ -207,7 +201,7 @@ class ChandasAlarmService : Service() {
     val builder = NotificationCompat.Builder(this, TimerNotifications.ALARM_CHANNEL)
       .setContentTitle(copy.alarmTitle)
       .setContentText(copy.alarmBody)
-      .setSmallIcon(TimerNotifications.smallIcon(this))
+      .setSmallIcon(TimerNotifications.smallIcon())
       .setOngoing(true)
       .setCategory(NotificationCompat.CATEGORY_ALARM)
       .setPriority(NotificationCompat.PRIORITY_MAX)

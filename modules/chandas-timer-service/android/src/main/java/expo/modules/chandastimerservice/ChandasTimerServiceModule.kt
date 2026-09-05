@@ -30,6 +30,7 @@ class TimerConfigRecord : Record {
   @Field var subEnabled: Boolean? = null
   @Field var volume: Float? = null
   @Field var alarmSoundId: String? = null
+  @Field var alarmVolume: Float? = null
   @Field var notificationsEnabled: Boolean? = null
   @Field var liveCountdownEnabled: Boolean? = null
   @Field var notificationPresentation: String? = null
@@ -115,6 +116,7 @@ class ChandasTimerServiceModule : Module() {
         "supportsNotificationPresentation" to true,
         "supportsLiveCountdown" to true,
         "supportsAlarmSound" to true,
+        "supportsAlarmVolume" to true,
       )
     }
 
@@ -193,6 +195,7 @@ class ChandasTimerServiceModule : Module() {
           "subEnabled" to config.subEnabled,
           "volume" to config.volume,
           "alarmSoundId" to config.alarmSoundId,
+          "alarmVolume" to config.alarmVolume,
           "notificationsEnabled" to config.notificationsEnabled,
           "liveCountdownEnabled" to config.liveCountdownEnabled,
           "notificationPresentation" to config.notificationPresentation,
@@ -464,6 +467,7 @@ class ChandasTimerServiceModule : Module() {
       volume = (record.volume ?: previous?.volume ?: 0.8f).coerceIn(0f, 1f),
       alarmSoundId = (record.alarmSoundId ?: previous?.alarmSoundId ?: "alarm-tone")
         .takeIf { it.isNotBlank() && it.length <= NativeTimerContract.MAX_SOUND_ID_CHARACTERS } ?: "alarm-tone",
+      alarmVolume = (record.alarmVolume ?: previous?.alarmVolume ?: 1f).coerceIn(0f, 1f),
       notificationsEnabled = record.notificationsEnabled ?: previous?.notificationsEnabled ?: true,
       liveCountdownEnabled = record.liveCountdownEnabled ?: previous?.liveCountdownEnabled ?: false,
       notificationPresentation = (record.notificationPresentation ?: previous?.notificationPresentation)

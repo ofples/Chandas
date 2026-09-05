@@ -13,8 +13,7 @@
 // installed npm package, so it isn't auto-discovered by name):
 //   "plugins": [["./modules/chandas-timer-service/app.plugin.js"]]
 
-const { withMainActivity } = require('@expo/config-plugins')
-const { CodeGenerator } = require('@expo/config-plugins')
+const { AndroidConfig, CodeGenerator, withAndroidManifest, withMainActivity } = require('@expo/config-plugins')
 
 const HELPER_IMPORT = 'import expo.modules.chandastimerservice.AlarmWindowHelper'
 const INTENT_IMPORT = 'import android.content.Intent'
@@ -78,4 +77,24 @@ function withChandasAlarmMainActivity(config) {
   })
 }
 
-module.exports = withChandasAlarmMainActivity
+function withChandasNotificationIcon(config) {
+  return withAndroidManifest(config, config => {
+    const application = AndroidConfig.Manifest.getMainApplicationOrThrow(config.modResults)
+    const icon = '@drawable/chandas_notification'
+    AndroidConfig.Manifest.addMetaDataItemToMainApplication(
+      application,
+      'com.google.firebase.messaging.default_notification_icon',
+      icon,
+      'resource',
+    )
+    AndroidConfig.Manifest.addMetaDataItemToMainApplication(
+      application,
+      'expo.modules.notifications.default_notification_icon',
+      icon,
+      'resource',
+    )
+    return config
+  })
+}
+
+module.exports = config => withChandasNotificationIcon(withChandasAlarmMainActivity(config))

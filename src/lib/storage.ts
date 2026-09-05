@@ -209,6 +209,9 @@ function normalizeSettings(value: Partial<AppTimerSettings> | null): AppTimerSet
       : defaults.masterVolume,
     advancedModeEnabled: value.advancedModeEnabled === true,
     alarmSound: normalizeSoundRef(value.alarmSound, defaults.alarmSound),
+    alarmVolume: typeof value.alarmVolume === 'number' && Number.isFinite(value.alarmVolume)
+      ? Math.max(0, Math.min(1, value.alarmVolume))
+      : defaults.alarmVolume,
     notificationsEnabled: value.notificationsEnabled !== false,
     liveCountdownEnabled: value.liveCountdownEnabled === true,
     muteDuringCallsEnabled: value.muteDuringCallsEnabled !== false,

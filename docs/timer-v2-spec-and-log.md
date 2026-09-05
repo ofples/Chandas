@@ -678,7 +678,12 @@ Common/global settings remain separate:
 ```ts
 interface AppTimerSettings {
   masterVolume: number
+  advancedModeEnabled: boolean
+  alarmSound: SoundRef
+  alarmVolume: number
   notificationsEnabled: boolean
+  liveCountdownEnabled: boolean
+  muteDuringCallsEnabled: boolean
   availability: {
     enabled: boolean
     weeklyWindows: Array<{
@@ -769,6 +774,7 @@ Given the existing flat configuration:
   - relative volume = 1.
 - If sub is disabled, create the same track disabled so its settings are not lost.
 - Existing `volume` becomes global `masterVolume`.
+- The global alarm sound defaults to Sine alarm and its independent relative volume defaults to 1.
 - Existing snap setting becomes Pattern alignment.
 - Existing active-hours, Focus, notification, and alarm-duration values move to global settings.
 - Existing continuous `alarmModeEnabled` does not become a persistent locked runtime state; default runtime alarm behavior is Off after migration.
@@ -1425,6 +1431,7 @@ Do not edit old entries to reflect new conclusions. Add a superseding entry and 
 | 2026-09-05 | D-101 | Accepted | Stop is optimistic but verified. The setup screen appears immediately, while the app checks Android's persisted native state and retries quietly after 160 ms and 640 ms. A native cleanup exception counts as success when the following state read is inactive. After three unconfirmed attempts, keep setup visible and show a persistent Stop again warning. Starting a new session invalidates every delayed stop attempt so an old retry can never cancel the new timer. |
 | 2026-09-05 | D-102 | Accepted | Running clock alignment is a confirmed operation rather than a fire-and-forget sheet dismissal. Offer only distinct phase presets, show the chosen value with an in-sheet progress state until the schedule replacement resolves, and acknowledge both success and an already-selected rhythm. Stop/new Start invalidate every in-flight re-anchor so delayed asset preparation can never recreate an obsolete native timer. |
 | 2026-09-05 | D-103 | Accepted | Advanced reveal requires a deliberate release-threshold pull after the setup screen reaches its true bottom; merely exposing the prompt never expands it, and collapsing explicitly re-arms the gesture. The single Show advanced prompt brightens continuously with pull progress. Appearance is one flat row containing its expandable color swatch and light/dark action. Every overflowing horizontal choice rail uses position-aware scrims on both edges. A Sub-bell with no selected cue positions disables automatically and selecting a position enables it again. |
+| 2026-09-05 | D-104 | Accepted | Alarm sound owns an independent saved level, multiplied by master volume and Android's Alarm stream. Contract v5 advertises this as an additive capability so older binaries keep hiding the unsupported level. Android timer, event, and alarm notifications use one transparent monochrome circular small-icon resource. The running Sound & mute sheet mirrors setup: its mixer button expands channel sliders with previews in place. Keep the Android production update line pinned to build 9's runtime only while every contract-v5 addition remains capability-gated and backward compatible. |
 
 ### Decision-entry template
 
@@ -2442,6 +2449,31 @@ This section is append-only. Every implementation session should record scope, m
 
 **Native/on-device verification still required:** On Android, make one ordinary scroll that only reveals Show advanced, then continue pulling until the prompt brightens and haptic feedback occurs; release below and above threshold; collapse and repeat. Also verify left/right scrims while swiping each rail and check the Track editor with long names, the keyboard open, and three-button navigation.
 
+### 2026-09-05 — Independent alarm level and circular Android notifications
+
+**Status:** Complete in source; JavaScript remains compatible with production build 9, while the native additions require the next Android build.
+
+**Scope:** Alarm-level configuration and persistence, native background alarm playback, Android small-notification artwork, the running Sound & mute interaction, Help accuracy, and deliberate OTA compatibility.
+
+**Decision referenced:** D-104.
+
+**Behavior implemented:**
+
+- Added a global saved Alarm volume to the existing Alarm sound editor. Preview and JavaScript fallback playback use `masterVolume × alarmVolume`; contract-v5 Android playback persists and uses the same product before the phone's Alarm-stream level is applied.
+- Advertised `supportsAlarmVolume` from the native module. The OTA layer neither shows the level nor sends its bridge field to older Android binaries, so production build 9 continues to use its existing alarm behavior without a misleading control.
+- Replaced the square launcher-art fallback with a transparent monochrome circle owned by the timer module. Running, event, and ringing notifications use it directly, and the config plugin assigns it as the default small icon for Expo/Firebase notifications too.
+- Made the running Sound & mute sheet match setup: Volume has a circular mixer control at the right; tapping it expands per-cue sliders in place, each with its own preview. The running toolbar now uses the volume glyph for this destination.
+- Right-aligned the Help sheet's Android DND action and refreshed Help for colored Sub-bells, bounded final gongs, tap-anywhere alarm dismissal, the mixer, Advanced disclosure, swipe deletion, and delayed Sequence reordering.
+- Pinned Android updates to production build 9's runtime `f8c55f24f4972e429d24120aa843e8a0e32f1aaf`. The production OTA workflow now verifies that exact runtime exists before publishing. iOS retains the fingerprint policy, and incompatible future Android bridge changes must move to a new runtime before release.
+
+**Migration impact:** `alarmVolume` is additive and normalizes to 1 for existing settings and legacy migration. Contract v5, the vector resource, and notification-manifest override require a new Android binary for actual background alarm-level control and circular system icons. All shared-runtime JavaScript paths are capability-gated; the current binary can safely receive the Help and running-mixer refinements while hiding the unsupported alarm level.
+
+**Verification run:** TypeScript compilation, the full Vitest suite, Expo public-config resolution, config-plugin source review, Android source review, and whitespace/diff validation. Repository policy prohibits local Gradle or native compilation.
+
+**Native/on-device verification still required:** On the next remote Android build, confirm the status-bar dot and notification-header icon on light/dark system themes, ordinary running/event notifications, the ringing foreground service, and any Expo-delivered notification. Test alarm levels 0%, 25%, and 100% through foreground, background, screen-off, lock-screen, process recreation, live setting changes while ringing, and sound-file fallback. Confirm build 9 still accepts the shared OTA, hides Alarm volume, and retains its existing alarm behavior.
+
+**Risks or follow-ups:** Android intentionally tints small icons from their alpha mask, so the result is a system-colored circle rather than the app's purple artwork. Manual runtime compatibility is safe here only because contract v5 is additive and feature-detected; the release checklist must assign a new runtime before any incompatible native assumption is introduced.
+
 ### Implementation-entry template
 
 ```md
@@ -2495,3 +2527,4 @@ This section is append-only. Every implementation session should record scope, m
 | 2.8 | 2026-09-05 | Made the alarm a tap-anywhere flashing-circle surface, added a global configurable alarm sound with Sine alarm default, and hardened full-screen lock-screen presentation. |
 | 2.9 | 2026-09-05 | Added persisted progressive Advanced mode, hybrid inline color/cue disclosure, shared swipe-to-delete rows, and simplified running controls. |
 | 3.0 | 2026-09-05 | Standardized modal hierarchy, guarded unsaved configuration loads, fixed nested-ring and overlapping-schedule visuals, moved user cues to Doze-safe alarm-clock scheduling, and refined the promoted running notification. |
+| 3.1 | 2026-09-05 | Added independent alarm volume, circular Android notification icons, an inline running mixer, refreshed Help, and capability-safe runtime anchoring across contract v4/v5. |
