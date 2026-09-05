@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type GestureResponderEvent } from 'react-native'
 import Slider from '@react-native-community/slider'
 import * as Haptics from 'expo-haptics'
 import Reanimated, { FadeIn, FadeInDown, FadeOut, LinearTransition, interpolate, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from 'react-native-reanimated'
@@ -33,7 +33,7 @@ import { useSoundAvailability } from '../hooks/use-sound-availability'
 import { ChandasTimerService, isNativeServiceAvailable } from '../native/ChandasTimerService'
 import { GentleNotice, type AppNotice } from '../components/timer-v2/experience-feedback'
 import { hasAvailableTime } from '../lib/activeHours'
-import { MixerIcon } from '../components/Icons'
+import { LightbulbIcon, MixerIcon } from '../components/Icons'
 import { edgeAutoScrollStep, previewIndexForItem, previewOffsetForItem, type ReorderPreview } from '../lib/reorder-preview'
 import { normalizeSubBellColor, subBellColorValue } from '../lib/subBellColors'
 import { ColorSelector } from '../components/timer-v2/ColorSelector'
@@ -45,6 +45,7 @@ const MAIN_PRESETS = [5, 10, 15, 30, 45, 60] as const
 const STEP_PRESETS = [1, 2, 3, 5, 10, 15, 20, 25, 30, 45, 60] as const
 const CADENCE_PRESETS = [1, 2, 3, 5, 10, 15, 20, 30] as const
 const MODE_CHOICES = [{ value: 'pattern', label: 'Cycle' }, { value: 'sequence', label: 'Sequence' }] as const
+const ADVANCED_PULL_DISTANCE = 88
 
 type CueTarget = { kind: 'main' } | { kind: 'alarm' } | { kind: 'track'; id: string } | { kind: 'step'; id: string } | { kind: 'completion'; mode: TimerMode }
 
@@ -81,9 +82,9 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
   const scrollOffsetRef = useRef(0)
   const scrollContentHeightRef = useRef(0)
   const scrollViewportRef = useRef({ top: 0, height: 0 })
-  const advancedRevealYRef = useRef(0)
-  const advancedRevealTriggeredRef = useRef(false)
-  const advancedRevealArmedRef = useRef(true)
+  const advancedPullStartYRef = useRef<number | null>(null)
+  const advancedPullProgressRef = useRef(0)
+  const advancedPullThresholdRef = useRef(false)
   const advancedRevealProgress = useSharedValue(0)
   const reducedMotion = useReducedMotion()
   const program = state.workingPrograms[state.workingPrograms.selectedMode]
@@ -108,30 +109,54 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
   const validToStart = program.runPolicy.kind !== 'continuous' || hasAvailableTime(settings.availability)
   const exactTimingNeedsSetup = Platform.OS === 'android' && !androidAccess.checking && !androidAccess.exactAlarms
   const advancedRevealStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(advancedRevealProgress.value, [0, 1], [0.48, 1]),
-    transform: [{ scale: interpolate(advancedRevealProgress.value, [0, 1], [0.965, 1]) }],
+    opacity: interpolate(advancedRevealProgress.value, [0, 1], [0.5, 1]),
+    transform: [{ translateY: interpolate(advancedRevealProgress.value, [0, 1], [0, -4]) }],
   }))
+  const advancedRevealGlowStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(advancedRevealProgress.value, [0, 1], [0, 0.1]),
+  }))
+  const resetAdvancedPull = (animated = true) => {
+    advancedPullStartYRef.current = null
+    advancedPullProgressRef.current = 0
+    advancedPullThresholdRef.current = false
+    advancedRevealProgress.value = animated ? withTiming(0, { duration: reducedMotion ? 60 : 150 }) : 0
+  }
   const setAdvancedMode = (enabled: boolean) => {
     tapHaptic()
-    advancedRevealTriggeredRef.current = enabled
-    advancedRevealArmedRef.current = enabled
-    advancedRevealProgress.value = withTiming(enabled ? 1 : 0, { duration: reducedMotion ? 70 : 160 })
+    resetAdvancedPull(false)
     changeSettings({ advancedModeEnabled: enabled })
   }
-  const updateAdvancedReveal = (offset: number) => {
-    if (settings.advancedModeEnabled || advancedRevealTriggeredRef.current) return
-    const visibleAmount = offset + scrollViewportRef.current.height - advancedRevealYRef.current
-    const progress = Math.max(0, Math.min(1, visibleAmount / 92))
-    if (!advancedRevealArmedRef.current) {
-      if (progress < 0.2) advancedRevealArmedRef.current = true
-      else return
+  const atScrollEnd = () => scrollContentHeightRef.current - scrollViewportRef.current.height - scrollOffsetRef.current <= 2
+  const handleAdvancedTouchStart = (event: GestureResponderEvent) => {
+    if (settings.advancedModeEnabled) return
+    const pageY = event.nativeEvent.pageY
+    advancedPullStartYRef.current = atScrollEnd() ? pageY : null
+    advancedPullProgressRef.current = 0
+    advancedPullThresholdRef.current = false
+    advancedRevealProgress.value = 0
+  }
+  const handleAdvancedTouchMove = (event: GestureResponderEvent) => {
+    if (settings.advancedModeEnabled) return
+    const pageY = event.nativeEvent.pageY
+    if (!atScrollEnd()) {
+      advancedPullStartYRef.current = null
+      advancedPullProgressRef.current = 0
+      advancedRevealProgress.value = 0
+      return
     }
+    if (advancedPullStartYRef.current === null) advancedPullStartYRef.current = pageY
+    const progress = Math.max(0, Math.min(1, (advancedPullStartYRef.current - pageY) / ADVANCED_PULL_DISTANCE))
+    advancedPullProgressRef.current = progress
     advancedRevealProgress.value = progress
-    if (progress >= 0.98) {
-      advancedRevealTriggeredRef.current = true
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined)
-      changeSettings({ advancedModeEnabled: true })
-    }
+    const reachedThreshold = progress >= 1
+    if (reachedThreshold && !advancedPullThresholdRef.current) void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => undefined)
+    advancedPullThresholdRef.current = reachedThreshold
+  }
+  const finishAdvancedPull = () => {
+    if (settings.advancedModeEnabled) return
+    const shouldReveal = advancedPullProgressRef.current >= 1
+    resetAdvancedPull(!shouldReveal)
+    if (shouldReveal) changeSettings({ advancedModeEnabled: true })
   }
   const selectMode = (mode: 'pattern' | 'sequence') => {
     if (state.workingPrograms.selectedMode === mode) return
@@ -159,7 +184,7 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined} style={[styles.screen, { backgroundColor: tokens.bg }]}>
-      <ScrollView ref={scrollRef} scrollEnabled={!sequenceReordering} onLayout={event => { scrollViewportRef.current = { top: event.nativeEvent.layout.y, height: event.nativeEvent.layout.height } }} onContentSizeChange={(_width, height) => { scrollContentHeightRef.current = height }} onScroll={event => { const offset = event.nativeEvent.contentOffset.y; scrollOffsetRef.current = offset; updateAdvancedReveal(offset) }} scrollEventThrottle={16} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.content, { paddingTop: insets.top + 22, paddingBottom: insets.bottom + 116 }]}>
+      <ScrollView ref={scrollRef} scrollEnabled={!sequenceReordering} onLayout={event => { scrollViewportRef.current = { top: event.nativeEvent.layout.y, height: event.nativeEvent.layout.height } }} onContentSizeChange={(_width, height) => { scrollContentHeightRef.current = height }} onScroll={event => { scrollOffsetRef.current = event.nativeEvent.contentOffset.y }} onTouchStart={handleAdvancedTouchStart} onTouchMove={handleAdvancedTouchMove} onTouchEnd={finishAdvancedPull} onTouchCancel={() => resetAdvancedPull()} scrollEventThrottle={16} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.content, { paddingTop: insets.top + 22, paddingBottom: insets.bottom + 116 }]}>
         <SegmentedControl items={MODE_CHOICES} value={state.workingPrograms.selectedMode} onChange={selectMode} accessibilityLabel="Timer mode" />
 
         <Reanimated.View key={program.mode} entering={FadeIn.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 120)} style={styles.modeContent}>
@@ -172,8 +197,8 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
           <CompletionCueControls state={state} onChange={onChange} onEditCue={setCueTarget} onFeedback={onFeedback} />
         </View>
 
-        {!settings.advancedModeEnabled ? <Reanimated.View onLayout={event => { advancedRevealYRef.current = event.nativeEvent.layout.y }} style={[styles.advancedReveal, advancedRevealStyle]}>
-          <Pressable onPress={() => setAdvancedMode(true)} style={({ pressed }) => [styles.advancedRevealButton, { borderColor: tokens.border, opacity: pressed ? 0.72 : 1 }]} accessibilityRole="button" accessibilityLabel="Show advanced settings"><Text style={[styles.advancedRevealTitle, { color: tokens.accent }]}>Show advanced</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>Keep scrolling or tap to reveal optional controls</Text><Text style={[styles.advancedRevealArrow, { color: tokens.accent }]}>⌄</Text></Pressable>
+        {!settings.advancedModeEnabled ? <Reanimated.View style={[styles.advancedReveal, advancedRevealStyle]}>
+          <Pressable onPress={() => setAdvancedMode(true)} style={({ pressed }) => [styles.advancedRevealButton, { borderColor: tokens.border, opacity: pressed ? 0.72 : 1 }]} accessibilityRole="button" accessibilityLabel="Show advanced settings" accessibilityHint="Tap, or pull upward at the end of the page"><Reanimated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.advancedRevealGlow, { backgroundColor: tokens.text }, advancedRevealGlowStyle]} /><Text style={[styles.advancedRevealTitle, { color: tokens.text }]}>Show advanced</Text></Pressable>
         </Reanimated.View> : <Reanimated.View entering={FadeInDown.duration(reducedMotion ? 80 : 210)} exiting={FadeOut.duration(reducedMotion ? 70 : 130)} layout={reducedMotion ? undefined : LinearTransition.duration(180)} style={styles.advancedSection}>
           {program.mode === 'pattern' && alarmSoundSupported ? <CueRow title="Alarm sound" detail={soundTitle(settings.alarmSound)} sound={settings.alarmSound} onPress={() => setCueTarget({ kind: 'alarm' })} /> : null}
 
@@ -184,7 +209,7 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
 
           <ActionRow title="Configurations" detail={state.workingPrograms.sourcePreset?.deleted ? 'Working copy · source removed' : state.workingPrograms.sourcePreset ? `Loaded from ${state.workingPrograms.sourcePreset.name}` : 'Working copy'} onPress={() => setPresetsOpen(true)} accessibilityLabel="Open saved configurations" />
 
-          <View style={styles.section}><View style={styles.settingRow}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Appearance</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>Choose a calm color and light or dark canvas.</Text></View><Toggle value={theme === 'dark'} onChange={toggleTheme} accessibilityLabel="Dark mode" /></View><ColorSelector label="Primary color" value={accentColor} onChange={setAccentColor} accessibilityLabel="Primary interface color" /></View>
+          <ColorSelector label="Appearance" detail="Choose a calm color and canvas." value={accentColor} onChange={setAccentColor} accessibilityLabel="Primary interface color" trailing={<Pressable hitSlop={8} onPress={() => { tapHaptic(); toggleTheme() }} style={({ pressed }) => [styles.roundIcon, { borderColor: tokens.border, backgroundColor: pressed ? tokens.accentGlow : 'transparent', opacity: pressed ? 0.72 : 1 }]} accessibilityRole="button" accessibilityLabel={`Use ${theme === 'dark' ? 'light' : 'dark'} appearance`}><LightbulbIcon color={tokens.accent} /></Pressable>} />
 
           {Platform.OS === 'android' ? <FocusControl state={focusState} enabled={settings.focusAutomationEnabled} onChange={onFocusAutomationChange} onResume={() => { onFocusAutomationChange(false); onFocusAutomationChange(true) }} onOpenAccessSettings={onOpenFocusSettings} onOpenRuleSettings={onOpenFocusRuleSettings} /> : null}
 
@@ -427,16 +452,18 @@ function TrackEditorSheet({ visible, state, trackId, onChange, onEditCue, onBack
   }
   const allSelected = offsets.length > 0 && offsets.every(offset => track.selectedOffsetsMinutes.includes(offset))
   return <BottomSheet visible={visible} eyebrow={`Sub-bell ${index + 1}`} title={<EditableTitle value={track.label} onCommit={label => onChange(patchPatternTrack(state, track.id, { label }))} accessibilityLabel={`Sub-bell ${index + 1} name`} large />} accessibilityTitle={track.label} onBack={onBack} onClose={onClose}>
+    <View style={styles.trackEditorContent}>
     <DurationSelector value={track.cadenceMinutes} presets={CADENCE_PRESETS} min={1} max={240} onChange={minutes => onChange(setTrackCadence(state, track.id, minutes))} label="Repeat every" />
     <ColorSelector value={normalizeSubBellColor(track.color, index)} onChange={color => onChange(patchPatternTrack(state, track.id, { color }))} accessibilityLabel="Sub-bell color" />
     <VolumeControl label="Volume" value={track.volume} onChange={volume => onChange(patchPatternTrack(state, track.id, { volume }))} onPreview={() => void preview()} />
     <CueRow title="Sound" detail={soundTitle(track.sound)} sound={track.sound} onPress={onEditCue} />
-    <View style={styles.gridHeading}><Pressable onPress={() => { tapHaptic(); setCuesOpen(open => !open) }} style={styles.settingRow} accessibilityRole="button" accessibilityState={{ expanded: cuesOpen }} accessibilityLabel="Customize sub-bell cues"><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Customize cues</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{track.selectedOffsetsMinutes.length} of {offsets.length} selected</Text></View><Text style={[styles.chevron, { color: tokens.accent }]}>{cuesOpen ? '⌃' : '⌄'}</Text></Pressable></View>
+    <View style={styles.gridHeading}><Pressable onPress={() => { tapHaptic(); setCuesOpen(open => !open) }} style={styles.settingRow} accessibilityRole="button" accessibilityState={{ expanded: cuesOpen }} accessibilityLabel="Customize sub-bell cues"><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Customize cues</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{track.selectedOffsetsMinutes.length} of {offsets.length} selected</Text></View><Text style={[styles.chevron, { color: tokens.accent }]}>›</Text></Pressable></View>
     {cuesOpen ? <Reanimated.View entering={FadeInDown.duration(reducedMotion ? 70 : 150)} exiting={FadeOut.duration(reducedMotion ? 60 : 100)} style={styles.cueEditor}>
       <View style={styles.gridActionRow}><Text style={[styles.helper, { color: tokens.textMuted }]}>Minutes after the main gong. Tap to toggle.</Text><SheetTextButton disabled={offsets.length === 0} label={allSelected ? 'Clear' : 'Select all'} onPress={() => onChange(setTrackOffsets(state, track.id, allSelected ? [] : offsets))} /></View>
       <OffsetGrid offsets={offsets} selected={track.selectedOffsetsMinutes} onChange={selectedOffsetsMinutes => onChange(setTrackOffsets(state, track.id, selectedOffsetsMinutes))} />
-      {offsets.length === 0 ? <GentleNotice title="No bell times fit" message="Choose a shorter repeat interval or a longer main interval." /> : track.selectedOffsetsMinutes.length === 0 ? <GentleNotice title="No bell times selected" message="Select at least one time above." /> : null}
+      {offsets.length === 0 ? <GentleNotice title="No bell times fit" message="Choose a shorter repeat interval or a longer main interval." /> : null}
     </Reanimated.View> : null}
+    </View>
   </BottomSheet>
 }
 
@@ -557,12 +584,12 @@ const styles = StyleSheet.create({
   sequenceCard: { paddingVertical: 9 }, sequenceHead: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 9 }, sequenceSummary: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 8 }, sequenceTitleLine: { flexDirection: 'row', alignItems: 'baseline', gap: 8 }, sequenceTitle: { flexShrink: 1 }, sequenceChevron: { width: 22, textAlign: 'center', fontSize: 22, lineHeight: 24, fontWeight: '300' }, stepActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }, sheetAction: { fontSize: 13, fontWeight: '700' },
   dragging: { zIndex: 20, boxShadow: '0 5px 16px rgba(0,0,0,0.24)' },
   draggingLayer: { zIndex: 20 },
-  gridHeading: { gap: 10 }, cueEditor: { gap: 10 }, gridActionRow: { minHeight: 36, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }, inlineActions: { flexDirection: 'row', alignItems: 'center', gap: 14 }, destructive: { fontSize: 12, fontWeight: '700', textAlign: 'center', paddingVertical: 8 },
+  trackEditorContent: { gap: 14, paddingTop: 3, paddingBottom: 12 }, gridHeading: { gap: 10 }, cueEditor: { gap: 10 }, gridActionRow: { minHeight: 36, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }, inlineActions: { flexDirection: 'row', alignItems: 'center', gap: 14 }, destructive: { fontSize: 12, fontWeight: '700', textAlign: 'center', paddingVertical: 8 },
   timeline: { height: 43, position: 'relative', overflow: 'hidden', paddingHorizontal: 8 }, timelineLine: { position: 'absolute', left: 8, right: 8, top: 17, height: 1 }, timelineBoundary: { position: 'absolute', top: 11, width: 2, height: 13 }, timelineCue: { position: 'absolute', width: 5, height: 5, marginLeft: -2.5, borderRadius: 3 }, timelineStart: { position: 'absolute', left: 7, bottom: 2, fontSize: 8 }, timelineEnd: { position: 'absolute', right: 7, bottom: 2, fontSize: 8 },
   mixerChannel: { gap: 3, paddingVertical: 6 }, mixerChannelHead: { minHeight: 42, flexDirection: 'row', alignItems: 'center', gap: 9 }, mixerControl: { minHeight: 40, flexDirection: 'row', alignItems: 'center', gap: 8 }, mixerSlider: { flex: 1, height: 38 }, divider: { height: 1 },
   previewMini: { width: 30, height: 30, borderWidth: 1, borderRadius: 15, alignItems: 'center', justifyContent: 'center' }, previewGlyph: { fontSize: 9 },
   mixerButton: { width: 36, height: 36, borderWidth: 1, borderRadius: 18, alignItems: 'center', justifyContent: 'center' }, previewButton: { width: 36, height: 36, borderWidth: 1, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   outline: { alignSelf: 'flex-start', borderWidth: 1.5, borderRadius: 99, paddingHorizontal: 13, paddingVertical: 9 }, bottom: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 20 }, start: { width: '100%', maxWidth: 580, minHeight: 54, alignSelf: 'center', borderRadius: 99, paddingVertical: 15, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 9 }, startText: { color: '#fff', fontSize: 14, fontWeight: '800', letterSpacing: 1.1, textTransform: 'uppercase' },
-  advancedReveal: { minHeight: 104, justifyContent: 'center' }, advancedRevealButton: { minHeight: 82, borderWidth: 1.5, borderStyle: 'dashed', borderRadius: 18, alignItems: 'center', justifyContent: 'center', gap: 3, paddingHorizontal: 18 }, advancedRevealTitle: { fontSize: 14, fontWeight: '700' }, advancedRevealArrow: { fontSize: 18, lineHeight: 18 }, advancedSection: { gap: 23 }, hideAdvanced: { minHeight: 48, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
+  advancedReveal: { minHeight: 88, justifyContent: 'center' }, advancedRevealButton: { minHeight: 66, borderWidth: 1.5, borderStyle: 'dashed', borderRadius: 18, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 18 }, advancedRevealGlow: { borderRadius: 17 }, advancedRevealTitle: { fontSize: 14, fontWeight: '700' }, advancedSection: { gap: 23 }, hideAdvanced: { minHeight: 48, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
   accessRow: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: 12 }, accessAction: { minWidth: 64, minHeight: 40, paddingHorizontal: 12, borderWidth: 1.5, borderRadius: 99, alignItems: 'center', justifyContent: 'center' }, readyPill: { minHeight: 27, paddingHorizontal: 9, borderRadius: 99, alignItems: 'center', justifyContent: 'center' }, readyMark: { fontSize: 8, fontWeight: '900', letterSpacing: 0.9 }, checkingMark: { width: 36, textAlign: 'center', fontSize: 10, letterSpacing: 1 },
 })

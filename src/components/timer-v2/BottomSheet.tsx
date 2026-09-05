@@ -62,7 +62,7 @@ const styles = StyleSheet.create({
   grabber: { width: 36, height: 4, borderRadius: 2, alignSelf: 'center', opacity: 0.55 },
   actions: { minHeight: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   actionSpacer: { width: 44 },
-  header: { gap: 3 },
+  header: { minHeight: 40, justifyContent: 'center', paddingBottom: 4 },
   heading: { flex: 1, gap: 3 },
   eyebrow: { fontSize: 11, lineHeight: 16, fontWeight: '600' },
   title: { fontSize: 20, fontWeight: '700' },

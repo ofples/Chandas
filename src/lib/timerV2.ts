@@ -209,7 +209,7 @@ export function normalizeTrack(track: Partial<PatternTrack>, mainMinutes: number
     id: typeof track.id === 'string' && track.id.length > 0 && track.id.length <= MAX_ID_CHARACTERS ? track.id : createProgramId(),
     label: normalizeLabel(track.label, fallbackLabel),
     color: normalizeSubBellColor(track.color, fallbackColorIndex),
-    enabled: track.enabled !== false,
+    enabled: selectedOffsetsMinutes.length > 0 && track.enabled !== false,
     cadenceMinutes: cadence,
     selectedOffsetsMinutes,
     ...normalizeCue(track, defaultCue('clear-bell')),

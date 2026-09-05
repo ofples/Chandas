@@ -1,9 +1,9 @@
 import { useState } from 'react'
-import { ScrollView, StyleSheet, View } from 'react-native'
+import { StyleSheet, View } from 'react-native'
 import { Chip } from '../Chip'
 import { CustomMinutePicker } from '../CustomMinutePicker'
 import { useTheme } from '../../theme/ThemeContext'
-import { ScrollEdgeFade } from './ScrollEdgeFade'
+import { FadedHorizontalScrollView } from './FadedHorizontalScrollView'
 import { SheetSectionTitle } from './SheetSectionTitle'
 
 interface Props {
@@ -26,10 +26,9 @@ export function DurationSelector({ value, presets, onChange, label, min = 1, max
       {label ? <SheetSectionTitle>{label}</SheetSectionTitle> : null}
       <View style={styles.choiceRow}>
         <View style={styles.scrollSlot}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.scroller} contentContainerStyle={styles.presets}>
+          <FadedHorizontalScrollView fadeColor={fadeColor ?? tokens.surface} style={styles.scroller} contentContainerStyle={styles.presets}>
             {presets.map(minutes => <Chip key={minutes} label={`${minutes}m`} active={value === minutes} onPress={() => onChange(minutes)} compact={compact} />)}
-          </ScrollView>
-          <ScrollEdgeFade color={fadeColor ?? tokens.surface} />
+          </FadedHorizontalScrollView>
         </View>
         <Chip
           label={isPreset ? 'Custom' : `${value}m`}

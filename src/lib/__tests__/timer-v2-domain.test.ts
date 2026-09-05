@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { PatternProgram, SequenceProgram } from '../../types'
-import { chooseProgramMode, deleteProgramPreset, hasUnsavedProgramChanges, loadProgramPreset, patchSequenceStep, saveProgramPreset, setPatternSubBellsEnabled, setTrackCadence, updatePatternMainMinutes } from '../programActions'
+import { chooseProgramMode, deleteProgramPreset, hasUnsavedProgramChanges, loadProgramPreset, patchSequenceStep, saveProgramPreset, setPatternSubBellsEnabled, setTrackCadence, setTrackOffsets, updatePatternMainMinutes } from '../programActions'
 import { alarmBehaviorAfterGesture, gateProgramAudio, isFreshScheduledEvent, iterationMuteFor, muteAfterScheduleChange, shouldSurfaceTimerSignal } from '../runtimeV2'
 import { defaultTimerV2State, migrateLegacyConfig, normalizeAvailabilityPolicy, normalizePatternProgram, normalizeSequenceProgram, normalizeSoundRef, parseTimerProgram, validOffsets } from '../timerV2'
 import { cueSegmentProgress, nextPatternEvent, nextProgramEvent, nextSequenceEvent, runEndAt, timelinePosition } from '../timeline'
@@ -589,6 +589,7 @@ describe('timer v2 validation and presets', () => {
     const shortened = updatePatternMainMinutes(configured, 10)
     expect(shortened.workingPrograms.pattern.tracks[0].cadenceMinutes).toBe(15)
     expect(shortened.workingPrograms.pattern.tracks[0].selectedOffsetsMinutes).toEqual([])
+    expect(shortened.workingPrograms.pattern.tracks[0].enabled).toBe(false)
   })
 
   it('repeats a partial sub-bell selection pattern when the main interval grows', () => {
@@ -634,6 +635,17 @@ describe('timer v2 validation and presets', () => {
     const normalized = normalizePatternProgram({ ...pattern(), mainMinutes: 10, tracks: [{ ...pattern().tracks[0], cadenceMinutes: 15, selectedOffsetsMinutes: [] }] })
     expect(normalized.tracks[0].cadenceMinutes).toBe(15)
     expect(normalized.tracks[0].selectedOffsetsMinutes).toEqual([])
+    expect(normalized.tracks[0].enabled).toBe(false)
+  })
+
+  it('disables an empty sub-bell and enables it when a cue is selected again', () => {
+    const initial = defaultTimerV2State()
+    const track = initial.workingPrograms.pattern.tracks[0]
+    const cleared = setTrackOffsets(initial, track.id, [])
+    expect(cleared.workingPrograms.pattern.tracks[0]).toMatchObject({ enabled: false, selectedOffsetsMinutes: [] })
+
+    const selected = setTrackOffsets(cleared, track.id, [5])
+    expect(selected.workingPrograms.pattern.tracks[0]).toMatchObject({ enabled: true, selectedOffsetsMinutes: [5] })
   })
 
   it('migrates legacy timing, disabled sub-bells, settings, and snap without deletion semantics', () => {

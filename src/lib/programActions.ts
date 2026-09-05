@@ -148,7 +148,7 @@ export function setTrackCadence(state: TimerV2State, trackId: string, cadenceMin
 }
 
 export function setTrackOffsets(state: TimerV2State, trackId: string, offsets: number[]): TimerV2State {
-  return patchPatternTrack(state, trackId, { selectedOffsetsMinutes: offsets })
+  return patchPatternTrack(state, trackId, { selectedOffsetsMinutes: offsets, enabled: offsets.length > 0 })
 }
 
 export function toggleTrackOffset(state: TimerV2State, trackId: string, offset: number): TimerV2State {

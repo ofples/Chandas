@@ -1424,6 +1424,7 @@ Do not edit old entries to reflect new conclusions. Add a superseding entry and 
 | 2026-09-05 | D-100 | Accepted | The running notification stays on Android's standard/BigText template so it remains eligible for promoted Live Update treatment. It uses the named interval as its heading, a public countdown, and the existing Stop action. Android owns whether the status chip is promoted and the chip-to-expanded-card transition; Chandas does not use a custom `RemoteViews` layout. |
 | 2026-09-05 | D-101 | Accepted | Stop is optimistic but verified. The setup screen appears immediately, while the app checks Android's persisted native state and retries quietly after 160 ms and 640 ms. A native cleanup exception counts as success when the following state read is inactive. After three unconfirmed attempts, keep setup visible and show a persistent Stop again warning. Starting a new session invalidates every delayed stop attempt so an old retry can never cancel the new timer. |
 | 2026-09-05 | D-102 | Accepted | Running clock alignment is a confirmed operation rather than a fire-and-forget sheet dismissal. Offer only distinct phase presets, show the chosen value with an in-sheet progress state until the schedule replacement resolves, and acknowledge both success and an already-selected rhythm. Stop/new Start invalidate every in-flight re-anchor so delayed asset preparation can never recreate an obsolete native timer. |
+| 2026-09-05 | D-103 | Accepted | Advanced reveal requires a deliberate release-threshold pull after the setup screen reaches its true bottom; merely exposing the prompt never expands it, and collapsing explicitly re-arms the gesture. The single Show advanced prompt brightens continuously with pull progress. Appearance is one flat row containing its expandable color swatch and light/dark action. Every overflowing horizontal choice rail uses position-aware scrims on both edges. A Sub-bell with no selected cue positions disables automatically and selecting a position enables it again. |
 
 ### Decision-entry template
 
@@ -2332,8 +2333,8 @@ This section is append-only. Every implementation session should record scope, m
 **Behavior implemented:**
 
 - The default setup keeps the interval, run length, clock alignment, Sub-bells, primary volume, main gong, and bounded final-gong choice visible. Alarm sound, Schedule, saved configurations, Appearance, Chandas Focus, and System integrations are grouped into Advanced mode.
-- Show advanced is both tappable and scroll-driven: its opacity/scale strengthen as it enters the viewport, then it expands at the reveal threshold. Hide advanced remains at the bottom; an explicit collapse is guarded against immediately reopening at the same scroll position. The preference persists and controls whether Alarm and Focus appear on the running screen.
-- Appearance is no longer a separate modal. Its dark-mode switch and primary-color circle live in Advanced mode; tapping the circle expands the shared horizontal color rail in place. The same collapsed-circle interaction is used for Sub-bell colors.
+- Show advanced is both tappable and scroll-driven. Ordinary scrolling only exposes the prompt; an additional bottom pull progressively brightens it, gives threshold haptics, and expands only when released beyond the threshold. Hide advanced resets and re-arms the gesture. The preference persists and controls whether Alarm and Focus appear on the running screen.
+- Appearance is no longer a separate modal. One flat Advanced row combines its primary-color circle with a lightbulb light/dark action; tapping the circle expands the shared horizontal color rail in place. The same collapsed-circle interaction is used for Sub-bell colors.
 - Sub-bell cue grids begin collapsed. Customize cues reveals the grid and one right-aligned contextual action: Clear when all valid cues are selected, otherwise Select all.
 - Sub-bells, Sequence steps, Schedule ranges, and saved configurations share one left-swipe row. Swiping reveals a trash icon and deletion exits/collapses smoothly in the list. Delete actions were removed from their edit/detail sheets, and the sole remaining Sequence step cannot be deleted.
 
@@ -2417,6 +2418,29 @@ This section is append-only. Every implementation session should record scope, m
 **Verification run:** TypeScript compilation; all 78 Vitest tests; deterministic local-clock boundary and distinct-preset tests; and interactive Expo Web validation of the 30-minute `:05` change, repeated-selection acknowledgement, countdown redraw, active icon, and the corrected 10-minute `:00`/`:05` choices.
 
 **Native/on-device verification still required:** On Android, choose several offsets while the timer runs and confirm the sheet waits for native acceptance, the countdown jumps to the expected wall-clock lattice, the notification countdown follows, and rapid Snap → Stop or Snap → Stop → Start sequences never resurrect or cancel the wrong session.
+
+### 2026-09-05 — Deliberate Advanced reveal and Sub-bell editor polish
+
+**Status:** Complete in source; OTA-compatible with Android production build 9.
+
+**Scope:** Bottom-scroll disclosure, Appearance consolidation, shared horizontal continuation cues, and Sub-bell editor layout/state.
+
+**Decision referenced:** D-103.
+
+**Behavior implemented:**
+
+- Replaced prompt-visibility activation with a true bottom-pull interaction. A normal scroll cannot reveal Advanced accidentally; an extra 88-point upward pull supplies continuous brightness/position feedback and threshold haptics, then release commits the expansion. A short pull eases back to rest. Collapse clears every gesture ref so the interaction works again immediately.
+- Reduced the collapsed prompt to one `Show advanced` label and removed the instructional sentence and direction glyph.
+- Kept every Advanced row on the same root spacing and opacity as ordinary controls. Appearance now uses one row with the expandable current-color swatch and the circular lightbulb action beside it.
+- Added one shared edge-aware horizontal scroller for duration, clock phase, and color choices. Its right scrim appears only when later choices exist; its left scrim appears after scrolling and both fade away at their respective ends.
+- Gave BottomSheet headings an explicit minimum height and separation, then added Track-editor breathing room so editable names cannot collide with `Repeat every` on narrow Android screens.
+- Standardized Customize cues on the same right chevron as other disclosure rows, removed the empty-selection notice, and made cue selection authoritative: clearing the last cue disables the Sub-bell, while selecting a cue enables it again. Normalization also repairs persisted enabled-but-empty tracks.
+
+**Migration impact:** JavaScript/OTA only. This changes no Kotlin, manifest, app configuration, dependency, packaged asset, or native runtime fingerprint input.
+
+**Verification run:** TypeScript compilation; all 79 Vitest tests including cue-disable/re-enable coverage; whitespace validation; and interactive Expo Web inspection at 408×900 of collapsed/expanded Advanced, Appearance, color rails, the Sub-bells library, the compact Track editor, and Clear/Select all state. No page errors appeared; existing Reanimated development warnings remain unrelated to this slice.
+
+**Native/on-device verification still required:** On Android, make one ordinary scroll that only reveals Show advanced, then continue pulling until the prompt brightens and haptic feedback occurs; release below and above threshold; collapse and repeat. Also verify left/right scrims while swiping each rail and check the Track editor with long names, the keyboard open, and three-button navigation.
 
 ### Implementation-entry template
 
