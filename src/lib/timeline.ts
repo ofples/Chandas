@@ -138,7 +138,7 @@ export function runEndAt(program: TimerProgram, anchor: number, startedAt: numbe
 }
 
 function completionCandidate(program: TimerProgram): TimelineCueCandidate {
-  const cue = program.mode === 'pattern' ? program.mainCue : program.steps.at(-1)!
+  const cue = program.completionCue ?? (program.mode === 'pattern' ? program.mainCue : program.steps.at(-1)!)
   return { cueId: 'completion', kind: 'run-complete', sound: cue.sound, volume: cue.volume }
 }
 
@@ -148,7 +148,11 @@ export function nextProgramEvent(program: TimerProgram, anchor: number, now = Da
   if (endAt !== null && now >= endAt) return null
   const next = program.mode === 'pattern' ? nextPatternEvent(program, anchor, now) : nextSequenceEvent(program, anchor, now)
   if (endAt === null || next.at < endAt) return next
-  if (next.at === endAt) return { ...next, completesRun: true }
+  if (next.at === endAt) {
+    if (!program.completionCue) return { ...next, completesRun: true }
+    const winner = completionCandidate(program)
+    return { ...next, candidates: [winner], winner, collision: false, completesRun: true }
+  }
   const winner = completionCandidate(program)
   return {
     at: endAt,

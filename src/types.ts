@@ -75,6 +75,8 @@ export interface PatternProgram {
   label: string
   mainMinutes: number
   mainCue: CueSettings
+  /** Optional distinct cue used only when a bounded run reaches its terminal instant. */
+  completionCue: CueSettings | null
   /** Keeps configured tracks intact while the whole sub-bell layer is hidden. */
   subBellsEnabled: boolean
   tracks: PatternTrack[]
@@ -92,6 +94,8 @@ export interface SequenceProgram {
   schemaVersion: 2
   mode: 'sequence'
   steps: SequenceStep[]
+  /** Optional distinct cue used only when a bounded run reaches its terminal instant. */
+  completionCue: CueSettings | null
   runPolicy: RunPolicy
 }
 

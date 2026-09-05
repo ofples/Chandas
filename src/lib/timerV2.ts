@@ -88,6 +88,7 @@ export function defaultPatternProgram(): PatternProgram {
     label: 'Main interval',
     mainMinutes: 30,
     mainCue: defaultCue('temple-gong'),
+    completionCue: null,
     subBellsEnabled: false,
     tracks: [{
       id: createProgramId(),
@@ -115,6 +116,7 @@ export function defaultSequenceProgram(): SequenceProgram {
       step(25, 'Deep work', 'temple-gong', 0.85),
       step(2, 'Reset', 'soft-bowl', 0.55),
     ],
+    completionCue: null,
     runPolicy: normalizeRunPolicy(undefined),
   }
 }
@@ -221,6 +223,7 @@ export function normalizePatternProgram(value: Partial<PatternProgram> | undefin
     label: normalizeLabel(value?.label, 'Main interval'),
     mainMinutes,
     mainCue: normalizeCue(value?.mainCue, defaultCue('temple-gong')),
+    completionCue: value?.completionCue ? normalizeCue(value.completionCue, defaultCue('temple-gong')) : null,
     subBellsEnabled: typeof value?.subBellsEnabled === 'boolean' ? value.subBellsEnabled : tracks.some(track => track.enabled),
     tracks,
     alignment: offset === undefined ? { kind: 'elapsed' } : { kind: 'local-clock', offsetMinutes: offset },
@@ -241,6 +244,7 @@ export function normalizeSequenceProgram(value: Partial<SequenceProgram> | undef
     schemaVersion: TIMER_V2_SCHEMA_VERSION,
     mode: 'sequence',
     steps: steps.length > 0 ? steps : defaultSequenceProgram().steps,
+    completionCue: value?.completionCue ? normalizeCue(value.completionCue, defaultCue('temple-gong')) : null,
     runPolicy: normalizeRunPolicy(value?.runPolicy),
   }
 }
@@ -338,6 +342,7 @@ export function migrateLegacyConfig(legacy: Partial<TimerConfig>): TimerV2State 
     label: 'Main interval',
     mainMinutes,
     mainCue: defaultCue('temple-gong'),
+    completionCue: null,
     subBellsEnabled: legacy.subEnabled !== false,
     tracks: [{
       id: createProgramId(),

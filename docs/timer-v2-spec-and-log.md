@@ -134,7 +134,7 @@ Timer v2 replaces these assumptions rather than layering special cases over them
 | D-034 | Alarm audio usage routes Chandas through the phone Alarm stream but cannot override an unrelated DND mode that disallows alarms. Chandas Focus permits alarms and never claims to clone or modify other DND profiles. |
 | D-035 | Every Pattern and Sequence configuration has a run policy: Continuous, a bounded number of complete cycles, or a bounded elapsed duration in hours/minutes/seconds. The policy is part of saved presets. |
 | D-036 | Pattern `N cycles` means `N` main intervals; Sequence `N cycles` means `N` complete traversals of the ordered step list. Duration bounds use elapsed time from the accepted Start anchor and do not pause for inactive schedule windows, calls, or mute. |
-| D-037 | A bounded run ends exactly once. Its natural cue plays when a cycle bound or duration deadline coincides with a normal cue. A duration deadline between cues uses the Pattern main sound or the Sequence final-step sound as a one-shot completion cue. It never creates two overlapping sounds. |
+| D-037 | A bounded run ends exactly once. Without a custom final gong, its natural cue plays when a deadline coincides with a normal cue; a deadline between cues uses the Pattern main sound or Sequence final-step sound. With a custom final gong, that cue replaces either form of terminal cue. Completion never creates two overlapping sounds. |
 | D-038 | Continuous runs may be governed by multiple weekly active windows. A timestamp is active when it belongs to at least one enabled window; overlapping or adjacent windows are a union and never duplicate delivery. Cross-midnight attribution remains attached to the window's start day. |
 | D-039 | Scheduling is represented as an availability policy with weekly windows plus a currently empty list of resolved absolute-time overrides. A later calendar feature may populate `active` or `mute` overrides without changing timer, audio, or native scheduling contracts; mute overrides take precedence. No calendar permission or unfinished calendar UI ships in this slice. |
 | D-040 | The two user-facing mode names are `Cycle` and `Sequence`. Internal domain names may remain `pattern` and `sequence`, but product surfaces avoid exposing implementation vocabulary and collision arbitration details. |
@@ -145,7 +145,7 @@ Timer v2 replaces these assumptions rather than layering special cases over them
 | D-045 | Advanced editing uses progressive disclosure. Sequence steps stay as equal-height compact ordered rows and open a focused editor sheet; saved-configuration details replace the list while being inspected; technical sound, scheduling, and collision explanations stay in Help or documentation unless required to resolve a current problem. |
 | D-046 | Configuration summaries use one title, one useful value, and a chevron. `Sound levels` replaces user-facing `Mixer` terminology in setup, while the running sheet may retain `Mixer & mute` because it combines two live control groups. |
 | D-047 | Every interval may have a user-facing name: Pattern has a named main interval and named sub-bell tracks; Sequence retains named steps. Names are stored in presets, default safely for older records, and identify intervals in editors, the running view, and sound controls. The next Pattern sub-bell may show its interval name with its countdown, but never substitutes a sound name or collision explanation. |
-| D-048 | Per-run opening and ending gong overrides are deferred. They are not added to the program schema, UI, JavaScript runtime, or native scheduler in v2.0; Start remains quiet and bounded runs retain their existing final-cue behavior. This keeps the interval-naming release compatible with the current native binary and eligible for OTA delivery. |
+| D-048 | Superseded by D-083. The earlier compatibility release deferred both opening and ending overrides so it could remain eligible for the installed native binary. Start remains quiet; only the bounded-run final override is now being restored at the next native release boundary. |
 | D-049 | Pattern sub-bells sort automatically by repeat interval, longest first. At an overlap, the longer repeat interval wins; stable list order breaks equal-cadence ties. Only the winner plays. Manual Pattern reordering is removed, while Sequence reordering remains. |
 | D-050 | Sub-bells are one progressively disclosed layer with a single top-level switch. Fresh configurations keep the layer Off while preserving a ready first sub-bell; enabling reveals that sub-bell and Add, disabling hides and suppresses the layer without destroying its settings. |
 | D-051 | Interval names are edited in place by tapping the displayed title. Editors do not repeat the same name in a separate field. Main duration is represented only by quick choices and a Custom chip; a selected custom value replaces the word Custom and carries a pencil affordance. |
@@ -180,6 +180,7 @@ Timer v2 replaces these assumptions rather than layering special cases over them
 | D-080 | Sequence reorder feedback is direct rather than springy: rows preview their insertion positions and prospective order numbers, but the held row does not scale and release settles with a short non-bouncing transition. The two-digit order number sits immediately beside the interval title instead of occupying its own column. |
 | D-081 | The Sequence step sheet uses the shared horizontally scrollable duration selector with shortcuts for 1, 2, 3, 5, 10, 15, 20, 25, 30, 45, and 60 minutes plus Custom. A circular play action beside the Volume slider previews the selected sound at the effective master × step level and reports preview failure gently without changing the timer. |
 | D-082 | The Android setup collection is labelled `Permissions` in both its compact row and sheet. Chandas Focus stays separate because it is a first-class timer behavior rather than merely an access grant. |
+| D-083 | Cycle and Sequence programs may store one optional custom final gong. Its switch appears in Sound only for Cycles/Duration policies, defaults Off, and preserves the established terminal sound while Off. When On, sound and level are editable/previewable and saved with configurations. At the exact terminal instant it replaces—not accompanies—the natural or synthetic completion cue. Returning to Continuous hides and ignores the setting without destroying it. Opening-gong customization remains out of scope. |
 
 ---
 
@@ -623,6 +624,7 @@ interface PatternProgram {
   label: string
   mainMinutes: number
   mainCue: CueSettings
+  completionCue: CueSettings | null
   tracks: PatternTrack[]
   alignment:
     | { kind: 'elapsed' }
@@ -640,6 +642,7 @@ interface SequenceProgram {
   schemaVersion: 2
   mode: 'sequence'
   steps: SequenceStep[]
+  completionCue: CueSettings | null
   runPolicy: RunPolicy
 }
 
@@ -2136,6 +2139,30 @@ This section is append-only. Every implementation session should record scope, m
 
 **Risks or follow-ups:** The palette is intentionally semantic. Its actual color values can be tuned later without migrating saved configurations. A future user-defined color picker can extend the metadata contract separately if the fixed palette proves too limiting.
 
+### 2026-09-05 — Optional bounded-run final gong
+
+**Status:** Complete in source; requires the next native Android build.
+
+**Scope:** Persisted Cycle/Sequence program data, bounded-run Sound controls, previews and mixers, JavaScript/native terminal scheduling, normalization, and parity tests.
+
+**Decisions referenced:** D-037, D-048, D-083.
+
+**Behavior implemented:**
+
+- Added an optional final cue to both program kinds. It is Off for new and older configurations and saved naturally with configuration snapshots.
+- Showed one `Custom final gong` switch only for Cycles and Duration. Enabling it begins with the sound and level that would otherwise end that program, so merely enabling the option produces no surprising level jump. Its Volume includes an adjacent preview action and its sound opens the established picker.
+- Included the enabled final cue in setup and live sound-level mixers. Switching back to Continuous hides and ignores it while preserving the choice for a later bounded run.
+- Reused the existing exactly-once terminal event in JavaScript and Kotlin. A configured final gong replaces the natural boundary cue when the deadline lands exactly on one, or the derived synthetic cue when it lands between boundaries; no second alarm, notification, or overlapping playback is created.
+- Kept terminal identity, fixed end time, durable completion-before-playback ordering, user/call mute gates, and non-looping bounded alarm semantics unchanged.
+
+**Migration impact:** Normalization fills `completionCue: null` for older working programs and presets without increasing the v2 schema version. The native parser accepts missing/null values for backward compatibility and validates any configured cue before scheduling. Because Android must understand the new cue to honor it while the app is backgrounded, this feature requires a new binary even though older programs remain readable.
+
+**Verification run:** TypeScript, Vitest, whitespace/diff validation, and source-level JavaScript/Kotlin parity review. Native compilation and device playback remain intentionally deferred to the remote build because repository policy prohibits local native builds.
+
+**Native/on-device verification still required:** Test exact-boundary and between-boundary endings with the screen off, process death/restart, Android/device sounds, unavailable document sounds and fallback, user/call mute at completion, and saved-configuration round trips on the next remote development build.
+
+**Risks or follow-ups:** Opening-gong customization remains intentionally excluded. A future opening cue would require its own start-delivery/idempotency design and must not be inferred from this terminal-only field.
+
 ### Implementation-entry template
 
 ```md
@@ -2181,3 +2208,4 @@ This section is append-only. Every implementation session should record scope, m
 | 2.0 | 2026-09-05 | Clarified Schedule ownership and range removal, hid the disabled preview, corrected overnight timeline transitions/counting, and repaired the guarded EAS archive inputs. |
 | 2.1 | 2026-09-05 | Flattened Chandas Focus to match other toggles and made both compact visualizers direct editor entry points. |
 | 2.2 | 2026-09-05 | Added persistent Sub-bell colors, centered the live timer, restored the Focus border and Cycle naming, simplified Sequence ordering, expanded step presets/preview, and renamed Android access to Permissions. |
+| 2.3 | 2026-09-05 | Restored an optional bounded-run final gong with saved sound/level controls and exactly-once JavaScript/native terminal replacement semantics. |

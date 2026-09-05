@@ -70,7 +70,14 @@ object TimerV2Timeline {
       else -> null
     }
     if (natural == null || endAt == null || natural.at < endAt) return@runCatching natural
-    if (natural.at == endAt) return@runCatching natural.copy(completesRun = true)
+    if (natural.at == endAt) {
+      val custom = customCompletionCandidate(root)
+      return@runCatching if (custom == null) natural.copy(completesRun = true) else natural.copy(
+        candidates = listOf(custom),
+        winner = custom,
+        completesRun = true,
+      )
+    }
     val winner = completionCandidate(root) ?: return@runCatching null
     TimerV2Event(
       at = endAt,
@@ -278,6 +285,7 @@ object TimerV2Timeline {
   }
 
   private fun completionCandidate(root: JSONObject): TimerV2Candidate? {
+    customCompletionCandidate(root)?.let { return it }
     return when (root.optString("mode")) {
       "pattern" -> TimerV2Candidate("completion", "run-complete", cueSound(root.optJSONObject("mainCue")), cueVolume(root.optJSONObject("mainCue")))
       "sequence" -> {
@@ -289,9 +297,17 @@ object TimerV2Timeline {
     }
   }
 
+  private fun customCompletionCandidate(root: JSONObject): TimerV2Candidate? {
+    val cue = root.optJSONObject("completionCue") ?: return null
+    return TimerV2Candidate("completion", "run-complete", cueSound(cue), cueVolume(cue))
+  }
+
+  private fun validOptionalCompletionCue(root: JSONObject): Boolean =
+    !root.has("completionCue") || root.isNull("completionCue") || validCue(root.optJSONObject("completionCue"))
+
   private fun validatePattern(root: JSONObject): Boolean {
     val mainMinutes = root.optInt("mainMinutes", -1)
-    if (mainMinutes !in 1..MAX_DURATION_MINUTES || !validCue(root.optJSONObject("mainCue"))) return false
+    if (mainMinutes !in 1..MAX_DURATION_MINUTES || !validCue(root.optJSONObject("mainCue")) || !validOptionalCompletionCue(root)) return false
     val tracks = root.optJSONArray("tracks") ?: return false
     if (tracks.length() > MAX_TRACKS) return false
     val trackIds = mutableSetOf<String>()
@@ -328,7 +344,7 @@ object TimerV2Timeline {
       val label = step.optString("label")
       if (id.isBlank() || id.length > MAX_ID_CHARACTERS || !stepIds.add(id) || label.isBlank() || label.codePointCount(0, label.length) > 60 || step.optInt("durationMinutes", -1) !in 1..MAX_DURATION_MINUTES || !validCue(step)) return false
     }
-    return validRunPolicy(root)
+    return validOptionalCompletionCue(root) && validRunPolicy(root)
   }
 
   private fun validRunPolicy(root: JSONObject): Boolean {

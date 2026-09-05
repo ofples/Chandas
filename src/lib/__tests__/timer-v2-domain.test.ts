@@ -17,6 +17,7 @@ function pattern(): PatternProgram {
     label: 'Focus cycle',
     mainMinutes: 30,
     mainCue: { sound: { kind: 'builtin', id: 'temple-gong' }, volume: 0.8 },
+    completionCue: null,
     subBellsEnabled: true,
     tracks: [
       { id: 'top', label: 'Breathe', color: 'violet', enabled: true, cadenceMinutes: 5, selectedOffsetsMinutes: [10], sound: { kind: 'builtin', id: 'soft-bowl' }, volume: 0.6 },
@@ -35,6 +36,7 @@ function sequence(): SequenceProgram {
       { id: 'work', label: 'Work', durationMinutes: 5, sound: { kind: 'builtin', id: 'clear-bell' }, volume: 0.8 },
       { id: 'rest', label: 'Rest', durationMinutes: 2, sound: { kind: 'builtin', id: 'soft-bowl' }, volume: 0.6 },
     ],
+    completionCue: null,
     runPolicy: { kind: 'continuous', cycleCount: 1, durationSeconds: 30 * 60 },
   }
 }
@@ -314,6 +316,37 @@ describe('bounded runs and availability policies', () => {
     expect(event?.candidates).toHaveLength(1)
   })
 
+  it('replaces an exact terminal boundary with the configured final gong', () => {
+    const completionCue = { sound: { kind: 'builtin', id: 'bright-chime' } as const, volume: 0.35 }
+    const program = { ...pattern(), completionCue, runPolicy: { kind: 'cycles', cycleCount: 1, durationSeconds: 30 * 60 } as const }
+    const event = nextProgramEvent(program, 0, 29 * minute, 0)
+    expect(event).toMatchObject({
+      at: 30 * minute,
+      boundary: 'pattern-main',
+      completesRun: true,
+      winner: { cueId: 'completion', kind: 'run-complete', sound: completionCue.sound, volume: 0.35 },
+    })
+    expect(event?.candidates).toHaveLength(1)
+  })
+
+  it('uses the configured final gong for a synthetic duration completion', () => {
+    const completionCue = { sound: { kind: 'builtin', id: 'wood-block' } as const, volume: 0.45 }
+    const program = { ...sequence(), completionCue, runPolicy: { kind: 'duration', cycleCount: 1, durationSeconds: 90 } as const }
+    const event = nextProgramEvent(program, 1_000, 1_000, 1_000)
+    expect(event).toMatchObject({
+      at: 91_000,
+      boundary: 'run-complete',
+      completesRun: true,
+      winner: { cueId: 'completion', kind: 'run-complete', sound: completionCue.sound, volume: 0.45 },
+    })
+  })
+
+  it('ignores a stored final gong while a program is continuous', () => {
+    const program = { ...pattern(), completionCue: { sound: { kind: 'builtin', id: 'bright-chime' } as const, volume: 0.35 } }
+    const event = nextProgramEvent(program, 0, 29 * minute, 0)
+    expect(event).toMatchObject({ completesRun: false, winner: { cueId: 'main', sound: program.mainCue.sound } })
+  })
+
   it('keeps the promised terminal instant when a snapped phase realigns', () => {
     const program = { ...pattern(), runPolicy: { kind: 'cycles', cycleCount: 2, durationSeconds: 30 * 60 } as const }
     const startedAt = 12 * minute
@@ -450,6 +483,16 @@ describe('timer v2 validation and presets', () => {
     expect(normalized.subBellsEnabled).toBe(true)
     expect(normalized.tracks[0].label).toBe('Sub-bell 1')
     expect(normalized.tracks.map(track => track.color)).toEqual(['violet', 'blue'])
+    expect(normalized.completionCue).toBeNull()
+  })
+
+  it('normalizes optional final-gong settings without enabling them for older programs', () => {
+    const configured = normalizeSequenceProgram({
+      ...sequence(),
+      completionCue: { sound: { kind: 'builtin', id: 'bright-chime' }, volume: 4 },
+    })
+    expect(configured.completionCue).toEqual({ sound: { kind: 'builtin', id: 'bright-chime' }, volume: 1 })
+    expect(normalizeSequenceProgram({ ...sequence(), completionCue: null }).completionCue).toBeNull()
   })
 
   it('renumbers untouched default sub-bell labels after automatic sorting', () => {

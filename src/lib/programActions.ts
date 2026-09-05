@@ -1,4 +1,5 @@
 import type {
+  CueSettings,
   PatternProgram,
   PatternTrack,
   ProgramPreset,
@@ -134,6 +135,30 @@ export function toggleTrackOffset(state: TimerV2State, trackId: string, offset: 
 
 export function updateSequence(state: TimerV2State, update: (program: SequenceProgram) => SequenceProgram): TimerV2State {
   return withWorkingProgram(state, 'sequence', normalizeSequenceProgram(update(state.workingPrograms.sequence)))
+}
+
+/** Keeps final-gong editing identical across Pattern and Sequence programs. */
+export function setCompletionCueEnabled(state: TimerV2State, mode: TimerMode, enabled: boolean): TimerV2State {
+  if (mode === 'pattern') {
+    return updatePattern(state, program => ({
+      ...program,
+      completionCue: enabled ? program.completionCue ?? { ...program.mainCue, sound: { ...program.mainCue.sound } } : null,
+    }))
+  }
+  return updateSequence(state, program => {
+    const fallback = program.steps.at(-1)!
+    return {
+      ...program,
+      completionCue: enabled ? program.completionCue ?? { sound: { ...fallback.sound }, volume: fallback.volume } : null,
+    }
+  })
+}
+
+export function patchCompletionCue(state: TimerV2State, mode: TimerMode, patch: Partial<CueSettings>): TimerV2State {
+  const apply = <T extends PatternProgram | SequenceProgram>(program: T): T => program.completionCue
+    ? { ...program, completionCue: { ...program.completionCue, ...patch } }
+    : program
+  return mode === 'pattern' ? updatePattern(state, apply) : updateSequence(state, apply)
 }
 
 export function addSequenceStep(state: TimerV2State): TimerV2State {

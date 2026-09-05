@@ -220,6 +220,7 @@ function RunningMixerSheet({ visible, onClose, program, masterVolume, onMasterVo
   useEffect(() => { if (!visible) setChannelsOpen(false) }, [visible])
   const muted = Boolean(mute.iteration) || mute.mutedUntil > Date.now()
   const channels: { id: string; title: string; cue: CueSettings }[] = program.mode === 'pattern' ? [{ id: 'main', title: 'Main gong', cue: program.mainCue }, ...program.tracks.map(track => ({ id: track.id, title: track.label, cue: track }))] : program.steps.map((step, index) => ({ id: step.id, title: `${index + 1}. ${step.label}`, cue: step }))
+  if (program.runPolicy.kind !== 'continuous' && program.completionCue) channels.push({ id: '__chandas_completion__', title: 'Final gong', cue: program.completionCue })
   const reference = channels[0]
   const preview = async (title: string, cue: CueSettings) => {
     setPreviewError(null)

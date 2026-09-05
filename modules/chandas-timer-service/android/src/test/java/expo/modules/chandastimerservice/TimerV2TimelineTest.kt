@@ -72,6 +72,39 @@ class TimerV2TimelineTest {
     assertTrue(event.completesRun)
   }
 
+  @Test fun customCompletionCueReplacesNaturalTerminalBoundary() {
+    val root = JSONObject(fixtures.getJSONObject("patternCollision").getJSONObject("program").toString())
+    root.put("runPolicy", JSONObject().put("kind", "cycles").put("cycleCount", 1).put("durationSeconds", 1_800))
+    root.put("completionCue", JSONObject()
+      .put("sound", JSONObject().put("kind", "builtin").put("id", "bright-chime"))
+      .put("volume", 0.35))
+    val endAt = requireNotNull(TimerV2Timeline.runEndAt(root.toString(), 0L, 1L))
+    val event = requireNotNull(TimerV2Timeline.next(root.toString(), 0L, endAt - 1L, 1L, endAt))
+    assertEquals(TimerV2Boundary.PATTERN_MAIN, event.boundary)
+    assertEquals("completion", event.winner.cueId)
+    assertEquals("run-complete", event.winner.kind)
+    assertEquals("bright-chime", event.winner.soundId)
+    assertEquals(0.35f, event.winner.volume)
+    assertEquals(1, event.candidates.size)
+    assertTrue(event.completesRun)
+  }
+
+  @Test fun customCompletionCueIsUsedBetweenNaturalCuesAndValidated() {
+    val root = JSONObject(fixtures.getJSONObject("sequence").getJSONObject("program").toString())
+    root.put("runPolicy", JSONObject().put("kind", "duration").put("cycleCount", 1).put("durationSeconds", 90))
+    root.put("completionCue", JSONObject()
+      .put("sound", JSONObject().put("kind", "builtin").put("id", "wood-block"))
+      .put("volume", 0.45))
+    assertTrue(TimerV2Timeline.isValid(root.toString()))
+    val event = requireNotNull(TimerV2Timeline.next(root.toString(), 1_000L, 1_000L, 1_000L, 91_000L))
+    assertEquals(TimerV2Boundary.RUN_COMPLETE, event.boundary)
+    assertEquals("wood-block", event.winner.soundId)
+    assertEquals(0.45f, event.winner.volume)
+
+    root.put("completionCue", JSONObject().put("volume", 3))
+    assertFalse(TimerV2Timeline.isValid(root.toString()))
+  }
+
   @Test fun fixedCycleDeadlineSurvivesLocalPhaseRealignment() {
     val root = JSONObject(fixtures.getJSONObject("patternCollision").getJSONObject("program").toString())
     root.put("runPolicy", JSONObject().put("kind", "cycles").put("cycleCount", 2).put("durationSeconds", 1_800))

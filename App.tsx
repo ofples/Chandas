@@ -11,7 +11,7 @@ import type { AppState, AppTimerSettings, TimerV2State } from './src/types'
 import { useTimerV2 } from './src/hooks/useTimerV2'
 import { clearTimerV2Session, loadTimerV2Session, loadTimerV2StateResult, saveTimerV2Session, saveTimerV2State, type TimerV2Session } from './src/lib/storage'
 import { defaultTimerV2State, normalizeAvailabilityPolicy, parseTimerProgram, replaceWorkingProgram, selectedProgram } from './src/lib/timerV2'
-import { patchPatternTrack, patchSequenceStep, updatePattern } from './src/lib/programActions'
+import { patchCompletionCue, patchPatternTrack, patchSequenceStep, updatePattern } from './src/lib/programActions'
 import { TimerV2ConfigScreen } from './src/screens/TimerV2ConfigScreen'
 import { TimerV2RunningScreen } from './src/screens/TimerV2RunningScreen'
 import { AlarmRingingScreen } from './src/screens/AlarmRingingScreen'
@@ -22,7 +22,7 @@ import { AppErrorBoundary } from './src/components/timer-v2/app-error-boundary'
 const FALLBACK_PROGRAM = {
   schemaVersion: 2 as const, mode: 'pattern' as const, mainMinutes: 30,
   label: 'Main interval',
-  mainCue: { sound: { kind: 'builtin' as const, id: 'temple-gong' as const }, volume: 1 }, subBellsEnabled: false, tracks: [], alignment: { kind: 'elapsed' as const },
+  mainCue: { sound: { kind: 'builtin' as const, id: 'temple-gong' as const }, volume: 1 }, completionCue: null, subBellsEnabled: false, tracks: [], alignment: { kind: 'elapsed' as const },
   runPolicy: { kind: 'continuous' as const, cycleCount: 1, durationSeconds: 30 * 60 },
 }
 const FALLBACK_SETTINGS = { masterVolume: 0.8, notificationsEnabled: true, muteDuringCallsEnabled: true, availability: { enabled: false, weeklyWindows: [], overrides: [] }, focusAutomationEnabled: false, alarmDurationSeconds: 60 }
@@ -415,7 +415,8 @@ function Root() {
 
   const changeCueVolume = (cueId: string, volume: number) => {
     if (!timerState || !program) return
-    if (program.mode === 'sequence') changeTimerState(patchSequenceStep(timerState, cueId, { volume }))
+    if (cueId === '__chandas_completion__') changeTimerState(patchCompletionCue(timerState, program.mode, { volume }))
+    else if (program.mode === 'sequence') changeTimerState(patchSequenceStep(timerState, cueId, { volume }))
     else if (cueId === 'main') changeTimerState(updatePattern(timerState, value => ({ ...value, mainCue: { ...value.mainCue, volume } })))
     else changeTimerState(patchPatternTrack(timerState, cueId, { volume }))
   }
