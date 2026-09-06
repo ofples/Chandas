@@ -119,7 +119,7 @@ object TimerScheduler {
     val initialTriggerAt = v2Event?.at ?: min(nextMain, nextSub)
     val activeNow = ActiveHours.isActive(active, now)
     val waitsForAvailability = v2Event?.completesRun != true &&
-      (!activeNow || !ActiveHours.isActive(active, initialTriggerAt))
+      (!activeNow || !ActiveHours.allowsCue(active, initialTriggerAt))
     // If the current window is active but closes before the next cue, search
     // from that skipped cue. Searching from now would return now and spin.
     val resumesAt = if (waitsForAvailability) ActiveHours.nextStart(active, if (activeNow) initialTriggerAt else now) else 0L
@@ -133,7 +133,7 @@ object TimerScheduler {
     var triggerAt = v2Event?.at ?: initialTriggerAt
     var type = if (v2Event != null) TimerEventType.V2 else if (triggerAt == nextMain) TimerEventType.MAIN else TimerEventType.SUB
     var logicalId = v2Event?.logicalId ?: "legacy:${type.value}:$triggerAt"
-    if (v2Event?.completesRun != true && (!ActiveHours.isActive(active, now) || !ActiveHours.isActive(active, triggerAt))) {
+    if (v2Event?.completesRun != true && (!ActiveHours.isActive(active, now) || !ActiveHours.allowsCue(active, triggerAt))) {
       triggerAt = resumesAt
       type = TimerEventType.ACTIVE_START
       logicalId = "active-start:$triggerAt"
@@ -224,7 +224,7 @@ object TimerScheduler {
       handleV2Triggered(context, config, triggerAt, onFinished)
       return
     }
-    if (!ActiveHours.isActive(config, now)) {
+    if (!ActiveHours.allowsCueDelivery(config, triggerAt, now)) {
       scheduleNext(context, config)
       onFinished()
       return
@@ -289,7 +289,7 @@ object TimerScheduler {
     }
     val now = System.currentTimeMillis()
     val isPatternMain = event.boundary == TimerV2Boundary.PATTERN_MAIN
-    if (!ActiveHours.isActive(config, now)) {
+    if (!ActiveHours.allowsCueDelivery(config, event.at, now)) {
       if (event.completesRun) completeSession(context) else scheduleNext(context, config)
       emitV2Event(event, suppressed = true, reason = "outside-active-hours")
       onFinished()

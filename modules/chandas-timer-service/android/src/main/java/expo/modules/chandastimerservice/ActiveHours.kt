@@ -8,6 +8,7 @@ object ActiveHours {
   private const val MAX_WINDOWS = 16
   private const val MAX_OVERRIDES = 256
   private const val EIGHT_DAYS_MS = 8L * 24L * 60L * 60L * 1_000L
+  private const val CLOSING_CUE_DELIVERY_GRACE_MS = 5_000L
 
   private data class Window(val id: String, val enabled: Boolean, val start: Int, val end: Int, val days: Int)
   private data class Override(val id: String, val startAt: Long, val endAt: Long, val behavior: String)
@@ -88,6 +89,30 @@ object ActiveHours {
 
   fun isActive(config: TimerConfig, timestamp: Long = System.currentTimeMillis()): Boolean =
     policy(config)?.let { isActive(it, timestamp) } ?: false
+
+  private fun isClosingBoundary(policy: Policy, cueAt: Long): Boolean =
+    cueAt > Long.MIN_VALUE &&
+      !matches(policy.overrides, cueAt, "mute") &&
+      !isActive(policy, cueAt) &&
+      isActive(policy, cueAt - 1L)
+
+  /**
+   * Keeps schedule state half-open while allowing a cue exactly at the closing
+   * transition. The scheduled cue epoch is used so ordinary delivery latency
+   * cannot silence the final gong. A mute override beginning there still wins.
+   */
+  fun allowsCue(config: TimerConfig, cueAt: Long): Boolean {
+    val policy = policy(config) ?: return false
+    return isActive(policy, cueAt) || isClosingBoundary(policy, cueAt)
+  }
+
+  /** Delivery-time guard for the one boundary cue allowed just after closure. */
+  fun allowsCueDelivery(config: TimerConfig, cueAt: Long, deliveredAt: Long): Boolean {
+    val policy = policy(config) ?: return false
+    if (isActive(policy, deliveredAt)) return isActive(policy, cueAt) || isClosingBoundary(policy, cueAt)
+    val delay = deliveredAt - cueAt
+    return delay in 0L..CLOSING_CUE_DELIVERY_GRACE_MS && isClosingBoundary(policy, cueAt)
+  }
 
   private fun weeklyBoundary(window: Window, timestamp: Long, dayOffset: Int, startBoundary: Boolean): Long {
     val minute = if (startBoundary) {

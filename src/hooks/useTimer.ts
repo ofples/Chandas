@@ -7,7 +7,7 @@ import { TimerConfig } from '../types'
 import { nextTick, nextSubTick, mainProgress, formatCountdown } from '../lib/snapLogic'
 import { loadSession, saveSession, clearSession } from '../lib/storage'
 import { ChandasTimerService, isNativeServiceAvailable } from '../native/ChandasTimerService'
-import { isWithinActiveHours, nextActiveHoursStart, type ActiveHoursSettings } from '../lib/activeHours'
+import { isCueAllowedByActiveHours, isWithinActiveHours, nextActiveHoursStart, type ActiveHoursSettings } from '../lib/activeHours'
 
 const KEEP_AWAKE_TAG = 'chandas-running'
 
@@ -176,7 +176,7 @@ export function useTimer(config: TimerConfig): UseTimerReturn {
     const nextSub  = subEnabledRef.current ? nextSubTick(now, mainMs, subMs, phase) : Infinity
     const nextEvent = Math.min(nextMain, nextSub)
     const resumesActiveHours = !isWithinActiveHours(activeHours, now) ||
-      !isWithinActiveHours(activeHours, nextEvent)
+      !isCueAllowedByActiveHours(activeHours, nextEvent)
     const triggerAt = resumesActiveHours ? nextActiveHoursStart(activeHours, now) : nextEvent
     const delay = Math.max(0, triggerAt - now)
 

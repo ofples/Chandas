@@ -3,7 +3,7 @@ import { AppState, Platform } from 'react-native'
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake'
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio'
 import type { AlarmBehavior, AppTimerSettings, BuiltInSoundId, SoundRef, TimerProgram } from '../types'
-import { effectiveAvailabilityForProgram, hasAvailableTime, isWithinActiveHours, nextActiveHoursStart } from '../lib/activeHours'
+import { effectiveAvailabilityForProgram, hasAvailableTime, isCueAllowedByActiveHours, isWithinActiveHours, nextActiveHoursStart } from '../lib/activeHours'
 import { formatCountdown } from '../lib/snapLogic'
 import { sourceForSound, soundTitle } from '../lib/soundLibrary'
 import { nextProgramEvent, programCycleDurationMs, runEndAt, timelinePosition, type TimelinePosition } from '../lib/timeline'
@@ -345,7 +345,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     }
     const availability = effectiveAvailabilityForProgram(activeProgram, activeSettings.availability)
     const activeNow = isWithinActiveHours(availability, now)
-    const activeAtEvent = isWithinActiveHours(availability, event.at)
+    const activeAtEvent = isCueAllowedByActiveHours(availability, event.at)
     // When we are active now but the cue itself is outside the window, search
     // from that skipped cue. Searching from `now` would simply return `now`
     // and create an immediate rescheduling loop.
@@ -360,7 +360,9 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
       if (!runningRef.current) return
       const firedAt = Date.now()
       const firedAvailability = effectiveAvailabilityForProgram(programRef.current, settingsRef.current.availability)
-      const availableWhenFired = event.completesRun ? isWithinActiveHours(firedAvailability, firedAt) : activeNow && activeAtEvent
+      const availableWhenFired = event.completesRun
+        ? isWithinActiveHours(firedAvailability, firedAt)
+        : isCueAllowedByActiveHours(firedAvailability, event.at)
       const shouldPlay = availableWhenFired && isFreshScheduledEvent(event.at, firedAt)
       const completed = shouldPlay ? playEvent(event.at) : event.completesRun
       if (completed) {

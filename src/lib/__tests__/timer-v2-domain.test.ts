@@ -4,7 +4,7 @@ import { chooseProgramMode, deleteProgramPreset, hasUnsavedProgramChanges, loadP
 import { alarmBehaviorAfterGesture, gateProgramAudio, isFreshScheduledEvent, iterationMuteFor, muteAfterScheduleChange, shouldSurfaceTimerSignal } from '../runtimeV2'
 import { defaultTimerV2State, migrateLegacyConfig, normalizeAvailabilityPolicy, normalizePatternProgram, normalizeSequenceProgram, normalizeSoundRef, parseTimerProgram, patternDurationSeconds, sequenceStepDurationSeconds, validOffsets } from '../timerV2'
 import { cueSegmentProgress, nextPatternEvent, nextProgramEvent, nextSequenceEvent, runEndAt, timelinePosition } from '../timeline'
-import { effectiveAvailabilityForProgram, hasAvailableTime, isWithinActiveHours, nextActiveHoursStart, scheduleBoundaryMinutesForDay, scheduleRangeCountForDay, scheduleRenderedBoundaryMinutesForDay, scheduleSegmentsForDay, windowsOverlap } from '../activeHours'
+import { effectiveAvailabilityForProgram, hasAvailableTime, isCueAllowedByActiveHours, isWithinActiveHours, nextActiveHoursStart, scheduleBoundaryMinutesForDay, scheduleRangeCountForDay, scheduleRenderedBoundaryMinutesForDay, scheduleSegmentsForDay, windowsOverlap } from '../activeHours'
 import { edgeAutoScrollStep, previewIndexForItem, previewOffsetForItem, reorderGestureIntent } from '../reorder-preview'
 import timelineFixtures from '../../../fixtures/timer-v2-timeline.json'
 
@@ -290,6 +290,13 @@ describe('active hours civil-time semantics', () => {
     expect(isWithinActiveHours(base, local(2026, 8, 4, 17))).toBe(false)
   })
 
+  it('allows a cue exactly at the closing boundary without extending active state', () => {
+    const closing = local(2026, 8, 4, 17)
+    expect(isWithinActiveHours(base, closing)).toBe(false)
+    expect(isCueAllowedByActiveHours(base, closing)).toBe(true)
+    expect(isCueAllowedByActiveHours(base, closing + 1)).toBe(false)
+  })
+
   it('attributes the after-midnight half of a cross-midnight window to its start day', () => {
     const fridayOnly = { ...base, activeHoursStart: 22 * 60, activeHoursEnd: 2 * 60, activeHoursDays: 1 << 5 }
     expect(isWithinActiveHours(fridayOnly, local(2026, 8, 4, 23))).toBe(true)
@@ -406,6 +413,15 @@ describe('bounded runs and availability policies', () => {
     expect(isWithinActiveHours({ ...base, overrides: [active] }, atNoon)).toBe(true)
     expect(isWithinActiveHours({ ...base, overrides: [active, mute] }, atNoon)).toBe(false)
     expect(isWithinActiveHours({ ...base, overrides: [active, mute] }, atNoon + 30 * minute)).toBe(true)
+  })
+
+  it('allows the end of an active override unless a mute override starts there', () => {
+    const atNoon = local(2026, 8, 4, 12)
+    const base = { enabled: true, weeklyWindows: [], overrides: [] }
+    const active = { id: 'calendar-active', source: 'calendar', behavior: 'active', startAt: atNoon, endAt: atNoon + minute } as const
+    const mute = { id: 'calendar-mute', source: 'calendar', behavior: 'mute', startAt: atNoon + minute, endAt: atNoon + 2 * minute } as const
+    expect(isCueAllowedByActiveHours({ ...base, overrides: [active] }, active.endAt)).toBe(true)
+    expect(isCueAllowedByActiveHours({ ...base, overrides: [active, mute] }, active.endAt)).toBe(false)
   })
 
   it('detects cross-window overlap and rejects an empty enabled schedule', () => {

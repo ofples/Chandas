@@ -64,6 +64,17 @@ class ActiveHoursTimelineTest {
     assertFalse(ActiveHours.isActive(fridayOnly, localTime(2026, Calendar.SEPTEMBER, 5, 3)))
   }
 
+  @Test fun cueAtClosingBoundaryIsAllowedWithoutExtendingActiveState() = withTimeZone("Asia/Kolkata") {
+    val scheduled = config(start = 4 * 60, end = 22 * 60, days = 0x7f)
+    val closing = localTime(2026, Calendar.SEPTEMBER, 4, 22)
+    assertFalse(ActiveHours.isActive(scheduled, closing))
+    assertTrue(ActiveHours.allowsCue(scheduled, closing))
+    assertTrue(ActiveHours.allowsCueDelivery(scheduled, closing, closing + 500L))
+    assertFalse(ActiveHours.allowsCueDelivery(scheduled, closing, closing + 5_001L))
+    assertFalse(ActiveHours.allowsCueDelivery(scheduled, closing - 1_000L, closing + 500L))
+    assertFalse(ActiveHours.allowsCue(scheduled, closing + 1L))
+  }
+
   @Test fun multipleWindowsFormAUnionAndMuteOverrideWins() = withTimeZone("Asia/Kolkata") {
     val noon = localTime(2026, Calendar.SEPTEMBER, 4, 12)
     val policy = JSONObject()

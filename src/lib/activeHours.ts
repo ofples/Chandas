@@ -145,6 +145,18 @@ export function isWithinActiveHours(settings: AvailabilitySettings, timestamp = 
   return active && !matchingOverride(policy.overrides, timestamp, 'mute')
 }
 
+/**
+ * Audio gets one inclusive closing instant without changing the half-open
+ * schedule used by Focus and paused-state presentation. Delivery may occur a
+ * few milliseconds late, so callers evaluate the authoritative cue epoch.
+ */
+export function isCueAllowedByActiveHours(settings: AvailabilitySettings, cueAt: number): boolean {
+  const policy = policyFor(settings)
+  if (isWithinActiveHours(policy, cueAt)) return true
+  if (matchingOverride(policy.overrides, cueAt, 'mute')) return false
+  return Number.isFinite(cueAt) && isWithinActiveHours(policy, cueAt - 1)
+}
+
 function weeklyBoundary(window: WeeklyAvailabilityWindow, timestamp: number, dayOffset: number): number {
   const start = normalizeMinute(window.startMinutes)
   const boundaryMinute = start === normalizeMinute(window.endMinutes) ? 0 : start

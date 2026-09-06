@@ -392,6 +392,7 @@ The schedule card is intentionally lightweight:
 - Overlap is allowed. The union is active, and a small `Overlaps another range` note is informational rather than an error.
 - Equal endpoints retain the existing all-day meaning for that window on its selected start days.
 - Cross-midnight windows retain start-day attribution.
+- Schedule state remains active on `[start, end)`, while a cue exactly at `end` is the audible closing bell. Focus and paused-state presentation still become inactive at `end`; later and previously missed cues remain silent.
 
 The currently hidden calendar-ready layer is a list of resolved absolute-time overrides. Later, a calendar-selection UI can translate chosen event slots into overrides and persist a bounded horizon. The availability resolver applies this order:
 
@@ -1446,6 +1447,7 @@ Do not edit old entries to reflect new conclusions. Add a superseding entry and 
 | 2026-09-06 | D-111 | Accepted | The opt-in Android live countdown uses the authoritative native timeline to show the current cue countdown plus the bounded run's final countdown, for example `12s | 10m` or `01:12 | 5m`. Current time uses seconds below one minute and a clock above it; final time is ceiling-rounded to minutes so it never says `0m` while time remains. Continuous runs show only current time, and the pair collapses to the precise current countdown when the next cue is also the terminal event. A presentation-only foreground updater may refresh the compact text once per second, but exact AlarmManager scheduling remains independent and authoritative. If foreground promotion is unavailable, fall back to Android's single native chronometer rather than showing stale dual text. |
 | 2026-09-06 | D-112 | Accepted | Compact paired countdowns use a middle dot without surrounding spaces and omit the leading minute zero: `12s·10m` and `1:12·5m`. This preserves the two-value meaning while fitting both common forms within Android's suggested seven-character chip budget. Single/terminal countdowns retain their full clock formatting. This supersedes only D-111's paired separator and padding examples. |
 | 2026-09-06 | D-113 | Accepted | Clock alignment belongs to the complete repeating program, not to the precision of one component. Cycle aligns by its exact main duration; Sequence aligns by the sum of its exact steps, so `1:30 + 3:30` forms a clock-aligned five-minute round. The phase control stays minute-first in both ordinary and Second precision modes. Exact periods may begin at a chosen minute phase and continue on their exact cadence. Only mathematically distinct minute phases are offered, local civil phase is rebuilt after timezone/DST changes, and Reset returns either mode to elapsed timing. This supersedes D-018's Pattern-only scope, section 10.4's Sequence prohibition, and D-110's automatic unsnap rule. |
+| 2026-09-07 | D-114 | Accepted | Active-hour state remains half-open—`04:00–22:00` is paused and Focus-inactive from `22:00`—but an ordinary cue whose authoritative scheduled timestamp is exactly the closing transition is audible. This applies to main gongs, Sub-bells, and Sequence step/cycle bells. A mute override beginning at the same instant still wins. Android accepts up to five seconds of ordinary delivery latency for that exact boundary cue without opening the quiet window or replaying any earlier/missed cue. |
 
 ### Decision-entry template
 
@@ -2703,6 +2705,31 @@ This section is append-only. Every implementation session should record scope, m
 
 **Risks or follow-ups:** Local-clock periods that do not divide a day are intentionally re-phased against the new civil day at midnight, matching the existing wall-clock definition rather than a permanent UTC lattice. Sub-bell cue placement remains a separate minute-grid concern; it does not constrain whole-program clock alignment.
 
+### 2026-09-07 — Audible active-hours closing boundary
+
+**Status:** Complete in source; Android background delivery requires the next contract-v9 native build and physical-device verification.
+
+**Scope:** Weekly windows, future calendar-derived active/mute overrides, JavaScript fallback scheduling, Android exact scheduling and delivery, running-notification timing, and Focus separation.
+
+**Decision referenced:** D-114.
+
+**Behavior implemented:**
+
+- Kept availability itself half-open, so `04:00–22:00` still becomes paused at 22:00 and Chandas Focus is turned off on time.
+- Added a dedicated audio eligibility rule that allows a main gong, Sub-bell, or Sequence cue whose authoritative event epoch is exactly the transition from active to inactive.
+- Used the scheduled event epoch rather than callback time. JavaScript retains its existing five-second freshness check; Android grants the exact closing cue the same five-second delivery grace while rejecting a cue from before the boundary or an arbitrarily late delivery.
+- Preserved schedule union behavior: a boundary inside overlapping or adjacent active ranges remains normally active, while only the final connected-union boundary receives the closing-cue treatment.
+- Applied the same rule to resolved active overrides so the future calendar layer inherits the intended behavior. A mute override starting at that timestamp retains absolute precedence and suppresses the cue.
+- Updated next-event and notification calculations so an eligible closing cue is scheduled and displayed instead of being replaced prematurely by the next active-hours start.
+
+**Migration impact:** No stored-data, UI, permission, manifest, dependency, or program-schema change. JavaScript fallback behavior is OTA-capable. Reliable background/screen-off Android behavior depends on the updated native scheduler in the pending contract-v9 build.
+
+**Verification run:** TypeScript compilation, all 99 JavaScript tests, whitespace validation, focused weekly-window and override boundary tests, Android parity tests added for exact, slightly late, too-late, and pre-boundary cue delivery, and static scheduler/notification/Focus flow review. Local Gradle/native compilation was not run because repository policy prohibits native builds on this computer.
+
+**Native/on-device verification still required:** With a short test window, place Pattern main, Pattern Sub-bell, Sequence step, and Sequence cycle events exactly at the end; repeat in foreground, background, screen-off, and after process reclamation. Confirm each sounds once, the running UI and Focus switch to paused/off at the boundary, the next later cue stays quiet, a cue immediately before the end is not replayed after it, and a mute override beginning at the end wins.
+
+**Risks or follow-ups:** OEM exact-alarm delivery delayed beyond five seconds is treated as stale and remains silent. This intentionally favors quiet-hours safety over replaying a substantially late closing gong.
+
 ### Implementation-entry template
 
 ```md
@@ -2766,3 +2793,4 @@ This section is append-only. Every implementation session should record scope, m
 | 3.8 | 2026-09-06 | Added a contract-v8 Android dual live countdown for current cue and bounded finish, with terminal collapse, minute-ceiling final time, and a single-chronometer fallback. |
 | 3.9 | 2026-09-06 | Compacted paired status-chip values with a neutral middle dot and context-aware minute padding so common pairs fit Android's suggested seven-character budget. |
 | 4.0 | 2026-09-06 | Generalized clock alignment to exact Cycle durations and complete Sequence rounds, preserving the minute-first phase UI with contract-v9 native timezone reconciliation. |
+| 4.1 | 2026-09-07 | Made the exact closing boundary of an active-hours range audible without extending availability, Focus, or late-cue replay into quiet hours. |

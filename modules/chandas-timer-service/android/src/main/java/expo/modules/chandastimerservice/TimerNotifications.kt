@@ -98,7 +98,7 @@ object TimerNotifications {
     val completedProgram = config.timerV2Program != null && event == null
     val next = event?.at ?: if (completedProgram) 0L else TimerMath.nextTick(now, config.mainMs, config.phase)
     val activeNow = ActiveHours.isActive(config, now)
-    val activeAtNext = next > now && ActiveHours.isActive(config, next)
+    val activeAtNext = next > now && ActiveHours.allowsCue(config, next)
     val resumesAt = if (!completedProgram && (!activeNow || !activeAtNext)) ActiveHours.nextStart(config, if (activeNow) next else now) else 0L
     val endsBeforeResume = config.timerV2EndsAt > 0L && resumesAt > 0L && resumesAt >= config.timerV2EndsAt
     val countdownAt = when {
