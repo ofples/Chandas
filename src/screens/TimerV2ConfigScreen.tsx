@@ -41,6 +41,8 @@ import { SheetTextButton } from '../components/timer-v2/SheetTextButton'
 import { SwipeToDeleteRow } from '../components/timer-v2/swipe-to-delete-row'
 import { tapHaptic } from '../lib/haptics'
 import { advancedRevealState, shouldRevealAdvanced } from '../lib/advanced-reveal'
+import { useKeyboardVisible } from '../hooks/use-keyboard-visible'
+import { ScrollEdgeFade } from '../components/timer-v2/ScrollEdgeFade'
 
 const MAIN_PRESETS = [5, 10, 15, 30, 45, 60] as const
 const STEP_PRESETS = [1, 2, 3, 5, 10, 15, 20, 25, 30, 45, 60] as const
@@ -90,6 +92,7 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
   const advancedCollapsePendingRef = useRef(false)
   const advancedRevealProgress = useSharedValue(0)
   const reducedMotion = useReducedMotion()
+  const keyboardVisible = useKeyboardVisible()
   const program = state.workingPrograms[state.workingPrograms.selectedMode]
   const settings = state.settings
   const alarmSoundSupported = !isNativeServiceAvailable || ChandasTimerService.getCapabilities()?.supportsAlarmSound === true
@@ -221,8 +224,9 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
         onMomentumScrollEnd={finishAdvancedPull}
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={[styles.content, { paddingTop: insets.top + 22, paddingBottom: insets.bottom + 116 + (settings.advancedModeEnabled ? 0 : ADVANCED_PULL_DISTANCE) }]}
+        keyboardShouldPersistTaps="never"
+        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+        contentContainerStyle={[styles.content, { paddingTop: insets.top + 22, paddingBottom: (keyboardVisible ? 76 : insets.bottom + 116) + (settings.advancedModeEnabled ? 0 : ADVANCED_PULL_DISTANCE) }]}
       >
         <SegmentedControl items={MODE_CHOICES} value={state.workingPrograms.selectedMode} onChange={selectMode} accessibilityLabel="Timer mode" />
 
@@ -263,7 +267,8 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
         </View>}
       </ScrollView>
 
-      <View style={[styles.bottom, { backgroundColor: tokens.bg, paddingBottom: insets.bottom + 16 }]}>
+      <View style={[styles.bottom, { backgroundColor: tokens.bg, paddingBottom: keyboardVisible ? 6 : insets.bottom + 16 }]}>
+        <View pointerEvents="none" style={styles.bottomFade}><ScrollEdgeFade color={tokens.bg} side="bottom" /></View>
         <Pressable disabled={!validToStart || starting} onPress={() => { tapHaptic(); onStart() }} style={({ pressed }) => [styles.start, { backgroundColor: tokens.accent, opacity: !validToStart || starting ? 0.48 : pressed ? 0.76 : 1, transform: [{ scale: pressed && !starting && !reducedMotion ? 0.985 : 1 }] }]} accessibilityRole="button" accessibilityState={{ disabled: !validToStart || starting, busy: starting }}>
           {starting ? <ActivityIndicator color="#fff" size="small" /> : null}
           <Text style={styles.startText}>{starting ? 'Anchoring timer…' : !validToStart ? 'Add an active time' : exactTimingNeedsSetup ? 'Set up exact timing' : 'Start timer'}</Text>
@@ -495,7 +500,7 @@ function TrackEditorSheet({ visible, state, trackId, onChange, onEditCue, onBack
     } catch { onFeedback({ title: 'Preview stayed quiet', message: 'Nothing changed. Try another sound or check the phone’s Alarm volume.', tone: 'attention' }) }
   }
   const allSelected = offsets.length > 0 && offsets.every(offset => track.selectedOffsetsMinutes.includes(offset))
-  return <BottomSheet visible={visible} eyebrow={`Sub-bell ${index + 1}`} title={<EditableTitle value={track.label} onCommit={label => onChange(patchPatternTrack(state, track.id, { label }))} accessibilityLabel={`Sub-bell ${index + 1} name`} large />} accessibilityTitle={track.label} onBack={onBack} onClose={onClose}>
+  return <BottomSheet visible={visible} title={<EditableTitle value={track.label} onCommit={label => onChange(patchPatternTrack(state, track.id, { label }))} accessibilityLabel={`Sub-bell ${index + 1} name`} large />} accessibilityTitle={track.label} onBack={onBack} onClose={onClose}>
     <View style={styles.trackEditorContent}>
     <DurationSelector value={track.cadenceMinutes} presets={CADENCE_PRESETS} min={1} max={240} onChange={minutes => onChange(setTrackCadence(state, track.id, minutes))} label="Repeat every" />
     <ColorSelector value={normalizeSubBellColor(track.color, index)} onChange={color => onChange(patchPatternTrack(state, track.id, { color }))} accessibilityLabel="Sub-bell color" />
@@ -586,10 +591,16 @@ function EditableTitle({ value, onCommit, accessibilityLabel, large = false }: {
   const { tokens } = useTheme()
   const [draft, setDraft] = useState(value)
   const [editing, setEditing] = useState(false)
-  useEffect(() => setDraft(value), [value])
-  const commit = () => { onCommit(draft); setEditing(false) }
-  if (editing) return <TextInput autoFocus value={draft} selectTextOnFocus onChangeText={text => setDraft([...text].slice(0, 60).join(''))} onBlur={commit} onSubmitEditing={commit} returnKeyType="done" style={[styles.editableTitleInput, large && styles.editableTitleLarge, { color: tokens.text, borderBottomColor: tokens.accent }]} accessibilityLabel={accessibilityLabel} />
-  return <Pressable onPress={() => { setDraft(value); setEditing(true); void Haptics.selectionAsync().catch(() => undefined) }} style={[styles.editableTitle, { borderBottomColor: tokens.textMuted }]} accessibilityRole="button" accessibilityLabel={`Edit ${accessibilityLabel}`} accessibilityHint="Tap to rename"><Text numberOfLines={1} style={[styles.editableTitleText, large && styles.editableTitleTextLarge, { color: tokens.text }]}>{value}</Text></Pressable>
+  const editingRef = useRef(false)
+  useEffect(() => { if (!editingRef.current) setDraft(value) }, [value])
+  const commit = () => {
+    if (!editingRef.current) return
+    editingRef.current = false
+    onCommit(draft)
+    setEditing(false)
+  }
+  if (editing) return <TextInput autoFocus value={draft} selectTextOnFocus blurOnSubmit onChangeText={text => setDraft([...text].slice(0, 60).join(''))} onBlur={commit} onSubmitEditing={commit} returnKeyType="done" style={[styles.editableTitleInput, large && styles.editableTitleLarge, { color: tokens.text, borderBottomColor: tokens.accent }]} accessibilityLabel={accessibilityLabel} />
+  return <Pressable onPress={() => { setDraft(value); editingRef.current = true; setEditing(true); void Haptics.selectionAsync().catch(() => undefined) }} style={[styles.editableTitle, { borderBottomColor: tokens.textMuted }]} accessibilityRole="button" accessibilityLabel={`Edit ${accessibilityLabel}`} accessibilityHint="Tap to rename"><Text numberOfLines={1} style={[styles.editableTitleText, large && styles.editableTitleTextLarge, { color: tokens.text }]}>{value}</Text></Pressable>
 }
 
 function PatternTimelinePreview({ tracks, mainMinutes, onPress }: { tracks: PatternTrack[]; mainMinutes: number; onPress?: () => void }) {
@@ -620,7 +631,7 @@ const styles = StyleSheet.create({
   modeTabs: { flex: 1 },
   chevron: { width: 22, textAlign: 'center', fontSize: 25, lineHeight: 27, fontWeight: '300' },
   section: { gap: 13 }, sectionValue: { fontFamily: 'JetBrainsMono-Light', fontSize: 31, marginTop: 2 }, headingBlock: { gap: 3 }, subBellBody: { gap: 10 }, trackList: { gap: 0 }, accessPanel: { gap: 4 },
-  editableTitle: { alignSelf: 'flex-start', flexShrink: 1, maxWidth: '100%', minHeight: 34, justifyContent: 'center', borderBottomWidth: 1, borderStyle: 'dotted' }, editableTitleText: { flexShrink: 1, fontSize: 17, fontWeight: '700' }, editableTitleTextLarge: { fontSize: 20 }, editableTitleInput: { flexShrink: 1, minWidth: 160, maxWidth: '100%', borderBottomWidth: 1.5, fontSize: 17, fontWeight: '700', paddingVertical: 4 }, editableTitleLarge: { fontSize: 20 },
+  editableTitle: { alignSelf: 'flex-start', flexShrink: 1, maxWidth: '100%', minHeight: 36, justifyContent: 'center', borderBottomWidth: 1, borderStyle: 'dotted' }, editableTitleText: { flexShrink: 1, fontSize: 17, lineHeight: 24, fontWeight: '700' }, editableTitleTextLarge: { fontSize: 20, lineHeight: 28 }, editableTitleInput: { width: '100%', minWidth: 0, minHeight: 40, borderBottomWidth: 1.5, fontSize: 17, lineHeight: 24, fontWeight: '700', paddingHorizontal: 0, paddingTop: 5, paddingBottom: 6 }, editableTitleLarge: { fontSize: 20, lineHeight: 28, minHeight: 44 },
   helper: { fontSize: 12, lineHeight: 17 }, rowTitle: { fontSize: 14, fontWeight: '700' }, flex: { flex: 1, gap: 3, minWidth: 0 }, settingRow: { flexDirection: 'row', alignItems: 'center', gap: 14 }, chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   actionRow: { minHeight: 54, paddingVertical: 7, flexDirection: 'row', alignItems: 'center', gap: 8 }, actionMain: { flex: 1, minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 8 }, link: { fontSize: 12, fontWeight: '700' }, roundIcon: { width: 38, height: 38, borderWidth: 1.5, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
   volumeBlock: { gap: 2 }, volumeControlRow: { minHeight: 42, flexDirection: 'row', alignItems: 'center', gap: 8 }, inlineSlider: { flex: 1, height: 38 }, completionCueControls: { gap: 7, paddingTop: 4 },
@@ -633,7 +644,7 @@ const styles = StyleSheet.create({
   mixerChannel: { gap: 3, paddingVertical: 6 }, mixerChannelHead: { minHeight: 42, flexDirection: 'row', alignItems: 'center', gap: 9 }, mixerControl: { minHeight: 40, flexDirection: 'row', alignItems: 'center', gap: 8 }, mixerSlider: { flex: 1, height: 38 }, divider: { height: 1 },
   previewMini: { width: 30, height: 30, borderWidth: 1, borderRadius: 15, alignItems: 'center', justifyContent: 'center' }, previewGlyph: { fontSize: 9 },
   mixerButton: { width: 36, height: 36, borderWidth: 1, borderRadius: 18, alignItems: 'center', justifyContent: 'center' }, previewButton: { width: 36, height: 36, borderWidth: 1, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
-  outline: { alignSelf: 'flex-start', borderWidth: 1.5, borderRadius: 99, paddingHorizontal: 13, paddingVertical: 9 }, bottom: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 20 }, start: { width: '100%', maxWidth: 580, minHeight: 54, alignSelf: 'center', borderRadius: 99, paddingVertical: 15, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 9 }, startText: { color: '#fff', fontSize: 14, fontWeight: '800', letterSpacing: 1.1, textTransform: 'uppercase' },
+  outline: { alignSelf: 'flex-start', borderWidth: 1.5, borderRadius: 99, paddingHorizontal: 13, paddingVertical: 9 }, bottom: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 20 }, bottomFade: { position: 'absolute', top: -34, left: 0, right: 0, height: 34 }, start: { width: '100%', maxWidth: 580, minHeight: 54, alignSelf: 'center', borderRadius: 99, paddingVertical: 15, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 9 }, startText: { color: '#fff', fontSize: 14, fontWeight: '800', letterSpacing: 1.1, textTransform: 'uppercase' },
   advancedReveal: { minHeight: 54, alignItems: 'center', justifyContent: 'center', overflow: 'visible' }, advancedRevealPrompt: { alignSelf: 'center' }, advancedRevealPressable: { minHeight: 48, minWidth: 150, alignItems: 'center', justifyContent: 'center', gap: 7, paddingHorizontal: 18 }, advancedRevealIndicator: { width: 54, height: 1, borderRadius: 1 }, advancedRevealTitle: { fontSize: 14, fontWeight: '700' }, advancedSection: { width: '100%', gap: 23, opacity: 1, paddingHorizontal: 0, marginHorizontal: 0 }, hideAdvanced: { minHeight: 48, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
   accessRow: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: 12 }, accessAction: { minWidth: 64, minHeight: 40, paddingHorizontal: 12, borderWidth: 1.5, borderRadius: 99, alignItems: 'center', justifyContent: 'center' }, readyPill: { minHeight: 27, paddingHorizontal: 9, borderRadius: 99, alignItems: 'center', justifyContent: 'center' }, readyMark: { fontSize: 8, fontWeight: '900', letterSpacing: 0.9 }, checkingMark: { width: 36, textAlign: 'center', fontSize: 10, letterSpacing: 1 },
 })

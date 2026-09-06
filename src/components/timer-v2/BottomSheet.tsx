@@ -1,8 +1,10 @@
 import type { ReactNode } from 'react'
-import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '../../theme/ThemeContext'
+import { useKeyboardVisible } from '../../hooks/use-keyboard-visible'
 import { SheetTextButton } from './SheetTextButton'
+import { FadedVerticalScrollView } from './FadedVerticalScrollView'
 
 interface Props {
   visible: boolean
@@ -20,8 +22,9 @@ interface Props {
 export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClose, onBack, children, scroll = true, footer }: Props) {
   const { tokens } = useTheme()
   const insets = useSafeAreaInsets()
+  const keyboardVisible = useKeyboardVisible(visible)
   const body = scroll
-    ? <ScrollView style={styles.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={styles.body}>{children}</ScrollView>
+    ? <FadedVerticalScrollView fadeColor={tokens.surface} style={styles.scroll} keyboardShouldPersistTaps="never" keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'} contentContainerStyle={styles.body}>{children}</FadedVerticalScrollView>
     : <View style={styles.body}>{children}</View>
 
   return (
@@ -30,11 +33,10 @@ export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClo
         <View style={styles.backdrop}>
           <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessible={false} accessibilityRole="button" accessibilityLabel="Close sheet" />
           <View
-            style={[styles.sheet, { backgroundColor: tokens.surface, borderColor: tokens.border, paddingBottom: Math.max(insets.bottom, 16) }]}
+            style={[styles.sheet, { backgroundColor: tokens.surface, borderColor: tokens.border, paddingBottom: keyboardVisible ? 8 : Math.max(insets.bottom, 16) }]}
             accessible={false}
             accessibilityViewIsModal
           >
-            <View style={[styles.grabber, { backgroundColor: tokens.textDisabled }]} />
             <View style={styles.actions}>
               {onBack ? <SheetTextButton label="‹ Back" onPress={onBack} accessibilityLabel="Back" /> : <View style={styles.actionSpacer} />}
               <SheetTextButton label="Done" onPress={onClose} accessibilityLabel={`Close ${accessibilityTitle ?? (typeof title === 'string' ? title : 'sheet')}`} />
@@ -58,8 +60,7 @@ const styles = StyleSheet.create({
   fill: { flex: 1 },
   scroll: { flexShrink: 1 },
   backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.58)' },
-  sheet: { width: '100%', maxWidth: 680, maxHeight: '92%', minHeight: 220, alignSelf: 'center', borderWidth: 1.5, borderBottomWidth: 0, borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 20, paddingTop: 10, gap: 16 },
-  grabber: { width: 36, height: 4, borderRadius: 2, alignSelf: 'center', opacity: 0.55 },
+  sheet: { width: '100%', maxWidth: 680, maxHeight: '92%', minHeight: 220, alignSelf: 'center', borderWidth: 1.5, borderBottomWidth: 0, borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 20, paddingTop: 16, gap: 16 },
   actions: { minHeight: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   actionSpacer: { width: 44 },
   header: { minHeight: 40, justifyContent: 'center', paddingBottom: 4 },

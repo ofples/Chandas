@@ -1433,6 +1433,7 @@ Do not edit old entries to reflect new conclusions. Add a superseding entry and 
 | 2026-09-05 | D-103 | Accepted | Advanced reveal requires a deliberate release-threshold pull after the setup screen reaches its true bottom; merely exposing the prompt never expands it, and collapsing explicitly re-arms the gesture. The single Show advanced prompt brightens continuously with pull progress. Appearance is one flat row containing its expandable color swatch and light/dark action. Every overflowing horizontal choice rail uses position-aware scrims on both edges. A Sub-bell with no selected cue positions disables automatically and selecting a position enables it again. |
 | 2026-09-05 | D-104 | Accepted | Alarm sound owns an independent saved level, multiplied by master volume and Android's Alarm stream. Contract v5 advertises this as an additive capability so older binaries keep hiding the unsupported level. Android timer, event, and alarm notifications use one transparent monochrome circular small-icon resource. The running Sound & mute sheet mirrors setup: its mixer button expands channel sliders with previews in place. Keep the Android production update line pinned to build 9's runtime only while every contract-v5 addition remains capability-gated and backward compatible. |
 | 2026-09-06 | D-105 | Accepted | Implement Advanced disclosure as a real final scroll-tail rather than raw touch interception or platform overscroll. The ordinary bottom is a stable rest point; a further 112-point pull reveals elastic space, continuously brightens and gently scales the sole Show advanced prompt, gives one threshold haptic, and commits on release after 82%. A short pull snaps back, collapse restores the rest point and explicitly re-arms disclosure, and the expanded controls never inherit a parent opacity animation. |
+| 2026-09-06 | D-106 | Accepted | Keep destructive list actions deliberate and inline: a left swipe reveals a softly tinted Delete text action, separated from the row by breathing room, and deletion occurs only after the explicit tap. Do not combine threshold deletion with a confirmation dialog. Modal grab bars must be truthful, so remove the nonfunctional bar from the shared sheet. Every constrained sheet scroller shows position-aware top/bottom fade scrims, while fixed setup/running controls receive a matching bottom fade. Inline names commit on blur or submit and keyboard-visible spacing contracts around the fixed action. |
 
 ### Decision-entry template
 
@@ -2500,6 +2501,33 @@ This section is append-only. Every implementation session should record scope, m
 
 **Risks or follow-ups:** The elastic sensation is intentionally implemented with ordinary scroll content plus counter-motion rather than OEM overscroll physics, which varies by device. The deterministic geometry should remain reliable even when Android disables stretch or glow effects.
 
+### 2026-09-06 — Fifth feedback polish
+
+**Status:** Complete in source; eligible for OTA delivery to a compatible runtime.
+
+**Scope:** Inline title editing, keyboard ergonomics, vertical scroll scrims, sound-picker hierarchy, destructive row actions, and sheet affordances.
+
+**Decision referenced:** D-106.
+
+**Behavior implemented:**
+
+- Removed the redundant Sub-bell position eyebrow from its editor. The editable title now owns the full header width, has explicit line height and minimum height, and no longer clips its text when focused.
+- Made title commits idempotent and tied them to blur and keyboard submission. Setup and sheet scrollers now dismiss the keyboard when the user taps outside or begins to drag, so the current name is saved without a separate action.
+- Added shared keyboard visibility tracking. Fixed setup actions and sheets contract their bottom safe-area padding while the keyboard is present, removing the oversized dead zone above the keyboard without compromising normal navigation-bar clearance.
+- Added one shared edge-aware vertical scroller to every Timer v2 bottom sheet. Top and bottom fades appear only while more content exists beyond that edge. Matching bottom fades now soften content passing beneath the fixed Start and running-control areas.
+- Removed Sound and level/Sound eyebrows from sound selection. The current selection is now one unindented text line above its volume controls rather than a shaded nested card.
+- Kept list deletion as swipe, reveal, then tap. The shared action now reads Delete, uses a calm translucent destructive tint, and leaves a ten-point gap beside the translated row/toggle.
+- Removed the universal sheet grab bar because the sheets do not implement drag-to-dismiss. Back, Done, Android Back, backdrop dismissal, and nested flow state remain explicit and reliable.
+- Updated Help to describe the revealed Delete action accurately.
+
+**Migration impact:** JavaScript/OTA only. No native module, manifest, app configuration, dependency, packaged asset, or runtime fingerprint changed.
+
+**Verification run:** Extracted the feedback document in reading order, inspected all four embedded screenshots, completed TypeScript compilation and all 84 Vitest tests, and interactively reviewed the Sub-bell library, focused title editor, sound picker, vertical list boundary, and revealed Delete treatment on Expo Web.
+
+**Native/on-device verification still required:** On Android, edit long Sub-bell and main names with Gboard, tap blank and interactive areas outside the field, submit from the keyboard, and confirm the value is retained. Check sheet and fixed-action fades in both themes, scroll long sound/configuration/bell lists to both ends, and verify swipe deletion remains distinct from vertical scrolling.
+
+**Risks or follow-ups:** React Native Web uses a browser-native focus outline that is not present in Android's TextInput rendering. The remaining platform check is therefore keyboard geometry and touch arbitration, not the reviewed hierarchy or width calculation.
+
 ### Implementation-entry template
 
 ```md
@@ -2555,3 +2583,4 @@ This section is append-only. Every implementation session should record scope, m
 | 3.0 | 2026-09-05 | Standardized modal hierarchy, guarded unsaved configuration loads, fixed nested-ring and overlapping-schedule visuals, moved user cues to Doze-safe alarm-clock scheduling, and refined the promoted running notification. |
 | 3.1 | 2026-09-05 | Added independent alarm volume, circular Android notification icons, an inline running mixer, refreshed Help, and capability-safe runtime anchoring across contract v4/v5. |
 | 3.2 | 2026-09-06 | Rebuilt Advanced disclosure as a deterministic elastic scroll-tail, fixed collapse re-arming, and removed the section-wide opacity/indent presentation bug. |
+| 3.3 | 2026-09-06 | Applied the fifth feedback round: robust title editing, tighter keyboard spacing, vertical edge scrims, a flatter sound picker, gentler swipe deletion, and truthful sheet affordances. |

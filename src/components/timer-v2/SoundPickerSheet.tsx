@@ -88,9 +88,9 @@ export function SoundPickerSheet({ visible, title, cue, masterVolume, onChange, 
     } finally { setPicking(false) }
   }
 
-  const volumeFooter = <View style={[styles.footer, { backgroundColor: tokens.surface, borderTopColor: tokens.border }]}>
-    <View style={[styles.selected, { backgroundColor: tokens.surfaceHi }]}>
-      <View style={styles.optionCopy}><Text style={[styles.label, { color: selectedAvailable ? tokens.textMuted : tokens.accent }]}>{selectedAvailable ? 'SELECTED' : 'UNAVAILABLE · CHOOSE A REPLACEMENT'}</Text><Text numberOfLines={1} style={[styles.optionTitle, { color: tokens.text }]}>{soundTitle(cue.sound)}</Text></View>
+  const volumeFooter = <View style={[styles.footer, { backgroundColor: tokens.surface }]}>
+    <View style={styles.selected}>
+      <Text numberOfLines={1} style={[styles.optionTitle, styles.selectedTitle, { color: selectedAvailable ? tokens.text : tokens.accent }]}>{soundTitle(cue.sound)}{selectedAvailable ? '' : ' · unavailable'}</Text>
       {!showVolume ? <Pressable onPress={() => void preview(cue.sound)} style={[styles.preview, { borderColor: tokens.border }]} accessibilityRole="button" accessibilityLabel={`${previewing === selectedKey ? 'Stop' : 'Preview'} selected sound`}><Text style={[styles.previewText, { color: tokens.accent }]}>{previewing === selectedKey ? '■' : '▶'}</Text></Pressable> : null}
     </View>
     {showVolume ? <><View style={styles.volumeHeader}><SheetSectionTitle>Cue volume</SheetSectionTitle><Text style={[styles.value, { color: tokens.text }]}>{Math.round(cue.volume * 100)}%</Text></View>
@@ -98,7 +98,7 @@ export function SoundPickerSheet({ visible, title, cue, masterVolume, onChange, 
   </View>
 
   return (
-    <BottomSheet visible={visible} eyebrow={showVolume ? 'Sound and level' : 'Sound'} title={title} onClose={close} onBack={onBack ? () => { stopPreview(); onBack() } : undefined} footer={volumeFooter}>
+    <BottomSheet visible={visible} title={title} onClose={close} onBack={onBack ? () => { stopPreview(); onBack() } : undefined} footer={volumeFooter}>
       <SegmentedControl items={SOUND_TABS} value={tab} onChange={value => { stopPreview(); setTab(value) }} accessibilityLabel="Sound source" />
 
       {message ? <GentleNotice title={message.title} message={message.detail} tone="attention" /> : null}
@@ -151,9 +151,9 @@ const styles = StyleSheet.create({
   sourcePanel: { gap: 12 },
   sourceButton: { minHeight: 70, padding: 14, borderWidth: 1.5, borderRadius: 13, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   choose: { fontSize: 12, fontWeight: '700' },
-  selected: { padding: 13, borderRadius: 12, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  footer: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 12, gap: 9 },
-  label: { fontSize: 10, letterSpacing: 1.2, fontWeight: '700' },
+  selected: { minHeight: 32, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  selectedTitle: { flex: 1 },
+  footer: { paddingTop: 6, gap: 9 },
   volumeHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   volumeRow: { flexDirection: 'row', alignItems: 'center', gap: 8 }, slider: { flex: 1, height: 38 },
   value: { fontFamily: 'JetBrainsMono-Regular', fontSize: 13 },

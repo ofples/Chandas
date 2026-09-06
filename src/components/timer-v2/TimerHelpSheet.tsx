@@ -19,7 +19,7 @@ export function TimerHelpSheet({ visible, onClose, onOpenFocusSettings }: { visi
     {Platform.OS === 'android' ? item(<FocusIcon color={tokens.accent} />, 'Calls and Focus', 'Bells can stay quiet during calls. Optional Chandas Focus manages its own Android Do Not Disturb rule while allowing alarms.') : null}
     {Platform.OS === 'android' && onOpenFocusSettings ? <Pressable accessibilityRole="link" onPress={onOpenFocusSettings} style={[styles.action, { borderColor: tokens.accent }]}><Text style={[styles.actionText, { color: tokens.accent }]}>Open Android DND access</Text></Pressable> : null}
     {item(<BellIcon on color={tokens.accent} />, 'Advanced', 'At the bottom of setup, pull upward past Show advanced—or tap it—to reveal schedules, configurations, appearance, alarms, Focus and system integrations. Hide it again for the simplest timer view.')}
-    {item(<BellIcon on color={tokens.accent} />, 'Shortcuts', 'Use the scrolling quick choices for common values. Tap cue positions to select them, swipe list items left to delete, and hold dotted handles to reorder Sequence steps.')}
+    {item(<BellIcon on color={tokens.accent} />, 'Shortcuts', 'Use the scrolling quick choices for common values. Tap cue positions to select them, swipe list items left to reveal Delete, and hold dotted handles to reorder Sequence steps.')}
   </BottomSheet>
 }
 

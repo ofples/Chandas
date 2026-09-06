@@ -1,11 +1,11 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react'
-import { PanResponder, Pressable, StyleSheet, View } from 'react-native'
+import { PanResponder, Pressable, StyleSheet, Text, View } from 'react-native'
 import Animated, { FadeOut, LinearTransition, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from 'react-native-reanimated'
-import { TrashIcon } from '../Icons'
 import { useTheme } from '../../theme/ThemeContext'
 import { selectionHaptic } from '../../lib/haptics'
 
-const ACTION_WIDTH = 68
+const ACTION_WIDTH = 78
+const REVEAL_WIDTH = ACTION_WIDTH + 10
 
 interface Props {
   children: ReactNode
@@ -27,15 +27,15 @@ export function SwipeToDeleteRow({ children, onDelete, accessibilityLabel, disab
 
   const settle = (open: boolean) => {
     openRef.current = open
-    translateX.value = withTiming(open ? -ACTION_WIDTH : 0, { duration: reducedMotion ? 70 : 170 })
+    translateX.value = withTiming(open ? -REVEAL_WIDTH : 0, { duration: reducedMotion ? 70 : 170 })
   }
   const panResponder = useMemo(() => PanResponder.create({
     onMoveShouldSetPanResponder: (_event, gesture) => !disabled && Math.abs(gesture.dx) > 9 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.25,
-    onPanResponderGrant: () => { gestureStartRef.current = openRef.current ? -ACTION_WIDTH : 0 },
+    onPanResponderGrant: () => { gestureStartRef.current = openRef.current ? -REVEAL_WIDTH : 0 },
     onPanResponderMove: (_event, gesture) => {
-      translateX.value = Math.max(-ACTION_WIDTH, Math.min(0, gestureStartRef.current + gesture.dx))
+      translateX.value = Math.max(-REVEAL_WIDTH, Math.min(0, gestureStartRef.current + gesture.dx))
     },
-    onPanResponderRelease: (_event, gesture) => settle(gesture.vx < -0.35 || translateX.value < -ACTION_WIDTH * 0.48),
+    onPanResponderRelease: (_event, gesture) => settle(gesture.vx < -0.35 || translateX.value < -REVEAL_WIDTH * 0.48),
     onPanResponderTerminate: () => settle(openRef.current),
   }), [disabled, reducedMotion])
 
@@ -56,9 +56,9 @@ export function SwipeToDeleteRow({ children, onDelete, accessibilityLabel, disab
     onLayout={event => { widthRef.current = event.nativeEvent.layout.width }}
     style={styles.clip}
   >
-    <View style={styles.actionLayer}>
-      <Pressable onPress={remove} disabled={deleting} style={({ pressed }) => [styles.deleteButton, { backgroundColor: tokens.warm, opacity: pressed ? 0.72 : 1 }]} accessibilityRole="button" accessibilityLabel={accessibilityLabel}>
-        <TrashIcon color="#fff" />
+    <View style={[styles.actionLayer, { backgroundColor: tokens.surface }]}>
+      <Pressable onPress={remove} disabled={deleting} style={({ pressed }) => [styles.deleteButton, { backgroundColor: tokens.warmGlow, opacity: pressed ? 0.66 : 1 }]} accessibilityRole="button" accessibilityLabel={accessibilityLabel}>
+        <Text style={[styles.deleteText, { color: tokens.warm }]}>Delete</Text>
       </Pressable>
     </View>
     <Animated.View style={[{ backgroundColor: tokens.surface }, rowStyle]} {...panResponder.panHandlers}>{children}</Animated.View>
@@ -69,4 +69,5 @@ const styles = StyleSheet.create({
   clip: { overflow: 'hidden' },
   actionLayer: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, alignItems: 'flex-end', justifyContent: 'center' },
   deleteButton: { width: ACTION_WIDTH, height: '100%', minHeight: 52, alignItems: 'center', justifyContent: 'center' },
+  deleteText: { fontSize: 12, fontWeight: '700' },
 })
