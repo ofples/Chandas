@@ -1434,6 +1434,7 @@ Do not edit old entries to reflect new conclusions. Add a superseding entry and 
 | 2026-09-05 | D-104 | Accepted | Alarm sound owns an independent saved level, multiplied by master volume and Android's Alarm stream. Contract v5 advertises this as an additive capability so older binaries keep hiding the unsupported level. Android timer, event, and alarm notifications use one transparent monochrome circular small-icon resource. The running Sound & mute sheet mirrors setup: its mixer button expands channel sliders with previews in place. Keep the Android production update line pinned to build 9's runtime only while every contract-v5 addition remains capability-gated and backward compatible. |
 | 2026-09-06 | D-105 | Accepted | Implement Advanced disclosure as a real final scroll-tail rather than raw touch interception or platform overscroll. The ordinary bottom is a stable rest point; a further 112-point pull reveals elastic space, continuously brightens and gently scales the sole Show advanced prompt, gives one threshold haptic, and commits on release after 82%. A short pull snaps back, collapse restores the rest point and explicitly re-arms disclosure, and the expanded controls never inherit a parent opacity animation. |
 | 2026-09-06 | D-106 | Accepted | Keep destructive list actions deliberate and inline: a left swipe reveals a softly tinted Delete text action, separated from the row by breathing room, and deletion occurs only after the explicit tap. Do not combine threshold deletion with a confirmation dialog. Modal grab bars must be truthful, so remove the nonfunctional bar from the shared sheet. Every constrained sheet scroller shows position-aware top/bottom fade scrims, while fixed setup/running controls receive a matching bottom fade. Inline names commit on blur or submit and keyboard-visible spacing contracts around the fixed action. |
+| 2026-09-06 | D-107 | Accepted | Explain Run length as a live outcome instead of a generic instruction plus a second computed caption. In Cycle, place a `Main interval` row title immediately above the duration choices, then show one sentence beneath those choices: `Keeps running continuously.`, `Runs for N cycle(s) = …`, or `Runs for …`. Sequence uses `round(s)` and places the same outcome after its step list. The sentence precedes the policy selector, updates politely for assistive technology, and replaces the former `MAIN CYCLES`/`ROUNDS` equivalent caption. This supersedes the copy and caption portions of D-056, D-062, D-065, and D-090. |
 
 ### Decision-entry template
 
@@ -2528,6 +2529,30 @@ This section is append-only. Every implementation session should record scope, m
 
 **Risks or follow-ups:** React Native Web uses a browser-native focus outline that is not present in Android's TextInput rendering. The remaining platform check is therefore keyboard geometry and touch arbitration, not the reviewed hierarchy or width calculation.
 
+### 2026-09-06 — Outcome-led run length
+
+**Status:** Complete in source; eligible for OTA delivery to a compatible runtime.
+
+**Scope:** Cycle main-interval hierarchy, dynamic run-policy language, bounded counter presentation, and matching Sequence terminology.
+
+**Decision referenced:** D-107.
+
+**Behavior implemented:**
+
+- Restored a quiet `Main interval` row title immediately above the Cycle duration rail, using the same primary entry style as Align to clock.
+- Placed the run outcome after the interval choice it depends on and immediately before the Continuous/Cycles/Duration selector.
+- Replaced the generic helper with live plain language: Continuous keeps running, cycle-bounded runs state their cycle/round count and computed time, and duration-bounded runs state their exact configured time.
+- Removed the duplicate `MAIN CYCLES`/`ROUNDS` and `= …` caption beneath the counter. The stepper now contains only the value-changing controls, while its accessible names still distinguish Cycle and Sequence terminology.
+- Marked the changing sentence as a polite live region and extracted its formatting into a platform-free helper with singular, plural, duration, and Sequence coverage.
+
+**Migration impact:** JavaScript/OTA only. No native module, manifest, app configuration, dependency, packaged asset, or runtime fingerprint changed.
+
+**Verification run:** TypeScript compilation, all 88 Vitest tests, whitespace validation, and interactive Expo Web inspection of Cycle Continuous, Cycle count, Cycle Duration, and Sequence round states.
+
+**Native/on-device verification still required:** Confirm the sentence remains readable at the largest Android font scale and that TalkBack announces policy/count changes without excessive repetition.
+
+**Risks or follow-ups:** Very large cycle counts may wrap the outcome sentence onto a second line on narrow devices; wrapping is intentional so the computed duration remains legible rather than truncated.
+
 ### Implementation-entry template
 
 ```md
@@ -2584,3 +2609,4 @@ This section is append-only. Every implementation session should record scope, m
 | 3.1 | 2026-09-05 | Added independent alarm volume, circular Android notification icons, an inline running mixer, refreshed Help, and capability-safe runtime anchoring across contract v4/v5. |
 | 3.2 | 2026-09-06 | Rebuilt Advanced disclosure as a deterministic elastic scroll-tail, fixed collapse re-arming, and removed the section-wide opacity/indent presentation bug. |
 | 3.3 | 2026-09-06 | Applied the fifth feedback round: robust title editing, tighter keyboard spacing, vertical edge scrims, a flatter sound picker, gentler swipe deletion, and truthful sheet affordances. |
+| 3.4 | 2026-09-06 | Reframed run length as a live plain-language outcome beneath the interval it depends on, restored the Cycle `Main interval` entry label, and removed duplicate computed captions. |

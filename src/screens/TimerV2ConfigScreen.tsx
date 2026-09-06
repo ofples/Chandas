@@ -371,6 +371,7 @@ function PatternEditor({ state, onChange, onOpenSubBells, onOpenHelp }: { state:
   return <>
     <View style={styles.section}>
       <View style={styles.titleWithHelp}><EditableTitle value={program.label} onCommit={label => onChange(updatePattern(state, value => ({ ...value, label })))} accessibilityLabel="main interval name" /><HelpButton onPress={onOpenHelp} /></View>
+      <Text style={[styles.rowTitle, { color: tokens.text }]}>Main interval</Text>
       <DurationSelector value={program.mainMinutes} presets={MAIN_PRESETS} fadeColor={tokens.bg} onChange={minutes => changeMainMinutes(state, minutes, onChange)} />
       <ProgramRunLength state={state} mode="pattern" onChange={onChange} />
       <View style={styles.settingRow}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Align to clock</Text><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>Keep intervals on a wall-clock rhythm.</Text></View><Toggle value={program.alignment.kind === 'local-clock'} onChange={enabled => onChange(updatePattern(state, value => ({ ...value, alignment: enabled ? { kind: 'local-clock', offsetMinutes: 0 } : { kind: 'elapsed' } })))} accessibilityLabel="Align pattern to clock" /></View>
