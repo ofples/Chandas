@@ -3,7 +3,7 @@ import type { PatternProgram, SequenceProgram } from '../../types'
 import { chooseProgramMode, deleteProgramPreset, hasUnsavedProgramChanges, loadProgramPreset, patchSequenceStep, saveProgramPreset, setPatternSubBellsEnabled, setTrackCadence, setTrackOffsets, updatePatternMainDurationSeconds, updatePatternMainMinutes } from '../programActions'
 import { alarmBehaviorAfterGesture, gateProgramAudio, isFreshScheduledEvent, iterationMuteFor, muteAfterScheduleChange, shouldSurfaceTimerSignal } from '../runtimeV2'
 import { defaultTimerV2State, migrateLegacyConfig, normalizeAvailabilityPolicy, normalizePatternProgram, normalizeSequenceProgram, normalizeSoundRef, parseTimerProgram, patternDurationSeconds, sequenceStepDurationSeconds, validOffsets } from '../timerV2'
-import { cueSegmentProgress, nextPatternEvent, nextProgramEvent, nextSequenceEvent, runEndAt, timelinePosition } from '../timeline'
+import { boundedRunProgress, cueSegmentProgress, nextPatternEvent, nextProgramEvent, nextSequenceEvent, runEndAt, timelinePosition } from '../timeline'
 import { effectiveAvailabilityForProgram, hasAvailableTime, isCueAllowedByActiveHours, isWithinActiveHours, nextActiveHoursStart, scheduleBoundaryMinutesForDay, scheduleRangeCountForDay, scheduleRenderedBoundaryMinutesForDay, scheduleSegmentsForDay, windowsOverlap } from '../activeHours'
 import { edgeAutoScrollStep, previewIndexForItem, previewOffsetForItem, reorderGestureIntent } from '../reorder-preview'
 import timelineFixtures from '../../../fixtures/timer-v2-timeline.json'
@@ -43,6 +43,13 @@ function sequence(): SequenceProgram {
 }
 
 describe('timer v2 timeline contracts', () => {
+  it('reports stable overall progress for a bounded run', () => {
+    expect(boundedRunProgress(1_000, 11_000, 1_000)).toBe(0)
+    expect(boundedRunProgress(1_000, 11_000, 6_000)).toBe(0.5)
+    expect(boundedRunProgress(1_000, 11_000, 12_000)).toBe(1)
+    expect(boundedRunProgress(1_000, null, 6_000)).toBe(0)
+  })
+
   it('matches the shared native Pattern collision fixture', () => {
     const fixture = timelineFixtures.patternCollision
     const event = nextPatternEvent(fixture.program as PatternProgram, fixture.anchor, fixture.now)

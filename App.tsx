@@ -106,6 +106,7 @@ function Root() {
   const stopAttemptGeneration = useRef(0)
   const stopRetryTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
   const stopNeedsAttention = useRef(false)
+  const restoreAttempt = useRef<PendingRestore | null>(null)
   const program = timerState ? selectedProgram(timerState) : null
   const timer = useTimerV2(program ?? FALLBACK_PROGRAM, timerState?.settings ?? FALLBACK_SETTINGS)
 
@@ -288,23 +289,32 @@ function Root() {
 
   useEffect(() => {
     if (!restoreSession || !timerState) return
+    if (restoreAttempt.current === restoreSession) return
+    const restoring = restoreSession
+    restoreAttempt.current = restoring
+    const settle = (after: () => void) => {
+      if (restoreAttempt.current !== restoring) return
+      restoreAttempt.current = null
+      setRestoreSession(current => current === restoring ? null : current)
+      after()
+    }
     if (restoreSession.attachNative) {
       setAppState('running')
-      void timer.attachNativeSession(restoreSession.session).catch(() => {
-        timer.stop()
-        setAppState('config')
-        showNotice({ title: 'The saved timer could not reopen', message: 'Its configuration is still available, so you can start it again when ready.', tone: 'attention' })
-      })
-    } else {
-      void timer.start(restoreSession.session)
-        .then(started => setAppState(started ? 'running' : 'config'))
-        .catch(() => {
+      void timer.attachNativeSession(restoreSession.session)
+        .then(() => settle(() => undefined))
+        .catch(() => settle(() => {
           setAppState('config')
           showNotice({ title: 'The saved timer could not reopen', message: 'Its configuration is still available, so you can start it again when ready.', tone: 'attention' })
-        })
+        }))
+    } else {
+      void timer.start(restoreSession.session)
+        .then(started => settle(() => setAppState(started ? 'running' : 'config')))
+        .catch(() => settle(() => {
+          setAppState('config')
+          showNotice({ title: 'The saved timer could not reopen', message: 'Its configuration is still available, so you can start it again when ready.', tone: 'attention' })
+        }))
     }
-    setRestoreSession(null)
-  }, [restoreSession, showNotice, timer, timerState])
+  }, [restoreSession, showNotice, timer.attachNativeSession, timer.start, timerState])
 
   const stop = useCallback(() => {
     // Navigation is intentionally optimistic. Native verification and a few
@@ -359,8 +369,11 @@ function Root() {
     if (!ready || restoreSession || appState !== 'config' || Platform.OS !== 'android' || !isNativeServiceAvailable) return
     let nativeActive = true
     try { nativeActive = ChandasTimerService.getState().active } catch { /* unreadable state must fail closed */ }
-    if (nativeActive && stopRetryTimeout.current == null && !stopNeedsAttention.current) stop()
-  }, [appState, ready, restoreSession, stop])
+    // Screen state is never permission to stop Android's durable timer. If the
+    // local hook is already attached, recover the running surface; explicit
+    // Stop owns the only intentional config/native-active transition.
+    if (nativeActive && timer.isRunning && stopRetryTimeout.current == null && !stopNeedsAttention.current) setAppState('running')
+  }, [appState, ready, restoreSession, timer.isRunning])
 
   useEffect(() => () => {
     stopAttemptGeneration.current += 1
@@ -558,7 +571,7 @@ function Root() {
       accessibilityElementsHidden={timer.isAlarmRinging}
     >
       <Reanimated.View key={appState} style={{ flex: 1 }} entering={FadeIn.duration(reducedMotion ? 80 : 220)} exiting={FadeOut.duration(reducedMotion ? 70 : 150)}>
-        {appState === 'config' ? <TimerV2ConfigScreen state={timerState} onChange={changeTimerState} onStart={start} starting={starting} focusState={focusState} onFocusAutomationChange={setFocusAutomation} onOpenFocusSettings={openNotificationPolicySettings} onOpenFocusRuleSettings={openFocusRuleSettings} androidAccess={androidAccess} onOpenExactAlarmSettings={openExactAlarmSettings} onOpenFullScreenIntentSettings={openFullScreenIntentSettings} onRequestCallMuteAccess={() => void requestCallMuteAccess()} onRequestNotificationAccess={() => void requestNotificationAccess()} onFeedback={showNotice} /> : <TimerV2RunningScreen program={program} mainCountdown={timer.mainCountdown} nextCueCountdown={timer.nextCueCountdown} nextCueLabel={timer.nextCueLabel} progress={timer.progress} position={timer.position} eventPulse={timer.eventPulse} activeHoursPaused={timer.activeHoursPaused} activeHoursResumeAt={timer.activeHoursResumeAt} runEndsAt={timer.runEndsAt} runRemainingMs={timer.runRemainingMs} mute={timer.mute} alarmBehavior={timer.alarmBehavior} realigning={realigning} onStop={stop} onRestartUnsynced={() => reanchor(false)} onSnapToClock={offset => reanchor(true, offset)} onPressAlarm={pressAlarm} onMuteForIterations={timer.muteForIterations} onMuteForMinutes={timer.muteForMinutes} onClearMute={timer.clearMute} masterVolume={timerState.settings.masterVolume} onMasterVolumeChange={masterVolume => changeTimerState({ ...timerState, settings: { ...timerState.settings, masterVolume } })} onCueVolumeChange={changeCueVolume} showAdvancedControls={timerState.settings.advancedModeEnabled} focusEnabled={timerState.settings.focusAutomationEnabled} focusActive={focusState.actual === 'active' && !timer.activeHoursPaused} focusPolicyAccess={focusState.policyAccess} focusReason={focusState.reason} onToggleFocus={focusState.reason === 'paused-by-android' ? resumeFocusAutomation : () => setFocusAutomation(!timerState.settings.focusAutomationEnabled)} onOpenFocusSettings={focusState.reason === 'rule-disabled' ? openFocusRuleSettings : openNotificationPolicySettings} />}
+        {appState === 'config' ? <TimerV2ConfigScreen state={timerState} onChange={changeTimerState} onStart={start} starting={starting} focusState={focusState} onFocusAutomationChange={setFocusAutomation} onOpenFocusSettings={openNotificationPolicySettings} onOpenFocusRuleSettings={openFocusRuleSettings} androidAccess={androidAccess} onOpenExactAlarmSettings={openExactAlarmSettings} onOpenFullScreenIntentSettings={openFullScreenIntentSettings} onRequestCallMuteAccess={() => void requestCallMuteAccess()} onRequestNotificationAccess={() => void requestNotificationAccess()} onFeedback={showNotice} /> : <TimerV2RunningScreen program={program} mainCountdown={timer.mainCountdown} nextCueCountdown={timer.nextCueCountdown} nextCueLabel={timer.nextCueLabel} progress={timer.progress} position={timer.position} eventPulse={timer.eventPulse} activeHoursPaused={timer.activeHoursPaused} activeHoursResumeAt={timer.activeHoursResumeAt} runEndsAt={timer.runEndsAt} runRemainingMs={timer.runRemainingMs} runProgress={timer.runProgress} mute={timer.mute} alarmBehavior={timer.alarmBehavior} realigning={realigning} onStop={stop} onRestartUnsynced={() => reanchor(false)} onSnapToClock={offset => reanchor(true, offset)} onPressAlarm={pressAlarm} onMuteForIterations={timer.muteForIterations} onMuteForMinutes={timer.muteForMinutes} onClearMute={timer.clearMute} masterVolume={timerState.settings.masterVolume} onMasterVolumeChange={masterVolume => changeTimerState({ ...timerState, settings: { ...timerState.settings, masterVolume } })} onCueVolumeChange={changeCueVolume} showAdvancedControls={timerState.settings.advancedModeEnabled} focusEnabled={timerState.settings.focusAutomationEnabled} focusActive={focusState.actual === 'active' && !timer.activeHoursPaused} focusPolicyAccess={focusState.policyAccess} focusReason={focusState.reason} onToggleFocus={focusState.reason === 'paused-by-android' ? resumeFocusAutomation : () => setFocusAutomation(!timerState.settings.focusAutomationEnabled)} onOpenFocusSettings={focusState.reason === 'rule-disabled' ? openFocusRuleSettings : openNotificationPolicySettings} />}
       </Reanimated.View>
     </View>
     {timer.isAlarmRinging && <AlarmRingingScreen onDismiss={timer.dismissAlarm} />}

@@ -148,6 +148,12 @@ export function runEndAt(program: TimerProgram, anchor: number, startedAt: numbe
   return firstBoundary + (program.runPolicy.cycleCount - 1) * duration
 }
 
+/** Overall progress through a bounded run, independent of its current cycle. */
+export function boundedRunProgress(startedAt: number, terminalAt: number | null, now = Date.now()): number {
+  if (terminalAt === null || terminalAt <= startedAt) return 0
+  return Math.max(0, Math.min(1, (now - startedAt) / (terminalAt - startedAt)))
+}
+
 function completionCandidate(program: TimerProgram): TimelineCueCandidate {
   const cue = program.completionCue ?? (program.mode === 'pattern' ? program.mainCue : program.steps.at(-1)!)
   return { cueId: 'completion', kind: 'run-complete', sound: cue.sound, volume: cue.volume }

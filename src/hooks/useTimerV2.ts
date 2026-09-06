@@ -6,7 +6,7 @@ import type { AlarmBehavior, AppTimerSettings, BuiltInSoundId, SoundRef, TimerPr
 import { effectiveAvailabilityForProgram, hasAvailableTime, isCueAllowedByActiveHours, isWithinActiveHours, nextActiveHoursStart } from '../lib/activeHours'
 import { formatCountdown } from '../lib/snapLogic'
 import { sourceForSound, soundTitle } from '../lib/soundLibrary'
-import { nextProgramEvent, programCycleDurationMs, runEndAt, timelinePosition, type TimelinePosition } from '../lib/timeline'
+import { boundedRunProgress, nextProgramEvent, programCycleDurationMs, runEndAt, timelinePosition, type TimelinePosition } from '../lib/timeline'
 import { alarmBehaviorAfterGesture, emptyRuntimeMute, gateProgramAudio, isFreshScheduledEvent, iterationMuteFor, muteAfterScheduleChange, shouldSurfaceTimerSignal, type RuntimeMuteState } from '../lib/runtimeV2'
 import { clearTimerV2Session, saveTimerV2Session } from '../lib/storage'
 import { ChandasTimerService, isNativeServiceAvailable, type NativeTimerConfig } from '../native/ChandasTimerService'
@@ -58,6 +58,7 @@ export interface TimerV2Display {
   activeHoursResumeAt: number
   runEndsAt: number
   runRemainingMs: number
+  runProgress: number
 }
 
 export interface UseTimerV2Return extends TimerV2Display {
@@ -96,6 +97,7 @@ function displayFor(program: TimerProgram, settings: AppTimerSettings, anchor: n
       activeHoursResumeAt: nextActiveHoursStart(availability, now),
       runEndsAt: endAt,
       runRemainingMs: endAt ? Math.max(0, endAt - now) : 0,
+      runProgress: boundedRunProgress(startedAt, terminalAt, now),
     }
   }
   const position = timelinePosition(program, anchor, now, startedAt, terminalAt)
@@ -105,6 +107,7 @@ function displayFor(program: TimerProgram, settings: AppTimerSettings, anchor: n
       mainCountdown: '00:00', nextCueCountdown: '00:00', nextCueLabel: 'Complete', progress: 1,
       position: null, activeHoursPaused: false, activeHoursResumeAt: 0,
       runEndsAt: endAt, runRemainingMs: 0,
+      runProgress: endAt ? 1 : 0,
     }
   }
   const mainCountdown = program.mode === 'pattern'
@@ -122,6 +125,7 @@ function displayFor(program: TimerProgram, settings: AppTimerSettings, anchor: n
     activeHoursResumeAt: 0,
     runEndsAt: endAt,
     runRemainingMs: endAt ? Math.max(0, endAt - now) : 0,
+    runProgress: boundedRunProgress(startedAt, terminalAt, now),
   }
 }
 
@@ -208,7 +212,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
   const [runtimeInterruption, setRuntimeInterruption] = useState<'exact-alarm-access' | null>(null)
   const [display, setDisplay] = useState<TimerV2Display>({
     mainCountdown: '--:--', nextCueCountdown: '--:--', nextCueLabel: '', progress: 0,
-    position: null, activeHoursPaused: false, activeHoursResumeAt: 0, runEndsAt: 0, runRemainingMs: 0,
+    position: null, activeHoursPaused: false, activeHoursResumeAt: 0, runEndsAt: 0, runRemainingMs: 0, runProgress: 0,
   })
 
   const runningRef = useRef(false)
@@ -416,32 +420,42 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
   }, [persistSession, refreshDisplay, scheduleNext, updateRuntimeState])
 
   const attachNativeSession = useCallback(async (restore: { anchor: number; startedAt?: number; endsAt?: number; mute: RuntimeMuteState; alarmBehavior: AlarmBehavior }) => {
+    if (isNativeServiceAvailable && !ChandasTimerService.getState().active) {
+      throw new Error('Native timer is no longer active')
+    }
     anchorRef.current = restore.anchor
     startedAtRef.current = restore.startedAt ?? restore.anchor
     endsAtRef.current = restore.endsAt && restore.endsAt > 0 ? restore.endsAt : runEndAt(programRef.current, restore.anchor, restore.startedAt ?? restore.anchor)
-    if (isNativeServiceAvailable) {
-      await ChandasTimerService.prepareBuiltInSounds(builtInSoundsFor(programRef.current, settingsRef.current.alarmSound))
-      // Reapply the OTA-owned envelope when reconnecting after a launch. This
-      // refreshes presentation metadata and additive settings without touching
-      // mute/alarm-once controls or replacing the authoritative native anchor.
-      ChandasTimerService.update(nativeConfigFor(
-        programRef.current,
-        settingsRef.current,
-        anchorRef.current,
-        startedAtRef.current,
-        endsAtRef.current,
-        restore.alarmBehavior === 'locked',
-      ))
-    }
+
+    // Claim the already-authoritative native session before doing any optional
+    // asset/audio preparation. A cold process may need noticeable time to open
+    // those resources; that delay must never look like a stopped timer to React.
     runningRef.current = true
     updateRuntimeState(restore.mute, restore.alarmBehavior)
     setIsRunning(true)
-    setIsAlarmRinging(ChandasTimerService.isRinging())
-    await setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: false })
-    await activateDisplayWakeLock()
+    setIsAlarmRinging(isNativeServiceAvailable && ChandasTimerService.isRinging())
     refreshDisplay()
     if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current)
     refreshIntervalRef.current = setInterval(refreshDisplay, 250)
+
+    if (isNativeServiceAvailable) {
+      await ChandasTimerService.prepareBuiltInSounds(builtInSoundsFor(programRef.current, settingsRef.current.alarmSound)).catch(() => false)
+      // Reapply the OTA-owned envelope when reconnecting after a launch. This
+      // refreshes presentation metadata and additive settings without touching
+      // mute/alarm-once controls or replacing the authoritative native anchor.
+      try {
+        ChandasTimerService.update(nativeConfigFor(
+          programRef.current,
+          settingsRef.current,
+          anchorRef.current,
+          startedAtRef.current,
+          endsAtRef.current,
+          restore.alarmBehavior === 'locked',
+        ))
+      } catch { /* the persisted native schedule remains authoritative */ }
+    }
+    await setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: false }).catch(() => undefined)
+    await activateDisplayWakeLock()
   }, [refreshDisplay, updateRuntimeState])
 
   const stop = useCallback(() => {
@@ -476,7 +490,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     setAlarmBehavior('off')
     releaseDisplayWakeLock()
     void clearTimerV2Session()
-    setDisplay({ mainCountdown: '--:--', nextCueCountdown: '--:--', nextCueLabel: '', progress: 0, position: null, activeHoursPaused: false, activeHoursResumeAt: 0, runEndsAt: 0, runRemainingMs: 0 })
+    setDisplay({ mainCountdown: '--:--', nextCueCountdown: '--:--', nextCueLabel: '', progress: 0, position: null, activeHoursPaused: false, activeHoursResumeAt: 0, runEndsAt: 0, runRemainingMs: 0, runProgress: 0 })
     return true
   }, [])
 
