@@ -1442,6 +1442,7 @@ Do not edit old entries to reflect new conclusions. Add a superseding entry and 
 | 2026-09-06 | D-109 | Accepted | Haptics are one Advanced setting with a global switch and three saved profiles: Main timer, Sub-bells, and Alarm. Each profile offers Single, Double, or Triple patterns and Gentle, Balanced, or Strong intensity with an explicit one-group preview. Main covers main gongs and Sequence boundaries; Sub-bells covers Pattern offset cues. Alarm repeats the chosen group with a 650 ms pause until dismissal. App taps have no separate profile and simply obey the global switch. Android exact/background delivery and amplitude-aware waveforms require advertised contract-v6 support; older native binaries hide the setting rather than implying unsupported behavior. |
 | 2026-09-06 | D-110 | Accepted | Second precision is one capability-gated Advanced preference, not a new timer mode. Off preserves the existing minute-first setup; On adds seconds to custom Cycle, Sequence-step, and bounded-duration editors. Exact seconds are additive canonical fields with legacy minute projections, remain intact in presets and runtime restoration, and drive every JS/native boundary, progress, mute, and run-end calculation. Sub-bell cadence and cue positions remain minute-based to keep their grid comprehensible. A non-whole-minute Cycle automatically uses elapsed timing because the current wall-clock phase UI is minute-based. This supersedes D-056's and section 7.3's whole-minute UI restriction. |
 | 2026-09-06 | D-111 | Accepted | The opt-in Android live countdown uses the authoritative native timeline to show the current cue countdown plus the bounded run's final countdown, for example `12s | 10m` or `01:12 | 5m`. Current time uses seconds below one minute and a clock above it; final time is ceiling-rounded to minutes so it never says `0m` while time remains. Continuous runs show only current time, and the pair collapses to the precise current countdown when the next cue is also the terminal event. A presentation-only foreground updater may refresh the compact text once per second, but exact AlarmManager scheduling remains independent and authoritative. If foreground promotion is unavailable, fall back to Android's single native chronometer rather than showing stale dual text. |
+| 2026-09-06 | D-112 | Accepted | Compact paired countdowns use a middle dot without surrounding spaces and omit the leading minute zero: `12s·10m` and `1:12·5m`. This preserves the two-value meaning while fitting both common forms within Android's suggested seven-character chip budget. Single/terminal countdowns retain their full clock formatting. This supersedes only D-111's paired separator and padding examples. |
 
 ### Decision-entry template
 
@@ -2659,6 +2660,20 @@ This section is append-only. Every implementation session should record scope, m
 
 **Risks or follow-ups:** Android owns Live Update promotion and caps the chip at 96dp; the platform only suggests, rather than guarantees, seven characters of critical text. Longer requested pairs may be clipped or reduced to the icon on some devices. The expanded notification and fallback chronometer remain available, and disabling Timer countdown stops the once-per-second updater without affecting the timer.
 
+### 2026-09-06 — Compact countdown typography
+
+**Status:** Complete in source; included with the contract-v8 native implementation.
+
+**Scope:** Status-chip separator and minute padding only.
+
+**Decision referenced:** D-112.
+
+**Behavior implemented:** Paired values now render as `12s·10m` and `1:12·5m`. The neutral middle dot distinguishes the deadlines without suggesting a ratio or direction, and removing spaces plus the paired leading zero keeps common cases to seven characters. A collapsed final countdown remains fully padded, such as `01:12`.
+
+**Verification run:** TypeScript compilation, all JavaScript unit tests, whitespace validation, and updated native formatter expectations. Native formatter execution remains part of the next permitted remote build/device pass.
+
+**Migration impact:** Native presentation change within contract v8; no additional permission, schema, setting, or runtime capability was introduced.
+
 ### Implementation-entry template
 
 ```md
@@ -2720,3 +2735,4 @@ This section is append-only. Every implementation session should record scope, m
 | 3.6 | 2026-09-06 | Added one Advanced Haptics control with saved Main/Sub-bell/Alarm patterns and strengths, global interface-feedback opt-out, amplitude-aware native cue waveforms, and repeat-until-dismissed Alarm vibration under contract v6. |
 | 3.7 | 2026-09-06 | Added capability-gated Advanced second precision for Cycle, Sequence, and bounded runs, with compatible exact-duration persistence and contract-v7 native scheduling. |
 | 3.8 | 2026-09-06 | Added a contract-v8 Android dual live countdown for current cue and bounded finish, with terminal collapse, minute-ceiling final time, and a single-chronometer fallback. |
+| 3.9 | 2026-09-06 | Compacted paired status-chip values with a neutral middle dot and context-aware minute padding so common pairs fit Android's suggested seven-character budget. |

@@ -7,14 +7,14 @@ import org.junit.Test
 class TimerCountdownTextTest {
   @Test fun combinesSubMinuteCurrentAndMinuteFinalCountdowns() {
     assertEquals(
-      "12s | 10m",
+      "12s·10m",
       TimerCountdownText.compact(currentAt = 12_000L, finalAt = 600_000L, currentIsFinal = false, now = 0L),
     )
   }
 
   @Test fun combinesClockCurrentAndCeilingMinuteFinalCountdowns() {
     assertEquals(
-      "01:12 | 5m",
+      "1:12·5m",
       TimerCountdownText.compact(currentAt = 72_000L, finalAt = 241_000L, currentIsFinal = false, now = 0L),
     )
   }

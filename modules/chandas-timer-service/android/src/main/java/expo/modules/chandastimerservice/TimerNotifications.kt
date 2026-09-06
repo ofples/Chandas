@@ -221,12 +221,13 @@ internal object TimerCountdownText {
   fun compact(currentAt: Long, finalAt: Long, currentIsFinal: Boolean, now: Long): String? {
     val currentRemaining = currentAt - now
     if (currentRemaining <= 0L) return null
-    val current = formatCurrent(currentRemaining)
-    if (currentIsFinal || finalAt <= currentAt || finalAt <= now) return current
-    return "$current | ${ceilUnits(finalAt - now, MINUTE_MS)}m"
+    val hasFinalPair = !currentIsFinal && finalAt > currentAt && finalAt > now
+    val current = formatCurrent(currentRemaining, compactMinutes = hasFinalPair)
+    if (!hasFinalPair) return current
+    return "$current·${ceilUnits(finalAt - now, MINUTE_MS)}m"
   }
 
-  private fun formatCurrent(remainingMs: Long): String {
+  private fun formatCurrent(remainingMs: Long, compactMinutes: Boolean): String {
     val totalSeconds = ceilUnits(remainingMs, SECOND_MS)
     if (totalSeconds < 60L) return "${totalSeconds}s"
     val hours = totalSeconds / HOUR_SECONDS
@@ -234,6 +235,8 @@ internal object TimerCountdownText {
     val seconds = totalSeconds % 60L
     return if (hours > 0L) {
       "$hours:${minutes.twoDigits()}:${seconds.twoDigits()}"
+    } else if (compactMinutes) {
+      "$minutes:${seconds.twoDigits()}"
     } else {
       "${minutes.twoDigits()}:${seconds.twoDigits()}"
     }
