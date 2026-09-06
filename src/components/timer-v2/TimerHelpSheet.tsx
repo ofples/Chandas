@@ -7,7 +7,7 @@ import { BottomSheet } from './BottomSheet'
 export function TimerHelpSheet({ visible, onClose, onOpenFocusSettings }: { visible: boolean; onClose: () => void; onOpenFocusSettings?: () => void }) {
   const { tokens } = useTheme()
   const item = (icon: ReactNode, title: string, body: string) => <View style={styles.item}><View style={[styles.icon, { borderColor: tokens.border }]}>{icon}</View><View style={styles.copy}><Text style={[styles.title, { color: tokens.text }]}>{title}</Text><Text style={[styles.body, { color: tokens.textMuted }]}>{body}</Text></View></View>
-  return <BottomSheet visible={visible} eyebrow="How it works" title="Timer help" onClose={onClose}>
+  return <BottomSheet visible={visible} title="Timer help" onClose={onClose}>
     {item(<BellIcon on color={tokens.accent} />, 'Cycle', 'One main interval repeats. Add up to five named sub-bells at selected points, each with its own color, sound and level. If two meet, the longer repeat interval sounds.')}
     {item(<RestartIcon color={tokens.accent} />, 'Sequence', 'Steps run in order and repeat. Each step has its own duration, label, sound and level.')}
     {item(<ClockIcon color={tokens.accent} />, 'Run length', 'Keep going until you stop, or finish after a chosen number of cycles or an exact duration. Bounded runs can use a separate final gong.')}

@@ -1435,6 +1435,7 @@ Do not edit old entries to reflect new conclusions. Add a superseding entry and 
 | 2026-09-06 | D-105 | Accepted | Implement Advanced disclosure as a real final scroll-tail rather than raw touch interception or platform overscroll. The ordinary bottom is a stable rest point; a further 112-point pull reveals elastic space, continuously brightens and gently scales the sole Show advanced prompt, gives one threshold haptic, and commits on release after 82%. A short pull snaps back, collapse restores the rest point and explicitly re-arms disclosure, and the expanded controls never inherit a parent opacity animation. |
 | 2026-09-06 | D-106 | Accepted | Keep destructive list actions deliberate and inline: a left swipe reveals a softly tinted Delete text action, separated from the row by breathing room, and deletion occurs only after the explicit tap. Do not combine threshold deletion with a confirmation dialog. Modal grab bars must be truthful, so remove the nonfunctional bar from the shared sheet. Every constrained sheet scroller shows position-aware top/bottom fade scrims, while fixed setup/running controls receive a matching bottom fade. Inline names commit on blur or submit and keyboard-visible spacing contracts around the fixed action. |
 | 2026-09-06 | D-107 | Accepted | Explain Run length as a live outcome instead of a generic instruction plus a second computed caption. In Cycle, place a `Main interval` row title immediately above the duration choices, then show one sentence beneath those choices: `Keeps running continuously.`, `Runs for N cycle(s) = …`, or `Runs for …`. Sequence uses `round(s)` and places the same outcome after its step list. The sentence precedes the policy selector, updates politely for assistive technology, and replaces the former `MAIN CYCLES`/`ROUNDS` equivalent caption. This supersedes the copy and caption portions of D-056, D-062, D-065, and D-090. |
+| 2026-09-06 | D-108 | Accepted | Every sound editor, including Alarm sound, exposes the same selected-sound, cue-volume, full-width slider, and preview treatment. Keep the Alarm volume visible and saved on older shared-runtime binaries even when native background playback cannot yet consume it; foreground preview uses it immediately and the next contract-v5 binary applies it to background alarms. Remove purely repetitive sheet eyebrows (`Saved setups`, `How it works`, and `Clock`) while retaining labels that convey state or control meaning, such as `Step N of N`, `Cue volume`, and `Mute for`. This supersedes D-104's requirement to hide Alarm volume on older binaries. |
 
 ### Decision-entry template
 
@@ -2553,6 +2554,29 @@ This section is append-only. Every implementation session should record scope, m
 
 **Risks or follow-ups:** Very large cycle counts may wrap the outcome sentence onto a second line on narrow devices; wrapping is intentional so the computed duration remains legible rather than truncated.
 
+### 2026-09-06 — Unified Alarm sound editor
+
+**Status:** Complete and eligible for the pinned production OTA line.
+
+**Scope:** Alarm sound level visibility, shared sound-editor presentation, and modal heading audit.
+
+**Decision referenced:** D-108.
+
+**Behavior implemented:**
+
+- Removed the Alarm-only capability branch from the shared sound picker. Alarm sound now always presents the same selected sound, cue level, full-width slider, numeric percentage, and preview action as Main gong and every other cue.
+- Kept the saved Alarm level and foreground preview behavior on every binary. Native background alarms consume the level when contract v5 is available; older binaries safely retain their existing full-level native playback.
+- Confirmed the sound picker no longer contains a redundant `Sound` category heading.
+- Audited every Timer v2 sheet and removed the repetitive `Saved setups`, `How it works`, and `Clock` eyebrows from Configurations, Timer help, and Snap to clock. Retained `Step N of N`, `Cue volume`, and `Mute for` because each adds context or labels an interactive control.
+
+**Migration impact:** JavaScript/OTA presentation only. No native module, manifest, app configuration, dependency, packaged asset, or runtime fingerprint input changed in this slice. Full native background Alarm-level control still requires a binary with the already-implemented contract-v5 bridge.
+
+**Verification run:** TypeScript compilation, all 88 Vitest tests, whitespace validation, static inspection of every Timer v2 `BottomSheet`, and interactive Expo Web inspection of the Alarm sound editor and its level/preview footer.
+
+**Native/on-device verification still required:** On the currently distributed older binary, confirm the level persists and affects preview while native background ringing remains at its legacy level. On a contract-v5 binary, confirm foreground, background, screen-off, and lock-screen alarms all use `master × alarm × phone Alarm stream`.
+
+**Risks or follow-ups:** Because the OTA is deliberately pinned across older and newer binaries, an older binary can display and save the Alarm level before it can apply that level to native background ringing. This is a known transitional limitation accepted by D-108.
+
 ### Implementation-entry template
 
 ```md
@@ -2610,3 +2634,4 @@ This section is append-only. Every implementation session should record scope, m
 | 3.2 | 2026-09-06 | Rebuilt Advanced disclosure as a deterministic elastic scroll-tail, fixed collapse re-arming, and removed the section-wide opacity/indent presentation bug. |
 | 3.3 | 2026-09-06 | Applied the fifth feedback round: robust title editing, tighter keyboard spacing, vertical edge scrims, a flatter sound picker, gentler swipe deletion, and truthful sheet affordances. |
 | 3.4 | 2026-09-06 | Reframed run length as a live plain-language outcome beneath the interval it depends on, restored the Cycle `Main interval` entry label, and removed duplicate computed captions. |
+| 3.5 | 2026-09-06 | Unified Alarm sound with the shared cue-level editor, kept its saved level visible on the pinned runtime line, and removed repetitive modal eyebrows. |

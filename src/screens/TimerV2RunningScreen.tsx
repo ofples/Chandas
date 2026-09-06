@@ -271,7 +271,7 @@ function SnapSheet({ visible, mainMinutes, current, onSelect, onClose }: { visib
     }
   }
   const close = () => { if (!applying) onClose() }
-  return <BottomSheet visible={visible} eyebrow="Clock" title="Snap to clock" onClose={close} scroll={false}>
+  return <BottomSheet visible={visible} title="Snap to clock" onClose={close} scroll={false}>
     <View style={styles.snapStatus}><Text style={[styles.sheetHelp, { color: tokens.textMuted }]}>{applying ? `Aligning to :${String(selected).padStart(2, '0')}…` : 'Choose where each interval lands on the clock.'}</Text>{applying ? <ActivityIndicator size="small" color={tokens.accent} /> : null}</View>
     {error ? <GentleNotice title="Alignment stayed unchanged" message="The timer is still running on its previous rhythm. You can try again." tone="attention" /> : null}
     <ClockSnapSelector mainMinutes={mainMinutes} value={selected} onChange={offset => void select(offset)} disabled={applying} />

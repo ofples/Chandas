@@ -85,7 +85,7 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedba
   }
 
   return (
-    <BottomSheet visible={visible} eyebrow="Saved setups" title="Configurations" onClose={onClose}>
+    <BottomSheet visible={visible} title="Configurations" onClose={onClose}>
       {!selected ? <View style={styles.current}><Text style={[styles.presetTitle, { color: tokens.text }]}>Save current {state.workingPrograms.selectedMode === 'pattern' ? 'Cycle' : 'Sequence'}</Text><PresetVisual program={state.workingPrograms[state.workingPrograms.selectedMode]} /></View> : null}
       {!selected ? <View style={styles.saveRow}>
         <TextInput
