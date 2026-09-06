@@ -1432,6 +1432,7 @@ Do not edit old entries to reflect new conclusions. Add a superseding entry and 
 | 2026-09-05 | D-102 | Accepted | Running clock alignment is a confirmed operation rather than a fire-and-forget sheet dismissal. Offer only distinct phase presets, show the chosen value with an in-sheet progress state until the schedule replacement resolves, and acknowledge both success and an already-selected rhythm. Stop/new Start invalidate every in-flight re-anchor so delayed asset preparation can never recreate an obsolete native timer. |
 | 2026-09-05 | D-103 | Accepted | Advanced reveal requires a deliberate release-threshold pull after the setup screen reaches its true bottom; merely exposing the prompt never expands it, and collapsing explicitly re-arms the gesture. The single Show advanced prompt brightens continuously with pull progress. Appearance is one flat row containing its expandable color swatch and light/dark action. Every overflowing horizontal choice rail uses position-aware scrims on both edges. A Sub-bell with no selected cue positions disables automatically and selecting a position enables it again. |
 | 2026-09-05 | D-104 | Accepted | Alarm sound owns an independent saved level, multiplied by master volume and Android's Alarm stream. Contract v5 advertises this as an additive capability so older binaries keep hiding the unsupported level. Android timer, event, and alarm notifications use one transparent monochrome circular small-icon resource. The running Sound & mute sheet mirrors setup: its mixer button expands channel sliders with previews in place. Keep the Android production update line pinned to build 9's runtime only while every contract-v5 addition remains capability-gated and backward compatible. |
+| 2026-09-06 | D-105 | Accepted | Implement Advanced disclosure as a real final scroll-tail rather than raw touch interception or platform overscroll. The ordinary bottom is a stable rest point; a further 112-point pull reveals elastic space, continuously brightens and gently scales the sole Show advanced prompt, gives one threshold haptic, and commits on release after 82%. A short pull snaps back, collapse restores the rest point and explicitly re-arms disclosure, and the expanded controls never inherit a parent opacity animation. |
 
 ### Decision-entry template
 
@@ -2474,6 +2475,31 @@ This section is append-only. Every implementation session should record scope, m
 
 **Risks or follow-ups:** Android intentionally tints small icons from their alpha mask, so the result is a system-colored circle rather than the app's purple artwork. Manual runtime compatibility is safe here only because contract v5 is additive and feature-detected; the release checklist must assign a new runtime before any incompatible native assumption is introduced.
 
+### 2026-09-06 — Native-scroll Advanced disclosure
+
+**Status:** Complete in source; eligible for OTA delivery to a compatible runtime.
+
+**Scope:** Advanced-mode bottom disclosure, progressive pull feedback, collapse re-arming, and expanded-control presentation.
+
+**Decision referenced:** D-105.
+
+**Behavior implemented:**
+
+- Replaced touch-responder interception with a deterministic final scroll-tail. It works from the scroll view's own content offset, so Android no longer has to pass otherwise-consumed touch-move events to JavaScript.
+- Added 112 points of genuine reveal space below the ordinary setup bottom. The prompt counter-translates against the scroll, producing restrained elastic resistance while its opacity, scale, and small underline continuously communicate progress.
+- A release commits only after 82% of the pull distance. Crossing that point gives one medium haptic; releasing early scrolls back to the exact resting bottom.
+- Collapsing Advanced waits for the shorter content layout, returns to the new rest point without a visible jump, then re-arms the interaction for the next pull.
+- Removed the section-wide entering/exiting opacity animation. Advanced rows now share the root width, spacing, padding, and full opacity of ordinary controls; only individual controls with intentional local transitions animate themselves.
+- Updated Help to name the bottom-and-upward direction explicitly and extracted scroll-tail math into a dependency-free, unit-tested helper.
+
+**Migration impact:** JavaScript/OTA only. No Kotlin, manifest, app configuration, dependency, packaged asset, or runtime-fingerprint input changed.
+
+**Verification run:** TypeScript compilation, all 84 Vitest tests including five scroll-tail boundary tests, whitespace validation, and focused diff inspection.
+
+**Native/on-device verification still required:** On Android, slowly reach Show advanced, pull below and above the threshold, release, collapse, and repeat. Also fling to the bottom, use both gesture and three-button navigation, and confirm the prompt remains above the fixed Start control on short and tall displays.
+
+**Risks or follow-ups:** The elastic sensation is intentionally implemented with ordinary scroll content plus counter-motion rather than OEM overscroll physics, which varies by device. The deterministic geometry should remain reliable even when Android disables stretch or glow effects.
+
 ### Implementation-entry template
 
 ```md
@@ -2528,3 +2554,4 @@ This section is append-only. Every implementation session should record scope, m
 | 2.9 | 2026-09-05 | Added persisted progressive Advanced mode, hybrid inline color/cue disclosure, shared swipe-to-delete rows, and simplified running controls. |
 | 3.0 | 2026-09-05 | Standardized modal hierarchy, guarded unsaved configuration loads, fixed nested-ring and overlapping-schedule visuals, moved user cues to Doze-safe alarm-clock scheduling, and refined the promoted running notification. |
 | 3.1 | 2026-09-05 | Added independent alarm volume, circular Android notification icons, an inline running mixer, refreshed Help, and capability-safe runtime anchoring across contract v4/v5. |
+| 3.2 | 2026-09-06 | Rebuilt Advanced disclosure as a deterministic elastic scroll-tail, fixed collapse re-arming, and removed the section-wide opacity/indent presentation bug. |

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type GestureResponderEvent } from 'react-native'
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import Slider from '@react-native-community/slider'
 import * as Haptics from 'expo-haptics'
 import Reanimated, { FadeIn, FadeInDown, FadeOut, LinearTransition, interpolate, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from 'react-native-reanimated'
@@ -40,12 +40,14 @@ import { ColorSelector } from '../components/timer-v2/ColorSelector'
 import { SheetTextButton } from '../components/timer-v2/SheetTextButton'
 import { SwipeToDeleteRow } from '../components/timer-v2/swipe-to-delete-row'
 import { tapHaptic } from '../lib/haptics'
+import { advancedRevealState, shouldRevealAdvanced } from '../lib/advanced-reveal'
 
 const MAIN_PRESETS = [5, 10, 15, 30, 45, 60] as const
 const STEP_PRESETS = [1, 2, 3, 5, 10, 15, 20, 25, 30, 45, 60] as const
 const CADENCE_PRESETS = [1, 2, 3, 5, 10, 15, 20, 30] as const
 const MODE_CHOICES = [{ value: 'pattern', label: 'Cycle' }, { value: 'sequence', label: 'Sequence' }] as const
-const ADVANCED_PULL_DISTANCE = 88
+const ADVANCED_PULL_DISTANCE = 112
+const ADVANCED_REVEAL_THRESHOLD = 0.82
 
 type CueTarget = { kind: 'main' } | { kind: 'alarm' } | { kind: 'track'; id: string } | { kind: 'step'; id: string } | { kind: 'completion'; mode: TimerMode }
 
@@ -82,9 +84,10 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
   const scrollOffsetRef = useRef(0)
   const scrollContentHeightRef = useRef(0)
   const scrollViewportRef = useRef({ top: 0, height: 0 })
-  const advancedPullStartYRef = useRef<number | null>(null)
   const advancedPullProgressRef = useRef(0)
   const advancedPullThresholdRef = useRef(false)
+  const advancedRevealArmedRef = useRef(true)
+  const advancedCollapsePendingRef = useRef(false)
   const advancedRevealProgress = useSharedValue(0)
   const reducedMotion = useReducedMotion()
   const program = state.workingPrograms[state.workingPrograms.selectedMode]
@@ -113,14 +116,17 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
   const validToStart = program.runPolicy.kind !== 'continuous' || hasAvailableTime(settings.availability)
   const exactTimingNeedsSetup = Platform.OS === 'android' && !androidAccess.checking && !androidAccess.exactAlarms
   const advancedRevealStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(advancedRevealProgress.value, [0, 1], [0.5, 1]),
-    transform: [{ translateY: interpolate(advancedRevealProgress.value, [0, 1], [0, -4]) }],
+    opacity: interpolate(advancedRevealProgress.value, [0, 0.7, 1], [0.38, 0.72, 1], 'clamp'),
+    transform: [
+      { translateY: interpolate(advancedRevealProgress.value, [0, 1], [0, ADVANCED_PULL_DISTANCE * 0.68], 'clamp') },
+      { scale: interpolate(advancedRevealProgress.value, [0, 1], [0.985, 1.025], 'clamp') },
+    ],
   }))
-  const advancedRevealGlowStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(advancedRevealProgress.value, [0, 1], [0, 0.1]),
+  const advancedRevealIndicatorStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(advancedRevealProgress.value, [0, 0.55, 1], [0, 0.14, 0.55], 'clamp'),
+    transform: [{ scaleX: interpolate(advancedRevealProgress.value, [0, 1], [0.15, 1], 'clamp') }],
   }))
   const resetAdvancedPull = (animated = true) => {
-    advancedPullStartYRef.current = null
     advancedPullProgressRef.current = 0
     advancedPullThresholdRef.current = false
     advancedRevealProgress.value = animated ? withTiming(0, { duration: reducedMotion ? 60 : 150 }) : 0
@@ -128,39 +134,52 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
   const setAdvancedMode = (enabled: boolean) => {
     tapHaptic()
     resetAdvancedPull(false)
+    advancedRevealArmedRef.current = false
+    advancedCollapsePendingRef.current = !enabled
     changeSettings({ advancedModeEnabled: enabled })
   }
-  const atScrollEnd = () => scrollContentHeightRef.current - scrollViewportRef.current.height - scrollOffsetRef.current <= 2
-  const handleAdvancedTouchStart = (event: GestureResponderEvent) => {
-    if (settings.advancedModeEnabled) return
-    const pageY = event.nativeEvent.pageY
-    advancedPullStartYRef.current = atScrollEnd() ? pageY : null
-    advancedPullProgressRef.current = 0
-    advancedPullThresholdRef.current = false
-    advancedRevealProgress.value = 0
-  }
-  const handleAdvancedTouchMove = (event: GestureResponderEvent) => {
-    if (settings.advancedModeEnabled) return
-    const pageY = event.nativeEvent.pageY
-    if (!atScrollEnd()) {
-      advancedPullStartYRef.current = null
-      advancedPullProgressRef.current = 0
-      advancedRevealProgress.value = 0
-      return
-    }
-    if (advancedPullStartYRef.current === null) advancedPullStartYRef.current = pageY
-    const progress = Math.max(0, Math.min(1, (advancedPullStartYRef.current - pageY) / ADVANCED_PULL_DISTANCE))
+  const revealMetrics = (offsetY = scrollOffsetRef.current) => advancedRevealState({
+    contentHeight: scrollContentHeightRef.current,
+    viewportHeight: scrollViewportRef.current.height,
+    offsetY,
+    pullDistance: ADVANCED_PULL_DISTANCE,
+  })
+  const handleScroll = (offsetY: number) => {
+    scrollOffsetRef.current = offsetY
+    if (settings.advancedModeEnabled || !advancedRevealArmedRef.current) return
+    const { progress } = revealMetrics(offsetY)
     advancedPullProgressRef.current = progress
     advancedRevealProgress.value = progress
-    const reachedThreshold = progress >= 1
+    const reachedThreshold = shouldRevealAdvanced(progress, ADVANCED_REVEAL_THRESHOLD)
     if (reachedThreshold && !advancedPullThresholdRef.current) void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => undefined)
     advancedPullThresholdRef.current = reachedThreshold
   }
   const finishAdvancedPull = () => {
-    if (settings.advancedModeEnabled) return
-    const shouldReveal = advancedPullProgressRef.current >= 1
-    resetAdvancedPull(!shouldReveal)
-    if (shouldReveal) changeSettings({ advancedModeEnabled: true })
+    if (settings.advancedModeEnabled || !advancedRevealArmedRef.current) return
+    if (advancedPullProgressRef.current <= 0) return
+    const shouldReveal = shouldRevealAdvanced(advancedPullProgressRef.current, ADVANCED_REVEAL_THRESHOLD)
+    if (shouldReveal) {
+      advancedRevealArmedRef.current = false
+      resetAdvancedPull(false)
+      changeSettings({ advancedModeEnabled: true })
+      return
+    }
+    const { restOffset } = revealMetrics()
+    scrollOffsetRef.current = restOffset
+    scrollRef.current?.scrollTo({ y: restOffset, animated: !reducedMotion })
+    resetAdvancedPull()
+  }
+  const handleScrollContentSize = (height: number) => {
+    scrollContentHeightRef.current = height
+    if (!advancedCollapsePendingRef.current || settings.advancedModeEnabled) return
+    advancedCollapsePendingRef.current = false
+    const { restOffset } = revealMetrics()
+    scrollOffsetRef.current = restOffset
+    scrollRef.current?.scrollTo({ y: restOffset, animated: false })
+    resetAdvancedPull(false)
+    requestAnimationFrame(() => {
+      advancedRevealArmedRef.current = true
+    })
   }
   const selectMode = (mode: 'pattern' | 'sequence') => {
     if (state.workingPrograms.selectedMode === mode) return
@@ -188,7 +207,23 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined} style={[styles.screen, { backgroundColor: tokens.bg }]}>
-      <ScrollView ref={scrollRef} scrollEnabled={!sequenceReordering} onLayout={event => { scrollViewportRef.current = { top: event.nativeEvent.layout.y, height: event.nativeEvent.layout.height } }} onContentSizeChange={(_width, height) => { scrollContentHeightRef.current = height }} onScroll={event => { scrollOffsetRef.current = event.nativeEvent.contentOffset.y }} onTouchStart={handleAdvancedTouchStart} onTouchMove={handleAdvancedTouchMove} onTouchEnd={finishAdvancedPull} onTouchCancel={() => resetAdvancedPull()} scrollEventThrottle={16} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.content, { paddingTop: insets.top + 22, paddingBottom: insets.bottom + 116 }]}>
+      <ScrollView
+        ref={scrollRef}
+        scrollEnabled={!sequenceReordering}
+        overScrollMode="never"
+        onLayout={event => { scrollViewportRef.current = { top: event.nativeEvent.layout.y, height: event.nativeEvent.layout.height } }}
+        onContentSizeChange={(_width, height) => handleScrollContentSize(height)}
+        onScroll={event => handleScroll(event.nativeEvent.contentOffset.y)}
+        onScrollBeginDrag={() => {
+          if (!settings.advancedModeEnabled && !advancedCollapsePendingRef.current) advancedRevealArmedRef.current = true
+        }}
+        onScrollEndDrag={finishAdvancedPull}
+        onMomentumScrollEnd={finishAdvancedPull}
+        scrollEventThrottle={16}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={[styles.content, { paddingTop: insets.top + 22, paddingBottom: insets.bottom + 116 + (settings.advancedModeEnabled ? 0 : ADVANCED_PULL_DISTANCE) }]}
+      >
         <SegmentedControl items={MODE_CHOICES} value={state.workingPrograms.selectedMode} onChange={selectMode} accessibilityLabel="Timer mode" />
 
         <Reanimated.View key={program.mode} entering={FadeIn.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 120)} style={styles.modeContent}>
@@ -201,9 +236,14 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
           <CompletionCueControls state={state} onChange={onChange} onEditCue={setCueTarget} onFeedback={onFeedback} />
         </View>
 
-        {!settings.advancedModeEnabled ? <Reanimated.View style={[styles.advancedReveal, advancedRevealStyle]}>
-          <Pressable onPress={() => setAdvancedMode(true)} style={({ pressed }) => [styles.advancedRevealButton, { borderColor: tokens.border, opacity: pressed ? 0.72 : 1 }]} accessibilityRole="button" accessibilityLabel="Show advanced settings" accessibilityHint="Tap, or pull upward at the end of the page"><Reanimated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.advancedRevealGlow, { backgroundColor: tokens.text }, advancedRevealGlowStyle]} /><Text style={[styles.advancedRevealTitle, { color: tokens.text }]}>Show advanced</Text></Pressable>
-        </Reanimated.View> : <Reanimated.View entering={FadeInDown.duration(reducedMotion ? 80 : 210)} exiting={FadeOut.duration(reducedMotion ? 70 : 130)} layout={reducedMotion ? undefined : LinearTransition.duration(180)} style={styles.advancedSection}>
+        {!settings.advancedModeEnabled ? <View style={styles.advancedReveal}>
+          <Reanimated.View style={[styles.advancedRevealPrompt, advancedRevealStyle]}>
+            <Pressable onPress={() => setAdvancedMode(true)} style={({ pressed }) => [styles.advancedRevealPressable, { opacity: pressed ? 0.72 : 1 }]} accessibilityRole="button" accessibilityLabel="Show advanced settings" accessibilityHint="Tap, or pull upward past the end of the page">
+              <Text style={[styles.advancedRevealTitle, { color: tokens.text }]}>Show advanced</Text>
+              <Reanimated.View pointerEvents="none" style={[styles.advancedRevealIndicator, { backgroundColor: tokens.text }, advancedRevealIndicatorStyle]} />
+            </Pressable>
+          </Reanimated.View>
+        </View> : <View style={styles.advancedSection}>
           {program.mode === 'pattern' && alarmSoundSupported ? <CueRow title="Alarm sound" detail={soundTitle(settings.alarmSound)} sound={settings.alarmSound} onPress={() => setCueTarget({ kind: 'alarm' })} /> : null}
 
           {program.runPolicy.kind === 'continuous' ? <View style={styles.section}>
@@ -220,7 +260,7 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
           {Platform.OS === 'android' ? <ActionRow title="System integrations" detail={androidAccessSummary(androidAccess)} onPress={() => setSystemAccessOpen(true)} /> : null}
 
           <Pressable onPress={() => setAdvancedMode(false)} style={styles.hideAdvanced} accessibilityRole="button" accessibilityLabel="Hide advanced settings"><Text style={[styles.link, { color: tokens.accent }]}>Hide advanced</Text></Pressable>
-        </Reanimated.View>}
+        </View>}
       </ScrollView>
 
       <View style={[styles.bottom, { backgroundColor: tokens.bg, paddingBottom: insets.bottom + 16 }]}>
@@ -594,6 +634,6 @@ const styles = StyleSheet.create({
   previewMini: { width: 30, height: 30, borderWidth: 1, borderRadius: 15, alignItems: 'center', justifyContent: 'center' }, previewGlyph: { fontSize: 9 },
   mixerButton: { width: 36, height: 36, borderWidth: 1, borderRadius: 18, alignItems: 'center', justifyContent: 'center' }, previewButton: { width: 36, height: 36, borderWidth: 1, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   outline: { alignSelf: 'flex-start', borderWidth: 1.5, borderRadius: 99, paddingHorizontal: 13, paddingVertical: 9 }, bottom: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 20 }, start: { width: '100%', maxWidth: 580, minHeight: 54, alignSelf: 'center', borderRadius: 99, paddingVertical: 15, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 9 }, startText: { color: '#fff', fontSize: 14, fontWeight: '800', letterSpacing: 1.1, textTransform: 'uppercase' },
-  advancedReveal: { minHeight: 88, justifyContent: 'center' }, advancedRevealButton: { minHeight: 66, borderWidth: 1.5, borderStyle: 'dashed', borderRadius: 18, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 18 }, advancedRevealGlow: { borderRadius: 17 }, advancedRevealTitle: { fontSize: 14, fontWeight: '700' }, advancedSection: { gap: 23 }, hideAdvanced: { minHeight: 48, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
+  advancedReveal: { minHeight: 54, alignItems: 'center', justifyContent: 'center', overflow: 'visible' }, advancedRevealPrompt: { alignSelf: 'center' }, advancedRevealPressable: { minHeight: 48, minWidth: 150, alignItems: 'center', justifyContent: 'center', gap: 7, paddingHorizontal: 18 }, advancedRevealIndicator: { width: 54, height: 1, borderRadius: 1 }, advancedRevealTitle: { fontSize: 14, fontWeight: '700' }, advancedSection: { width: '100%', gap: 23, opacity: 1, paddingHorizontal: 0, marginHorizontal: 0 }, hideAdvanced: { minHeight: 48, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
   accessRow: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: 12 }, accessAction: { minWidth: 64, minHeight: 40, paddingHorizontal: 12, borderWidth: 1.5, borderRadius: 99, alignItems: 'center', justifyContent: 'center' }, readyPill: { minHeight: 27, paddingHorizontal: 9, borderRadius: 99, alignItems: 'center', justifyContent: 'center' }, readyMark: { fontSize: 8, fontWeight: '900', letterSpacing: 0.9 }, checkingMark: { width: 36, textAlign: 'center', fontSize: 10, letterSpacing: 1 },
 })
