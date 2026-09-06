@@ -97,7 +97,6 @@ export function updatePatternMainDurationSeconds(state: TimerV2State, seconds: n
       ...program,
       mainMinutes,
       mainDurationSeconds,
-      alignment: mainDurationSeconds % 60 === 0 ? program.alignment : { kind: 'elapsed' },
       tracks: program.tracks.map(track => {
         const previousOffsets = validOffsetsForDuration(previousDurationSeconds, track.cadenceMinutes)
         const nextOffsets = validOffsetsForDuration(mainDurationSeconds, track.cadenceMinutes)

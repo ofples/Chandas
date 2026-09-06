@@ -204,7 +204,7 @@ Timer v2 replaces these assumptions rather than layering special cases over them
 | Sequence step | One duration in a Sequence. Its sound plays when that step ends. |
 | Sequence cycle | One traversal of every Sequence step. |
 | Anchor | The persisted reference used to locate the current cycle/step at any timestamp. |
-| Snapped Pattern | A Pattern aligned to local wall-clock time using the configured minute offset. |
+| Snapped program | A Cycle or complete Sequence round aligned to local wall-clock time using the configured minute offset. |
 | Alarm Once | Repeat-until-dismissed behavior for the next Pattern main boundary only. |
 | Alarm Locked | Repeat-until-dismissed behavior for every Pattern main boundary until disabled. |
 | Focus automation | The user's request that Chandas activate its Android Focus rule while a running program is within active hours. |
@@ -230,7 +230,7 @@ The base configuration screen remains a single centered column with a fixed Star
    - Pattern: a fixed `Main interval` title, quick-duration choices, and an optional compact list of automatically ordered sub-bells.
    - Sequence: total cycle duration and ordered step summaries; the active step editor uses the same quick-choice pattern.
 4. Sound section with visible Master volume, the primary sound choice, and a secondary full sound-levels action.
-5. Snap settings for Pattern only, with five-minute phase choices derived from the current main interval and a fixed trailing Custom action.
+5. Snap settings for Cycle and Sequence, with minute-first phase choices derived from the exact complete repeating period and a fixed trailing Custom action.
 6. Run length directly beneath the Pattern main settings or Sequence step list, containing Continuous and bounded Cycle/Duration choices.
 7. Schedule containing one or more weekly active windows, shown only for Continuous runs and collapsed behind a simple toggle when unused.
 8. Advanced settings containing Chandas Focus and platform access.
@@ -367,8 +367,8 @@ Run length is configured independently for Pattern and Sequence and is included 
 
 Bound semantics:
 
-- The run epoch begins when Start is accepted. A snapped Pattern may use an earlier lattice anchor for cue phase, so the session separately persists `startedAt`; duration bounds are always measured from `startedAt`, not from the phase anchor.
-- Start derives and persists a fixed `endsAt`. Timezone/DST realignment may move a snapped Pattern's cue phase but never silently lengthens or shortens the promised session; if a former cycle terminal no longer coincides with a realigned main boundary, it becomes the same one-shot synthetic completion event used by a duration bound.
+- The run epoch begins when Start is accepted. A snapped program may use an earlier lattice anchor for cue phase, so the session separately persists `startedAt`; duration bounds are always measured from `startedAt`, not from the phase anchor.
+- Start derives and persists a fixed `endsAt`. Timezone/DST realignment may move a snapped program's cue phase but never silently lengthens or shortens the promised session; if a former cycle terminal no longer coincides with a realigned natural boundary, it becomes the same one-shot synthetic completion event used by a duration bound.
 - A cycle bound ends after the requested number of natural cycle boundaries strictly following Start. It includes exactly the requested number of newly completed Pattern main intervals or Sequence rounds; a snapped boundary coincident with the Start tap is not counted retroactively.
 - A duration bound ends at `startedAt + durationSeconds × 1000`.
 - Focus state, calls, and user mute may gate sound but never extend the deadline. Schedule is not applied to a bounded run.
@@ -858,10 +858,11 @@ interface TimelinePosition {
 - Main cue occurs at the cycle end.
 - Restart Unsynced creates a new elapsed anchor at the restart moment.
 
-### 10.3 Pattern local-clock alignment
+### 10.3 Program local-clock alignment
 
 - Treat the configured offset as a minute position in local civil time.
-- Find the next local occurrence on the repeating main-duration lattice.
+- For Cycle, use the exact main duration. For Sequence, use the sum of exact step durations.
+- Find the next local occurrence on that complete repeating-program lattice.
 - Convert it to an epoch timestamp using the current system timezone rules.
 - Re-evaluate after every event and after time/timezone/offset broadcasts.
 - Do not represent this mode as a permanently fixed UTC phase.
@@ -869,12 +870,13 @@ interface TimelinePosition {
 
 ### 10.4 Sequence alignment
 
-- Start anchor is the accepted Start timestamp.
+- Elapsed Sequence anchor is the accepted Start timestamp.
+- Local-clock Sequence anchor is the most recent matching boundary of the complete round, using the same civil-time rules as Cycle.
 - Cycle duration is the sum of step durations.
 - Step-end offsets are cumulative step durations.
 - The final step-end is the cycle boundary and carries only the final step's cue.
 - A restored session derives current cycle and step from the persisted anchor and current time.
-- There is no snap-to-clock behavior in Sequence v2.
+- Exact-second steps are permitted; alignment depends on the summed round rather than requiring each step to be a whole minute.
 
 ### 10.5 Collision resolution
 
@@ -905,7 +907,7 @@ Absolute availability overrides use epoch timestamps and therefore retain their 
 ### 10.6.1 Bounded terminal event
 
 - The runtime derives one terminal timestamp from `startedAt`, the run policy, and the program cycle duration.
-- For `cycles`, terminal time is `startedAt + count × cycleDuration` for elapsed programs. For a snapped Pattern, it is the `count`th main boundary strictly after `startedAt` so requested cycles are never shortened by an earlier phase anchor.
+- For `cycles`, terminal time is `startedAt + count × cycleDuration` for elapsed programs. For a snapped program, it is the `count`th complete-cycle boundary strictly after `startedAt` so requested cycles are never shortened by an earlier phase anchor.
 - For `duration`, terminal time is exactly `startedAt + seconds × 1000`.
 - The next scheduler target is the earlier of the next normal cue and the terminal timestamp.
 - Equality produces one normal event with `completesRun: true`; strict terminal precedence produces a synthetic `run-complete` event.
@@ -1280,7 +1282,7 @@ Active-hours fixtures:
 - Same-day window.
 - Cross-midnight window with day-mask ownership.
 - Timezone change into and out of active hours.
-- UTC+05:30 snapped Pattern alignment.
+- UTC+05:30 snapped Cycle and Sequence alignment.
 - DST forward gap and backward overlap do not cause catch-up storms or duplicate logical delivery.
 
 Control fixtures:
@@ -1443,6 +1445,7 @@ Do not edit old entries to reflect new conclusions. Add a superseding entry and 
 | 2026-09-06 | D-110 | Accepted | Second precision is one capability-gated Advanced preference, not a new timer mode. Off preserves the existing minute-first setup; On adds seconds to custom Cycle, Sequence-step, and bounded-duration editors. Exact seconds are additive canonical fields with legacy minute projections, remain intact in presets and runtime restoration, and drive every JS/native boundary, progress, mute, and run-end calculation. Sub-bell cadence and cue positions remain minute-based to keep their grid comprehensible. A non-whole-minute Cycle automatically uses elapsed timing because the current wall-clock phase UI is minute-based. This supersedes D-056's and section 7.3's whole-minute UI restriction. |
 | 2026-09-06 | D-111 | Accepted | The opt-in Android live countdown uses the authoritative native timeline to show the current cue countdown plus the bounded run's final countdown, for example `12s | 10m` or `01:12 | 5m`. Current time uses seconds below one minute and a clock above it; final time is ceiling-rounded to minutes so it never says `0m` while time remains. Continuous runs show only current time, and the pair collapses to the precise current countdown when the next cue is also the terminal event. A presentation-only foreground updater may refresh the compact text once per second, but exact AlarmManager scheduling remains independent and authoritative. If foreground promotion is unavailable, fall back to Android's single native chronometer rather than showing stale dual text. |
 | 2026-09-06 | D-112 | Accepted | Compact paired countdowns use a middle dot without surrounding spaces and omit the leading minute zero: `12s·10m` and `1:12·5m`. This preserves the two-value meaning while fitting both common forms within Android's suggested seven-character chip budget. Single/terminal countdowns retain their full clock formatting. This supersedes only D-111's paired separator and padding examples. |
+| 2026-09-06 | D-113 | Accepted | Clock alignment belongs to the complete repeating program, not to the precision of one component. Cycle aligns by its exact main duration; Sequence aligns by the sum of its exact steps, so `1:30 + 3:30` forms a clock-aligned five-minute round. The phase control stays minute-first in both ordinary and Second precision modes. Exact periods may begin at a chosen minute phase and continue on their exact cadence. Only mathematically distinct minute phases are offered, local civil phase is rebuilt after timezone/DST changes, and Reset returns either mode to elapsed timing. This supersedes D-018's Pattern-only scope, section 10.4's Sequence prohibition, and D-110's automatic unsnap rule. |
 
 ### Decision-entry template
 
@@ -2674,6 +2677,32 @@ This section is append-only. Every implementation session should record scope, m
 
 **Migration impact:** Native presentation change within contract v8; no additional permission, schema, setting, or runtime capability was introduced.
 
+### 2026-09-06 — Whole-program clock alignment
+
+**Status:** Complete in source; a contract-v9 Android build and physical-device verification remain required.
+
+**Scope:** Cycle exact-duration alignment, Sequence round alignment, minute-first phase selection, persistence, live re-anchoring, timezone/DST restoration, and capability gating.
+
+**Decision referenced:** D-113.
+
+**Behavior implemented:**
+
+- Moved alignment onto the shared program contract. Existing Sequence records normalize to elapsed timing, while saved and working Sequences can now retain a local-clock phase just like Cycles.
+- Defined the aligned period as the complete exact repeating cycle: the Cycle main duration or the sum of every Sequence step. Individual Sequence steps do not need to be whole minutes; `1:30 + 3:30` aligns as one five-minute round.
+- Kept the phase control minute-first whether Second precision is off or on. This avoids adding seconds to the normal setup while still letting exact cycles start from a readable wall-clock phase and continue on their exact cadence.
+- Replaced rounded-minute anchor math with identical JavaScript and Android local-time-of-day modulo calculations. Timezone, daylight-saving, date, and manual-clock reconciliation now applies to both modes and retains exact seconds.
+- Derived the number of selectable minute phases using the period's greatest common divisor with 60 seconds. Equivalent offsets are canonicalized, so a 75-second cycle exposes five distinct minute phases, a 90-second cycle exposes three, and shortening a program cannot leave a misleading stale phase.
+- Added clock controls to Sequence setup and the running Sequence screen. Reset unsnaps either mode; running re-anchor confirmation, optimistic UI protection, fixed bounded-run deadlines, and mute identity clearing are shared.
+- Added Android contract-v9 capability advertising. Existing binaries retain whole-minute Cycle snapping; enhanced exact-Cycle and Sequence controls stay hidden until the supporting runtime is present.
+
+**Migration impact:** Sequence programs gain an additive normalized `alignment` field with an elapsed default. Android contract v9 is required for native exact-Cycle and Sequence timezone-aware realignment. No permission, manifest entry, dependency, packaged asset, or program schema-version change is required.
+
+**Verification run:** TypeScript compilation, focused JavaScript domain/alignment tests, full JavaScript test suite, whitespace validation, and static JavaScript/Kotlin parity review. Local Gradle/native compilation was not run because repository policy prohibits native builds on this computer.
+
+**Native/on-device verification still required:** On the next remote Android build, test whole-minute and 1:15 Cycles plus `1:30 + 3:30` and ordinary minute-only Sequences in foreground, background, screen-off, process-restored, timezone-change, and DST-change states. Confirm running Snap waits for native acceptance, Reset unsnaps immediately, bounded deadlines do not move, and a timezone change produces no duplicate or catch-up cue.
+
+**Risks or follow-ups:** Local-clock periods that do not divide a day are intentionally re-phased against the new civil day at midnight, matching the existing wall-clock definition rather than a permanent UTC lattice. Sub-bell cue placement remains a separate minute-grid concern; it does not constrain whole-program clock alignment.
+
 ### Implementation-entry template
 
 ```md
@@ -2736,3 +2765,4 @@ This section is append-only. Every implementation session should record scope, m
 | 3.7 | 2026-09-06 | Added capability-gated Advanced second precision for Cycle, Sequence, and bounded runs, with compatible exact-duration persistence and contract-v7 native scheduling. |
 | 3.8 | 2026-09-06 | Added a contract-v8 Android dual live countdown for current cue and bounded finish, with terminal collapse, minute-ceiling final time, and a single-chronometer fallback. |
 | 3.9 | 2026-09-06 | Compacted paired status-chip values with a neutral middle dot and context-aware minute padding so common pairs fit Android's suggested seven-character budget. |
+| 4.0 | 2026-09-06 | Generalized clock alignment to exact Cycle durations and complete Sequence rounds, preserving the minute-first phase UI with contract-v9 native timezone reconciliation. |

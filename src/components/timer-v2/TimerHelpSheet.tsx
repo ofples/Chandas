@@ -12,8 +12,8 @@ export function TimerHelpSheet({ visible, onClose, onOpenFocusSettings }: { visi
     {item(<RestartIcon color={tokens.accent} />, 'Sequence', 'Steps run in order and repeat. Each step has its own duration, label, sound and level.')}
     {item(<ClockIcon color={tokens.accent} />, 'Run length', 'Keep going until you stop, or finish after a chosen number of cycles or an exact duration. Bounded runs can use a separate final gong.')}
     {item(<ClockIcon color={tokens.accent} />, 'Schedule', 'Add weekly active times. Overnight ranges belong to the day on which they start; missed bells are not replayed.')}
-    {item(<ClockIcon color={tokens.accent} />, 'Snap to clock', 'Keep Cycle mode on a local wall-clock rhythm, including after timezone and daylight-saving changes.')}
-    {item(<RestartIcon color={tokens.accent} />, 'Reset', 'Start a fresh full interval or sequence. In a snapped Cycle, reset also unsnaps it from the clock.')}
+    {item(<ClockIcon color={tokens.accent} />, 'Snap to clock', 'Keep a full Cycle or Sequence round on a local wall-clock rhythm, including after timezone and daylight-saving changes. The whole round can align even when individual steps include seconds.')}
+    {item(<RestartIcon color={tokens.accent} />, 'Reset', 'Start a fresh full interval or sequence. In a snapped program, reset also unsnaps it from the clock.')}
     {item(<AlarmIcon color={tokens.accent} />, 'Alarm', 'Tap once to alarm at the end of the current main interval; tap twice to lock it on. Tap anywhere on the flashing alarm screen to dismiss it. Its sound and level live in Advanced.')}
     {item(<VolumeIcon color={tokens.accent} />, 'Sound and mute', 'Volume controls every timer sound. Open the mixer to adjust and preview each cue, or mute cycles or minutes without changing saved levels.')}
     {item(<BellIcon on color={tokens.accent} />, 'Haptics', 'Advanced settings can choose a Single, Double, or Triple pattern and strength for main cues, sub-bells, and alarms. Alarm patterns repeat until dismissed; turning Haptics off also silences interface feedback.')}

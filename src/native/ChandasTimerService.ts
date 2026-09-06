@@ -50,7 +50,7 @@ export interface NativeTimerConfig {
   timerV2Program?: string
   /** Absolute V2 timeline anchor in epoch milliseconds. */
   timerV2Anchor?: number
-  /** Accepted Start time, distinct from a snapped Pattern's phase anchor. */
+  /** Accepted Start time, distinct from a snapped program's phase anchor. */
   timerV2StartedAt?: number
   timerV2EndsAt?: number
   alarmOnceArmed?: boolean
@@ -157,6 +157,7 @@ export interface NativeTimerCapabilities {
   supportsHapticProfiles?: boolean
   supportsSecondPrecision?: boolean
   supportsDualLiveCountdown?: boolean
+  supportsProgramClockAlignment?: boolean
 }
 
 export interface NativeFocusState {

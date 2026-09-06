@@ -6,7 +6,7 @@ import type { AlarmBehavior, AppTimerSettings, BuiltInSoundId, SoundRef, TimerPr
 import { effectiveAvailabilityForProgram, hasAvailableTime, isWithinActiveHours, nextActiveHoursStart } from '../lib/activeHours'
 import { formatCountdown } from '../lib/snapLogic'
 import { sourceForSound, soundTitle } from '../lib/soundLibrary'
-import { nextProgramEvent, runEndAt, timelinePosition, type TimelinePosition } from '../lib/timeline'
+import { nextProgramEvent, programCycleDurationMs, runEndAt, timelinePosition, type TimelinePosition } from '../lib/timeline'
 import { alarmBehaviorAfterGesture, emptyRuntimeMute, gateProgramAudio, isFreshScheduledEvent, iterationMuteFor, muteAfterScheduleChange, shouldSurfaceTimerSignal, type RuntimeMuteState } from '../lib/runtimeV2'
 import { clearTimerV2Session, saveTimerV2Session } from '../lib/storage'
 import { ChandasTimerService, isNativeServiceAvailable, type NativeTimerConfig } from '../native/ChandasTimerService'
@@ -190,8 +190,8 @@ function builtInSoundsFor(program: TimerProgram, alarmSound: SoundRef): BuiltInS
 }
 
 function alignedAnchorForStart(program: TimerProgram, now: number): number {
-  if (program.mode !== 'pattern' || program.alignment.kind !== 'local-clock' || patternDurationSeconds(program) % 60 !== 0) return now
-  return alignedClockAnchor(program.mainMinutes, program.alignment.offsetMinutes, now)
+  if (program.alignment.kind !== 'local-clock') return now
+  return alignedClockAnchor(programCycleDurationMs(program) / 1_000, program.alignment.offsetMinutes, now)
 }
 
 /**

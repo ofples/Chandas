@@ -12,7 +12,7 @@ import { clearTimerV2Session, loadTimerV2Session, loadTimerV2StateResult, saveTi
 import { defaultTimerV2State, normalizeAvailabilityPolicy, parseTimerProgram, replaceWorkingProgram, selectedProgram } from './src/lib/timerV2'
 import { defaultTimerHapticsSettings, normalizeTimerHapticsSettings } from './src/lib/haptic-profiles'
 import { setAppHapticsEnabled, successHaptic, tapHaptic } from './src/lib/haptics'
-import { patchCompletionCue, patchPatternTrack, patchSequenceStep, updatePattern } from './src/lib/programActions'
+import { patchCompletionCue, patchPatternTrack, patchSequenceStep, updatePattern, updateSequence } from './src/lib/programActions'
 import { TimerV2ConfigScreen } from './src/screens/TimerV2ConfigScreen'
 import { TimerV2RunningScreen } from './src/screens/TimerV2RunningScreen'
 import { AlarmRingingScreen } from './src/screens/AlarmRingingScreen'
@@ -491,16 +491,17 @@ function Root() {
 
   const reanchor = async (alignToClock: boolean, offsetMinutes = 0): Promise<boolean> => {
     if (!timerState || !program || realigningRef.current) return false
-    if (alignToClock && program.mode === 'pattern' && program.alignment.kind === 'local-clock' && program.alignment.offsetMinutes === offsetMinutes) {
+    if (alignToClock && program.alignment.kind === 'local-clock' && program.alignment.offsetMinutes === offsetMinutes) {
       showNotice({ title: `Already aligned to ${clockOffsetLabel(offsetMinutes)}`, message: 'The running timer is already following that clock rhythm.', tone: 'info' })
       return true
     }
     realigningRef.current = true
     const generation = ++reanchorAttemptGeneration.current
     setRealigning(true)
+    const alignment = alignToClock ? { kind: 'local-clock' as const, offsetMinutes } : { kind: 'elapsed' as const }
     const nextState = program.mode === 'pattern'
-      ? updatePattern(timerState, value => ({ ...value, alignment: alignToClock ? { kind: 'local-clock', offsetMinutes } : { kind: 'elapsed' } }))
-      : timerState
+      ? updatePattern(timerState, value => ({ ...value, alignment }))
+      : updateSequence(timerState, value => ({ ...value, alignment }))
     const nextProgram = selectedProgram(nextState)
     try {
       const started = await timer.reanchor(nextProgram, alignToClock)

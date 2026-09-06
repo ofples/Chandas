@@ -119,36 +119,34 @@ object TimerV2Timeline {
     }
   }.getOrNull()
 
-  /** Rebuilds a local-clock Pattern phase after timezone or wall-clock changes. */
+  /** Rebuilds a whole-program local-clock phase after timezone or wall-clock changes. */
   fun alignedAnchor(serialized: String, now: Long): Long? = runCatching {
     val root = JSONObject(serialized)
-    if (root.optString("mode") != "pattern") return@runCatching null
     val alignment = root.optJSONObject("alignment") ?: return@runCatching null
     if (alignment.optString("kind") != "local-clock") return@runCatching null
-    val duration = patternDuration(root)
-    if (duration <= 0L || duration % MINUTE != 0L) return@runCatching null
-    val mainMinutes = (duration / MINUTE).toInt()
+    val duration = cycleDuration(root)
+    if (duration <= 0L) return@runCatching null
     val calendar = Calendar.getInstance().apply { timeInMillis = now }
-    val minuteOfDay = calendar.get(Calendar.HOUR_OF_DAY) * 60 + calendar.get(Calendar.MINUTE)
-    val offset = alignment.optInt("offsetMinutes", 0)
-    val elapsedMinutes = ((minuteOfDay - offset) % mainMinutes + mainMinutes) % mainMinutes
-    now - elapsedMinutes * MINUTE - calendar.get(Calendar.SECOND) * 1_000L - calendar.get(Calendar.MILLISECOND)
+    val localTimeOfDay = (((calendar.get(Calendar.HOUR_OF_DAY) * 60L + calendar.get(Calendar.MINUTE)) * 60L + calendar.get(Calendar.SECOND)) * 1_000L) + calendar.get(Calendar.MILLISECOND)
+    val phase = alignment.optInt("offsetMinutes", 0).toLong() * MINUTE
+    now - Math.floorMod(localTimeOfDay - phase, duration)
   }.getOrNull()
 
   fun isLocalClock(serialized: String): Boolean = runCatching {
     val root = JSONObject(serialized)
-    val duration = patternDuration(root)
-    root.optString("mode") == "pattern" && duration > 0L && duration % MINUTE == 0L && root.optJSONObject("alignment")?.optString("kind") == "local-clock"
+    cycleDuration(root) > 0L && root.optJSONObject("alignment")?.optString("kind") == "local-clock"
   }.getOrDefault(false)
 
   fun cycleDuration(serialized: String): Long? = runCatching {
     val root = JSONObject(serialized)
-    when (root.optString("mode")) {
-      "pattern" -> patternDuration(root).takeIf { it > 0L }
-      "sequence" -> sequenceDuration(root.optJSONArray("steps") ?: return@runCatching null).takeIf { it > 0L }
-      else -> null
-    }
+    cycleDuration(root).takeIf { it > 0L }
   }.getOrNull()
+
+  private fun cycleDuration(root: JSONObject): Long = when (root.optString("mode")) {
+    "pattern" -> patternDuration(root)
+    "sequence" -> root.optJSONArray("steps")?.let(::sequenceDuration) ?: 0L
+    else -> 0L
+  }
 
   /** Main cue scalar used while a Pattern continuous alarm is already ringing. */
   fun mainCueVolume(serialized: String): Float = runCatching {
@@ -342,13 +340,7 @@ object TimerV2Timeline {
         if (offset < 1 || offset * 60L >= mainDurationSeconds || offset % cadence != 0 || !seenOffsets.add(offset)) return false
       }
     }
-    val alignment = root.optJSONObject("alignment") ?: return false
-    val alignmentValid = when (alignment.optString("kind")) {
-      "elapsed" -> true
-      "local-clock" -> mainDurationSeconds % 60L == 0L && alignment.optInt("offsetMinutes", -1) in 0..59
-      else -> false
-    }
-    return alignmentValid && validRunPolicy(root)
+    return validAlignment(root, required = true) && validRunPolicy(root)
   }
 
   private fun validateSequence(root: JSONObject): Boolean {
@@ -363,7 +355,17 @@ object TimerV2Timeline {
       val durationSeconds = if (step.has("durationSeconds")) step.optLong("durationSeconds", -1L) else durationMinutes.toLong() * 60L
       if (id.isBlank() || id.length > MAX_ID_CHARACTERS || !stepIds.add(id) || label.isBlank() || label.codePointCount(0, label.length) > 60 || durationMinutes !in 1..MAX_DURATION_MINUTES || durationSeconds !in 1L..MAX_DURATION_SECONDS || durationMinutes != ((durationSeconds + 59L) / 60L).toInt() || !validCue(step)) return false
     }
-    return sequenceDuration(steps) in 1L..NativeTimerContract.MAX_PROGRAM_CYCLE_MS && validOptionalCompletionCue(root) && validRunPolicy(root)
+    return sequenceDuration(steps) in 1L..NativeTimerContract.MAX_PROGRAM_CYCLE_MS && validAlignment(root, required = false) && validOptionalCompletionCue(root) && validRunPolicy(root)
+  }
+
+  private fun validAlignment(root: JSONObject, required: Boolean): Boolean {
+    if (!root.has("alignment")) return !required
+    val alignment = root.optJSONObject("alignment") ?: return false
+    return when (alignment.optString("kind")) {
+      "elapsed" -> true
+      "local-clock" -> alignment.optInt("offsetMinutes", -1) in 0..59
+      else -> false
+    }
   }
 
   private fun validRunPolicy(root: JSONObject): Boolean {

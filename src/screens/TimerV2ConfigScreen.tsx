@@ -24,7 +24,7 @@ import { HapticsSheet } from '../components/timer-v2/haptics-sheet'
 import {
   addPatternTrack, addSequenceStep, chooseProgramMode, duplicateSequenceStep, patchPatternTrack, patchSequenceStep,
   patchCompletionCue, removePatternTrack, removeSequenceStep, reorderSequenceSteps, setCompletionCueEnabled, setPatternSubBellsEnabled,
-  setTrackCadence, setTrackOffsets, updatePattern, updatePatternMainDurationSeconds,
+  setTrackCadence, setTrackOffsets, updatePattern, updatePatternMainDurationSeconds, updateSequence,
 } from '../lib/programActions'
 import { soundTitle } from '../lib/soundLibrary'
 import { formatCompactDurationSeconds, patternDurationSeconds, sequenceStepDurationSeconds, validOffsets, validOffsetsForDuration } from '../lib/timerV2'
@@ -96,9 +96,11 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
   const keyboardVisible = useKeyboardVisible()
   const program = state.workingPrograms[state.workingPrograms.selectedMode]
   const settings = state.settings
-  const alarmSoundSupported = !isNativeServiceAvailable || ChandasTimerService.getCapabilities()?.supportsAlarmSound === true
-  const hapticsSupported = !isNativeServiceAvailable || ChandasTimerService.getCapabilities()?.supportsHapticProfiles === true
-  const secondPrecisionSupported = !isNativeServiceAvailable || ChandasTimerService.getCapabilities()?.supportsSecondPrecision === true
+  const nativeCapabilities = ChandasTimerService.getCapabilities()
+  const alarmSoundSupported = !isNativeServiceAvailable || nativeCapabilities?.supportsAlarmSound === true
+  const hapticsSupported = !isNativeServiceAvailable || nativeCapabilities?.supportsHapticProfiles === true
+  const secondPrecisionSupported = !isNativeServiceAvailable || nativeCapabilities?.supportsSecondPrecision === true
+  const programClockAlignmentSupported = !isNativeServiceAvailable || nativeCapabilities?.supportsProgramClockAlignment === true
 
   const changeSettings = (patch: Partial<typeof settings>) => onChange({ ...state, settings: { ...settings, ...patch } })
   const cue = cueTarget ? cueForTarget(state, cueTarget) : null
@@ -233,7 +235,7 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
         <SegmentedControl items={MODE_CHOICES} value={state.workingPrograms.selectedMode} onChange={selectMode} accessibilityLabel="Timer mode" />
 
         <Reanimated.View key={program.mode} entering={FadeIn.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 120)} style={styles.modeContent}>
-          {program.mode === 'pattern' ? <PatternEditor state={state} onChange={onChange} onOpenSubBells={() => setSubBellsOpen(true)} onOpenHelp={() => setHelpOpen(true)} /> : <SequenceEditor state={state} onChange={onChange} onEditCue={setCueTarget} onAdd={addStep} onOpenHelp={() => setHelpOpen(true)} onReorderingChange={handleSequenceReordering} onAutoScroll={autoScrollSequence} />}
+          {program.mode === 'pattern' ? <PatternEditor state={state} onChange={onChange} enhancedClockAlignmentSupported={programClockAlignmentSupported} onOpenSubBells={() => setSubBellsOpen(true)} onOpenHelp={() => setHelpOpen(true)} /> : <SequenceEditor state={state} onChange={onChange} clockAlignmentSupported={programClockAlignmentSupported} onEditCue={setCueTarget} onAdd={addStep} onOpenHelp={() => setHelpOpen(true)} onReorderingChange={handleSequenceReordering} onAutoScroll={autoScrollSequence} />}
         </Reanimated.View>
 
         <View style={styles.section}>
@@ -371,21 +373,28 @@ function CompletionCueControls({ state, onChange, onEditCue, onFeedback }: { sta
   </Reanimated.View>
 }
 
-function PatternEditor({ state, onChange, onOpenSubBells, onOpenHelp }: { state: TimerV2State; onChange: (state: TimerV2State) => void; onOpenSubBells: () => void; onOpenHelp: () => void }) {
+function PatternEditor({ state, onChange, enhancedClockAlignmentSupported, onOpenSubBells, onOpenHelp }: { state: TimerV2State; onChange: (state: TimerV2State) => void; enhancedClockAlignmentSupported: boolean; onOpenSubBells: () => void; onOpenHelp: () => void }) {
   const { tokens } = useTheme()
   const program = state.workingPrograms.pattern
   const snapOffset = program.alignment.kind === 'local-clock' ? program.alignment.offsetMinutes : 0
   const activeTracks = program.tracks.filter(track => track.enabled)
   const cueCount = activeTracks.reduce((count, track) => count + track.selectedOffsetsMinutes.length, 0)
-  const clockAlignmentAvailable = patternDurationSeconds(program) % 60 === 0
+  const durationSeconds = patternDurationSeconds(program)
+  const clockAlignmentAvailable = durationSeconds % 60 === 0 || enhancedClockAlignmentSupported
+  const changeDurationSeconds = (seconds: number) => changeMainDurationSeconds(state, seconds, next => {
+    const compatible = !enhancedClockAlignmentSupported && seconds % 60 !== 0
+      ? updatePattern(next, value => ({ ...value, alignment: { kind: 'elapsed' } }))
+      : next
+    onChange(compatible)
+  })
   return <>
     <View style={styles.section}>
       <View style={styles.titleWithHelp}><EditableTitle value={program.label} onCommit={label => onChange(updatePattern(state, value => ({ ...value, label })))} accessibilityLabel="main interval name" /><HelpButton onPress={onOpenHelp} /></View>
       <Text style={[styles.rowTitle, { color: tokens.text }]}>Main interval</Text>
-      <DurationSelector value={program.mainMinutes} valueSeconds={patternDurationSeconds(program)} secondPrecision={state.settings.secondPrecisionEnabled} presets={MAIN_PRESETS} fadeColor={tokens.bg} onChange={minutes => changeMainMinutes(state, minutes, onChange)} onChangeSeconds={seconds => changeMainDurationSeconds(state, seconds, onChange)} />
+      <DurationSelector value={program.mainMinutes} valueSeconds={durationSeconds} secondPrecision={state.settings.secondPrecisionEnabled} presets={MAIN_PRESETS} fadeColor={tokens.bg} onChange={minutes => changeMainMinutes(state, minutes, onChange)} onChangeSeconds={changeDurationSeconds} />
       <ProgramRunLength state={state} mode="pattern" onChange={onChange} />
-      <View style={styles.settingRow}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Align to clock</Text><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>{clockAlignmentAvailable ? 'Keep intervals on a wall-clock rhythm.' : 'Available for whole-minute intervals.'}</Text></View><Toggle disabled={!clockAlignmentAvailable} value={program.alignment.kind === 'local-clock'} onChange={enabled => onChange(updatePattern(state, value => ({ ...value, alignment: enabled ? { kind: 'local-clock', offsetMinutes: 0 } : { kind: 'elapsed' } })))} accessibilityLabel="Align pattern to clock" /></View>
-      {program.alignment.kind === 'local-clock' ? <ClockSnapSelector mainMinutes={program.mainMinutes} value={snapOffset} compact fadeColor={tokens.bg} onChange={offsetMinutes => onChange(updatePattern(state, value => ({ ...value, alignment: { kind: 'local-clock', offsetMinutes } })))} /> : null}
+      <View style={styles.settingRow}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Align to clock</Text><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>{clockAlignmentAvailable ? 'Keep intervals on a wall-clock rhythm.' : 'Available in the next app build.'}</Text></View><Toggle disabled={!clockAlignmentAvailable} value={clockAlignmentAvailable && program.alignment.kind === 'local-clock'} onChange={enabled => onChange(updatePattern(state, value => ({ ...value, alignment: enabled ? { kind: 'local-clock', offsetMinutes: 0 } : { kind: 'elapsed' } })))} accessibilityLabel="Align pattern to clock" /></View>
+      {clockAlignmentAvailable && program.alignment.kind === 'local-clock' ? <ClockSnapSelector cycleDurationSeconds={durationSeconds} value={snapOffset} compact fadeColor={tokens.bg} onChange={offsetMinutes => onChange(updatePattern(state, value => ({ ...value, alignment: { kind: 'local-clock', offsetMinutes } })))} /> : null}
     </View>
 
     <View style={styles.section}>
@@ -397,7 +406,7 @@ function PatternEditor({ state, onChange, onOpenSubBells, onOpenHelp }: { state:
   </>
 }
 
-function SequenceEditor({ state, onChange, onEditCue, onAdd, onOpenHelp, onReorderingChange, onAutoScroll }: { state: TimerV2State; onChange: (state: TimerV2State) => void; onEditCue: (target: CueTarget) => void; onAdd: () => void; onOpenHelp: () => void; onReorderingChange: (active: boolean) => void; onAutoScroll: (pageY: number, canMoveEarlier: boolean, canMoveLater: boolean) => number }) {
+function SequenceEditor({ state, onChange, clockAlignmentSupported, onEditCue, onAdd, onOpenHelp, onReorderingChange, onAutoScroll }: { state: TimerV2State; onChange: (state: TimerV2State) => void; clockAlignmentSupported: boolean; onEditCue: (target: CueTarget) => void; onAdd: () => void; onOpenHelp: () => void; onReorderingChange: (active: boolean) => void; onAutoScroll: (pageY: number, canMoveEarlier: boolean, canMoveLater: boolean) => number }) {
   const { tokens } = useTheme()
   const [editingStepId, setEditingStepId] = useState<string | null>(null)
   const [dragPreview, setDragPreview] = useState<ReorderPreview | null>(null)
@@ -412,6 +421,10 @@ function SequenceEditor({ state, onChange, onEditCue, onAdd, onOpenHelp, onReord
     {program.steps.map((step, index) => <SequenceStepRow key={step.id} state={state} stepId={step.id} index={index} dragPreview={dragPreview} onEdit={() => setEditingStepId(step.id)} onDelete={() => onChange(removeSequenceStep(state, step.id))} onMove={moveStep} onPreviewChange={previewStep} onPreviewEnd={finishPreview} onReorderingChange={onReorderingChange} onAutoScroll={onAutoScroll} />)}
     {program.steps.length < 20 ? <AddRowButton onPress={onAdd} title="+ Add step" /> : null}
     <ProgramRunLength state={state} mode="sequence" onChange={onChange} />
+    {clockAlignmentSupported ? <>
+      <View style={styles.settingRow}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Align to clock</Text><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>Keep the full sequence on a wall-clock rhythm.</Text></View><Toggle value={program.alignment.kind === 'local-clock'} onChange={enabled => onChange(updateSequence(state, value => ({ ...value, alignment: enabled ? { kind: 'local-clock', offsetMinutes: 0 } : { kind: 'elapsed' } })))} accessibilityLabel="Align sequence to clock" /></View>
+      {program.alignment.kind === 'local-clock' ? <ClockSnapSelector cycleDurationSeconds={totalSeconds} value={program.alignment.offsetMinutes} compact fadeColor={tokens.bg} onChange={offsetMinutes => onChange(updateSequence(state, value => ({ ...value, alignment: { kind: 'local-clock', offsetMinutes } })))} /> : null}
+    </> : null}
     {editingStepId ? <SequenceStepEditorSheet state={state} stepId={editingStepId} onChange={onChange} onEditCue={() => onEditCue({ kind: 'step', id: editingStepId })} onClose={() => setEditingStepId(null)} /> : null}
   </View>
 }

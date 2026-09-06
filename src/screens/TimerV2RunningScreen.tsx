@@ -6,7 +6,7 @@ import Animated, { FadeIn, FadeInDown, FadeOut, ZoomIn, useReducedMotion } from 
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import type { AlarmBehavior, CueSettings, TimerProgram } from '../types'
 import type { TimelinePosition } from '../lib/timeline'
-import { cueSegmentProgress } from '../lib/timeline'
+import { cueSegmentProgress, programCycleDurationMs } from '../lib/timeline'
 import { AlarmIcon, ClockIcon, FocusIcon, MixerIcon, RestartIcon, VolumeIcon } from '../components/Icons'
 import { Chip } from '../components/Chip'
 import { CustomMinutePicker } from '../components/CustomMinutePicker'
@@ -16,7 +16,7 @@ import { TimerHelpSheet } from '../components/timer-v2/TimerHelpSheet'
 import { SoundName } from '../components/timer-v2/SoundName'
 import type { RuntimeMuteState } from '../lib/runtimeV2'
 import { useTheme } from '../theme/ThemeContext'
-import { ChandasTimerService } from '../native/ChandasTimerService'
+import { ChandasTimerService, isNativeServiceAvailable } from '../native/ChandasTimerService'
 import { GentleNotice } from '../components/timer-v2/experience-feedback'
 import { formatDuration } from '../components/timer-v2/run-length-config'
 import { subBellColorValue } from '../lib/subBellColors'
@@ -89,7 +89,11 @@ export function TimerV2RunningScreen(props: Props) {
   const nextCueColor = props.program.mode === 'pattern'
     ? subBellColorValue(props.program.tracks.find(track => track.id === props.position?.nextEvent?.winner.cueId)?.color, Math.max(0, props.program.tracks.findIndex(track => track.id === props.position?.nextEvent?.winner.cueId)))
     : tokens.accent
-  const clockAlignmentAvailable = props.program.mode === 'pattern' && patternDurationSeconds(props.program) % 60 === 0
+  const enhancedClockAlignmentSupported = !isNativeServiceAvailable || ChandasTimerService.getCapabilities()?.supportsProgramClockAlignment === true
+  const clockAlignmentAvailable = props.program.mode === 'pattern'
+    ? patternDurationSeconds(props.program) % 60 === 0 || enhancedClockAlignmentSupported
+    : enhancedClockAlignmentSupported
+  const cycleDurationSeconds = programCycleDurationMs(props.program) / 1_000
 
   const dismissTooltip = () => {
     if (tooltipTimer.current) clearTimeout(tooltipTimer.current)
@@ -136,8 +140,8 @@ export function TimerV2RunningScreen(props: Props) {
     <View style={[styles.bottom, { backgroundColor: tokens.bg, paddingBottom: insets.bottom + 17 }]}>
       <View pointerEvents="none" style={styles.bottomFade}><ScrollEdgeFade color={tokens.bg} side="bottom" /></View>
       <View style={styles.controls}>
-        <ControlButton label="Reset interval" tooltip={props.program.mode === 'pattern' && props.program.alignment.kind === 'local-clock' ? 'Unsnap from clock and reset the interval' : 'Reset the interval'} disabled={props.realigning} onPress={props.onRestartUnsynced} onTooltip={showTooltip}><RestartIcon color={tokens.accent} /></ControlButton>
-        {props.program.mode === 'pattern' ? <ControlButton label="Snap to clock" tooltip={clockAlignmentAvailable ? 'Snap to clock' : 'Clock alignment needs a whole-minute interval'} active={props.program.alignment.kind === 'local-clock'} disabled={props.realigning || !clockAlignmentAvailable} onPress={() => setSnapOpen(true)} onTooltip={showTooltip}><ClockIcon color={tokens.accent} /></ControlButton> : null}
+        <ControlButton label="Reset interval" tooltip={props.program.alignment.kind === 'local-clock' ? 'Unsnap from clock and reset the cycle' : 'Reset the cycle'} disabled={props.realigning} onPress={props.onRestartUnsynced} onTooltip={showTooltip}><RestartIcon color={tokens.accent} /></ControlButton>
+        {clockAlignmentAvailable ? <ControlButton label="Snap to clock" tooltip="Snap the repeating cycle to the clock" active={props.program.alignment.kind === 'local-clock'} disabled={props.realigning} onPress={() => setSnapOpen(true)} onTooltip={showTooltip}><ClockIcon color={tokens.accent} /></ControlButton> : null}
         {props.showAdvancedControls && props.program.mode === 'pattern' ? <ControlButton label={props.alarmBehavior === 'locked' ? 'Alarm locked' : props.alarmBehavior === 'once' ? 'Next main gong alarm' : 'Alarm off'} tooltip="Tap once to enable the alarm at the end of the current main interval. Tap twice to enable it for every main interval." active={props.alarmBehavior !== 'off'} badge={props.alarmBehavior === 'locked' ? '∞' : props.alarmBehavior === 'once' ? '1' : undefined} onPress={props.onPressAlarm} onTooltip={showTooltip}><AlarmIcon color={props.alarmBehavior !== 'off' ? tokens.accent : tokens.textMuted} /></ControlButton> : null}
         {props.showAdvancedControls && Platform.OS === 'android' ? <ControlButton label="Chandas Focus" tooltip={!props.focusPolicyAccess ? 'Set up Android Do Not Disturb access' : focusPaused ? 'Chandas Focus was paused in Android settings' : props.focusEnabled ? 'Turn off Chandas Focus automation' : 'Let Chandas manage its own Do Not Disturb rule'} active={props.focusEnabled && props.focusPolicyAccess && !focusPaused} onPress={!props.focusPolicyAccess || props.focusReason === 'rule-disabled' ? props.onOpenFocusSettings : props.onToggleFocus} onTooltip={showTooltip}><FocusIcon color={props.focusEnabled && props.focusPolicyAccess && !focusPaused ? tokens.accent : tokens.textMuted} /></ControlButton> : null}
         <View style={styles.spacer} />
@@ -148,7 +152,7 @@ export function TimerV2RunningScreen(props: Props) {
 
     {props.focusActive ? <Animated.View entering={FadeIn.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 140)} pointerEvents="none" style={[styles.focusBorder, { borderColor: tokens.accent }]} /> : null}
     <RunningMixerSheet visible={mixerOpen} onClose={() => setMixerOpen(false)} program={props.program} masterVolume={props.masterVolume} onMasterVolumeChange={props.onMasterVolumeChange} onCueVolumeChange={props.onCueVolumeChange} mute={props.mute} onMuteIterations={props.onMuteForIterations} onClearMute={props.onClearMute} onCustom={() => { setMixerOpen(false); setCustomMute(true) }} />
-    <SnapSheet visible={snapOpen} mainMinutes={props.program.mode === 'pattern' ? props.program.mainMinutes : 30} current={props.program.mode === 'pattern' && props.program.alignment.kind === 'local-clock' ? props.program.alignment.offsetMinutes : 0} onSelect={props.onSnapToClock} onClose={() => setSnapOpen(false)} />
+    <SnapSheet visible={snapOpen} cycleDurationSeconds={cycleDurationSeconds} current={props.program.alignment.kind === 'local-clock' ? props.program.alignment.offsetMinutes : 0} onSelect={props.onSnapToClock} onClose={() => setSnapOpen(false)} />
     {customMute ? <CustomMinutePicker title="Mute duration" initial={15} min={1} max={1440} onConfirm={minutes => { props.onMuteForMinutes(minutes); setCustomMute(false) }} onClose={() => setCustomMute(false)} /> : null}
     <TimerHelpSheet visible={helpOpen} onClose={() => setHelpOpen(false)} onOpenFocusSettings={props.onOpenFocusSettings} />
     {tooltip ? <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 160)} exiting={FadeOut.duration(reducedMotion ? 70 : 130)} style={[styles.tooltip, { backgroundColor: tokens.surfaceHi, borderColor: tokens.border, pointerEvents: 'none' }]}><Text style={[styles.tooltipText, { color: tokens.text }]}>{tooltip}</Text></Animated.View> : null}
@@ -243,7 +247,7 @@ function RunningMixerSheet({ visible, onClose, program, masterVolume, onMasterVo
   </BottomSheet>
 }
 
-function SnapSheet({ visible, mainMinutes, current, onSelect, onClose }: { visible: boolean; mainMinutes: number; current: number; onSelect: (offset: number) => Promise<boolean>; onClose: () => void }) {
+function SnapSheet({ visible, cycleDurationSeconds, current, onSelect, onClose }: { visible: boolean; cycleDurationSeconds: number; current: number; onSelect: (offset: number) => Promise<boolean>; onClose: () => void }) {
   const { tokens } = useTheme()
   const [applying, setApplying] = useState(false)
   const [selected, setSelected] = useState(current)
@@ -274,9 +278,9 @@ function SnapSheet({ visible, mainMinutes, current, onSelect, onClose }: { visib
   }
   const close = () => { if (!applying) onClose() }
   return <BottomSheet visible={visible} title="Snap to clock" onClose={close} scroll={false}>
-    <View style={styles.snapStatus}><Text style={[styles.sheetHelp, { color: tokens.textMuted }]}>{applying ? `Aligning to :${String(selected).padStart(2, '0')}…` : 'Choose where each interval lands on the clock.'}</Text>{applying ? <ActivityIndicator size="small" color={tokens.accent} /> : null}</View>
+    <View style={styles.snapStatus}><Text style={[styles.sheetHelp, { color: tokens.textMuted }]}>{applying ? `Aligning to :${String(selected).padStart(2, '0')}…` : 'Choose where each repeating cycle lands on the clock.'}</Text>{applying ? <ActivityIndicator size="small" color={tokens.accent} /> : null}</View>
     {error ? <GentleNotice title="Alignment stayed unchanged" message="The timer is still running on its previous rhythm. You can try again." tone="attention" /> : null}
-    <ClockSnapSelector mainMinutes={mainMinutes} value={selected} onChange={offset => void select(offset)} disabled={applying} />
+    <ClockSnapSelector cycleDurationSeconds={cycleDurationSeconds} value={selected} onChange={offset => void select(offset)} disabled={applying} />
   </BottomSheet>
 }
 

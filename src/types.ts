@@ -83,6 +83,8 @@ export type SubBellColorId =
   | 'coral'
   | 'rose'
 
+export type TimerAlignment = { kind: 'elapsed' } | { kind: 'local-clock'; offsetMinutes: number }
+
 export interface PatternProgram {
   schemaVersion: 2
   mode: 'pattern'
@@ -96,7 +98,7 @@ export interface PatternProgram {
   /** Keeps configured tracks intact while the whole sub-bell layer is hidden. */
   subBellsEnabled: boolean
   tracks: PatternTrack[]
-  alignment: { kind: 'elapsed' } | { kind: 'local-clock'; offsetMinutes: number }
+  alignment: TimerAlignment
   runPolicy: RunPolicy
 }
 
@@ -112,6 +114,8 @@ export interface SequenceProgram {
   schemaVersion: 2
   mode: 'sequence'
   steps: SequenceStep[]
+  /** Aligns the complete repeating round, rather than any individual step. */
+  alignment: TimerAlignment
   /** Optional distinct cue used only when a bounded run reaches its terminal instant. */
   completionCue: CueSettings | null
   runPolicy: RunPolicy

@@ -1,6 +1,7 @@
 package expo.modules.chandastimerservice
 
 import java.nio.charset.StandardCharsets
+import java.util.TimeZone
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -80,18 +81,34 @@ class TimerV2TimelineTest {
     assertEquals(31_000L, requireNotNull(TimerV2Timeline.next(sequence.toString(), 1_000L, 21_000L)).at)
   }
 
-  @Test fun localClockAlignmentRejectsNonMinuteCycles() {
+  @Test fun localClockAlignmentSupportsExactCyclesAndWholeSequenceRounds() {
+    val previousTimezone = TimeZone.getDefault()
+    TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
+    try {
     val root = JSONObject(fixtures.getJSONObject("patternCollision").getJSONObject("program").toString())
     root.put("mainMinutes", 2).put("mainDurationSeconds", 75).put("tracks", org.json.JSONArray())
     root.put("alignment", JSONObject().put("kind", "local-clock").put("offsetMinutes", 0))
-    assertFalse(TimerV2Timeline.isValid(root.toString()))
-    root.put("alignment", JSONObject().put("kind", "elapsed"))
     assertTrue(TimerV2Timeline.isValid(root.toString()))
+    val now = 10L * 60L * 60_000L + 17L * 60_000L + 42_123L
+    assertEquals(10L * 60L * 60_000L + 17L * 60_000L + 30_000L, TimerV2Timeline.alignedAnchor(root.toString(), now))
+
+    val sequence = JSONObject(fixtures.getJSONObject("sequence").getJSONObject("program").toString())
+    sequence.getJSONArray("steps").getJSONObject(0).put("durationMinutes", 2).put("durationSeconds", 90)
+    sequence.getJSONArray("steps").getJSONObject(1).put("durationMinutes", 4).put("durationSeconds", 210)
+    sequence.getJSONArray("steps").remove(2)
+    sequence.put("alignment", JSONObject().put("kind", "local-clock").put("offsetMinutes", 0))
+    assertTrue(TimerV2Timeline.isValid(sequence.toString()))
+    assertTrue(TimerV2Timeline.isLocalClock(sequence.toString()))
+    assertEquals(10L * 60L * 60_000L + 15L * 60_000L, TimerV2Timeline.alignedAnchor(sequence.toString(), now))
+    } finally {
+      TimeZone.setDefault(previousTimezone)
+    }
   }
 
   @Test fun rejectsFutureSchemaAndDuplicateIds() {
     val valid = fixtures.getJSONObject("sequence").getJSONObject("program")
     assertFalse(TimerV2Timeline.isValid(JSONObject(valid.toString()).put("schemaVersion", 99).toString()))
+    assertFalse(TimerV2Timeline.isValid(JSONObject(valid.toString()).put("alignment", "local-clock").toString()))
     val duplicate = JSONObject(valid.toString())
     duplicate.getJSONArray("steps").getJSONObject(1).put("id", "prepare")
     assertFalse(TimerV2Timeline.isValid(duplicate.toString()))

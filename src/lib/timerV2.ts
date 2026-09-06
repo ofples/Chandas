@@ -19,6 +19,7 @@ import type {
   WeeklyAvailabilityWindow,
 } from '../types'
 import { defaultSubBellColor, normalizeSubBellColor } from './subBellColors'
+import { canonicalClockOffset } from './clockAlignment'
 import { defaultTimerHapticsSettings } from './haptic-profiles'
 
 export const TIMER_V2_SCHEMA_VERSION = 2 as const
@@ -163,6 +164,7 @@ export function defaultSequenceProgram(): SequenceProgram {
       step(25, 'Deep work', 'temple-gong', 0.85),
       step(2, 'Reset', 'handpan', 0.55),
     ],
+    alignment: { kind: 'elapsed' },
     completionCue: null,
     runPolicy: normalizeRunPolicy(undefined),
   }
@@ -270,7 +272,7 @@ export function normalizePatternProgram(value: Partial<PatternProgram> | undefin
   tracks.forEach((track, index) => {
     if (/^Sub-bell \d+$/.test(track.label)) track.label = `Sub-bell ${index + 1}`
   })
-  const offset = value?.alignment?.kind === 'local-clock' && mainDurationSeconds % 60 === 0 ? clampSnapOffset(value.alignment.offsetMinutes) : undefined
+  const offset = value?.alignment?.kind === 'local-clock' ? canonicalClockOffset(mainDurationSeconds, clampSnapOffset(value.alignment.offsetMinutes)) : undefined
   const label = normalizeLabel(value?.label, 'Main Interval')
   return {
     schemaVersion: TIMER_V2_SCHEMA_VERSION,
@@ -297,10 +299,15 @@ export function normalizeSequenceProgram(value: Partial<SequenceProgram> | undef
     const durationSeconds = clampCueDurationSeconds(step.durationSeconds, clampDuration(step.durationMinutes, 5) * 60)
     return { id, durationMinutes: durationMinutesProjection(durationSeconds), ...(typeof step.durationSeconds === 'number' ? { durationSeconds } : {}), label: normalizeLabel(step.label, `Step ${index + 1}`), ...normalizeCue(step, defaultCue('clear-bell')) }
   })
+  const normalizedSteps = steps.length > 0 ? steps : defaultSequenceProgram().steps
+  const cycleDurationSeconds = normalizedSteps.reduce((total, step) => total + sequenceStepDurationSeconds(step), 0)
   return {
     schemaVersion: TIMER_V2_SCHEMA_VERSION,
     mode: 'sequence',
-    steps: steps.length > 0 ? steps : defaultSequenceProgram().steps,
+    steps: normalizedSteps,
+    alignment: value?.alignment?.kind === 'local-clock'
+      ? { kind: 'local-clock', offsetMinutes: canonicalClockOffset(cycleDurationSeconds, clampSnapOffset(value.alignment.offsetMinutes)) }
+      : { kind: 'elapsed' },
     completionCue: value?.completionCue ? normalizeCue(value.completionCue, defaultCue('temple-gong')) : null,
     runPolicy: normalizeRunPolicy(value?.runPolicy),
   }
@@ -411,7 +418,7 @@ export function migrateLegacyConfig(legacy: Partial<TimerConfig>): TimerV2State 
       selectedOffsetsMinutes: validOffsets(mainMinutes, cadence),
       ...defaultCue('clear-bell'),
     }],
-    alignment: legacy.snapEnabled ? { kind: 'local-clock', offsetMinutes: clampSnapOffset(legacy.snapOffset) } : { kind: 'elapsed' },
+    alignment: legacy.snapEnabled ? { kind: 'local-clock', offsetMinutes: canonicalClockOffset(mainMinutes * 60, clampSnapOffset(legacy.snapOffset)) } : { kind: 'elapsed' },
     runPolicy: normalizeRunPolicy(undefined),
   }
   const defaults = defaultAppTimerSettings()

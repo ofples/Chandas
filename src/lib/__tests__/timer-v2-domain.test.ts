@@ -36,6 +36,7 @@ function sequence(): SequenceProgram {
       { id: 'work', label: 'Work', durationMinutes: 5, sound: { kind: 'builtin', id: 'clear-bell' }, volume: 0.8 },
       { id: 'rest', label: 'Rest', durationMinutes: 2, sound: { kind: 'builtin', id: 'handpan' }, volume: 0.6 },
     ],
+    alignment: { kind: 'elapsed' },
     completionCue: null,
     runPolicy: { kind: 'continuous', cycleCount: 1, durationSeconds: 30 * 60 },
   }
@@ -151,14 +152,15 @@ describe('timer v2 timeline contracts', () => {
     expect(runEndAt(program, 1_000, 1_000)).toBe(61_000)
   })
 
-  it('preserves legacy minute records and unsnaps a non-minute exact cycle', () => {
+  it('preserves legacy minute records and keeps exact cycles aligned', () => {
     expect(patternDurationSeconds(normalizePatternProgram(pattern()))).toBe(30 * 60)
     expect(sequenceStepDurationSeconds(normalizeSequenceProgram(sequence()).steps[0])).toBe(5 * 60)
     const initial = defaultTimerV2State()
     const snapped = { ...initial, workingPrograms: { ...initial.workingPrograms, pattern: { ...initial.workingPrograms.pattern, alignment: { kind: 'local-clock' as const, offsetMinutes: 0 } } } }
     const exact = updatePatternMainDurationSeconds(snapped, 75)
     expect(exact.workingPrograms.pattern.mainDurationSeconds).toBe(75)
-    expect(exact.workingPrograms.pattern.alignment.kind).toBe('elapsed')
+    expect(exact.workingPrograms.pattern.alignment).toEqual({ kind: 'local-clock', offsetMinutes: 0 })
+    expect(normalizeSequenceProgram({ ...sequence(), alignment: { kind: 'local-clock', offsetMinutes: 5 } }).alignment).toEqual({ kind: 'local-clock', offsetMinutes: 5 })
   })
 })
 

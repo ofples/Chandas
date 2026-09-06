@@ -142,7 +142,7 @@ export function runEndAt(program: TimerProgram, anchor: number, startedAt: numbe
   if (program.runPolicy.kind === 'continuous') return null
   if (program.runPolicy.kind === 'duration') return startedAt + program.runPolicy.durationSeconds * 1_000
   const duration = programCycleDurationMs(program)
-  // A snapped Pattern can have a phase anchor before Start. Count only cycle
+  // A snapped program can have a phase anchor before Start. Count only cycle
   // boundaries strictly after the accepted start timestamp.
   const firstBoundary = anchor + (Math.floor((startedAt - anchor) / duration) + 1) * duration
   return firstBoundary + (program.runPolicy.cycleCount - 1) * duration

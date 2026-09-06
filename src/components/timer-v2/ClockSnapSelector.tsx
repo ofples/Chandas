@@ -4,14 +4,14 @@ import { Chip } from '../Chip'
 import { CustomMinutePicker } from '../CustomMinutePicker'
 import { useTheme } from '../../theme/ThemeContext'
 import { FadedHorizontalScrollView } from './FadedHorizontalScrollView'
-import { clockOffsetLabel, clockSnapPresets } from '../../lib/clockAlignment'
+import { clockMinutePhaseCount, clockOffsetLabel, clockSnapPresets } from '../../lib/clockAlignment'
 
-export function ClockSnapSelector({ mainMinutes, value, onChange, compact = false, fadeColor, disabled = false }: { mainMinutes: number; value: number; onChange: (offset: number) => void; compact?: boolean; fadeColor?: string; disabled?: boolean }) {
+export function ClockSnapSelector({ cycleDurationSeconds, value, onChange, compact = false, fadeColor, disabled = false }: { cycleDurationSeconds: number; value: number; onChange: (offset: number) => void; compact?: boolean; fadeColor?: string; disabled?: boolean }) {
   const { tokens } = useTheme()
   const [customOpen, setCustomOpen] = useState(false)
-  const presets = clockSnapPresets(mainMinutes)
+  const presets = clockSnapPresets(cycleDurationSeconds)
   const isPreset = presets.includes(value)
-  const maxOffset = Math.max(0, Math.min(59, Math.round(mainMinutes) - 1))
+  const maxOffset = clockMinutePhaseCount(cycleDurationSeconds) - 1
   return <View style={styles.row}>
     <View style={styles.scrollSlot}>
       <FadedHorizontalScrollView fadeColor={fadeColor ?? tokens.surface} contentContainerStyle={styles.presets} style={styles.scroller}>
