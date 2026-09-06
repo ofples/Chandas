@@ -34,6 +34,7 @@ object TimerNotifications {
     ).apply {
       description = "Shows the active timer and next gong time"
       setSound(null, null)
+      enableVibration(false)
       setShowBadge(false)
     })
     manager.createNotificationChannel(NotificationChannel(
@@ -43,6 +44,7 @@ object TimerNotifications {
     ).apply {
       description = "Shows bell and gong events"
       setSound(null, null)
+      enableVibration(false)
       setShowBadge(false)
     })
     manager.createNotificationChannel(NotificationChannel(
@@ -52,6 +54,7 @@ object TimerNotifications {
     ).apply {
       description = "Shown while a Chandas alarm is ringing"
       setSound(null, null)
+      enableVibration(false)
       setShowBadge(false)
     })
   }
@@ -152,6 +155,7 @@ object TimerNotifications {
         .setTimeoutAfter(8_000L)
         .setContentIntent(contentIntent)
         .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+        .setVibrate(longArrayOf(0L))
         .build(),
     ) }
   }

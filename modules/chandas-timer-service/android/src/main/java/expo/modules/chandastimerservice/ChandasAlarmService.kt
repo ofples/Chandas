@@ -73,6 +73,7 @@ class ChandasAlarmService : Service() {
         } else {
           val effective = (config.volume * config.alarmVolume).coerceIn(0f, 1f)
           player?.setVolume(effective, effective)
+          TimerHaptics.startAlarm(this, config.haptics)
           if (config.timerV2Program == null) scheduleAutoSilence(config.alarmDurationSeconds)
         }
       }
@@ -96,6 +97,7 @@ class ChandasAlarmService : Service() {
     TimerStateStore.setRinging(this, true)
     TimerStateStore.setAlarmVisible(this, true)
     AlarmStateRegistry.notify(true)
+    TimerHaptics.startAlarm(this, config.haptics)
     // V2 Alarm Once/Locked is repeat-until-dismissed. Keep the configurable
     // timeout only for the legacy timer where that duration is user-facing.
     if (config.timerV2Program == null) scheduleAutoSilence(config.alarmDurationSeconds)
@@ -166,6 +168,7 @@ class ChandasAlarmService : Service() {
     handler.removeCallbacks(autoSilence)
     player?.release()
     player = null
+    TimerHaptics.stop(this)
     abandonAudioFocus()
     TimerStateStore.setRinging(this, false)
     if (!keepOverlay) {
@@ -205,6 +208,7 @@ class ChandasAlarmService : Service() {
       .setOngoing(true)
       .setCategory(NotificationCompat.CATEGORY_ALARM)
       .setPriority(NotificationCompat.PRIORITY_MAX)
+      .setVibrate(longArrayOf(0L))
       .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
       .setContentIntent(fullScreenIntent)
       .addAction(0, copy.stopAlarmAction, stopPendingIntent)
@@ -264,6 +268,7 @@ class ChandasAlarmService : Service() {
     handler.removeCallbacks(autoSilence)
     player?.release()
     player = null
+    TimerHaptics.stop(this)
     abandonAudioFocus()
     if (!stopHandled && TimerStateStore.isRinging(this)) {
       TimerStateStore.setRinging(this, false)

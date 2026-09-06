@@ -30,6 +30,13 @@ object TimerStateStore {
       .putFloat("volume", config.volume)
       .putString("alarmSoundId", config.alarmSoundId)
       .putFloat("alarmVolume", config.alarmVolume)
+      .putBoolean("hapticsEnabled", config.haptics.enabled)
+      .putString("mainHapticPattern", config.haptics.main.pattern)
+      .putString("mainHapticStrength", config.haptics.main.strength)
+      .putString("subHapticPattern", config.haptics.subBell.pattern)
+      .putString("subHapticStrength", config.haptics.subBell.strength)
+      .putString("alarmHapticPattern", config.haptics.alarm.pattern)
+      .putString("alarmHapticStrength", config.haptics.alarm.strength)
       .putBoolean("notificationsEnabled", config.notificationsEnabled)
       .putBoolean("liveCountdownEnabled", config.liveCountdownEnabled)
       .putString("notificationPresentation", config.notificationPresentation)
@@ -66,6 +73,24 @@ object TimerStateStore {
       alarmSoundId = prefs.getString("alarmSoundId", "alarm-tone")
         ?.takeIf { it.isNotBlank() && it.length <= NativeTimerContract.MAX_SOUND_ID_CHARACTERS } ?: "alarm-tone",
       alarmVolume = prefs.getFloat("alarmVolume", 1f).coerceIn(0f, 1f),
+      haptics = TimerHapticsConfig(
+        enabled = prefs.getBoolean("hapticsEnabled", true),
+        main = HapticProfileConfig.normalized(
+          prefs.getString("mainHapticPattern", null),
+          prefs.getString("mainHapticStrength", null),
+          TimerHapticsConfig().main,
+        ),
+        subBell = HapticProfileConfig.normalized(
+          prefs.getString("subHapticPattern", null),
+          prefs.getString("subHapticStrength", null),
+          TimerHapticsConfig().subBell,
+        ),
+        alarm = HapticProfileConfig.normalized(
+          prefs.getString("alarmHapticPattern", null),
+          prefs.getString("alarmHapticStrength", null),
+          TimerHapticsConfig().alarm,
+        ),
+      ),
       notificationsEnabled = prefs.getBoolean("notificationsEnabled", true),
       liveCountdownEnabled = prefs.getBoolean("liveCountdownEnabled", false),
       notificationPresentation = prefs.getString("notificationPresentation", null),

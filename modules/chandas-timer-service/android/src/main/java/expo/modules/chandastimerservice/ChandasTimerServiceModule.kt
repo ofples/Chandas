@@ -31,6 +31,13 @@ class TimerConfigRecord : Record {
   @Field var volume: Float? = null
   @Field var alarmSoundId: String? = null
   @Field var alarmVolume: Float? = null
+  @Field var hapticsEnabled: Boolean? = null
+  @Field var mainHapticPattern: String? = null
+  @Field var mainHapticStrength: String? = null
+  @Field var subHapticPattern: String? = null
+  @Field var subHapticStrength: String? = null
+  @Field var alarmHapticPattern: String? = null
+  @Field var alarmHapticStrength: String? = null
   @Field var notificationsEnabled: Boolean? = null
   @Field var liveCountdownEnabled: Boolean? = null
   @Field var notificationPresentation: String? = null
@@ -117,6 +124,7 @@ class ChandasTimerServiceModule : Module() {
         "supportsLiveCountdown" to true,
         "supportsAlarmSound" to true,
         "supportsAlarmVolume" to true,
+        "supportsHapticProfiles" to true,
       )
     }
 
@@ -153,6 +161,9 @@ class ChandasTimerServiceModule : Module() {
     Function("stopAlarm") {
       val context = appContext.reactContext
       if (context != null) {
+        // Cancel vibration synchronously so the tap-anywhere dismiss surface
+        // feels immediate even if service teardown takes another main-loop turn.
+        TimerHaptics.stop(context)
         if (TimerStateStore.isRinging(context)) {
           context.startService(Intent(context, ChandasAlarmService::class.java).apply {
             action = ChandasAlarmService.ACTION_STOP
@@ -196,6 +207,13 @@ class ChandasTimerServiceModule : Module() {
           "volume" to config.volume,
           "alarmSoundId" to config.alarmSoundId,
           "alarmVolume" to config.alarmVolume,
+          "hapticsEnabled" to config.haptics.enabled,
+          "mainHapticPattern" to config.haptics.main.pattern,
+          "mainHapticStrength" to config.haptics.main.strength,
+          "subHapticPattern" to config.haptics.subBell.pattern,
+          "subHapticStrength" to config.haptics.subBell.strength,
+          "alarmHapticPattern" to config.haptics.alarm.pattern,
+          "alarmHapticStrength" to config.haptics.alarm.strength,
           "notificationsEnabled" to config.notificationsEnabled,
           "liveCountdownEnabled" to config.liveCountdownEnabled,
           "notificationPresentation" to config.notificationPresentation,
@@ -269,6 +287,12 @@ class ChandasTimerServiceModule : Module() {
       val fallback = TimerSoundPlayer.builtInResource(fallbackSoundId) ?: R.raw.bell
       TimerSoundPlayer.preview(context, soundId, fallback, volume.coerceIn(0f, 1f))
       available
+    }
+
+    Function("previewHaptic") { pattern: String, strength: String ->
+      val context = appContext.reactContext ?: return@Function false
+      val fallback = TimerHapticsConfig().main
+      TimerHaptics.preview(context, HapticProfileConfig.normalized(pattern, strength, fallback))
     }
 
     AsyncFunction("cacheBuiltInSound") { id: String, sourceUri: String, revision: String ->
@@ -459,6 +483,13 @@ class ChandasTimerServiceModule : Module() {
     val mainMs = record.mainMs ?: previous?.mainMs ?: return null
     val subMs = record.subMs ?: previous?.subMs ?: return null
     if (mainMs <= 0L || subMs <= 0L) return null
+    val defaults = TimerHapticsConfig()
+    val haptics = TimerHapticsConfig(
+      enabled = record.hapticsEnabled ?: previous?.haptics?.enabled ?: defaults.enabled,
+      main = HapticProfileConfig.normalized(record.mainHapticPattern, record.mainHapticStrength, previous?.haptics?.main ?: defaults.main),
+      subBell = HapticProfileConfig.normalized(record.subHapticPattern, record.subHapticStrength, previous?.haptics?.subBell ?: defaults.subBell),
+      alarm = HapticProfileConfig.normalized(record.alarmHapticPattern, record.alarmHapticStrength, previous?.haptics?.alarm ?: defaults.alarm),
+    )
     return TimerConfig(
       mainMs = mainMs,
       subMs = subMs,
@@ -468,6 +499,7 @@ class ChandasTimerServiceModule : Module() {
       alarmSoundId = (record.alarmSoundId ?: previous?.alarmSoundId ?: "alarm-tone")
         .takeIf { it.isNotBlank() && it.length <= NativeTimerContract.MAX_SOUND_ID_CHARACTERS } ?: "alarm-tone",
       alarmVolume = (record.alarmVolume ?: previous?.alarmVolume ?: 1f).coerceIn(0f, 1f),
+      haptics = haptics,
       notificationsEnabled = record.notificationsEnabled ?: previous?.notificationsEnabled ?: true,
       liveCountdownEnabled = record.liveCountdownEnabled ?: previous?.liveCountdownEnabled ?: false,
       notificationPresentation = (record.notificationPresentation ?: previous?.notificationPresentation)

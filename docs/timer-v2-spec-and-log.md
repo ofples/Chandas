@@ -1436,6 +1436,7 @@ Do not edit old entries to reflect new conclusions. Add a superseding entry and 
 | 2026-09-06 | D-106 | Accepted | Keep destructive list actions deliberate and inline: a left swipe reveals a softly tinted Delete text action, separated from the row by breathing room, and deletion occurs only after the explicit tap. Do not combine threshold deletion with a confirmation dialog. Modal grab bars must be truthful, so remove the nonfunctional bar from the shared sheet. Every constrained sheet scroller shows position-aware top/bottom fade scrims, while fixed setup/running controls receive a matching bottom fade. Inline names commit on blur or submit and keyboard-visible spacing contracts around the fixed action. |
 | 2026-09-06 | D-107 | Accepted | Explain Run length as a live outcome instead of a generic instruction plus a second computed caption. In Cycle, place a `Main interval` row title immediately above the duration choices, then show one sentence beneath those choices: `Keeps running continuously.`, `Runs for N cycle(s) = …`, or `Runs for …`. Sequence uses `round(s)` and places the same outcome after its step list. The sentence precedes the policy selector, updates politely for assistive technology, and replaces the former `MAIN CYCLES`/`ROUNDS` equivalent caption. This supersedes the copy and caption portions of D-056, D-062, D-065, and D-090. |
 | 2026-09-06 | D-108 | Accepted | Every sound editor, including Alarm sound, exposes the same selected-sound, cue-volume, full-width slider, and preview treatment. Keep the Alarm volume visible and saved on older shared-runtime binaries even when native background playback cannot yet consume it; foreground preview uses it immediately and the next contract-v5 binary applies it to background alarms. Remove purely repetitive sheet eyebrows (`Saved setups`, `How it works`, and `Clock`) while retaining labels that convey state or control meaning, such as `Step N of N`, `Cue volume`, and `Mute for`. This supersedes D-104's requirement to hide Alarm volume on older binaries. |
+| 2026-09-06 | D-109 | Accepted | Haptics are one Advanced setting with a global switch and three saved profiles: Main timer, Sub-bells, and Alarm. Each profile offers Single, Double, or Triple patterns and Gentle, Balanced, or Strong intensity with an explicit one-group preview. Main covers main gongs and Sequence boundaries; Sub-bells covers Pattern offset cues. Alarm repeats the chosen group with a 650 ms pause until dismissal. App taps have no separate profile and simply obey the global switch. Android exact/background delivery and amplitude-aware waveforms require advertised contract-v6 support; older native binaries hide the setting rather than implying unsupported behavior. |
 
 ### Decision-entry template
 
@@ -2577,6 +2578,32 @@ This section is append-only. Every implementation session should record scope, m
 
 **Risks or follow-ups:** Because the OTA is deliberately pinned across older and newer binaries, an older binary can display and save the Alarm level before it can apply that level to native background ringing. This is a known transitional limitation accepted by D-108.
 
+### 2026-09-06 — Configurable haptic profiles
+
+**Status:** Complete in source; a contract-v6 Android build and physical-device verification remain required.
+
+**Scope:** Global tactile feedback, per-cue pattern and strength, background exact cues, repeat-until-dismissed alarms, preview behavior, migration, and capability gating.
+
+**Decision referenced:** D-109.
+
+**Behavior implemented:**
+
+- Added one flat Haptics row to Advanced settings. Its switch disables timer vibrations and all ordinary interface feedback without erasing any saved profile.
+- Added a compact Haptics sheet with Main timer, Sub-bells, and Alarm rows. Each expands in place to the shared segmented controls for Single/Double/Triple and Gentle/Balanced/Strong, with a circular preview that plays one group even while the master switch is Off.
+- Main timer haptics now cover Pattern main/final events and Sequence boundaries; Sub-bell haptics cover Pattern offset cues. Suppressed, muted, unavailable-hours, and call-muted events remain silent.
+- Alarm haptics repeat their selected group with a calm 650 ms pause and are cancelled by every alarm-dismissal, timer-stop, service-teardown, and exact-access failure path.
+- Persisted settings normalize malformed or older records to Single/Strong main, Single/Gentle Sub-bell, and Double/Strong Alarm defaults.
+- Replaced scattered direct Expo haptic calls with one global helper so interface feedback consistently follows the master switch.
+- Extended the Android bridge and durable timer state with additive contract-v6 capability and profile fields. Amplitude-capable devices use three bounded levels; other vibrators retain the selected rhythm with the platform's available strength.
+
+**Migration impact:** The stored Timer v2 record gains an additive normalized `haptics` object. Android contract v6 is required for exact/background cue profiles, repeating lock-screen Alarm haptics, and native previews. Existing binaries continue their legacy cue vibrations and hide the unsupported Haptics control; web/iOS foreground fallback can use the JavaScript profiles immediately.
+
+**Verification run:** TypeScript compilation, all 91 Vitest tests, whitespace validation, native call-site/state-path inspection, and Expo Web render inspection. Local native compilation was not run because repository policy prohibits native builds on this computer.
+
+**Native/on-device verification still required:** On the next remote Android build, exercise all nine pattern/strength combinations on an amplitude-capable Pixel and a device without amplitude control; verify exact cues with the app backgrounded and screen off; confirm a Double Alarm repeats as `buzz buzz — pause` over the lock screen and stops immediately through the app surface and notification action; change profiles during a live/ringing timer; reboot during an active schedule; and verify global Off suppresses cues and interface taps while retaining profile choices.
+
+**Risks or follow-ups:** Perceived intensity varies by actuator and OEM. The rhythm is the stable cross-device contract; Gentle/Balanced/Strong are best-effort levels, with graceful full-strength fallback where Android reports no amplitude control.
+
 ### Implementation-entry template
 
 ```md
@@ -2635,3 +2662,4 @@ This section is append-only. Every implementation session should record scope, m
 | 3.3 | 2026-09-06 | Applied the fifth feedback round: robust title editing, tighter keyboard spacing, vertical edge scrims, a flatter sound picker, gentler swipe deletion, and truthful sheet affordances. |
 | 3.4 | 2026-09-06 | Reframed run length as a live plain-language outcome beneath the interval it depends on, restored the Cycle `Main interval` entry label, and removed duplicate computed captions. |
 | 3.5 | 2026-09-06 | Unified Alarm sound with the shared cue-level editor, kept its saved level visible on the pinned runtime line, and removed repetitive modal eyebrows. |
+| 3.6 | 2026-09-06 | Added one Advanced Haptics control with saved Main/Sub-bell/Alarm patterns and strengths, global interface-feedback opt-out, amplitude-aware native cue waveforms, and repeat-until-dismissed Alarm vibration under contract v6. |

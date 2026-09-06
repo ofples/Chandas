@@ -22,6 +22,7 @@ object TimerScheduler {
     if (!canScheduleExactAlarms(context)) return false
     if (!isValidConfig(config)) return false
     TimerSoundPlayer.stopAll()
+    TimerHaptics.stop(context)
     cancelScheduledEvent(context)
     TimerStateStore.save(context, config)
     TimerStateStore.beginSession(context)
@@ -58,6 +59,7 @@ object TimerScheduler {
   fun stop(context: Context) {
     cancelScheduledEvent(context)
     TimerSoundPlayer.stopAll()
+    TimerHaptics.stop(context)
     TimerStateStore.clear(context)
     FocusModeController.deactivate(context)
     TimerNotifications.cancelRunning(context)
@@ -250,7 +252,6 @@ object TimerScheduler {
     val alarmOnce = type == TimerEventType.MAIN && TimerStateStore.consumeAlarmOnce(context)
 
     if (type == TimerEventType.MAIN && (config.alarmModeEnabled || alarmOnce)) {
-      TimerHaptics.cue(context, strong = true)
       scheduleNext(context, config)
       TimerStateStore.setRinging(context, true)
       TimerStateStore.setAlarmVisible(context, true)
@@ -267,7 +268,7 @@ object TimerScheduler {
       return
     }
 
-    TimerHaptics.cue(context, strong = type == TimerEventType.MAIN)
+    TimerHaptics.cue(context, config.haptics, primary = type == TimerEventType.MAIN)
     scheduleNext(context, config)
     val sound = if (type == TimerEventType.MAIN) R.raw.gong else R.raw.bell
     TimerSoundPlayer.play(
@@ -316,7 +317,6 @@ object TimerScheduler {
     }
     val alarmOnce = isPatternMain && !event.completesRun && TimerStateStore.consumeAlarmOnce(context)
     if (isPatternMain && !event.completesRun && (config.alarmModeEnabled || alarmOnce)) {
-      TimerHaptics.cue(context, strong = true)
       scheduleNext(context, config)
       TimerStateStore.setRinging(context, true)
       TimerStateStore.setAlarmVisible(context, true)
@@ -330,12 +330,7 @@ object TimerScheduler {
       onFinished()
       return
     }
-    TimerHaptics.cue(
-      context,
-      strong = event.boundary == TimerV2Boundary.PATTERN_MAIN ||
-        event.boundary == TimerV2Boundary.SEQUENCE_CYCLE ||
-        event.boundary == TimerV2Boundary.RUN_COMPLETE,
-    )
+    TimerHaptics.cue(context, config.haptics, primary = event.boundary != TimerV2Boundary.PATTERN_OFFSET)
     if (event.completesRun) completeSession(context) else scheduleNext(context, config)
     emitV2Event(event, suppressed = false, reason = "none")
     TimerSoundPlayer.play(
@@ -425,6 +420,7 @@ object TimerScheduler {
     // closed and make the inactive state authoritative everywhere.
     cancelScheduledEvent(context)
     TimerSoundPlayer.stopAll()
+    TimerHaptics.stop(context)
     TimerStateStore.clear(context)
     FocusModeController.deactivate(context)
     TimerNotifications.cancelRunning(context)

@@ -1,5 +1,25 @@
 package expo.modules.chandastimerservice
 
+data class HapticProfileConfig(
+  val pattern: String,
+  val strength: String,
+) {
+  companion object {
+    fun normalized(pattern: String?, strength: String?, fallback: HapticProfileConfig): HapticProfileConfig =
+      HapticProfileConfig(
+        pattern = pattern?.takeIf { it == "single" || it == "double" || it == "triple" } ?: fallback.pattern,
+        strength = strength?.takeIf { it == "gentle" || it == "balanced" || it == "strong" } ?: fallback.strength,
+      )
+  }
+}
+
+data class TimerHapticsConfig(
+  val enabled: Boolean = true,
+  val main: HapticProfileConfig = HapticProfileConfig("single", "strong"),
+  val subBell: HapticProfileConfig = HapticProfileConfig("single", "gentle"),
+  val alarm: HapticProfileConfig = HapticProfileConfig("double", "strong"),
+)
+
 data class TimerConfig(
   val mainMs: Long,
   val subMs: Long,
@@ -10,6 +30,7 @@ data class TimerConfig(
   val alarmSoundId: String = "alarm-tone",
   /** Per-alarm level, multiplied by the master and Android Alarm volumes. */
   val alarmVolume: Float = 1f,
+  val haptics: TimerHapticsConfig = TimerHapticsConfig(),
   val notificationsEnabled: Boolean,
   val liveCountdownEnabled: Boolean = false,
   /** OTA-owned notification wording; null uses native fallback copy. */
