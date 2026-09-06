@@ -8,10 +8,11 @@ interface Props {
   value: boolean
   onChange: (v: boolean) => void
   accessibilityLabel?: string
+  disabled?: boolean
 }
 
 // Pill toggle switch — ported from legacy-web .toggle/.toggle-track/.toggle-thumb.
-export function Toggle({ value, onChange, accessibilityLabel }: Props) {
+export function Toggle({ value, onChange, accessibilityLabel, disabled = false }: Props) {
   const { tokens } = useTheme()
   const reducedMotion = useReducedMotion()
   const anim = useRef(new Animated.Value(value ? 1 : 0)).current
@@ -39,13 +40,14 @@ export function Toggle({ value, onChange, accessibilityLabel }: Props) {
 
   return (
     <Pressable
+      disabled={disabled}
       onPress={() => { selectionHaptic(); onChange(!value) }}
       accessibilityRole="switch"
-      accessibilityState={{ checked: value }}
+      accessibilityState={{ checked: value, disabled }}
       accessibilityLabel={accessibilityLabel}
       hitSlop={8}
     >
-      <Animated.View style={[styles.track, { backgroundColor: trackColor, borderColor: value ? tokens.accent : tokens.border }]}>
+      <Animated.View style={[styles.track, { backgroundColor: trackColor, borderColor: value ? tokens.accent : tokens.border, opacity: disabled ? 0.45 : 1 }]}>
         <Animated.View style={[styles.thumb, { backgroundColor: thumbColor, transform: [{ translateX: thumbTranslate }] }]} />
       </Animated.View>
     </Pressable>

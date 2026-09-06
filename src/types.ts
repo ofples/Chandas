@@ -88,6 +88,8 @@ export interface PatternProgram {
   mode: 'pattern'
   label: string
   mainMinutes: number
+  /** Exact duration used by second-precision runtimes; absent legacy values use mainMinutes. */
+  mainDurationSeconds?: number
   mainCue: CueSettings
   /** Optional distinct cue used only when a bounded run reaches its terminal instant. */
   completionCue: CueSettings | null
@@ -101,6 +103,8 @@ export interface PatternProgram {
 export interface SequenceStep extends CueSettings {
   id: string
   durationMinutes: number
+  /** Exact duration used by second-precision runtimes; absent legacy values use durationMinutes. */
+  durationSeconds?: number
   label: string
 }
 
@@ -177,6 +181,8 @@ export interface AppTimerSettings {
   masterVolume: number
   /** Whether optional setup controls are visible on configuration and running screens. */
   advancedModeEnabled: boolean
+  /** Reveals seconds in custom interval and bounded-run duration editors. */
+  secondPrecisionEnabled: boolean
   /** Global looping sound used by Alarm Once and Alarm Locked. */
   alarmSound: SoundRef
   /** Per-alarm level multiplied by the master and Android Alarm volumes. */

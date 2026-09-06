@@ -14,6 +14,7 @@ import { SheetTextButton } from './SheetTextButton'
 import { subBellColorValue } from '../../lib/subBellColors'
 import { tapHaptic } from '../../lib/haptics'
 import { SwipeToDeleteRow } from './swipe-to-delete-row'
+import { formatCompactDurationSeconds, patternDurationSeconds, sequenceStepDurationSeconds } from '../../lib/timerV2'
 
 const FILTERS = [{ value: 'all', label: 'All' }, { value: 'pattern', label: 'Cycle' }, { value: 'sequence', label: 'Sequence' }] as const
 
@@ -129,17 +130,18 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedba
 function PresetVisual({ program }: { program: TimerProgram }) {
   const { tokens } = useTheme()
   if (program.mode === 'pattern') {
+    const durationSeconds = patternDurationSeconds(program)
     const tracks = program.subBellsEnabled ? program.tracks.filter(track => track.enabled) : []
     const cues = tracks.reduce((count, track) => count + track.selectedOffsetsMinutes.length, 0)
-    return <View style={styles.visual} accessibilityLabel={`${program.mainMinutes} minute cycle with ${cues} sub-bell cues`}>
-      <View style={styles.visualMeta}><Text style={[styles.visualKind, { color: tokens.text }]}>Cycle · {program.mainMinutes}m</Text><Text style={[styles.visualCount, { color: tokens.textMuted }]}>{cues} cue{cues === 1 ? '' : 's'}</Text></View>
-      <View style={styles.visualTrack}><View style={[styles.visualLine, { backgroundColor: tokens.border }]} /><View style={[styles.visualBoundary, { left: 0, backgroundColor: tokens.accent }]} /><View style={[styles.visualBoundary, { right: 0, backgroundColor: tokens.accent }]} />{tracks.flatMap((track, trackIndex) => track.selectedOffsetsMinutes.map(offset => <View key={`${track.id}:${offset}`} style={[styles.visualCue, { left: `${offset / program.mainMinutes * 100}%`, backgroundColor: subBellColorValue(track.color, trackIndex) }]} />))}</View>
+    return <View style={styles.visual} accessibilityLabel={`${formatCompactDurationSeconds(durationSeconds)} cycle with ${cues} sub-bell cues`}>
+      <View style={styles.visualMeta}><Text style={[styles.visualKind, { color: tokens.text }]}>Cycle · {formatCompactDurationSeconds(durationSeconds)}</Text><Text style={[styles.visualCount, { color: tokens.textMuted }]}>{cues} cue{cues === 1 ? '' : 's'}</Text></View>
+      <View style={styles.visualTrack}><View style={[styles.visualLine, { backgroundColor: tokens.border }]} /><View style={[styles.visualBoundary, { left: 0, backgroundColor: tokens.accent }]} /><View style={[styles.visualBoundary, { right: 0, backgroundColor: tokens.accent }]} />{tracks.flatMap((track, trackIndex) => track.selectedOffsetsMinutes.map(offset => <View key={`${track.id}:${offset}`} style={[styles.visualCue, { left: `${offset * 60 / durationSeconds * 100}%`, backgroundColor: subBellColorValue(track.color, trackIndex) }]} />))}</View>
     </View>
   }
-  const total = Math.max(1, program.steps.reduce((sum, step) => sum + step.durationMinutes, 0))
-  return <View style={styles.visual} accessibilityLabel={`${program.steps.length} step sequence lasting ${total} minutes`}>
-    <View style={styles.visualMeta}><Text style={[styles.visualKind, { color: tokens.text }]}>Sequence · {total}m</Text><Text style={[styles.visualCount, { color: tokens.textMuted }]}>{program.steps.length} step{program.steps.length === 1 ? '' : 's'}</Text></View>
-    <View style={[styles.sequenceTrack, { backgroundColor: tokens.border }]}>{program.steps.map((step, index) => <View key={step.id} style={[styles.sequenceSegment, { flex: step.durationMinutes, backgroundColor: tokens.accent, opacity: 0.45 + index % 3 * 0.18 }]} />)}</View>
+  const total = Math.max(1, program.steps.reduce((sum, step) => sum + sequenceStepDurationSeconds(step), 0))
+  return <View style={styles.visual} accessibilityLabel={`${program.steps.length} step sequence lasting ${formatCompactDurationSeconds(total)}`}>
+    <View style={styles.visualMeta}><Text style={[styles.visualKind, { color: tokens.text }]}>Sequence · {formatCompactDurationSeconds(total)}</Text><Text style={[styles.visualCount, { color: tokens.textMuted }]}>{program.steps.length} step{program.steps.length === 1 ? '' : 's'}</Text></View>
+    <View style={[styles.sequenceTrack, { backgroundColor: tokens.border }]}>{program.steps.map((step, index) => <View key={step.id} style={[styles.sequenceSegment, { flex: sequenceStepDurationSeconds(step), backgroundColor: tokens.accent, opacity: 0.45 + index % 3 * 0.18 }]} />)}</View>
   </View>
 }
 
@@ -151,10 +153,10 @@ function PresetDetails({ preset }: { preset: ProgramPreset }) {
     : program.runPolicy.kind === 'cycles'
       ? `${program.runPolicy.cycleCount} ${program.mode === 'sequence' ? (program.runPolicy.cycleCount === 1 ? 'round' : 'rounds') : (program.runPolicy.cycleCount === 1 ? 'main cycle' : 'main cycles')}`
       : formatDuration(program.runPolicy.durationSeconds)
-  if (program.mode === 'sequence') return <View style={[styles.details, { borderColor: tokens.border }]}><Text style={[styles.detailLine, { color: tokens.text }]}>Run · {run}</Text>{program.steps.map((step, index) => <Text key={step.id} style={[styles.detailLine, { color: tokens.text }]}>{index + 1}. {step.label} · {step.durationMinutes}m · {soundTitle(step.sound)} · {Math.round(step.volume * 100)}%</Text>)}</View>
+  if (program.mode === 'sequence') return <View style={[styles.details, { borderColor: tokens.border }]}><Text style={[styles.detailLine, { color: tokens.text }]}>Run · {run}</Text>{program.steps.map((step, index) => <Text key={step.id} style={[styles.detailLine, { color: tokens.text }]}>{index + 1}. {step.label} · {formatCompactDurationSeconds(sequenceStepDurationSeconds(step))} · {soundTitle(step.sound)} · {Math.round(step.volume * 100)}%</Text>)}</View>
   return <View style={[styles.details, { borderColor: tokens.border }]}>
     <Text style={[styles.detailLine, { color: tokens.text }]}>Run · {run}</Text>
-    <Text style={[styles.detailLine, { color: tokens.text }]}>Main · {program.mainMinutes}m · {soundTitle(program.mainCue.sound)} · {Math.round(program.mainCue.volume * 100)}%</Text>
+    <Text style={[styles.detailLine, { color: tokens.text }]}>Main · {formatCompactDurationSeconds(patternDurationSeconds(program))} · {soundTitle(program.mainCue.sound)} · {Math.round(program.mainCue.volume * 100)}%</Text>
     <Text style={[styles.detailLine, { color: tokens.text }]}>Timing · {program.alignment.kind === 'elapsed' ? 'starts when timer starts' : `aligned to :${String(program.alignment.offsetMinutes).padStart(2, '0')} local time`}</Text>
     {!program.subBellsEnabled ? <Text style={[styles.detailLine, { color: tokens.text }]}>Sub-bells off · settings preserved</Text> : null}
     {program.tracks.map((track, index) => <Text key={track.id} style={[styles.detailLine, { color: tokens.text }]}>{index + 1}. {track.enabled ? `${track.cadenceMinutes}m · ${track.selectedOffsetsMinutes.join(', ') || 'no cues'}` : 'Off'} · {soundTitle(track.sound)} · {Math.round(track.volume * 100)}%</Text>)}

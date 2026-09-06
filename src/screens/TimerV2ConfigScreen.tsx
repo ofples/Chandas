@@ -24,10 +24,10 @@ import { HapticsSheet } from '../components/timer-v2/haptics-sheet'
 import {
   addPatternTrack, addSequenceStep, chooseProgramMode, duplicateSequenceStep, patchPatternTrack, patchSequenceStep,
   patchCompletionCue, removePatternTrack, removeSequenceStep, reorderSequenceSteps, setCompletionCueEnabled, setPatternSubBellsEnabled,
-  setTrackCadence, setTrackOffsets, updatePattern, updatePatternMainMinutes,
+  setTrackCadence, setTrackOffsets, updatePattern, updatePatternMainDurationSeconds,
 } from '../lib/programActions'
 import { soundTitle } from '../lib/soundLibrary'
-import { validOffsets } from '../lib/timerV2'
+import { formatCompactDurationSeconds, patternDurationSeconds, sequenceStepDurationSeconds, validOffsets, validOffsetsForDuration } from '../lib/timerV2'
 import { useTheme } from '../theme/ThemeContext'
 import { useSoundAvailability } from '../hooks/use-sound-availability'
 import { mediumHaptic, selectionHaptic, setAppHapticsEnabled, tapHaptic } from '../lib/haptics'
@@ -98,6 +98,7 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
   const settings = state.settings
   const alarmSoundSupported = !isNativeServiceAvailable || ChandasTimerService.getCapabilities()?.supportsAlarmSound === true
   const hapticsSupported = !isNativeServiceAvailable || ChandasTimerService.getCapabilities()?.supportsHapticProfiles === true
+  const secondPrecisionSupported = !isNativeServiceAvailable || ChandasTimerService.getCapabilities()?.supportsSecondPrecision === true
 
   const changeSettings = (patch: Partial<typeof settings>) => onChange({ ...state, settings: { ...settings, ...patch } })
   const cue = cueTarget ? cueForTarget(state, cueTarget) : null
@@ -260,6 +261,8 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
 
           <ColorSelector label="Appearance" detail="Choose a calm color and canvas." value={accentColor} onChange={setAccentColor} accessibilityLabel="Primary interface color" trailing={<Pressable hitSlop={8} onPress={() => { tapHaptic(); toggleTheme() }} style={({ pressed }) => [styles.roundIcon, { borderColor: tokens.border, backgroundColor: pressed ? tokens.accentGlow : 'transparent', opacity: pressed ? 0.72 : 1 }]} accessibilityRole="button" accessibilityLabel={`Use ${theme === 'dark' ? 'light' : 'dark'} appearance`}><LightbulbIcon color={tokens.accent} /></Pressable>} />
 
+          {secondPrecisionSupported ? <View style={styles.settingRow}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Second precision</Text><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>{settings.secondPrecisionEnabled ? 'Seconds are available in custom durations.' : 'Keep duration setup minute-first.'}</Text></View><Toggle value={settings.secondPrecisionEnabled} onChange={secondPrecisionEnabled => changeSettings({ secondPrecisionEnabled })} accessibilityLabel="Second precision" /></View> : null}
+
           {hapticsSupported ? <View style={styles.settingRow}><Pressable style={styles.flex} onPress={() => { tapHaptic(); setHapticsOpen(true) }} accessibilityRole="button" accessibilityLabel="Configure haptics"><Text style={[styles.rowTitle, { color: tokens.text }]}>Haptics</Text><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>{settings.haptics.enabled ? 'Patterns for timer cues and alarm.' : 'Off · patterns preserved'}</Text></Pressable><Toggle value={settings.haptics.enabled} onChange={enabled => { setAppHapticsEnabled(enabled); changeSettings({ haptics: { ...settings.haptics, enabled } }) }} accessibilityLabel="Haptics" /></View> : null}
 
           {Platform.OS === 'android' ? <FocusControl state={focusState} enabled={settings.focusAutomationEnabled} onChange={onFocusAutomationChange} onResume={() => { onFocusAutomationChange(false); onFocusAutomationChange(true) }} onOpenAccessSettings={onOpenFocusSettings} onOpenRuleSettings={onOpenFocusRuleSettings} /> : null}
@@ -331,10 +334,10 @@ function androidAccessSummary(access: Props['androidAccess']): string {
 function ProgramRunLength({ state, mode, onChange }: { state: TimerV2State; mode: 'pattern' | 'sequence'; onChange: (state: TimerV2State) => void }) {
   if (mode === 'pattern') {
     const program = state.workingPrograms.pattern
-    return <RunLengthConfig mode="pattern" value={program.runPolicy} cycleDurationSeconds={program.mainMinutes * 60} onChange={runPolicy => onChange(updatePattern(state, value => ({ ...value, runPolicy })))} />
+    return <RunLengthConfig mode="pattern" value={program.runPolicy} cycleDurationSeconds={patternDurationSeconds(program)} secondPrecision={state.settings.secondPrecisionEnabled} onChange={runPolicy => onChange(updatePattern(state, value => ({ ...value, runPolicy })))} />
   }
   const program = state.workingPrograms.sequence
-  return <RunLengthConfig mode="sequence" value={program.runPolicy} cycleDurationSeconds={program.steps.reduce((sum, step) => sum + step.durationMinutes, 0) * 60} onChange={runPolicy => onChange({ ...state, workingPrograms: { ...state.workingPrograms, sequence: { ...program, runPolicy } } })} />
+  return <RunLengthConfig mode="sequence" value={program.runPolicy} cycleDurationSeconds={program.steps.reduce((sum, step) => sum + sequenceStepDurationSeconds(step), 0)} secondPrecision={state.settings.secondPrecisionEnabled} onChange={runPolicy => onChange({ ...state, workingPrograms: { ...state.workingPrograms, sequence: { ...program, runPolicy } } })} />
 }
 
 function CompletionCueControls({ state, onChange, onEditCue, onFeedback }: { state: TimerV2State; onChange: (state: TimerV2State) => void; onEditCue: (target: CueTarget) => void; onFeedback: Props['onFeedback'] }) {
@@ -372,20 +375,21 @@ function PatternEditor({ state, onChange, onOpenSubBells, onOpenHelp }: { state:
   const snapOffset = program.alignment.kind === 'local-clock' ? program.alignment.offsetMinutes : 0
   const activeTracks = program.tracks.filter(track => track.enabled)
   const cueCount = activeTracks.reduce((count, track) => count + track.selectedOffsetsMinutes.length, 0)
+  const clockAlignmentAvailable = patternDurationSeconds(program) % 60 === 0
   return <>
     <View style={styles.section}>
       <View style={styles.titleWithHelp}><EditableTitle value={program.label} onCommit={label => onChange(updatePattern(state, value => ({ ...value, label })))} accessibilityLabel="main interval name" /><HelpButton onPress={onOpenHelp} /></View>
       <Text style={[styles.rowTitle, { color: tokens.text }]}>Main interval</Text>
-      <DurationSelector value={program.mainMinutes} presets={MAIN_PRESETS} fadeColor={tokens.bg} onChange={minutes => changeMainMinutes(state, minutes, onChange)} />
+      <DurationSelector value={program.mainMinutes} valueSeconds={patternDurationSeconds(program)} secondPrecision={state.settings.secondPrecisionEnabled} presets={MAIN_PRESETS} fadeColor={tokens.bg} onChange={minutes => changeMainMinutes(state, minutes, onChange)} onChangeSeconds={seconds => changeMainDurationSeconds(state, seconds, onChange)} />
       <ProgramRunLength state={state} mode="pattern" onChange={onChange} />
-      <View style={styles.settingRow}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Align to clock</Text><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>Keep intervals on a wall-clock rhythm.</Text></View><Toggle value={program.alignment.kind === 'local-clock'} onChange={enabled => onChange(updatePattern(state, value => ({ ...value, alignment: enabled ? { kind: 'local-clock', offsetMinutes: 0 } : { kind: 'elapsed' } })))} accessibilityLabel="Align pattern to clock" /></View>
+      <View style={styles.settingRow}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Align to clock</Text><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>{clockAlignmentAvailable ? 'Keep intervals on a wall-clock rhythm.' : 'Available for whole-minute intervals.'}</Text></View><Toggle disabled={!clockAlignmentAvailable} value={program.alignment.kind === 'local-clock'} onChange={enabled => onChange(updatePattern(state, value => ({ ...value, alignment: enabled ? { kind: 'local-clock', offsetMinutes: 0 } : { kind: 'elapsed' } })))} accessibilityLabel="Align pattern to clock" /></View>
       {program.alignment.kind === 'local-clock' ? <ClockSnapSelector mainMinutes={program.mainMinutes} value={snapOffset} compact fadeColor={tokens.bg} onChange={offsetMinutes => onChange(updatePattern(state, value => ({ ...value, alignment: { kind: 'local-clock', offsetMinutes } })))} /> : null}
     </View>
 
     <View style={styles.section}>
       <View style={styles.settingRow}><Pressable style={styles.flex} onPress={() => { tapHaptic(); onOpenSubBells() }} accessibilityRole="button" accessibilityLabel="Configure sub-bells"><Text style={[styles.rowTitle, { color: tokens.text }]}>Sub Bells</Text><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>{program.tracks.length === 0 ? 'No sub-bells yet' : `${program.subBellsEnabled ? activeTracks.length : 0} active · ${program.subBellsEnabled ? cueCount : 0} selected`}</Text></Pressable><Toggle value={program.subBellsEnabled} onChange={enabled => onChange(setPatternSubBellsEnabled(state, enabled))} accessibilityLabel="Sub-bells" /></View>
       {program.subBellsEnabled ? <Reanimated.View entering={FadeInDown.duration(180)} exiting={FadeOut.duration(120)} style={styles.subBellBody}>
-        <PatternTimelinePreview tracks={program.tracks} mainMinutes={program.mainMinutes} onPress={onOpenSubBells} />
+        <PatternTimelinePreview tracks={program.tracks} mainDurationSeconds={patternDurationSeconds(program)} onPress={onOpenSubBells} />
       </Reanimated.View> : null}
     </View>
   </>
@@ -396,13 +400,13 @@ function SequenceEditor({ state, onChange, onEditCue, onAdd, onOpenHelp, onReord
   const [editingStepId, setEditingStepId] = useState<string | null>(null)
   const [dragPreview, setDragPreview] = useState<ReorderPreview | null>(null)
   const program = state.workingPrograms.sequence
-  const total = program.steps.reduce((sum, step) => sum + step.durationMinutes, 0)
+  const totalSeconds = program.steps.reduce((sum, step) => sum + sequenceStepDurationSeconds(step), 0)
   const previewStep = useCallback((stepId: string, from: number, to: number, rowHeight: number) => setDragPreview({ stepId, from, to, rowHeight }), [])
   const finishPreview = useCallback(() => setDragPreview(null), [])
   const moveStep = useCallback((from: number, to: number) => onChange(reorderSequenceSteps(state, from, to)), [onChange, state])
   useEffect(() => () => onReorderingChange(false), [onReorderingChange])
   return <View style={styles.section}>
-    <View style={styles.titleWithHelp}><View style={styles.flex}><Text style={[styles.eyebrow, { color: tokens.textMuted }]}>SEQUENCE</Text><Text style={[styles.sectionValue, { color: tokens.text }]}>{formatMinutes(total)}</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{program.steps.length} step{program.steps.length === 1 ? '' : 's'} · repeats</Text></View><HelpButton onPress={onOpenHelp} /></View>
+    <View style={styles.titleWithHelp}><View style={styles.flex}><Text style={[styles.eyebrow, { color: tokens.textMuted }]}>SEQUENCE</Text><Text style={[styles.sectionValue, { color: tokens.text }]}>{formatClockDuration(totalSeconds)}</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{program.steps.length} step{program.steps.length === 1 ? '' : 's'} · repeats</Text></View><HelpButton onPress={onOpenHelp} /></View>
     {program.steps.map((step, index) => <SequenceStepRow key={step.id} state={state} stepId={step.id} index={index} dragPreview={dragPreview} onEdit={() => setEditingStepId(step.id)} onDelete={() => onChange(removeSequenceStep(state, step.id))} onMove={moveStep} onPreviewChange={previewStep} onPreviewEnd={finishPreview} onReorderingChange={onReorderingChange} onAutoScroll={onAutoScroll} />)}
     {program.steps.length < 20 ? <AddRowButton onPress={onAdd} title="+ Add step" /> : null}
     <ProgramRunLength state={state} mode="sequence" onChange={onChange} />
@@ -417,7 +421,7 @@ function SubBellLibrarySheet({ visible, state, onChange, onEditTrack, onAdd, onC
   const cueCount = activeTracks.reduce((count, track) => count + track.selectedOffsetsMinutes.length, 0)
   return <BottomSheet visible={visible} title="Sub-bells" onClose={onClose}>
     <Text style={[styles.helper, { color: tokens.textMuted }]}>{`${activeTracks.length} active · ${cueCount} selected ${cueCount === 1 ? 'cue' : 'cues'}`}</Text>
-    <PatternTimelinePreview tracks={program.subBellsEnabled ? program.tracks : []} mainMinutes={program.mainMinutes} />
+    <PatternTimelinePreview tracks={program.subBellsEnabled ? program.tracks : []} mainDurationSeconds={patternDurationSeconds(program)} />
     {program.tracks.length === 0 ? <GentleNotice title="No sub-bells yet" message="Add one when you want an extra cue within the main interval." /> : program.subBellsEnabled && cueCount === 0 ? <GentleNotice title="No sub-bell cues are active" message="The main gong will still play. Open a sub-bell to choose its cue positions." /> : null}
     <View style={styles.trackList}>{program.tracks.map((track, index) => <SwipeToDeleteRow key={track.id} accessibilityLabel={`Delete ${track.label}`} onDelete={() => onChange(removePatternTrack(state, track.id))}><PatternTrackRow state={state} track={track} index={index} onChange={onChange} onEdit={() => onEditTrack(track.id)} /></SwipeToDeleteRow>)}</View>
     <AddRowButton disabled={program.tracks.length >= 5} onPress={onAdd} title={program.tracks.length >= 5 ? '5 sub-bell limit reached' : '+ Add sub-bell'} />
@@ -427,7 +431,7 @@ function SubBellLibrarySheet({ visible, state, onChange, onEditTrack, onAdd, onC
 function PatternTrackRow({ state, track, index, onChange, onEdit }: { state: TimerV2State; track: PatternTrack; index: number; onChange: (state: TimerV2State) => void; onEdit: () => void }) {
   const { tokens } = useTheme()
   const reducedMotion = useReducedMotion()
-  const occurrenceCount = validOffsets(state.workingPrograms.pattern.mainMinutes, track.cadenceMinutes).length
+  const occurrenceCount = validOffsetsForDuration(patternDurationSeconds(state.workingPrograms.pattern), track.cadenceMinutes).length
   const selectionSummary = track.selectedOffsetsMinutes.length === occurrenceCount ? `${occurrenceCount} occurrence${occurrenceCount === 1 ? '' : 's'}` : `${track.selectedOffsetsMinutes.length}/${occurrenceCount} selected`
   return <Reanimated.View entering={reducedMotion ? FadeIn.duration(80) : FadeInDown.duration(190)} exiting={FadeOut.duration(reducedMotion ? 70 : 130)} layout={reducedMotion ? undefined : LinearTransition.duration(160)}>
     <View style={[styles.trackSummary, index > 0 && { borderTopColor: tokens.border, borderTopWidth: StyleSheet.hairlineWidth }, { opacity: track.enabled ? 1 : 0.5 }]}>
@@ -459,7 +463,7 @@ function SequenceStepRow({ state, stepId, index, dragPreview, onEdit, onDelete, 
   return <Reanimated.View entering={reducedMotion ? FadeIn.duration(80) : FadeInDown.duration(190)} exiting={FadeOut.duration(reducedMotion ? 70 : 130)} layout={reducedMotion ? undefined : LinearTransition.duration(160)} style={dragging ? styles.draggingLayer : undefined}>
     <SwipeToDeleteRow accessibilityLabel={`Delete ${step.label}`} onDelete={onDelete} disabled={program.steps.length <= 1 || dragging}>
     <Reanimated.View onLayout={event => { if (!dragging) setRowHeight(event.nativeEvent.layout.height + 13) }} style={[styles.sequenceCard, index > 0 && { borderTopColor: tokens.border, borderTopWidth: StyleSheet.hairlineWidth }, dragging && styles.dragging, { opacity: dragging ? 0.92 : 1 }, rowAnimatedStyle]}>
-      <View style={styles.sequenceHead}><ReorderHandle index={index} itemCount={program.steps.length} rowHeight={rowHeight} rowTranslation={dragTranslation} onDragStateChange={handleDragStateChange} onPreviewChange={handlePreviewChange} onPreviewEnd={onPreviewEnd} onAutoScroll={onAutoScroll} onMove={onMove} label={`Reorder ${step.label}`} /><Pressable style={styles.sequenceSummary} onPress={onEdit} accessibilityRole="button" accessibilityLabel={`Edit ${step.label}`}><View style={styles.flex}><View style={styles.sequenceTitleLine}><Text style={[styles.priority, { color: tokens.accent }]}>{String(previewIndex + 1).padStart(2, '0')}</Text><Text numberOfLines={1} style={[styles.rowTitle, styles.sequenceTitle, { color: tokens.text }]}>{step.label}</Text></View><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>{step.durationMinutes}m · {soundTitle(step.sound)} · {Math.round(step.volume * 100)}%</Text></View><Text style={[styles.sequenceChevron, { color: tokens.accent }]}>›</Text></Pressable></View>
+      <View style={styles.sequenceHead}><ReorderHandle index={index} itemCount={program.steps.length} rowHeight={rowHeight} rowTranslation={dragTranslation} onDragStateChange={handleDragStateChange} onPreviewChange={handlePreviewChange} onPreviewEnd={onPreviewEnd} onAutoScroll={onAutoScroll} onMove={onMove} label={`Reorder ${step.label}`} /><Pressable style={styles.sequenceSummary} onPress={onEdit} accessibilityRole="button" accessibilityLabel={`Edit ${step.label}`}><View style={styles.flex}><View style={styles.sequenceTitleLine}><Text style={[styles.priority, { color: tokens.accent }]}>{String(previewIndex + 1).padStart(2, '0')}</Text><Text numberOfLines={1} style={[styles.rowTitle, styles.sequenceTitle, { color: tokens.text }]}>{step.label}</Text></View><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>{formatCompactDurationSeconds(sequenceStepDurationSeconds(step))} · {soundTitle(step.sound)} · {Math.round(step.volume * 100)}%</Text></View><Text style={[styles.sequenceChevron, { color: tokens.accent }]}>›</Text></Pressable></View>
     </Reanimated.View>
     </SwipeToDeleteRow>
   </Reanimated.View>
@@ -483,7 +487,7 @@ function SequenceStepEditorSheet({ state, stepId, onChange, onEditCue, onClose }
   const close = () => { ChandasTimerService.stopSoundPreview(); setPreviewError(null); onClose() }
   return <BottomSheet visible eyebrow={`Step ${index + 1} of ${program.steps.length}`} title={<EditableTitle value={step.label} onCommit={label => onChange(patchSequenceStep(state, step.id, { label }))} accessibilityLabel={`Step ${index + 1} name`} large />} accessibilityTitle={step.label} onClose={close}>
     {previewError ? <GentleNotice title="Preview stayed quiet" message={previewError} tone="attention" /> : null}
-    <DurationSelector value={step.durationMinutes} presets={STEP_PRESETS} fadeColor={tokens.surface} onChange={durationMinutes => onChange(patchSequenceStep(state, step.id, { durationMinutes }))} />
+    <DurationSelector value={step.durationMinutes} valueSeconds={sequenceStepDurationSeconds(step)} secondPrecision={state.settings.secondPrecisionEnabled} presets={STEP_PRESETS} fadeColor={tokens.surface} onChange={durationMinutes => onChange(patchSequenceStep(state, step.id, { durationMinutes }))} onChangeSeconds={durationSeconds => onChange(patchSequenceStep(state, step.id, { durationSeconds }))} />
     <VolumeControl label="Volume" value={step.volume} onChange={volume => onChange(patchSequenceStep(state, step.id, { volume }))} onPreview={() => void preview()} />
     <CueRow title="Sound" detail={soundTitle(step.sound)} sound={step.sound} onPress={() => { ChandasTimerService.stopSoundPreview(); onEditCue() }} />
     <View style={styles.stepActions}><SheetTextButton disabled={program.steps.length >= 20} label="Duplicate step" onPress={() => { onChange(duplicateSequenceStep(state, step.id)); close() }} accessibilityLabel={`Duplicate ${step.label}`} /></View>
@@ -583,7 +587,11 @@ function cueForTarget(state: TimerV2State, target: CueTarget): CueSettings | nul
 }
 
 function changeMainMinutes(state: TimerV2State, minutes: number, onChange: (state: TimerV2State) => void) {
-  const nextState = updatePatternMainMinutes(state, minutes)
+  changeMainDurationSeconds(state, minutes * 60, onChange)
+}
+
+function changeMainDurationSeconds(state: TimerV2State, seconds: number, onChange: (state: TimerV2State) => void) {
+  const nextState = updatePatternMainDurationSeconds(state, seconds)
   const nextByTrack = new Map(nextState.workingPrograms.pattern.tracks.map(track => [track.id, new Set(track.selectedOffsetsMinutes)]))
   const removed = state.workingPrograms.pattern.tracks.reduce((count, track) => count + track.selectedOffsetsMinutes.filter(offset => !nextByTrack.get(track.id)?.has(offset)).length, 0)
   const apply = () => onChange(nextState)
@@ -608,7 +616,7 @@ function EditableTitle({ value, onCommit, accessibilityLabel, large = false }: {
   return <Pressable onPress={() => { setDraft(value); editingRef.current = true; setEditing(true); selectionHaptic() }} style={[styles.editableTitle, { borderBottomColor: tokens.textMuted }]} accessibilityRole="button" accessibilityLabel={`Edit ${accessibilityLabel}`} accessibilityHint="Tap to rename"><Text numberOfLines={1} style={[styles.editableTitleText, large && styles.editableTitleTextLarge, { color: tokens.text }]}>{value}</Text></Pressable>
 }
 
-function PatternTimelinePreview({ tracks, mainMinutes, onPress }: { tracks: PatternTrack[]; mainMinutes: number; onPress?: () => void }) {
+function PatternTimelinePreview({ tracks, mainDurationSeconds, onPress }: { tracks: PatternTrack[]; mainDurationSeconds: number; onPress?: () => void }) {
   const { tokens } = useTheme()
   const reducedMotion = useReducedMotion()
   const active = tracks.filter(track => track.enabled)
@@ -617,16 +625,19 @@ function PatternTimelinePreview({ tracks, mainMinutes, onPress }: { tracks: Patt
     <View style={[styles.timelineBoundary, { left: 0, backgroundColor: tokens.accent }]} />
     <View style={[styles.timelineBoundary, { right: 0, backgroundColor: tokens.accent }]} />
     {active.flatMap((track, trackIndex) => track.selectedOffsetsMinutes.map(offset => {
-      return <View key={`${track.id}:${offset}`} style={[styles.timelineCue, { left: `${offset / mainMinutes * 100}%`, top: 8 + trackIndex * 6, backgroundColor: subBellColorValue(track.color, trackIndex) }]} />
+      return <View key={`${track.id}:${offset}`} style={[styles.timelineCue, { left: `${offset * 60 / mainDurationSeconds * 100}%`, top: 8 + trackIndex * 6, backgroundColor: subBellColorValue(track.color, trackIndex) }]} />
     }))}
-    <Text style={[styles.timelineStart, { color: tokens.textMuted }]}>0</Text><Text style={[styles.timelineEnd, { color: tokens.textMuted }]}>{mainMinutes}m</Text>
+    <Text style={[styles.timelineStart, { color: tokens.textMuted }]}>0</Text><Text style={[styles.timelineEnd, { color: tokens.textMuted }]}>{formatCompactDurationSeconds(mainDurationSeconds)}</Text>
   </Pressable>
 }
 
-function formatMinutes(minutes: number): string {
-  const hours = Math.floor(minutes / 60)
-  const rest = minutes % 60
-  return hours > 0 ? `${hours}:${String(rest).padStart(2, '0')}` : `${minutes}:00`
+function formatClockDuration(seconds: number): string {
+  const hours = Math.floor(seconds / 3_600)
+  const minutes = Math.floor(seconds % 3_600 / 60)
+  const remainder = seconds % 60
+  return hours > 0
+    ? `${hours}:${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`
+    : `${minutes}:${String(remainder).padStart(2, '0')}`
 }
 
 const styles = StyleSheet.create({

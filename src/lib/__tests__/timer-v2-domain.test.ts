@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { PatternProgram, SequenceProgram } from '../../types'
-import { chooseProgramMode, deleteProgramPreset, hasUnsavedProgramChanges, loadProgramPreset, patchSequenceStep, saveProgramPreset, setPatternSubBellsEnabled, setTrackCadence, setTrackOffsets, updatePatternMainMinutes } from '../programActions'
+import { chooseProgramMode, deleteProgramPreset, hasUnsavedProgramChanges, loadProgramPreset, patchSequenceStep, saveProgramPreset, setPatternSubBellsEnabled, setTrackCadence, setTrackOffsets, updatePatternMainDurationSeconds, updatePatternMainMinutes } from '../programActions'
 import { alarmBehaviorAfterGesture, gateProgramAudio, isFreshScheduledEvent, iterationMuteFor, muteAfterScheduleChange, shouldSurfaceTimerSignal } from '../runtimeV2'
-import { defaultTimerV2State, migrateLegacyConfig, normalizeAvailabilityPolicy, normalizePatternProgram, normalizeSequenceProgram, normalizeSoundRef, parseTimerProgram, validOffsets } from '../timerV2'
+import { defaultTimerV2State, migrateLegacyConfig, normalizeAvailabilityPolicy, normalizePatternProgram, normalizeSequenceProgram, normalizeSoundRef, parseTimerProgram, patternDurationSeconds, sequenceStepDurationSeconds, validOffsets } from '../timerV2'
 import { cueSegmentProgress, nextPatternEvent, nextProgramEvent, nextSequenceEvent, runEndAt, timelinePosition } from '../timeline'
 import { effectiveAvailabilityForProgram, hasAvailableTime, isWithinActiveHours, nextActiveHoursStart, scheduleBoundaryMinutesForDay, scheduleRangeCountForDay, scheduleRenderedBoundaryMinutesForDay, scheduleSegmentsForDay, windowsOverlap } from '../activeHours'
 import { edgeAutoScrollStep, previewIndexForItem, previewOffsetForItem, reorderGestureIntent } from '../reorder-preview'
@@ -126,6 +126,39 @@ describe('timer v2 timeline contracts', () => {
     const final = nextSequenceEvent(sequence(), 0, first.at)
     expect(first.boundary).toBe('sequence-step')
     expect(final.boundary).toBe('sequence-cycle')
+  })
+
+  it('schedules exact second Pattern boundaries without inventing sub-minute cue cells', () => {
+    const program = normalizePatternProgram({ ...pattern(), mainDurationSeconds: 30, mainMinutes: 1 })
+    expect(patternDurationSeconds(program)).toBe(30)
+    expect(program.tracks.every(track => track.selectedOffsetsMinutes.length === 0)).toBe(true)
+    expect(nextPatternEvent(program, 1_000, 1_000).at).toBe(31_000)
+    expect(timelinePosition(program, 1_000, 16_000).cycleProgress).toBeCloseTo(0.5)
+  })
+
+  it('schedules exact second Sequence steps and bounded rounds', () => {
+    const program = normalizeSequenceProgram({
+      ...sequence(),
+      runPolicy: { kind: 'cycles', cycleCount: 2, durationSeconds: 60 },
+      steps: [
+        { ...sequence().steps[0], durationMinutes: 1, durationSeconds: 20 },
+        { ...sequence().steps[1], durationMinutes: 1, durationSeconds: 10 },
+      ],
+    })
+    expect(program.steps.map(sequenceStepDurationSeconds)).toEqual([20, 10])
+    expect(nextSequenceEvent(program, 1_000, 1_000).at).toBe(21_000)
+    expect(nextSequenceEvent(program, 1_000, 21_000).at).toBe(31_000)
+    expect(runEndAt(program, 1_000, 1_000)).toBe(61_000)
+  })
+
+  it('preserves legacy minute records and unsnaps a non-minute exact cycle', () => {
+    expect(patternDurationSeconds(normalizePatternProgram(pattern()))).toBe(30 * 60)
+    expect(sequenceStepDurationSeconds(normalizeSequenceProgram(sequence()).steps[0])).toBe(5 * 60)
+    const initial = defaultTimerV2State()
+    const snapped = { ...initial, workingPrograms: { ...initial.workingPrograms, pattern: { ...initial.workingPrograms.pattern, alignment: { kind: 'local-clock' as const, offsetMinutes: 0 } } } }
+    const exact = updatePatternMainDurationSeconds(snapped, 75)
+    expect(exact.workingPrograms.pattern.mainDurationSeconds).toBe(75)
+    expect(exact.workingPrograms.pattern.alignment.kind).toBe('elapsed')
   })
 })
 

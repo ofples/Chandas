@@ -113,6 +113,7 @@ class ChandasTimerServiceModule : Module() {
         "maxPatternTracks" to NativeTimerContract.MAX_PATTERN_TRACKS,
         "maxSequenceSteps" to NativeTimerContract.MAX_SEQUENCE_STEPS,
         "maxCueDurationMinutes" to NativeTimerContract.MAX_CUE_DURATION_MINUTES,
+        "maxCueDurationSeconds" to NativeTimerContract.MAX_CUE_DURATION_SECONDS,
         "maxRunCycles" to NativeTimerContract.MAX_RUN_CYCLES,
         "maxRunDurationSeconds" to NativeTimerContract.MAX_RUN_DURATION_SECONDS,
         "maxMuteIterations" to NativeTimerContract.MAX_MUTE_ITERATIONS,
@@ -125,6 +126,7 @@ class ChandasTimerServiceModule : Module() {
         "supportsAlarmSound" to true,
         "supportsAlarmVolume" to true,
         "supportsHapticProfiles" to true,
+        "supportsSecondPrecision" to true,
       )
     }
 

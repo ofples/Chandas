@@ -12,6 +12,7 @@ interface Props {
   mode: TimerMode
   value: RunPolicy
   cycleDurationSeconds: number
+  secondPrecision?: boolean
   onChange: (value: RunPolicy) => void
 }
 
@@ -21,7 +22,7 @@ const choices = [
   { value: 'duration', label: 'Duration' },
 ] as const
 
-export function RunLengthConfig({ mode, value, cycleDurationSeconds, onChange }: Props) {
+export function RunLengthConfig({ mode, value, cycleDurationSeconds, secondPrecision = false, onChange }: Props) {
   const { tokens } = useTheme()
   const reducedMotion = useReducedMotion()
   const summary = runLengthSummary(mode, value, cycleDurationSeconds)
@@ -32,23 +33,25 @@ export function RunLengthConfig({ mode, value, cycleDurationSeconds, onChange }:
     {value.kind !== 'continuous' ? <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 170)} exiting={FadeOut.duration(reducedMotion ? 70 : 110)} layout={reducedMotion ? undefined : LinearTransition.duration(150)}>
       {value.kind === 'cycles'
         ? <View style={styles.cycleRow}><View style={styles.valueRow}><StepButton label={mode === 'sequence' ? 'Decrease rounds' : 'Decrease cycles'} glyph="−" disabled={value.cycleCount <= 1} onPress={() => onChange({ ...value, cycleCount: value.cycleCount - 1 })} /><NumberField label={mode === 'sequence' ? 'Rounds' : 'Cycles'} value={value.cycleCount} max={MAX_RUN_CYCLES} onCommit={cycleCount => onChange({ ...value, cycleCount })} hideLabel /><StepButton label={mode === 'sequence' ? 'Increase rounds' : 'Increase cycles'} glyph="+" disabled={value.cycleCount >= MAX_RUN_CYCLES} onPress={() => onChange({ ...value, cycleCount: value.cycleCount + 1 })} /></View></View>
-        : <DurationFields seconds={value.durationSeconds} onChange={durationSeconds => onChange({ ...value, durationSeconds })} />}
+        : <DurationFields seconds={value.durationSeconds} secondPrecision={secondPrecision} onChange={durationSeconds => onChange({ ...value, durationSeconds })} />}
     </Animated.View> : null}
   </View>
 }
 
-function DurationFields({ seconds, onChange }: { seconds: number; onChange: (seconds: number) => void }) {
-  const totalMinutes = Math.max(1, Math.round(seconds / 60))
-  const hours = Math.floor(totalMinutes / 60)
-  const minutes = totalMinutes % 60
-  const update = (nextHours: number, nextMinutes: number) => {
-    const total = Math.max(60, Math.min(MAX_RUN_DURATION_SECONDS, nextHours * 3_600 + nextMinutes * 60))
+function DurationFields({ seconds, secondPrecision, onChange }: { seconds: number; secondPrecision: boolean; onChange: (seconds: number) => void }) {
+  const normalized = Math.max(1, Math.round(seconds))
+  const hours = Math.floor(normalized / 3_600)
+  const minutes = Math.floor(normalized % 3_600 / 60)
+  const remainder = normalized % 60
+  const update = (nextHours: number, nextMinutes: number, nextSeconds = secondPrecision ? remainder : 0) => {
+    const total = Math.max(secondPrecision ? 1 : 60, Math.min(MAX_RUN_DURATION_SECONDS, nextHours * 3_600 + nextMinutes * 60 + nextSeconds))
     onChange(total)
   }
   return <View style={styles.durationRow}>
     <NumberField label="Hours" value={hours} max={359} onCommit={value => update(value, minutes)} />
     <Text style={styles.colon}>:</Text>
     <NumberField label="Minutes" value={minutes} max={59} onCommit={value => update(hours, value)} />
+    {secondPrecision ? <><Text style={styles.colon}>:</Text><NumberField label="Seconds" value={remainder} max={59} onCommit={value => update(hours, minutes, value)} /></> : null}
   </View>
 }
 

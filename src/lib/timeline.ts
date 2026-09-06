@@ -1,4 +1,5 @@
 import type { PatternProgram, SequenceProgram, SoundRef, TimerMode, TimerProgram } from '../types'
+import { patternDurationSeconds, sequenceStepDurationSeconds } from './timerV2'
 
 export interface TimelineCueCandidate {
   cueId: string
@@ -58,7 +59,7 @@ function winnerForCandidates(candidates: TimelineCueCandidate[]): TimelineCueCan
 }
 
 export function nextPatternEvent(program: PatternProgram, anchor: number, now = Date.now()): ScheduledProgramEvent {
-  const duration = program.mainMinutes * MINUTE_MS
+  const duration = patternDurationSeconds(program) * 1_000
   let cycleIndex = cycleIndexAt(now, anchor, duration)
   while (true) {
     const cycleStart = anchor + cycleIndex * duration
@@ -71,6 +72,7 @@ export function nextPatternEvent(program: PatternProgram, anchor: number, now = 
       if (!track.enabled) return
       track.selectedOffsetsMinutes.forEach(offsetMinutes => {
         const at = cycleStart + offsetMinutes * MINUTE_MS
+        if (at >= mainAt) return
         const candidates = candidatesByTime.get(at) ?? []
         candidates.push({
           cueId: track.id,
@@ -104,7 +106,7 @@ export function nextPatternEvent(program: PatternProgram, anchor: number, now = 
 }
 
 export function nextSequenceEvent(program: SequenceProgram, anchor: number, now = Date.now()): ScheduledProgramEvent {
-  const offsets = program.steps.reduce<number[]>((values, step) => [...values, (values.at(-1) ?? 0) + step.durationMinutes * MINUTE_MS], [])
+  const offsets = program.steps.reduce<number[]>((values, step) => [...values, (values.at(-1) ?? 0) + sequenceStepDurationSeconds(step) * 1_000], [])
   const cycleDuration = offsets.at(-1)
   if (!cycleDuration) throw new Error('Sequence requires at least one positive-duration step')
   let cycleIndex = cycleIndexAt(now, anchor, cycleDuration)
@@ -132,8 +134,8 @@ export function nextSequenceEvent(program: SequenceProgram, anchor: number, now 
 
 export function programCycleDurationMs(program: TimerProgram): number {
   return program.mode === 'pattern'
-    ? program.mainMinutes * MINUTE_MS
-    : program.steps.reduce((total, step) => total + step.durationMinutes * MINUTE_MS, 0)
+    ? patternDurationSeconds(program) * 1_000
+    : program.steps.reduce((total, step) => total + sequenceStepDurationSeconds(step) * 1_000, 0)
 }
 
 export function runEndAt(program: TimerProgram, anchor: number, startedAt: number): number | null {
@@ -178,12 +180,12 @@ export function nextProgramEvent(program: TimerProgram, anchor: number, now = Da
 export function timelinePosition(program: TimerProgram, anchor: number, now = Date.now(), startedAt = anchor, terminalAt = runEndAt(program, anchor, startedAt)): TimelinePosition {
   const nextEvent = nextProgramEvent(program, anchor, now, startedAt, terminalAt)
   if (program.mode === 'pattern') {
-    const duration = program.mainMinutes * MINUTE_MS
+    const duration = patternDurationSeconds(program) * 1_000
     const cycleIndex = cycleIndexAt(now, anchor, duration)
     const cycleStart = anchor + cycleIndex * duration
     return { mode: 'pattern', cycleIndex, cycleProgress: Math.max(0, Math.min(1, (now - cycleStart) / duration)), nextEvent }
   }
-  const offsets = program.steps.reduce<number[]>((values, step) => [...values, (values.at(-1) ?? 0) + step.durationMinutes * MINUTE_MS], [])
+  const offsets = program.steps.reduce<number[]>((values, step) => [...values, (values.at(-1) ?? 0) + sequenceStepDurationSeconds(step) * 1_000], [])
   const total = offsets.at(-1)!
   const cycleIndex = cycleIndexAt(now, anchor, total)
   const cycleStart = anchor + cycleIndex * total

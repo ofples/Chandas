@@ -141,6 +141,7 @@ export interface NativeTimerCapabilities {
   maxPatternTracks: number
   maxSequenceSteps: number
   maxCueDurationMinutes: number
+  maxCueDurationSeconds?: number
   maxRunCycles: number
   maxRunDurationSeconds: number
   maxMuteIterations: number
@@ -153,6 +154,7 @@ export interface NativeTimerCapabilities {
   supportsAlarmSound?: boolean
   supportsAlarmVolume?: boolean
   supportsHapticProfiles?: boolean
+  supportsSecondPrecision?: boolean
 }
 
 export interface NativeFocusState {

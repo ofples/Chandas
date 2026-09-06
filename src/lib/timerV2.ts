@@ -26,6 +26,8 @@ export const MAX_PATTERN_TRACKS = 5
 export const MAX_SEQUENCE_STEPS = 20
 export const MIN_DURATION_MINUTES = 1
 export const MAX_DURATION_MINUTES = 240
+export const MIN_CUE_DURATION_SECONDS = 1
+export const MAX_CUE_DURATION_SECONDS = MAX_DURATION_MINUTES * 60
 export const MAX_RUN_CYCLES = 999
 export const MAX_RUN_DURATION_SECONDS = 359 * 3_600 + 59 * 60 + 59
 export const MAX_WEEKLY_WINDOWS = 16
@@ -60,6 +62,36 @@ export function clampDuration(value: unknown, fallback: number): number {
   return clamp(whole(value, fallback), MIN_DURATION_MINUTES, MAX_DURATION_MINUTES)
 }
 
+export function clampCueDurationSeconds(value: unknown, fallback: number): number {
+  return clamp(whole(value, fallback), MIN_CUE_DURATION_SECONDS, MAX_CUE_DURATION_SECONDS)
+}
+
+/** Canonical exact duration with a safe fallback for pre-feature records. */
+export function patternDurationSeconds(program: Pick<PatternProgram, 'mainMinutes' | 'mainDurationSeconds'>): number {
+  return clampCueDurationSeconds(program.mainDurationSeconds, clampDuration(program.mainMinutes, 30) * 60)
+}
+
+/** Canonical exact duration with a safe fallback for pre-feature records. */
+export function sequenceStepDurationSeconds(step: Pick<SequenceStep, 'durationMinutes' | 'durationSeconds'>): number {
+  return clampCueDurationSeconds(step.durationSeconds, clampDuration(step.durationMinutes, 5) * 60)
+}
+
+export function durationMinutesProjection(seconds: number): number {
+  return clampDuration(Math.ceil(clampCueDurationSeconds(seconds, 60) / 60), 1)
+}
+
+export function formatCompactDurationSeconds(value: number): string {
+  const seconds = Math.max(1, Math.round(value))
+  const hours = Math.floor(seconds / 3_600)
+  const minutes = Math.floor((seconds % 3_600) / 60)
+  const remainder = seconds % 60
+  const parts: string[] = []
+  if (hours) parts.push(`${hours}hr`)
+  if (minutes) parts.push(`${minutes}m`)
+  if (remainder || parts.length === 0) parts.push(`${remainder}s`)
+  return parts.join(' ')
+}
+
 export function clampSnapOffset(value: unknown, fallback = 0): number {
   return clamp(whole(value, fallback), 0, 59)
 }
@@ -84,10 +116,14 @@ export function createProgramId(): string {
 }
 
 export function validOffsets(mainMinutes: number, cadenceMinutes: number): number[] {
-  const main = clampDuration(mainMinutes, 30)
+  return validOffsetsForDuration(clampDuration(mainMinutes, 30) * 60, cadenceMinutes)
+}
+
+export function validOffsetsForDuration(mainDurationSeconds: number, cadenceMinutes: number): number[] {
+  const main = clampCueDurationSeconds(mainDurationSeconds, 30 * 60)
   const cadence = clampDuration(cadenceMinutes, 1)
   const offsets: number[] = []
-  for (let offset = cadence; offset < main; offset += cadence) offsets.push(offset)
+  for (let offset = cadence; offset * 60 < main; offset += cadence) offsets.push(offset)
   return offsets
 }
 
@@ -97,6 +133,7 @@ export function defaultPatternProgram(): PatternProgram {
     mode: 'pattern',
     label: 'Main Interval',
     mainMinutes: 30,
+    mainDurationSeconds: 30 * 60,
     mainCue: defaultCue('temple-gong'),
     completionCue: null,
     subBellsEnabled: false,
@@ -116,7 +153,7 @@ export function defaultPatternProgram(): PatternProgram {
 
 export function defaultSequenceProgram(): SequenceProgram {
   const step = (durationMinutes: number, label: string, sound: BuiltInSoundId, volume: number): SequenceStep => ({
-    id: createProgramId(), durationMinutes, label, sound: builtIn(sound), volume,
+    id: createProgramId(), durationMinutes, durationSeconds: durationMinutes * 60, label, sound: builtIn(sound), volume,
   })
   return {
     schemaVersion: TIMER_V2_SCHEMA_VERSION,
@@ -149,6 +186,7 @@ export function defaultAppTimerSettings(): AppTimerSettings {
   return {
     masterVolume: 0.8,
     advancedModeEnabled: false,
+    secondPrecisionEnabled: false,
     alarmSound: builtIn('alarm-tone'),
     alarmVolume: 1,
     haptics: defaultTimerHapticsSettings(),
@@ -200,13 +238,12 @@ export function normalizeSoundRef(value: unknown, fallback: SoundRef): SoundRef 
   return fallback
 }
 
-export function normalizeTrack(track: Partial<PatternTrack>, mainMinutes: number, fallbackLabel = 'Sub-bell', fallbackColorIndex = 0): PatternTrack {
-  const main = clampDuration(mainMinutes, 30)
+export function normalizeTrack(track: Partial<PatternTrack>, mainMinutes: number, fallbackLabel = 'Sub-bell', fallbackColorIndex = 0, mainDurationSeconds = mainMinutes * 60): PatternTrack {
   const cadence = clampDuration(track.cadenceMinutes, 1)
   const selected = Array.isArray(track.selectedOffsetsMinutes) ? track.selectedOffsetsMinutes.slice(0, MAX_DURATION_MINUTES - 1) : []
   const selectedOffsetsMinutes = [...new Set(selected
     .map(value => whole(value, -1))
-    .filter(value => value > 0 && value < main && value % cadence === 0))]
+    .filter(value => value > 0 && value * 60 < mainDurationSeconds && value % cadence === 0))]
     .sort((a, b) => a - b)
   return {
     id: typeof track.id === 'string' && track.id.length > 0 && track.id.length <= MAX_ID_CHARACTERS ? track.id : createProgramId(),
@@ -220,11 +257,12 @@ export function normalizeTrack(track: Partial<PatternTrack>, mainMinutes: number
 }
 
 export function normalizePatternProgram(value: Partial<PatternProgram> | undefined): PatternProgram {
-  const mainMinutes = clampDuration(value?.mainMinutes, 30)
+  const mainDurationSeconds = clampCueDurationSeconds(value?.mainDurationSeconds, clampDuration(value?.mainMinutes, 30) * 60)
+  const mainMinutes = durationMinutesProjection(mainDurationSeconds)
   const rawTracks = Array.isArray(value?.tracks) ? value.tracks : []
   const trackIds = new Set<string>()
   const tracks = rawTracks.slice(0, MAX_PATTERN_TRACKS).map((track, index) => {
-    const normalized = normalizeTrack(track, mainMinutes, `Sub-bell ${index + 1}`, index)
+    const normalized = normalizeTrack(track, mainMinutes, `Sub-bell ${index + 1}`, index, mainDurationSeconds)
     if (trackIds.has(normalized.id)) normalized.id = createProgramId()
     trackIds.add(normalized.id)
     return normalized
@@ -232,13 +270,14 @@ export function normalizePatternProgram(value: Partial<PatternProgram> | undefin
   tracks.forEach((track, index) => {
     if (/^Sub-bell \d+$/.test(track.label)) track.label = `Sub-bell ${index + 1}`
   })
-  const offset = value?.alignment?.kind === 'local-clock' ? clampSnapOffset(value.alignment.offsetMinutes) : undefined
+  const offset = value?.alignment?.kind === 'local-clock' && mainDurationSeconds % 60 === 0 ? clampSnapOffset(value.alignment.offsetMinutes) : undefined
   const label = normalizeLabel(value?.label, 'Main Interval')
   return {
     schemaVersion: TIMER_V2_SCHEMA_VERSION,
     mode: 'pattern',
     label: label === 'Main interval' ? 'Main Interval' : label,
     mainMinutes,
+    ...(typeof value?.mainDurationSeconds === 'number' ? { mainDurationSeconds } : {}),
     mainCue: normalizeCue(value?.mainCue, defaultCue('temple-gong')),
     completionCue: value?.completionCue ? normalizeCue(value.completionCue, defaultCue('temple-gong')) : null,
     subBellsEnabled: typeof value?.subBellsEnabled === 'boolean' ? value.subBellsEnabled : tracks.some(track => track.enabled),
@@ -255,7 +294,8 @@ export function normalizeSequenceProgram(value: Partial<SequenceProgram> | undef
     let id = typeof step.id === 'string' && step.id.length > 0 && step.id.length <= MAX_ID_CHARACTERS ? step.id : createProgramId()
     if (stepIds.has(id)) id = createProgramId()
     stepIds.add(id)
-    return { id, durationMinutes: clampDuration(step.durationMinutes, 5), label: normalizeLabel(step.label, `Step ${index + 1}`), ...normalizeCue(step, defaultCue('clear-bell')) }
+    const durationSeconds = clampCueDurationSeconds(step.durationSeconds, clampDuration(step.durationMinutes, 5) * 60)
+    return { id, durationMinutes: durationMinutesProjection(durationSeconds), ...(typeof step.durationSeconds === 'number' ? { durationSeconds } : {}), label: normalizeLabel(step.label, `Step ${index + 1}`), ...normalizeCue(step, defaultCue('clear-bell')) }
   })
   return {
     schemaVersion: TIMER_V2_SCHEMA_VERSION,
@@ -358,6 +398,7 @@ export function migrateLegacyConfig(legacy: Partial<TimerConfig>): TimerV2State 
     mode: 'pattern',
     label: 'Main Interval',
     mainMinutes,
+    mainDurationSeconds: mainMinutes * 60,
     mainCue: defaultCue('temple-gong'),
     completionCue: null,
     subBellsEnabled: legacy.subEnabled !== false,
@@ -380,6 +421,7 @@ export function migrateLegacyConfig(legacy: Partial<TimerConfig>): TimerV2State 
     settings: {
       masterVolume: clampVolume(legacy.volume, defaults.masterVolume),
       advancedModeEnabled: false,
+      secondPrecisionEnabled: false,
       alarmSound: defaults.alarmSound,
       alarmVolume: defaults.alarmVolume,
       haptics: defaults.haptics,

@@ -1,5 +1,6 @@
 import type { AlarmBehavior, TimerProgram } from '../types'
 import type { ScheduledProgramEvent } from './timeline'
+import { patternDurationSeconds, sequenceStepDurationSeconds } from './timerV2'
 
 export interface IterationMute {
   /** The final main/cycle boundary that remains audible and clears mute. */
@@ -70,13 +71,13 @@ function cycleIndexAt(now: number, anchor: number, cycleMs: number): number {
 export function iterationMuteFor(program: TimerProgram, anchor: number, now: number, count: number): IterationMute {
   const iterations = Math.max(1, Math.min(99, Math.round(count)))
   if (program.mode === 'pattern') {
-    const cycleMs = program.mainMinutes * 60_000
+    const cycleMs = patternDurationSeconds(program) * 1_000
     const currentCycle = cycleIndexAt(now, anchor, cycleMs)
     const nextMainCycle = anchor + (currentCycle + 1) * cycleMs <= now ? currentCycle + 1 : currentCycle
     const endingCycle = nextMainCycle + iterations - 1
     return { endsAtLogicalId: `pattern:${anchor}:${endingCycle}:main`, endsAt: anchor + (endingCycle + 1) * cycleMs, iterations }
   }
-  const cycleMs = program.steps.reduce((total, step) => total + step.durationMinutes * 60_000, 0)
+  const cycleMs = program.steps.reduce((total, step) => total + sequenceStepDurationSeconds(step) * 1_000, 0)
   const currentCycle = cycleIndexAt(now, anchor, cycleMs)
   const nextCycle = anchor + (currentCycle + 1) * cycleMs <= now ? currentCycle + 1 : currentCycle
   const endingCycle = nextCycle + iterations - 1

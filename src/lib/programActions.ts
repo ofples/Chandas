@@ -13,6 +13,7 @@ import type {
 import {
   MAX_PATTERN_TRACKS,
   MAX_SEQUENCE_STEPS,
+  clampCueDurationSeconds,
   clampDuration,
   clampVolume,
   createProgramId,
@@ -21,7 +22,10 @@ import {
   normalizeLabel,
   normalizePatternProgram,
   normalizeSequenceProgram,
+  durationMinutesProjection,
+  patternDurationSeconds,
   validOffsets,
+  validOffsetsForDuration,
 } from './timerV2'
 import { defaultSubBellColor } from './subBellColors'
 
@@ -76,15 +80,28 @@ export function updatePattern(state: TimerV2State, update: (program: PatternProg
 }
 
 export function updatePatternMainMinutes(state: TimerV2State, minutes: number): TimerV2State {
+  const pattern = state.workingPrograms.pattern
+  const minuteCanonicalState: TimerV2State = {
+    ...state,
+    workingPrograms: { ...state.workingPrograms, pattern: { ...pattern, mainDurationSeconds: pattern.mainMinutes * 60 } },
+  }
+  return updatePatternMainDurationSeconds(minuteCanonicalState, clampDuration(minutes, pattern.mainMinutes) * 60)
+}
+
+export function updatePatternMainDurationSeconds(state: TimerV2State, seconds: number): TimerV2State {
   return updatePattern(state, program => {
-    const mainMinutes = clampDuration(minutes, program.mainMinutes)
+    const previousDurationSeconds = patternDurationSeconds(program)
+    const mainDurationSeconds = clampCueDurationSeconds(seconds, previousDurationSeconds)
+    const mainMinutes = durationMinutesProjection(mainDurationSeconds)
     return {
       ...program,
       mainMinutes,
+      mainDurationSeconds,
+      alignment: mainDurationSeconds % 60 === 0 ? program.alignment : { kind: 'elapsed' },
       tracks: program.tracks.map(track => {
-        const previousOffsets = validOffsets(program.mainMinutes, track.cadenceMinutes)
-        const nextOffsets = validOffsets(mainMinutes, track.cadenceMinutes)
-        if (mainMinutes <= program.mainMinutes) return { ...track, selectedOffsetsMinutes: track.selectedOffsetsMinutes.filter(offset => nextOffsets.includes(offset)) }
+        const previousOffsets = validOffsetsForDuration(previousDurationSeconds, track.cadenceMinutes)
+        const nextOffsets = validOffsetsForDuration(mainDurationSeconds, track.cadenceMinutes)
+        if (mainDurationSeconds <= previousDurationSeconds) return { ...track, selectedOffsetsMinutes: track.selectedOffsetsMinutes.filter(offset => nextOffsets.includes(offset)) }
         const selected = new Set(track.selectedOffsetsMinutes)
         if (previousOffsets.length === 0 || previousOffsets.every(offset => selected.has(offset))) return { ...track, selectedOffsetsMinutes: nextOffsets }
         const selectedPattern = previousOffsets.map(offset => selected.has(offset))
@@ -195,6 +212,7 @@ export function addSequenceStep(state: TimerV2State): TimerV2State {
       id: createProgramId(),
       label: `Step ${program.steps.length + 1}`,
       durationMinutes: 5,
+      durationSeconds: 5 * 60,
       sound: { kind: 'builtin', id: 'clear-bell' },
       volume: 0.8,
     }
@@ -221,7 +239,12 @@ export function patchSequenceStep(state: TimerV2State, stepId: string, patch: Pa
     steps: program.steps.map(step => step.id === stepId ? {
       ...step,
       ...patch,
-      durationMinutes: patch.durationMinutes === undefined ? step.durationMinutes : clampDuration(patch.durationMinutes, step.durationMinutes),
+      durationSeconds: patch.durationSeconds === undefined
+        ? patch.durationMinutes === undefined ? step.durationSeconds : clampDuration(patch.durationMinutes, step.durationMinutes) * 60
+        : clampCueDurationSeconds(patch.durationSeconds, step.durationSeconds ?? step.durationMinutes * 60),
+      durationMinutes: patch.durationSeconds !== undefined
+        ? durationMinutesProjection(patch.durationSeconds)
+        : patch.durationMinutes === undefined ? step.durationMinutes : clampDuration(patch.durationMinutes, step.durationMinutes),
       volume: patch.volume === undefined ? step.volume : clampVolume(patch.volume, step.volume),
       label: patch.label === undefined ? step.label : normalizeLabel(patch.label, step.label),
     } : step),

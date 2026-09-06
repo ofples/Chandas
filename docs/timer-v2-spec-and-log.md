@@ -360,7 +360,7 @@ Run length is configured independently for Pattern and Sequence and is included 
 - `Cycles` accepts a whole number from 1–999.
   - Pattern copy uses `main cycles`.
   - Sequence copy uses `rounds`, with `cycle` retained in Help as the formal term.
-- `Duration` accepts hours and minutes and normalizes them to a whole-minute total from 1 minute through 359:59. The domain/native representation remains seconds for compatibility, always as a multiple of 60 when edited by this UI.
+- `Duration` accepts hours and minutes in the default minute-first UI. When Advanced Second precision is enabled, it also exposes seconds and accepts values from 1 second through 359:59:59. The domain/native representation is always seconds.
 - Switching between choices preserves the most recently entered valid cycle count and duration so experimentation is reversible; only the selected policy is scheduled.
 - The setup summary states the concrete outcome, for example `Ends after 6 main cycles · 3:00:00` or `Ends after 45:00`.
 - Start is unavailable only while the selected bound is invalid. Validation is local, calm, and specific; it never erases the user's last valid value.
@@ -628,6 +628,7 @@ interface PatternProgram {
   mode: 'pattern'
   label: string
   mainMinutes: number
+  mainDurationSeconds?: number // canonical when present; legacy fallback is mainMinutes × 60
   mainCue: CueSettings
   completionCue: CueSettings | null
   tracks: PatternTrack[]
@@ -640,6 +641,7 @@ interface PatternProgram {
 interface SequenceStep extends CueSettings {
   id: string
   durationMinutes: number
+  durationSeconds?: number // canonical when present; legacy fallback is durationMinutes × 60
   label: string
 }
 
@@ -679,6 +681,7 @@ Common/global settings remain separate:
 interface AppTimerSettings {
   masterVolume: number
   advancedModeEnabled: boolean
+  secondPrecisionEnabled: boolean
   alarmSound: SoundRef
   alarmVolume: number
   notificationsEnabled: boolean
@@ -728,12 +731,12 @@ interface NativeFocusState {
 
 Validation:
 
-- Minutes are positive integers.
-- Main and step durations remain within 1–240 minutes unless a future decision changes the existing bound.
+- Minute-based cadence and cue-position values are positive integers.
+- Main and step durations are whole seconds from 1 through 14,400 (240 minutes). Their minute projections remain within 1–240 for legacy compatibility.
 - Pattern cadence is 1–240 minutes. A cadence may exceed the current main duration; its selectable offset lattice is then empty until the main duration grows again.
 - Track count is 0–5.
 - Sequence step count is 1–20.
-- Offsets are unique within a track and satisfy `offset % cadence === 0` and `0 < offset < mainMinutes`.
+- Offsets are unique within a track and satisfy `offset % cadence === 0` and `offset × 60 < mainDurationSeconds`.
 - Volumes are finite and clamped to 0–1.
 - Labels are trimmed and at most 60 Unicode characters.
 - Preset names are trimmed, non-empty, and at most 80 Unicode characters.
@@ -1437,6 +1440,7 @@ Do not edit old entries to reflect new conclusions. Add a superseding entry and 
 | 2026-09-06 | D-107 | Accepted | Explain Run length as a live outcome instead of a generic instruction plus a second computed caption. In Cycle, place a `Main interval` row title immediately above the duration choices, then show one sentence beneath those choices: `Keeps running continuously.`, `Runs for N cycle(s) = …`, or `Runs for …`. Sequence uses `round(s)` and places the same outcome after its step list. The sentence precedes the policy selector, updates politely for assistive technology, and replaces the former `MAIN CYCLES`/`ROUNDS` equivalent caption. This supersedes the copy and caption portions of D-056, D-062, D-065, and D-090. |
 | 2026-09-06 | D-108 | Accepted | Every sound editor, including Alarm sound, exposes the same selected-sound, cue-volume, full-width slider, and preview treatment. Keep the Alarm volume visible and saved on older shared-runtime binaries even when native background playback cannot yet consume it; foreground preview uses it immediately and the next contract-v5 binary applies it to background alarms. Remove purely repetitive sheet eyebrows (`Saved setups`, `How it works`, and `Clock`) while retaining labels that convey state or control meaning, such as `Step N of N`, `Cue volume`, and `Mute for`. This supersedes D-104's requirement to hide Alarm volume on older binaries. |
 | 2026-09-06 | D-109 | Accepted | Haptics are one Advanced setting with a global switch and three saved profiles: Main timer, Sub-bells, and Alarm. Each profile offers Single, Double, or Triple patterns and Gentle, Balanced, or Strong intensity with an explicit one-group preview. Main covers main gongs and Sequence boundaries; Sub-bells covers Pattern offset cues. Alarm repeats the chosen group with a 650 ms pause until dismissal. App taps have no separate profile and simply obey the global switch. Android exact/background delivery and amplitude-aware waveforms require advertised contract-v6 support; older native binaries hide the setting rather than implying unsupported behavior. |
+| 2026-09-06 | D-110 | Accepted | Second precision is one capability-gated Advanced preference, not a new timer mode. Off preserves the existing minute-first setup; On adds seconds to custom Cycle, Sequence-step, and bounded-duration editors. Exact seconds are additive canonical fields with legacy minute projections, remain intact in presets and runtime restoration, and drive every JS/native boundary, progress, mute, and run-end calculation. Sub-bell cadence and cue positions remain minute-based to keep their grid comprehensible. A non-whole-minute Cycle automatically uses elapsed timing because the current wall-clock phase UI is minute-based. This supersedes D-056's and section 7.3's whole-minute UI restriction. |
 
 ### Decision-entry template
 
@@ -2604,6 +2608,31 @@ This section is append-only. Every implementation session should record scope, m
 
 **Risks or follow-ups:** Perceived intensity varies by actuator and OEM. The rhythm is the stable cross-device contract; Gentle/Balanced/Strong are best-effort levels, with graceful full-strength fallback where Android reports no amplitude control.
 
+### 2026-09-06 — Advanced second precision
+
+**Status:** Complete in source; a contract-v7 Android build and physical-device verification remain required.
+
+**Scope:** Optional seconds in Cycle, Sequence, and bounded-run durations; compatible persistence; exact JS/native scheduling; summaries, visualizers, progress, mute bounds, and capability gating.
+
+**Decision referenced:** D-110.
+
+**Behavior implemented:**
+
+- Added one flat `Second precision` switch to Advanced settings. With it off, existing minute presets and custom inputs are unchanged. With it on, custom elapsed-duration sheets and bounded-duration controls expose Hours, Minutes, and Seconds.
+- Added optional canonical `mainDurationSeconds` and per-step `durationSeconds` fields. Older programs without them continue to derive exact minute multiples from `mainMinutes` and `durationMinutes`; saved configurations preserve either representation.
+- Routed Pattern events, Sequence boundaries, iteration mute, run-cycle bounds, countdowns, progress rings, Sequence totals, running next-step copy, and saved-configuration visuals through shared exact-duration accessors.
+- Kept Sub-bell cadence and selected cue offsets in minutes. Cues that no longer fit strictly inside a short exact Cycle are removed through the existing guarded shortening flow; a sub-minute Cycle therefore has no misleading cue cells.
+- Automatically changes a non-whole-minute Cycle to elapsed alignment. Whole-minute Cycles retain the existing timezone/DST-aware wall-clock behavior.
+- Extended the Android timeline and safety validation with additive exact-second fields and contract-v7 capability advertising. Older binaries ignore the new fields but do not expose the control, preventing a UI promise their scheduler cannot honor.
+
+**Migration impact:** Existing records are not destructively rewritten. Normalization accepts absent exact fields and falls back to the prior minute values. App settings gain one default-off boolean. New Android runtime capability is required for the Advanced control on-device.
+
+**Verification run:** TypeScript compilation, all 94 Vitest tests, whitespace validation, static Android timeline review, and Expo Web interaction covering enablement, a 30-second Cycle, exact summaries, cue removal, bounded-run seconds, and Sequence custom-duration presentation. Local native compilation was not run because repository policy prohibits native builds on this computer.
+
+**Native/on-device verification still required:** On the next remote Android build, run 30-second and 1:15 Cycles in foreground/background/screen-off states; verify a 20s/10s Sequence over multiple rounds; test bounded completion, mute-for-cycle, process restoration, alarm behavior, notification countdown, and editing while running. Confirm selecting a non-minute Cycle visibly turns off clock alignment and returning to a whole-minute preset permits it again.
+
+**Risks or follow-ups:** Second-level Sub-bell cue placement is intentionally out of scope; supporting it later needs a different compact editor rather than expanding the current minute grid. Android's exact-alarm permission and OEM scheduling policy remain the platform prerequisites for screen-off precision.
+
 ### Implementation-entry template
 
 ```md
@@ -2663,3 +2692,4 @@ This section is append-only. Every implementation session should record scope, m
 | 3.4 | 2026-09-06 | Reframed run length as a live plain-language outcome beneath the interval it depends on, restored the Cycle `Main interval` entry label, and removed duplicate computed captions. |
 | 3.5 | 2026-09-06 | Unified Alarm sound with the shared cue-level editor, kept its saved level visible on the pinned runtime line, and removed repetitive modal eyebrows. |
 | 3.6 | 2026-09-06 | Added one Advanced Haptics control with saved Main/Sub-bell/Alarm patterns and strengths, global interface-feedback opt-out, amplitude-aware native cue waveforms, and repeat-until-dismissed Alarm vibration under contract v6. |
+| 3.7 | 2026-09-06 | Added capability-gated Advanced second precision for Cycle, Sequence, and bounded runs, with compatible exact-duration persistence and contract-v7 native scheduling. |

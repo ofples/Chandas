@@ -64,6 +64,31 @@ class TimerV2TimelineTest {
     }
   }
 
+  @Test fun exactSecondDurationsDrivePatternAndSequenceBoundaries() {
+    val pattern = JSONObject(fixtures.getJSONObject("patternCollision").getJSONObject("program").toString())
+      .put("mainMinutes", 1)
+      .put("mainDurationSeconds", 30)
+      .put("tracks", org.json.JSONArray())
+    assertTrue(TimerV2Timeline.isValid(pattern.toString()))
+    assertEquals(31_000L, requireNotNull(TimerV2Timeline.next(pattern.toString(), 1_000L, 1_000L)).at)
+
+    val sequence = JSONObject(fixtures.getJSONObject("sequence").getJSONObject("program").toString())
+    sequence.getJSONArray("steps").getJSONObject(0).put("durationMinutes", 1).put("durationSeconds", 20)
+    sequence.getJSONArray("steps").getJSONObject(1).put("durationMinutes", 1).put("durationSeconds", 10)
+    assertTrue(TimerV2Timeline.isValid(sequence.toString()))
+    assertEquals(21_000L, requireNotNull(TimerV2Timeline.next(sequence.toString(), 1_000L, 1_000L)).at)
+    assertEquals(31_000L, requireNotNull(TimerV2Timeline.next(sequence.toString(), 1_000L, 21_000L)).at)
+  }
+
+  @Test fun localClockAlignmentRejectsNonMinuteCycles() {
+    val root = JSONObject(fixtures.getJSONObject("patternCollision").getJSONObject("program").toString())
+    root.put("mainMinutes", 2).put("mainDurationSeconds", 75).put("tracks", org.json.JSONArray())
+    root.put("alignment", JSONObject().put("kind", "local-clock").put("offsetMinutes", 0))
+    assertFalse(TimerV2Timeline.isValid(root.toString()))
+    root.put("alignment", JSONObject().put("kind", "elapsed"))
+    assertTrue(TimerV2Timeline.isValid(root.toString()))
+  }
+
   @Test fun rejectsFutureSchemaAndDuplicateIds() {
     val valid = fixtures.getJSONObject("sequence").getJSONObject("program")
     assertFalse(TimerV2Timeline.isValid(JSONObject(valid.toString()).put("schemaVersion", 99).toString()))

@@ -12,6 +12,7 @@ import { clearTimerV2Session, saveTimerV2Session } from '../lib/storage'
 import { ChandasTimerService, isNativeServiceAvailable, type NativeTimerConfig } from '../native/ChandasTimerService'
 import { selectionHaptic, startRepeatingAlarmHaptic, stopRepeatingAlarmHaptic, tapHaptic, timerCueHaptic } from '../lib/haptics'
 import { alignedClockAnchor } from '../lib/clockAlignment'
+import { patternDurationSeconds, sequenceStepDurationSeconds } from '../lib/timerV2'
 
 const KEEP_AWAKE_TAG = 'chandas-running-v2'
 const ALARM_SOURCE = require('../../assets/sounds/alarm.mp3')
@@ -107,7 +108,7 @@ function displayFor(program: TimerProgram, settings: AppTimerSettings, anchor: n
     }
   }
   const mainCountdown = program.mode === 'pattern'
-    ? formatCountdown(anchor + (position.cycleIndex + 1) * program.mainMinutes * 60_000 - now)
+    ? formatCountdown(anchor + (position.cycleIndex + 1) * patternDurationSeconds(program) * 1_000 - now)
     : formatCountdown(next.at - now)
   return {
     mainCountdown,
@@ -132,8 +133,8 @@ function nativeConfigFor(program: TimerProgram, settings: AppTimerSettings, anch
     ? { ...program, tracks: program.tracks.map(track => ({ ...track, enabled: false })) }
     : program
   const mainMs = program.mode === 'pattern'
-    ? program.mainMinutes * 60_000
-    : program.steps.reduce((sum, step) => sum + step.durationMinutes * 60_000, 0)
+    ? patternDurationSeconds(program) * 1_000
+    : program.steps.reduce((sum, step) => sum + sequenceStepDurationSeconds(step) * 1_000, 0)
   const availability = effectiveAvailabilityForProgram(program, settings.availability)
   const capabilities = ChandasTimerService.getCapabilities()
   return {
@@ -189,7 +190,7 @@ function builtInSoundsFor(program: TimerProgram, alarmSound: SoundRef): BuiltInS
 }
 
 function alignedAnchorForStart(program: TimerProgram, now: number): number {
-  if (program.mode !== 'pattern' || program.alignment.kind !== 'local-clock') return now
+  if (program.mode !== 'pattern' || program.alignment.kind !== 'local-clock' || patternDurationSeconds(program) % 60 !== 0) return now
   return alignedClockAnchor(program.mainMinutes, program.alignment.offsetMinutes, now)
 }
 

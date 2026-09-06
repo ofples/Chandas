@@ -17,5 +17,7 @@ describe('runLengthSummary', () => {
 
   it('describes an exact-duration run directly', () => {
     expect(runLengthSummary('pattern', { kind: 'duration', cycleCount: 3, durationSeconds: 2_700 }, 1_800)).toBe('Runs for 45m.')
+    expect(runLengthSummary('pattern', { kind: 'duration', cycleCount: 3, durationSeconds: 75 }, 1_800)).toBe('Runs for 1m 15s.')
+    expect(runLengthSummary('sequence', { kind: 'cycles', cycleCount: 3, durationSeconds: 75 }, 30)).toBe('Runs for 3 rounds = 1m 30s.')
   })
 })

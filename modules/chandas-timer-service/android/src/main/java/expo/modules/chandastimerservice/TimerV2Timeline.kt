@@ -43,6 +43,7 @@ object TimerV2Timeline {
   private const val MAX_TRACKS = NativeTimerContract.MAX_PATTERN_TRACKS
   private const val MAX_STEPS = NativeTimerContract.MAX_SEQUENCE_STEPS
   private const val MAX_DURATION_MINUTES = NativeTimerContract.MAX_CUE_DURATION_MINUTES
+  private const val MAX_DURATION_SECONDS = NativeTimerContract.MAX_CUE_DURATION_SECONDS
   private const val MAX_RUN_CYCLES = NativeTimerContract.MAX_RUN_CYCLES
   private const val MAX_RUN_DURATION_SECONDS = NativeTimerContract.MAX_RUN_DURATION_SECONDS
   private const val MAX_PROGRAM_CHARACTERS = NativeTimerContract.MAX_PROGRAM_CHARACTERS
@@ -98,7 +99,7 @@ object TimerV2Timeline {
     val iterations = count.coerceIn(1, NativeTimerContract.MAX_MUTE_ITERATIONS)
     when (root.optString("mode")) {
       "pattern" -> {
-        val duration = root.optInt("mainMinutes", 0).toLong() * MINUTE
+        val duration = patternDuration(root)
         if (duration <= 0L) null else {
           val current = cycleAt(now, anchor, duration)
           val ending = current + iterations - 1
@@ -124,8 +125,9 @@ object TimerV2Timeline {
     if (root.optString("mode") != "pattern") return@runCatching null
     val alignment = root.optJSONObject("alignment") ?: return@runCatching null
     if (alignment.optString("kind") != "local-clock") return@runCatching null
-    val mainMinutes = root.optInt("mainMinutes", 0)
-    if (mainMinutes <= 0) return@runCatching null
+    val duration = patternDuration(root)
+    if (duration <= 0L || duration % MINUTE != 0L) return@runCatching null
+    val mainMinutes = (duration / MINUTE).toInt()
     val calendar = Calendar.getInstance().apply { timeInMillis = now }
     val minuteOfDay = calendar.get(Calendar.HOUR_OF_DAY) * 60 + calendar.get(Calendar.MINUTE)
     val offset = alignment.optInt("offsetMinutes", 0)
@@ -135,13 +137,14 @@ object TimerV2Timeline {
 
   fun isLocalClock(serialized: String): Boolean = runCatching {
     val root = JSONObject(serialized)
-    root.optString("mode") == "pattern" && root.optJSONObject("alignment")?.optString("kind") == "local-clock"
+    val duration = patternDuration(root)
+    root.optString("mode") == "pattern" && duration > 0L && duration % MINUTE == 0L && root.optJSONObject("alignment")?.optString("kind") == "local-clock"
   }.getOrDefault(false)
 
   fun cycleDuration(serialized: String): Long? = runCatching {
     val root = JSONObject(serialized)
     when (root.optString("mode")) {
-      "pattern" -> root.optInt("mainMinutes", 0).toLong().times(MINUTE).takeIf { it > 0L }
+      "pattern" -> patternDuration(root).takeIf { it > 0L }
       "sequence" -> sequenceDuration(root.optJSONArray("steps") ?: return@runCatching null).takeIf { it > 0L }
       else -> null
     }
@@ -194,8 +197,7 @@ object TimerV2Timeline {
   }
 
   private fun nextPattern(root: JSONObject, anchor: Long, now: Long): TimerV2Event? {
-    val mainMinutes = root.optInt("mainMinutes", 0)
-    val duration = mainMinutes.toLong() * MINUTE
+    val duration = patternDuration(root)
     if (duration <= 0L) return null
     val tracks = root.optJSONArray("tracks") ?: JSONArray()
     var cycle = cycleAt(now, anchor, duration)
@@ -209,7 +211,7 @@ object TimerV2Timeline {
         val offsets = track.optJSONArray("selectedOffsetsMinutes") ?: continue
         for (offsetIndex in 0 until offsets.length()) {
           val offset = offsets.optInt(offsetIndex, -1)
-          if (offset <= 0 || offset >= mainMinutes) continue
+          if (offset <= 0 || offset * MINUTE >= duration) continue
           candidates.getOrPut(start + offset * MINUTE) { mutableListOf() }.add(Candidate(track.optString("id", "track:$trackIndex"), "pattern-track", false, trackIndex, track.optInt("cadenceMinutes", 0), cueSound(track), cueVolume(track)))
         }
       }
@@ -243,7 +245,7 @@ object TimerV2Timeline {
       var elapsed = 0L
       for (index in 0 until steps.length()) {
         val step = steps.optJSONObject(index) ?: continue
-        elapsed += step.optInt("durationMinutes", 0).toLong() * MINUTE
+        elapsed += stepDuration(step)
         if (start + elapsed > now) {
           val winner = TimerV2Candidate(step.optString("id", "step:$index"), "sequence-step", cueSound(step), cueVolume(step))
           return TimerV2Event(
@@ -260,7 +262,9 @@ object TimerV2Timeline {
     return null
   }
 
-  private fun sequenceDuration(steps: JSONArray): Long = (0 until steps.length()).sumOf { index -> steps.optJSONObject(index)?.optInt("durationMinutes", 0)?.toLong()?.times(MINUTE) ?: 0L }
+  private fun patternDuration(root: JSONObject): Long = if (root.has("mainDurationSeconds")) root.optLong("mainDurationSeconds", 0L) * 1_000L else root.optInt("mainMinutes", 0).toLong() * MINUTE
+  private fun stepDuration(step: JSONObject): Long = if (step.has("durationSeconds")) step.optLong("durationSeconds", 0L) * 1_000L else step.optInt("durationMinutes", 0).toLong() * MINUTE
+  private fun sequenceDuration(steps: JSONArray): Long = (0 until steps.length()).sumOf { index -> steps.optJSONObject(index)?.let(::stepDuration) ?: 0L }
   private fun cycleAt(now: Long, anchor: Long, duration: Long): Long = max(0L, Math.floorDiv(now - anchor, duration))
   private fun cueSound(cue: JSONObject?): String {
     val sound = cue?.optJSONObject("sound") ?: return "clear-bell"
@@ -281,7 +285,7 @@ object TimerV2Timeline {
       "cycles" -> {
         val count = policy.optInt("cycleCount", 0)
         val duration = when (root.optString("mode")) {
-          "pattern" -> root.optInt("mainMinutes", 0).toLong() * MINUTE
+          "pattern" -> patternDuration(root)
           "sequence" -> sequenceDuration(root.optJSONArray("steps") ?: return null)
           else -> return null
         }
@@ -317,9 +321,10 @@ object TimerV2Timeline {
 
   private fun validatePattern(root: JSONObject): Boolean {
     val mainMinutes = root.optInt("mainMinutes", -1)
+    val mainDurationSeconds = if (root.has("mainDurationSeconds")) root.optLong("mainDurationSeconds", -1L) else mainMinutes.toLong() * 60L
     val label = root.optString("label")
     if (root.has("label") && (label.isBlank() || label.codePointCount(0, label.length) > 60)) return false
-    if (mainMinutes !in 1..MAX_DURATION_MINUTES || !validCue(root.optJSONObject("mainCue")) || !validOptionalCompletionCue(root)) return false
+    if (mainMinutes !in 1..MAX_DURATION_MINUTES || mainDurationSeconds !in 1L..MAX_DURATION_SECONDS || mainMinutes != ((mainDurationSeconds + 59L) / 60L).toInt() || !validCue(root.optJSONObject("mainCue")) || !validOptionalCompletionCue(root)) return false
     val tracks = root.optJSONArray("tracks") ?: return false
     if (tracks.length() > MAX_TRACKS) return false
     val trackIds = mutableSetOf<String>()
@@ -334,13 +339,13 @@ object TimerV2Timeline {
       val seenOffsets = mutableSetOf<Int>()
       for (offsetIndex in 0 until offsets.length()) {
         val offset = offsets.optInt(offsetIndex, -1)
-        if (offset !in 1 until mainMinutes || offset % cadence != 0 || !seenOffsets.add(offset)) return false
+        if (offset < 1 || offset * 60L >= mainDurationSeconds || offset % cadence != 0 || !seenOffsets.add(offset)) return false
       }
     }
     val alignment = root.optJSONObject("alignment") ?: return false
     val alignmentValid = when (alignment.optString("kind")) {
       "elapsed" -> true
-      "local-clock" -> alignment.optInt("offsetMinutes", -1) in 0..59
+      "local-clock" -> mainDurationSeconds % 60L == 0L && alignment.optInt("offsetMinutes", -1) in 0..59
       else -> false
     }
     return alignmentValid && validRunPolicy(root)
@@ -354,9 +359,11 @@ object TimerV2Timeline {
       val step = steps.optJSONObject(index) ?: return false
       val id = step.optString("id")
       val label = step.optString("label")
-      if (id.isBlank() || id.length > MAX_ID_CHARACTERS || !stepIds.add(id) || label.isBlank() || label.codePointCount(0, label.length) > 60 || step.optInt("durationMinutes", -1) !in 1..MAX_DURATION_MINUTES || !validCue(step)) return false
+      val durationMinutes = step.optInt("durationMinutes", -1)
+      val durationSeconds = if (step.has("durationSeconds")) step.optLong("durationSeconds", -1L) else durationMinutes.toLong() * 60L
+      if (id.isBlank() || id.length > MAX_ID_CHARACTERS || !stepIds.add(id) || label.isBlank() || label.codePointCount(0, label.length) > 60 || durationMinutes !in 1..MAX_DURATION_MINUTES || durationSeconds !in 1L..MAX_DURATION_SECONDS || durationMinutes != ((durationSeconds + 59L) / 60L).toInt() || !validCue(step)) return false
     }
-    return validOptionalCompletionCue(root) && validRunPolicy(root)
+    return sequenceDuration(steps) in 1L..NativeTimerContract.MAX_PROGRAM_CYCLE_MS && validOptionalCompletionCue(root) && validRunPolicy(root)
   }
 
   private fun validRunPolicy(root: JSONObject): Boolean {

@@ -24,6 +24,7 @@ import { SheetTextButton } from '../components/timer-v2/SheetTextButton'
 import { selectionHaptic, tapHaptic } from '../lib/haptics'
 import { SheetSectionTitle } from '../components/timer-v2/SheetSectionTitle'
 import { ScrollEdgeFade } from '../components/timer-v2/ScrollEdgeFade'
+import { formatCompactDurationSeconds, patternDurationSeconds, sequenceStepDurationSeconds } from '../lib/timerV2'
 
 interface Props {
   program: TimerProgram
@@ -88,6 +89,7 @@ export function TimerV2RunningScreen(props: Props) {
   const nextCueColor = props.program.mode === 'pattern'
     ? subBellColorValue(props.program.tracks.find(track => track.id === props.position?.nextEvent?.winner.cueId)?.color, Math.max(0, props.program.tracks.findIndex(track => track.id === props.position?.nextEvent?.winner.cueId)))
     : tokens.accent
+  const clockAlignmentAvailable = props.program.mode === 'pattern' && patternDurationSeconds(props.program) % 60 === 0
 
   const dismissTooltip = () => {
     if (tooltipTimer.current) clearTimeout(tooltipTimer.current)
@@ -121,7 +123,7 @@ export function TimerV2RunningScreen(props: Props) {
               <Text style={[styles.mainTime, { color: tokens.text }]} adjustsFontSizeToFit numberOfLines={1}>{mainLabel}</Text>
               {endsBeforeResume || props.activeHoursPaused || props.program.mode === 'sequence' ? <Text style={[styles.mainCaption, { color: tokens.textMuted }]}>{endsBeforeResume ? 'session ends quietly' : props.activeHoursPaused ? 'Resumes' : `step ${sequenceIndex + 1} of ${sequenceLength}`}</Text> : null}
               {!props.activeHoursPaused && props.program.mode === 'pattern' && props.position?.nextEvent?.boundary !== 'pattern-main' ? <Animated.View key={props.nextCueLabel} entering={FadeIn.duration(reducedMotion ? 80 : 180)} style={styles.nextCue}><Text numberOfLines={1} style={[styles.nextCueName, { color: nextCueColor }]}>{props.nextCueLabel}</Text><Text style={[styles.nextCueTime, { color: nextCueColor }]}>{props.nextCueCountdown}</Text></Animated.View> : null}
-              {!props.activeHoursPaused && props.program.mode === 'sequence' && nextStep ? <Animated.View key={nextStep.id} entering={FadeIn.duration(reducedMotion ? 80 : 180)} style={styles.nextCue}><Text style={[styles.nextLabel, { color: tokens.textMuted }]}>NEXT</Text><Text numberOfLines={1} style={[styles.nextCueName, { color: tokens.accent }]}>{nextStep.label} · {nextStep.durationMinutes}m</Text></Animated.View> : null}
+              {!props.activeHoursPaused && props.program.mode === 'sequence' && nextStep ? <Animated.View key={nextStep.id} entering={FadeIn.duration(reducedMotion ? 80 : 180)} style={styles.nextCue}><Text style={[styles.nextLabel, { color: tokens.textMuted }]}>NEXT</Text><Text numberOfLines={1} style={[styles.nextCueName, { color: tokens.accent }]}>{nextStep.label} · {formatCompactDurationSeconds(sequenceStepDurationSeconds(nextStep))}</Text></Animated.View> : null}
             </View>
             {muted ? <View style={[styles.slash, { width: size * 0.72, backgroundColor: tokens.accent, pointerEvents: 'none' }]} /> : null}
           </Pressable>
@@ -135,7 +137,7 @@ export function TimerV2RunningScreen(props: Props) {
       <View pointerEvents="none" style={styles.bottomFade}><ScrollEdgeFade color={tokens.bg} side="bottom" /></View>
       <View style={styles.controls}>
         <ControlButton label="Reset interval" tooltip={props.program.mode === 'pattern' && props.program.alignment.kind === 'local-clock' ? 'Unsnap from clock and reset the interval' : 'Reset the interval'} disabled={props.realigning} onPress={props.onRestartUnsynced} onTooltip={showTooltip}><RestartIcon color={tokens.accent} /></ControlButton>
-        {props.program.mode === 'pattern' ? <ControlButton label="Snap to clock" tooltip="Snap to clock" active={props.program.alignment.kind === 'local-clock'} disabled={props.realigning} onPress={() => setSnapOpen(true)} onTooltip={showTooltip}><ClockIcon color={tokens.accent} /></ControlButton> : null}
+        {props.program.mode === 'pattern' ? <ControlButton label="Snap to clock" tooltip={clockAlignmentAvailable ? 'Snap to clock' : 'Clock alignment needs a whole-minute interval'} active={props.program.alignment.kind === 'local-clock'} disabled={props.realigning || !clockAlignmentAvailable} onPress={() => setSnapOpen(true)} onTooltip={showTooltip}><ClockIcon color={tokens.accent} /></ControlButton> : null}
         {props.showAdvancedControls && props.program.mode === 'pattern' ? <ControlButton label={props.alarmBehavior === 'locked' ? 'Alarm locked' : props.alarmBehavior === 'once' ? 'Next main gong alarm' : 'Alarm off'} tooltip="Tap once to enable the alarm at the end of the current main interval. Tap twice to enable it for every main interval." active={props.alarmBehavior !== 'off'} badge={props.alarmBehavior === 'locked' ? '∞' : props.alarmBehavior === 'once' ? '1' : undefined} onPress={props.onPressAlarm} onTooltip={showTooltip}><AlarmIcon color={props.alarmBehavior !== 'off' ? tokens.accent : tokens.textMuted} /></ControlButton> : null}
         {props.showAdvancedControls && Platform.OS === 'android' ? <ControlButton label="Chandas Focus" tooltip={!props.focusPolicyAccess ? 'Set up Android Do Not Disturb access' : focusPaused ? 'Chandas Focus was paused in Android settings' : props.focusEnabled ? 'Turn off Chandas Focus automation' : 'Let Chandas manage its own Do Not Disturb rule'} active={props.focusEnabled && props.focusPolicyAccess && !focusPaused} onPress={!props.focusPolicyAccess || props.focusReason === 'rule-disabled' ? props.onOpenFocusSettings : props.onToggleFocus} onTooltip={showTooltip}><FocusIcon color={props.focusEnabled && props.focusPolicyAccess && !focusPaused ? tokens.accent : tokens.textMuted} /></ControlButton> : null}
         <View style={styles.spacer} />
@@ -166,13 +168,14 @@ function TimerRings({ size, progress, position, program, muted, eventPulse }: { 
   }, [eventPulse, flash])
   const rings = useMemo(() => {
     if (program.mode === 'sequence') return [{ progress: position?.stepProgress ?? progress, stroke: tokens.accent, background: tokens.surfaceHi, backgroundOpacity: 1 }]
-    const elapsedMinutes = Math.max(0, Math.min(program.mainMinutes, progress * program.mainMinutes))
+    const mainMinutes = patternDurationSeconds(program) / 60
+    const elapsedMinutes = Math.max(0, Math.min(mainMinutes, progress * mainMinutes))
     const activeTracks = (program.subBellsEnabled ? program.tracks : []).filter(track => track.enabled && track.selectedOffsetsMinutes.length > 0)
     return [
       { progress, stroke: tokens.accent, background: tokens.surfaceHi, backgroundOpacity: 1 },
       ...activeTracks.map((track, index) => {
         const stroke = subBellColorValue(track.color, index)
-        return { progress: cueSegmentProgress(track.selectedOffsetsMinutes, program.mainMinutes, elapsedMinutes), stroke, background: stroke, backgroundOpacity: 0.17 }
+        return { progress: cueSegmentProgress(track.selectedOffsetsMinutes, mainMinutes, elapsedMinutes), stroke, background: stroke, backgroundOpacity: 0.17 }
       }),
     ]
   }, [position?.stepProgress, program, progress, tokens.accent, tokens.surfaceHi])
