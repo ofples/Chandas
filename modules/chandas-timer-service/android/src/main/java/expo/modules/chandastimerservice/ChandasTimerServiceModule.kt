@@ -127,6 +127,7 @@ class ChandasTimerServiceModule : Module() {
         "supportsAlarmVolume" to true,
         "supportsHapticProfiles" to true,
         "supportsSecondPrecision" to true,
+        "supportsDualLiveCountdown" to true,
       )
     }
 

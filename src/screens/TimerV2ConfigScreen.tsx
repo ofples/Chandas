@@ -296,7 +296,9 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
 
 function SystemAccessPanel({ access, settings, onChangeSettings, onOpenExactAlarmSettings, onOpenFullScreenIntentSettings, onRequestCallMuteAccess, onRequestNotificationAccess }: { access: Props['androidAccess']; settings: TimerV2State['settings']; onChangeSettings: (patch: Partial<TimerV2State['settings']>) => void; onOpenExactAlarmSettings: () => void; onOpenFullScreenIntentSettings: () => void; onRequestCallMuteAccess: () => void; onRequestNotificationAccess: () => void }) {
   const { tokens } = useTheme()
-  const liveCountdownSupported = ChandasTimerService.getCapabilities()?.supportsLiveCountdown === true
+  const capabilities = ChandasTimerService.getCapabilities()
+  const liveCountdownSupported = capabilities?.supportsLiveCountdown === true
+  const dualCountdownSupported = capabilities?.supportsDualLiveCountdown === true
   const toggleCallMute = (enabled: boolean) => {
     onChangeSettings({ muteDuringCallsEnabled: enabled })
     if (enabled && !access.callMute) onRequestCallMuteAccess()
@@ -315,7 +317,7 @@ function SystemAccessPanel({ access, settings, onChangeSettings, onOpenExactAlar
     <PermissionToggleRow title="Mute during calls" detail={access.callMute ? 'Keeps timer cues quiet during calls.' : 'Optional phone-state access.'} value={settings.muteDuringCallsEnabled && access.callMute} pending={access.pending === 'call-mute'} checking={access.checking} onChange={toggleCallMute} />
     <View style={[styles.divider, { backgroundColor: tokens.border }]} />
     <PermissionToggleRow title="Timer notifications" detail={access.notifications ? 'Shows running status and controls.' : 'Optional notification access.'} value={settings.notificationsEnabled && access.notifications} pending={access.pending === 'notifications'} checking={access.checking} onChange={toggleNotifications} />
-    {liveCountdownSupported ? <><View style={[styles.divider, { backgroundColor: tokens.border }]} /><PermissionToggleRow title="Next cue countdown" detail={!settings.notificationsEnabled || !access.notifications ? 'Requires timer notifications.' : 'Notification and supported status bars.'} value={settings.liveCountdownEnabled} pending={false} checking={access.checking} onChange={toggleLiveCountdown} /></> : null}
+    {liveCountdownSupported ? <><View style={[styles.divider, { backgroundColor: tokens.border }]} /><PermissionToggleRow title={dualCountdownSupported ? 'Timer countdown' : 'Next cue countdown'} detail={!settings.notificationsEnabled || !access.notifications ? 'Requires timer notifications.' : dualCountdownSupported ? 'Shows the next cue and run finish when available.' : 'Notification and supported status bars.'} value={settings.liveCountdownEnabled} pending={false} checking={access.checking} onChange={toggleLiveCountdown} /></> : null}
   </View>
 }
 

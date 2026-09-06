@@ -1441,6 +1441,7 @@ Do not edit old entries to reflect new conclusions. Add a superseding entry and 
 | 2026-09-06 | D-108 | Accepted | Every sound editor, including Alarm sound, exposes the same selected-sound, cue-volume, full-width slider, and preview treatment. Keep the Alarm volume visible and saved on older shared-runtime binaries even when native background playback cannot yet consume it; foreground preview uses it immediately and the next contract-v5 binary applies it to background alarms. Remove purely repetitive sheet eyebrows (`Saved setups`, `How it works`, and `Clock`) while retaining labels that convey state or control meaning, such as `Step N of N`, `Cue volume`, and `Mute for`. This supersedes D-104's requirement to hide Alarm volume on older binaries. |
 | 2026-09-06 | D-109 | Accepted | Haptics are one Advanced setting with a global switch and three saved profiles: Main timer, Sub-bells, and Alarm. Each profile offers Single, Double, or Triple patterns and Gentle, Balanced, or Strong intensity with an explicit one-group preview. Main covers main gongs and Sequence boundaries; Sub-bells covers Pattern offset cues. Alarm repeats the chosen group with a 650 ms pause until dismissal. App taps have no separate profile and simply obey the global switch. Android exact/background delivery and amplitude-aware waveforms require advertised contract-v6 support; older native binaries hide the setting rather than implying unsupported behavior. |
 | 2026-09-06 | D-110 | Accepted | Second precision is one capability-gated Advanced preference, not a new timer mode. Off preserves the existing minute-first setup; On adds seconds to custom Cycle, Sequence-step, and bounded-duration editors. Exact seconds are additive canonical fields with legacy minute projections, remain intact in presets and runtime restoration, and drive every JS/native boundary, progress, mute, and run-end calculation. Sub-bell cadence and cue positions remain minute-based to keep their grid comprehensible. A non-whole-minute Cycle automatically uses elapsed timing because the current wall-clock phase UI is minute-based. This supersedes D-056's and section 7.3's whole-minute UI restriction. |
+| 2026-09-06 | D-111 | Accepted | The opt-in Android live countdown uses the authoritative native timeline to show the current cue countdown plus the bounded run's final countdown, for example `12s | 10m` or `01:12 | 5m`. Current time uses seconds below one minute and a clock above it; final time is ceiling-rounded to minutes so it never says `0m` while time remains. Continuous runs show only current time, and the pair collapses to the precise current countdown when the next cue is also the terminal event. A presentation-only foreground updater may refresh the compact text once per second, but exact AlarmManager scheduling remains independent and authoritative. If foreground promotion is unavailable, fall back to Android's single native chronometer rather than showing stale dual text. |
 
 ### Decision-entry template
 
@@ -2633,6 +2634,31 @@ This section is append-only. Every implementation session should record scope, m
 
 **Risks or follow-ups:** Second-level Sub-bell cue placement is intentionally out of scope; supporting it later needs a different compact editor rather than expanding the current minute grid. Android's exact-alarm permission and OEM scheduling policy remain the platform prerequisites for screen-off precision.
 
+### 2026-09-06 — Dual live countdown
+
+**Status:** Complete in source; a contract-v8 Android build and physical-device verification remain required.
+
+**Scope:** Android promoted-notification status text, bounded-run finish context, terminal collapse, safe fallback, and integration wording.
+
+**Decision referenced:** D-111.
+
+**Behavior implemented:**
+
+- The live status text now combines the next effective cue with the bounded run finish: `12s | 10m`, `01:12 | 5m`, and the corresponding hour-aware form for long intervals.
+- The current countdown rounds upward to the next visible second. The final countdown rounds upward to whole minutes so a still-running session never presents `0m`.
+- Continuous sessions omit the unavailable final value. When the next effective event completes the run—or reaches the fixed terminal epoch—the values collapse to one precise countdown rather than repeating the same deadline.
+- Added an opt-in Android 16+ presentation-only foreground updater aligned to wall-clock seconds. It reads persisted native state and rebuilds the same standard BigText notification; it does not schedule, deliver, suppress, or acknowledge timer cues. Earlier Android versions keep the efficient system chronometer and do not run the updater.
+- Preserved the platform chronometer as a fail-safe. The first notification uses it, and it remains the final presentation if notifications or promoted updates are unavailable, Android refuses a foreground-service start, or the OS later reclaims the updater.
+- Added the truthful `Timer countdown` System integrations label only when contract v8 advertises dual-countdown support; older binaries retain `Next cue countdown` and their existing behavior.
+
+**Migration impact:** Android contract v8 adds `supportsDualLiveCountdown`, a `specialUse` foreground service declaration, and its required permission. This feature therefore requires a new native runtime; older binaries continue to receive compatible JavaScript while retaining their single next-cue chronometer.
+
+**Verification run:** TypeScript compilation, JavaScript unit suite, whitespace validation, focused formatter tests added for seconds, clock display, final-minute ceiling, Continuous mode, terminal collapse, and expiry, plus static service/manifest/timeline review against Android's official promoted-ongoing and notification-update guidance. Local Gradle/native compilation was not run because repository policy prohibits native builds on this computer.
+
+**Native/on-device verification still required:** On the next remote build, enable Timer countdown and exercise continuous, cycle-bounded, duration-bounded, schedule-paused, final-cue, alarm-ringing, app-backgrounded, screen-off, reboot, process-reclamation, and notifications-disabled paths. Confirm the Pixel chip's OEM width treatment for strings longer than Android's suggested seven characters, and inspect battery use during a long enabled session.
+
+**Risks or follow-ups:** Android owns Live Update promotion and caps the chip at 96dp; the platform only suggests, rather than guarantees, seven characters of critical text. Longer requested pairs may be clipped or reduced to the icon on some devices. The expanded notification and fallback chronometer remain available, and disabling Timer countdown stops the once-per-second updater without affecting the timer.
+
 ### Implementation-entry template
 
 ```md
@@ -2693,3 +2719,4 @@ This section is append-only. Every implementation session should record scope, m
 | 3.5 | 2026-09-06 | Unified Alarm sound with the shared cue-level editor, kept its saved level visible on the pinned runtime line, and removed repetitive modal eyebrows. |
 | 3.6 | 2026-09-06 | Added one Advanced Haptics control with saved Main/Sub-bell/Alarm patterns and strengths, global interface-feedback opt-out, amplitude-aware native cue waveforms, and repeat-until-dismissed Alarm vibration under contract v6. |
 | 3.7 | 2026-09-06 | Added capability-gated Advanced second precision for Cycle, Sequence, and bounded runs, with compatible exact-duration persistence and contract-v7 native scheduling. |
+| 3.8 | 2026-09-06 | Added a contract-v8 Android dual live countdown for current cue and bounded finish, with terminal collapse, minute-ceiling final time, and a single-chronometer fallback. |

@@ -1,8 +1,9 @@
 // Typed JS wrapper around the native "ChandasTimerService" Expo module
 // (modules/chandas-timer-service - Kotlin, Android exact-alarm scheduler).
 //
-// AlarmManager owns tick scheduling; a foreground service is used only while a
-// continuous alarm is actively ringing. When the native module isn't present,
+// AlarmManager owns tick scheduling; foreground services are presentation-only:
+// one while a continuous alarm rings and an optional one for the live status chip.
+// When the native module isn't present,
 // callers fall back to
 // the JS-only foreground timer (see useTimer.ts).
 import { AppState, Platform } from 'react-native'
@@ -155,6 +156,7 @@ export interface NativeTimerCapabilities {
   supportsAlarmVolume?: boolean
   supportsHapticProfiles?: boolean
   supportsSecondPrecision?: boolean
+  supportsDualLiveCountdown?: boolean
 }
 
 export interface NativeFocusState {

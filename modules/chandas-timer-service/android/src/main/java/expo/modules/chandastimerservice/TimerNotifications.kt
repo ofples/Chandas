@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -61,26 +62,54 @@ object TimerNotifications {
 
   fun postRunning(context: Context, config: TimerConfig) {
     val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-    val copy = TimerNotificationCopy.from(config.notificationPresentation)
     if (!config.notificationsEnabled) {
+      ChandasCountdownService.stop(context)
       manager.cancel(RUNNING_ID)
       return
     }
     ensureChannels(context)
     val now = System.currentTimeMillis()
+    // Keep the platform chronometer as the no-service fallback. The live
+    // updater replaces this with dual compact text once it is foreground.
+    val notification = buildRunning(context, config, now, includeDualCountdown = false)
+    runCatching { manager.notify(RUNNING_ID, notification) }
+    if (
+      config.liveCountdownEnabled &&
+      Build.VERSION.SDK_INT >= 36 &&
+      NotificationManagerCompat.from(context).areNotificationsEnabled() &&
+      manager.canPostPromotedNotifications() &&
+      NotificationCompat.getUsesChronometer(notification)
+    ) {
+      ChandasCountdownService.ensureRunning(context)
+    } else {
+      ChandasCountdownService.stop(context)
+    }
+  }
+
+  /** Builds the same notification used by normal posts and the live updater. */
+  fun buildRunning(
+    context: Context,
+    config: TimerConfig,
+    now: Long = System.currentTimeMillis(),
+    includeDualCountdown: Boolean = false,
+  ): Notification {
+    val copy = TimerNotificationCopy.from(config.notificationPresentation)
     val event = config.timerV2Program?.let { TimerV2Timeline.next(it, config.timerV2Anchor, now, config.timerV2StartedAt, config.timerV2EndsAt) }
-    val next = event?.at ?: TimerMath.nextTick(now, config.mainMs, config.phase)
+    val completedProgram = config.timerV2Program != null && event == null
+    val next = event?.at ?: if (completedProgram) 0L else TimerMath.nextTick(now, config.mainMs, config.phase)
     val activeNow = ActiveHours.isActive(config, now)
-    val activeAtNext = ActiveHours.isActive(config, next)
-    val resumesAt = if (!activeNow || !activeAtNext) ActiveHours.nextStart(config, if (activeNow) next else now) else 0L
+    val activeAtNext = next > now && ActiveHours.isActive(config, next)
+    val resumesAt = if (!completedProgram && (!activeNow || !activeAtNext)) ActiveHours.nextStart(config, if (activeNow) next else now) else 0L
     val endsBeforeResume = config.timerV2EndsAt > 0L && resumesAt > 0L && resumesAt >= config.timerV2EndsAt
     val countdownAt = when {
+      completedProgram -> 0L
       event?.completesRun == true -> next
       endsBeforeResume -> config.timerV2EndsAt
       activeNow && activeAtNext -> next
       else -> 0L
     }
     val content = when {
+      completedProgram -> copy.sessionEnds(formatTime(config.timerV2EndsAt.takeIf { it > 0L } ?: now))
       event?.completesRun == true -> copy.sessionEnds(formatTime(next))
       endsBeforeResume -> copy.sessionEnds(formatTime(config.timerV2EndsAt))
       activeNow && activeAtNext -> copy.nextCue(formatTime(next))
@@ -116,6 +145,12 @@ object TimerNotifications {
         .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
         .setPriority(NotificationCompat.PRIORITY_LOW)
     if (config.liveCountdownEnabled && countdownAt > now) {
+      val compactCountdown = TimerCountdownText.compact(
+        currentAt = countdownAt,
+        finalAt = config.timerV2EndsAt,
+        currentIsFinal = event?.completesRun == true || endsBeforeResume,
+        now = now,
+      )
       builder
         .setWhen(countdownAt)
         .setShowWhen(true)
@@ -125,8 +160,9 @@ object TimerNotifications {
         // status-bar chip. The notification countdown remains useful when the
         // OS or OEM chooses standard presentation instead.
         .setRequestPromotedOngoing(true)
+      if (includeDualCountdown) compactCountdown?.let(builder::setShortCriticalText)
     }
-    runCatching { manager.notify(RUNNING_ID, builder.build()) }
+    return builder.build()
   }
 
   fun postEvent(context: Context, config: TimerConfig, type: TimerEventType) {
@@ -161,6 +197,7 @@ object TimerNotifications {
   }
 
   fun cancelRunning(context: Context) {
+    ChandasCountdownService.stop(context)
     val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     manager.cancel(RUNNING_ID)
     manager.cancel(EVENT_ID)
@@ -173,4 +210,36 @@ object TimerNotifications {
 
   private fun formatTime(epochMs: Long): String =
     SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(epochMs))
+}
+
+/** Pure compact-countdown formatting kept separate from notification plumbing. */
+internal object TimerCountdownText {
+  private const val SECOND_MS = 1_000L
+  private const val MINUTE_MS = 60_000L
+  private const val HOUR_SECONDS = 3_600L
+
+  fun compact(currentAt: Long, finalAt: Long, currentIsFinal: Boolean, now: Long): String? {
+    val currentRemaining = currentAt - now
+    if (currentRemaining <= 0L) return null
+    val current = formatCurrent(currentRemaining)
+    if (currentIsFinal || finalAt <= currentAt || finalAt <= now) return current
+    return "$current | ${ceilUnits(finalAt - now, MINUTE_MS)}m"
+  }
+
+  private fun formatCurrent(remainingMs: Long): String {
+    val totalSeconds = ceilUnits(remainingMs, SECOND_MS)
+    if (totalSeconds < 60L) return "${totalSeconds}s"
+    val hours = totalSeconds / HOUR_SECONDS
+    val minutes = (totalSeconds % HOUR_SECONDS) / 60L
+    val seconds = totalSeconds % 60L
+    return if (hours > 0L) {
+      "$hours:${minutes.twoDigits()}:${seconds.twoDigits()}"
+    } else {
+      "${minutes.twoDigits()}:${seconds.twoDigits()}"
+    }
+  }
+
+  private fun ceilUnits(value: Long, unit: Long): Long = ((value - 1L) / unit) + 1L
+
+  private fun Long.twoDigits(): String = toString().padStart(2, '0')
 }
