@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { PanResponder, StyleSheet, Text } from 'react-native'
-import * as Haptics from 'expo-haptics'
+import { mediumHaptic, selectionHaptic, tapHaptic } from '../../lib/haptics'
 import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withTiming, type SharedValue } from 'react-native-reanimated'
 import { useTheme } from '../../theme/ThemeContext'
 import { reorderGestureIntent } from '../../lib/reorder-preview'
@@ -63,7 +63,7 @@ export function ReorderHandle({ index, itemCount, rowHeight = 72, onMove, onPrev
     if (target !== latestTargetRef.current) {
       latestTargetRef.current = target
       onPreviewChange?.(originRef.current, target, rowHeight)
-      void Haptics.selectionAsync().catch(() => undefined)
+      selectionHaptic()
     }
   }
 
@@ -101,7 +101,7 @@ export function ReorderHandle({ index, itemCount, rowHeight = 72, onMove, onPrev
     clearPress()
     if (commit && target !== origin) {
       onMove(origin, target)
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined)
+      tapHaptic()
     }
   }
 
@@ -120,7 +120,7 @@ export function ReorderHandle({ index, itemCount, rowHeight = 72, onMove, onPrev
       onPreviewChange?.(index, index, rowHeight)
       onDragStateChange?.(true)
       startAutoScroll()
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => undefined)
+      mediumHaptic()
     },
     onPanResponderMove: (_, gesture) => {
       latestGestureDyRef.current = gesture.dy
@@ -140,7 +140,7 @@ export function ReorderHandle({ index, itemCount, rowHeight = 72, onMove, onPrev
   const adjust = (direction: 'increment' | 'decrement') => {
     const target = Math.max(0, Math.min(itemCount - 1, index + (direction === 'increment' ? 1 : -1)))
     if (target !== index) {
-      void Haptics.selectionAsync().catch(() => undefined)
+      selectionHaptic()
       onMove(index, target)
     }
   }

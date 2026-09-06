@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import Slider from '@react-native-community/slider'
 import Animated, { FadeIn, FadeOut, useReducedMotion } from 'react-native-reanimated'
-import * as Haptics from 'expo-haptics'
+import { selectionHaptic } from '../../lib/haptics'
 import type { CueSettings, SoundRef } from '../../types'
 import { BUILT_IN_SOUNDS, soundTitle } from '../../lib/soundLibrary'
 import { ChandasTimerService, isNativeServiceAvailable } from '../../native/ChandasTimerService'
@@ -45,7 +45,7 @@ export function SoundPickerSheet({ visible, title, cue, masterVolume, onChange, 
 
   const close = () => { ChandasTimerService.stopSoundPreview(); setPreviewing(null); onClose() }
   const stopPreview = () => { ChandasTimerService.stopSoundPreview(); setPreviewing(null) }
-  const chooseSound = (sound: SoundRef) => { stopPreview(); setMessage(null); onChange({ sound }); void Haptics.selectionAsync().catch(() => undefined) }
+  const chooseSound = (sound: SoundRef) => { stopPreview(); setMessage(null); onChange({ sound }); selectionHaptic() }
   const preview = async (sound: SoundRef) => {
     ChandasTimerService.stopSoundPreview()
     const key = sound.kind === 'builtin' ? sound.id : sound.uri

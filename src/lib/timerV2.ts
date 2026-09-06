@@ -19,6 +19,7 @@ import type {
   WeeklyAvailabilityWindow,
 } from '../types'
 import { defaultSubBellColor, normalizeSubBellColor } from './subBellColors'
+import { defaultTimerHapticsSettings } from './haptic-profiles'
 
 export const TIMER_V2_SCHEMA_VERSION = 2 as const
 export const MAX_PATTERN_TRACKS = 5
@@ -150,6 +151,7 @@ export function defaultAppTimerSettings(): AppTimerSettings {
     advancedModeEnabled: false,
     alarmSound: builtIn('alarm-tone'),
     alarmVolume: 1,
+    haptics: defaultTimerHapticsSettings(),
     notificationsEnabled: true,
     liveCountdownEnabled: false,
     muteDuringCallsEnabled: true,
@@ -380,6 +382,7 @@ export function migrateLegacyConfig(legacy: Partial<TimerConfig>): TimerV2State 
       advancedModeEnabled: false,
       alarmSound: defaults.alarmSound,
       alarmVolume: defaults.alarmVolume,
+      haptics: defaults.haptics,
       notificationsEnabled: legacy.notificationsEnabled !== false,
       liveCountdownEnabled: false,
       muteDuringCallsEnabled: true,

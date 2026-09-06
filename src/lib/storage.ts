@@ -11,6 +11,7 @@ import {
   normalizeSequenceProgram,
   normalizeSoundRef,
 } from './timerV2'
+import { normalizeTimerHapticsSettings } from './haptic-profiles'
 
 const CONFIG_KEY = 'chandas-config'
 const SESSION_KEY = 'chandas-session'
@@ -212,6 +213,7 @@ function normalizeSettings(value: Partial<AppTimerSettings> | null): AppTimerSet
     alarmVolume: typeof value.alarmVolume === 'number' && Number.isFinite(value.alarmVolume)
       ? Math.max(0, Math.min(1, value.alarmVolume))
       : defaults.alarmVolume,
+    haptics: normalizeTimerHapticsSettings(value.haptics),
     notificationsEnabled: value.notificationsEnabled !== false,
     liveCountdownEnabled: value.liveCountdownEnabled === true,
     muteDuringCallsEnabled: value.muteDuringCallsEnabled !== false,

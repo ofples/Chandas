@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Alert, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
-import * as Haptics from 'expo-haptics'
+import { successHaptic } from '../../lib/haptics'
 import Animated, { FadeIn, FadeInDown, FadeOut, LinearTransition, useReducedMotion } from 'react-native-reanimated'
 import type { ProgramPreset, TimerMode, TimerProgram, TimerV2State } from '../../types'
 import { deleteProgramPreset, hasUnsavedProgramChanges, loadProgramPreset, saveProgramPreset, updatePattern } from '../../lib/programActions'
@@ -54,7 +54,7 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedba
       : state
     onChange(saveProgramPreset(namedState, cleanName))
     setSavedName(cleanName)
-    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined)
+    successHaptic()
     setName(cleanName)
   }
   const remove = (preset: ProgramPreset) => {

@@ -156,6 +156,23 @@ export interface AvailabilityPolicy {
   overrides: AvailabilityOverride[]
 }
 
+export type HapticPattern = 'single' | 'double' | 'triple'
+export type HapticStrength = 'gentle' | 'balanced' | 'strong'
+
+export interface HapticProfile {
+  pattern: HapticPattern
+  strength: HapticStrength
+}
+
+export interface TimerHapticsSettings {
+  /** Master haptics switch. App feedback follows this without its own profile. */
+  enabled: boolean
+  main: HapticProfile
+  subBell: HapticProfile
+  /** Repeats as a pattern group until a ringing alarm is dismissed. */
+  alarm: HapticProfile
+}
+
 export interface AppTimerSettings {
   masterVolume: number
   /** Whether optional setup controls are visible on configuration and running screens. */
@@ -164,6 +181,7 @@ export interface AppTimerSettings {
   alarmSound: SoundRef
   /** Per-alarm level multiplied by the master and Android Alarm volumes. */
   alarmVolume: number
+  haptics: TimerHapticsSettings
   notificationsEnabled: boolean
   /** Shows a native countdown to the next cue in the running notification. */
   liveCountdownEnabled: boolean

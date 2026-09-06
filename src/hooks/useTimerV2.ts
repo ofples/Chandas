@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { AppState, Platform } from 'react-native'
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake'
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio'
-import * as Haptics from 'expo-haptics'
 import type { AlarmBehavior, AppTimerSettings, BuiltInSoundId, SoundRef, TimerProgram } from '../types'
 import { effectiveAvailabilityForProgram, hasAvailableTime, isWithinActiveHours, nextActiveHoursStart } from '../lib/activeHours'
 import { formatCountdown } from '../lib/snapLogic'
@@ -11,7 +10,7 @@ import { nextProgramEvent, runEndAt, timelinePosition, type TimelinePosition } f
 import { alarmBehaviorAfterGesture, emptyRuntimeMute, gateProgramAudio, isFreshScheduledEvent, iterationMuteFor, muteAfterScheduleChange, shouldSurfaceTimerSignal, type RuntimeMuteState } from '../lib/runtimeV2'
 import { clearTimerV2Session, saveTimerV2Session } from '../lib/storage'
 import { ChandasTimerService, isNativeServiceAvailable, type NativeTimerConfig } from '../native/ChandasTimerService'
-import { timerCueHaptic } from '../lib/haptics'
+import { selectionHaptic, startRepeatingAlarmHaptic, stopRepeatingAlarmHaptic, tapHaptic, timerCueHaptic } from '../lib/haptics'
 import { alignedClockAnchor } from '../lib/clockAlignment'
 
 const KEEP_AWAKE_TAG = 'chandas-running-v2'
@@ -136,6 +135,7 @@ function nativeConfigFor(program: TimerProgram, settings: AppTimerSettings, anch
     ? program.mainMinutes * 60_000
     : program.steps.reduce((sum, step) => sum + step.durationMinutes * 60_000, 0)
   const availability = effectiveAvailabilityForProgram(program, settings.availability)
+  const capabilities = ChandasTimerService.getCapabilities()
   return {
     mainMs,
     subMs: 60_000,
@@ -143,7 +143,16 @@ function nativeConfigFor(program: TimerProgram, settings: AppTimerSettings, anch
     subEnabled: false,
     volume: settings.masterVolume,
     alarmSoundId: settings.alarmSound.kind === 'builtin' ? settings.alarmSound.id : settings.alarmSound.uri,
-    ...(ChandasTimerService.getCapabilities()?.supportsAlarmVolume === true ? { alarmVolume: settings.alarmVolume } : {}),
+    ...(capabilities?.supportsAlarmVolume === true ? { alarmVolume: settings.alarmVolume } : {}),
+    ...(capabilities?.supportsHapticProfiles === true ? {
+      hapticsEnabled: settings.haptics.enabled,
+      mainHapticPattern: settings.haptics.main.pattern,
+      mainHapticStrength: settings.haptics.main.strength,
+      subHapticPattern: settings.haptics.subBell.pattern,
+      subHapticStrength: settings.haptics.subBell.strength,
+      alarmHapticPattern: settings.haptics.alarm.pattern,
+      alarmHapticStrength: settings.haptics.alarm.strength,
+    } : {}),
     notificationsEnabled: settings.notificationsEnabled,
     liveCountdownEnabled: settings.liveCountdownEnabled,
     notificationPresentation: NATIVE_NOTIFICATION_PRESENTATION,
@@ -252,6 +261,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
 
   const dismissAlarm = useCallback(() => {
     if (isNativeServiceAvailable) ChandasTimerService.stopAlarm()
+    stopRepeatingAlarmHaptic()
     try { alarmPlayerRef.current?.remove() } catch { /* player may already be released */ }
     alarmPlayerRef.current = null
     setIsAlarmRinging(false)
@@ -274,11 +284,11 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     })
     updateRuntimeState(gate.nextMute, gate.nextAlarmBehavior)
     if (!gate.shouldPlay) return event.completesRun
-    timerCueHaptic(event.boundary)
     setEventPulse(value => value + 1)
 
     if (gate.disposition === 'continuous-alarm') {
       dismissAlarm()
+      startRepeatingAlarmHaptic(activeSettings.haptics)
       const player = createAudioPlayer(sourceForSound(activeSettings.alarmSound) ?? ALARM_SOURCE)
       player.loop = true
       player.volume = Math.max(0, Math.min(1, activeSettings.masterVolume * activeSettings.alarmVolume))
@@ -287,6 +297,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
       setIsAlarmRinging(true)
       return event.completesRun
     }
+    timerCueHaptic(event.boundary, activeSettings.haptics)
     const source = sourceForSound(event.winner.sound)
     if (!source) return event.completesRun
     try { playerRef.current?.remove() } catch { /* player may already be released */ }
@@ -313,6 +324,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     setAlarmBehavior('off')
     try { alarmPlayerRef.current?.remove() } catch { /* continue to the authoritative native stop */ }
     alarmPlayerRef.current = null
+    stopRepeatingAlarmHaptic()
     setIsAlarmRinging(false)
     releaseDisplayWakeLock()
     void clearTimerV2Session()
@@ -450,6 +462,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     refreshIntervalRef.current = null
     try { alarmPlayerRef.current?.remove() } catch { /* continue local teardown */ }
     alarmPlayerRef.current = null
+    stopRepeatingAlarmHaptic()
     setIsAlarmRinging(false)
     try { playerRef.current?.remove() } catch { /* continue local teardown */ }
     playerRef.current = null
@@ -496,20 +509,20 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     const next = { mutedUntil: 0, iteration: iterationMuteFor(programRef.current, anchorRef.current, Date.now(), count) }
     updateRuntimeState(next, alarmBehaviorRef.current)
     if (isNativeServiceAvailable && runningRef.current) ChandasTimerService.muteForIterations(count)
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined)
+    tapHaptic()
   }, [updateRuntimeState])
 
   const muteForMinutes = useCallback((minutes: number) => {
     const next = { mutedUntil: Date.now() + Math.max(1, Math.min(1_440, Math.round(minutes))) * 60_000 }
     updateRuntimeState(next, alarmBehaviorRef.current)
     if (isNativeServiceAvailable && runningRef.current) ChandasTimerService.muteForMinutes(minutes)
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined)
+    tapHaptic()
   }, [updateRuntimeState])
 
   const clearMute = useCallback(() => {
     updateRuntimeState(emptyRuntimeMute(), alarmBehaviorRef.current)
     if (isNativeServiceAvailable && runningRef.current) ChandasTimerService.clearMute()
-    void Haptics.selectionAsync().catch(() => undefined)
+    selectionHaptic()
   }, [updateRuntimeState])
 
   /** Restarts the live timeline without stopping the session or losing runtime controls. */
@@ -616,7 +629,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
       if (shouldSurfaceTimerSignal(event, Date.now(), AppState.currentState === 'active')) {
         // Android performs cue haptics beside its exact alarm so background and
         // foreground behavior match without producing a double vibration here.
-        if (Platform.OS !== 'android') timerCueHaptic(event.boundary)
+        if (Platform.OS !== 'android') timerCueHaptic(event.boundary, settingsRef.current.haptics)
         setEventPulse(value => value + 1)
       }
       if (event.completesRun) setCompletionPulse(value => value + 1)
@@ -656,6 +669,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     alarmTapStartRef.current = null
     playerRef.current?.remove()
     alarmPlayerRef.current?.remove()
+    stopRepeatingAlarmHaptic()
     releaseDisplayWakeLock()
   }, [])
 

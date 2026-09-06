@@ -10,7 +10,7 @@ import { requireOptionalNativeModule } from 'expo-modules-core'
 import { createAudioPlayer, type AudioPlayer } from 'expo-audio'
 import { Asset } from 'expo-asset'
 import { stopAndVerifyNativeTimer } from '../lib/verifiedTimerStop'
-import type { BuiltInSoundId, SoundRef } from '../types'
+import type { BuiltInSoundId, HapticPattern, HapticProfile, HapticStrength, SoundRef } from '../types'
 import { BUILT_IN_SOUNDS, sourceForSound } from '../lib/soundLibrary'
 import { normalizeNativeFocusState } from '../lib/focusState'
 
@@ -24,6 +24,13 @@ export interface NativeTimerConfig {
   alarmSoundId?: string
   /** Per-alarm multiplier; older native engines safely ignore this field. */
   alarmVolume?: number
+  hapticsEnabled?: boolean
+  mainHapticPattern?: HapticPattern
+  mainHapticStrength?: HapticStrength
+  subHapticPattern?: HapticPattern
+  subHapticStrength?: HapticStrength
+  alarmHapticPattern?: HapticPattern
+  alarmHapticStrength?: HapticStrength
   notificationsEnabled: boolean
   liveCountdownEnabled?: boolean
   /** Serialized user-facing notification copy for the stable native engine. */
@@ -74,6 +81,13 @@ export interface NativeTimerState {
   volume?: number
   alarmSoundId?: string
   alarmVolume?: number
+  hapticsEnabled?: boolean
+  mainHapticPattern?: HapticPattern
+  mainHapticStrength?: HapticStrength
+  subHapticPattern?: HapticPattern
+  subHapticStrength?: HapticStrength
+  alarmHapticPattern?: HapticPattern
+  alarmHapticStrength?: HapticStrength
   notificationsEnabled?: boolean
   liveCountdownEnabled?: boolean
   notificationPresentation?: string
@@ -138,6 +152,7 @@ export interface NativeTimerCapabilities {
   supportsLiveCountdown?: boolean
   supportsAlarmSound?: boolean
   supportsAlarmVolume?: boolean
+  supportsHapticProfiles?: boolean
 }
 
 export interface NativeFocusState {
@@ -187,6 +202,7 @@ interface ChandasTimerServiceModule {
   pickDeviceSound(kind: 'alarm' | 'notification' | 'unknown'): Promise<{ uri: string; title: string } | null>
   pickAudioDocument(): Promise<{ uri: string; title: string; mimeType?: string } | null>
   previewSound(soundId: string, fallbackSoundId: BuiltInSoundId, volume: number): Promise<boolean>
+  previewHaptic?(pattern: HapticPattern, strength: HapticStrength): boolean
   cacheBuiltInSound?(id: string, sourceUri: string, revision: string): Promise<boolean>
   stopSoundPreview(): void
   isSoundAvailable(soundId: string): boolean
@@ -359,6 +375,13 @@ export const ChandasTimerService = {
     player.play()
     fallbackPreview = player
     return true
+  },
+  previewHaptic(profile: HapticProfile): boolean {
+    try {
+      return native?.previewHaptic?.(profile.pattern, profile.strength) ?? false
+    } catch {
+      return false
+    }
   },
   stopSoundPreview() {
     native?.stopSoundPreview()

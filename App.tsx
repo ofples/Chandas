@@ -5,12 +5,13 @@ import { AppState as NativeAppState, Linking, PermissionsAndroid, Platform, View
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { useFonts, JetBrainsMono_300Light, JetBrainsMono_400Regular } from '@expo-google-fonts/jetbrains-mono'
 import Reanimated, { FadeIn, FadeOut, useReducedMotion } from 'react-native-reanimated'
-import * as Haptics from 'expo-haptics'
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext'
 import type { AppState, AppTimerSettings, TimerV2State } from './src/types'
 import { useTimerV2 } from './src/hooks/useTimerV2'
 import { clearTimerV2Session, loadTimerV2Session, loadTimerV2StateResult, saveTimerV2Session, saveTimerV2State, type TimerV2Session } from './src/lib/storage'
 import { defaultTimerV2State, normalizeAvailabilityPolicy, parseTimerProgram, replaceWorkingProgram, selectedProgram } from './src/lib/timerV2'
+import { defaultTimerHapticsSettings, normalizeTimerHapticsSettings } from './src/lib/haptic-profiles'
+import { setAppHapticsEnabled, successHaptic, tapHaptic } from './src/lib/haptics'
 import { patchCompletionCue, patchPatternTrack, patchSequenceStep, updatePattern } from './src/lib/programActions'
 import { TimerV2ConfigScreen } from './src/screens/TimerV2ConfigScreen'
 import { TimerV2RunningScreen } from './src/screens/TimerV2RunningScreen'
@@ -26,7 +27,7 @@ const FALLBACK_PROGRAM = {
   mainCue: { sound: { kind: 'builtin' as const, id: 'temple-gong' as const }, volume: 1 }, completionCue: null, subBellsEnabled: false, tracks: [], alignment: { kind: 'elapsed' as const },
   runPolicy: { kind: 'continuous' as const, cycleCount: 1, durationSeconds: 30 * 60 },
 }
-const FALLBACK_SETTINGS = { masterVolume: 0.8, advancedModeEnabled: false, alarmSound: { kind: 'builtin' as const, id: 'alarm-tone' as const }, alarmVolume: 1, notificationsEnabled: true, liveCountdownEnabled: false, muteDuringCallsEnabled: true, availability: { enabled: false, weeklyWindows: [], overrides: [] }, focusAutomationEnabled: false, alarmDurationSeconds: 60 }
+const FALLBACK_SETTINGS = { masterVolume: 0.8, advancedModeEnabled: false, alarmSound: { kind: 'builtin' as const, id: 'alarm-tone' as const }, alarmVolume: 1, haptics: defaultTimerHapticsSettings(), notificationsEnabled: true, liveCountdownEnabled: false, muteDuringCallsEnabled: true, availability: { enabled: false, weeklyWindows: [], overrides: [] }, focusAutomationEnabled: false, alarmDurationSeconds: 60 }
 const DEFAULT_FOCUS_STATE: NativeFocusState = { policyAccess: false, automationEnabled: false, ruleExists: false, ruleEnabled: false, actual: 'unknown', reason: 'off' }
 
 interface PendingRestore {
@@ -59,6 +60,12 @@ function settingsFromNative(current: AppTimerSettings, native: ReturnType<typeof
     advancedModeEnabled: current.advancedModeEnabled,
     alarmSound: current.alarmSound,
     alarmVolume: native.alarmVolume ?? current.alarmVolume,
+    haptics: native.hapticsEnabled === undefined ? current.haptics : normalizeTimerHapticsSettings({
+      enabled: native.hapticsEnabled,
+      main: { pattern: native.mainHapticPattern, strength: native.mainHapticStrength },
+      subBell: { pattern: native.subHapticPattern, strength: native.subHapticStrength },
+      alarm: { pattern: native.alarmHapticPattern, strength: native.alarmHapticStrength },
+    }),
     notificationsEnabled: native.notificationsEnabled ?? current.notificationsEnabled,
     liveCountdownEnabled: native.liveCountdownEnabled ?? current.liveCountdownEnabled,
     muteDuringCallsEnabled: native.muteDuringCallsEnabled ?? current.muteDuringCallsEnabled,
@@ -88,6 +95,10 @@ function Root() {
   const storageWarningShown = useRef(false)
   const fullScreenGuidanceShown = useRef(false)
   const handledCompletionPulse = useRef(0)
+
+  useEffect(() => {
+    setAppHapticsEnabled(timerState?.settings.haptics.enabled ?? true)
+  }, [timerState?.settings.haptics.enabled])
   const deferredUpdateAnnounced = useRef(false)
   const readyUpdateAnnounced = useRef(false)
   const emergencyLaunchAnnounced = useRef(false)
@@ -307,7 +318,7 @@ function Root() {
     const clearStopWarningOnSuccess = stopNeedsAttention.current
     stopNeedsAttention.current = false
     if (stopRetryTimeout.current) clearTimeout(stopRetryTimeout.current)
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined)
+    tapHaptic()
 
     const attempt = (index: number) => {
       if (generation !== stopAttemptGeneration.current) return
@@ -360,7 +371,7 @@ function Root() {
     handledCompletionPulse.current = timer.completionPulse
     setAppState('config')
     showNotice({ title: 'Session complete', message: 'Your timer finished exactly where you asked. The setup is ready whenever you want another round.', tone: 'success' })
-    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined)
+    successHaptic()
   }, [showNotice, timer.completionPulse])
 
   useEffect(() => {

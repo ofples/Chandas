@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
-import * as Haptics from 'expo-haptics'
+import { selectionHaptic } from '../../lib/haptics'
 import Animated, { FadeInDown, FadeOut, LinearTransition, useReducedMotion } from 'react-native-reanimated'
 import type { SubBellColorId } from '../../types'
 import { SUB_BELL_COLORS } from '../../lib/subBellColors'
@@ -24,7 +24,7 @@ export function ColorSelector({ value, onChange, label = 'Color', detail, traili
   const current = SUB_BELL_COLORS.find(option => option.id === value) ?? SUB_BELL_COLORS[0]
   return <Animated.View layout={reducedMotion ? undefined : LinearTransition.duration(170)} style={styles.block}>
     <View style={styles.summary}>
-      <Pressable onPress={() => { setExpanded(open => !open); void Haptics.selectionAsync().catch(() => undefined) }} style={styles.summaryButton} accessibilityRole="button" accessibilityLabel={`${accessibilityLabel}, ${current.label}`} accessibilityState={{ expanded }}>
+      <Pressable onPress={() => { setExpanded(open => !open); selectionHaptic() }} style={styles.summaryButton} accessibilityRole="button" accessibilityLabel={`${accessibilityLabel}, ${current.label}`} accessibilityState={{ expanded }}>
         {label ? <View style={styles.copy}><Text style={[styles.label, { color: tokens.text }]}>{label}</Text>{detail ? <Text numberOfLines={1} style={[styles.detail, { color: tokens.textMuted }]}>{detail}</Text> : null}</View> : <View style={styles.copy} />}
         <View style={[styles.currentChoice, { borderColor: expanded ? current.value : tokens.border }]}><View style={[styles.currentSwatch, { backgroundColor: current.value }]} /></View>
       </Pressable>
@@ -34,7 +34,7 @@ export function ColorSelector({ value, onChange, label = 'Color', detail, traili
       <FadedHorizontalScrollView fadeColor={tokens.surface} contentContainerStyle={styles.rail} accessibilityRole="radiogroup" accessibilityLabel={accessibilityLabel}>
       {SUB_BELL_COLORS.map(option => {
         const selected = value === option.id
-        return <Pressable key={option.id} onPress={() => { onChange(option.id); void Haptics.selectionAsync().catch(() => undefined) }} accessibilityRole="radio" accessibilityLabel={option.label} accessibilityState={{ selected }} style={({ pressed }) => [styles.choice, { borderColor: selected ? option.value : 'transparent', opacity: pressed ? 0.72 : 1, transform: [{ scale: pressed && !reducedMotion ? 0.92 : 1 }] }]}>
+        return <Pressable key={option.id} onPress={() => { onChange(option.id); selectionHaptic() }} accessibilityRole="radio" accessibilityLabel={option.label} accessibilityState={{ selected }} style={({ pressed }) => [styles.choice, { borderColor: selected ? option.value : 'transparent', opacity: pressed ? 0.72 : 1, transform: [{ scale: pressed && !reducedMotion ? 0.92 : 1 }] }]}>
           <View style={[styles.swatch, { backgroundColor: option.value }]} />
           {selected ? <Text style={styles.check}>✓</Text> : null}
         </Pressable>

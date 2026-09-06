@@ -2,7 +2,6 @@ import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from '
 import { ActivityIndicator, Animated as RNAnimated, AppState, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import Slider from '@react-native-community/slider'
 import Svg, { Circle } from 'react-native-svg'
-import * as Haptics from 'expo-haptics'
 import Animated, { FadeIn, FadeInDown, FadeOut, ZoomIn, useReducedMotion } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import type { AlarmBehavior, CueSettings, TimerProgram } from '../types'
@@ -22,7 +21,7 @@ import { GentleNotice } from '../components/timer-v2/experience-feedback'
 import { formatDuration } from '../components/timer-v2/run-length-config'
 import { subBellColorValue } from '../lib/subBellColors'
 import { SheetTextButton } from '../components/timer-v2/SheetTextButton'
-import { tapHaptic } from '../lib/haptics'
+import { selectionHaptic, tapHaptic } from '../lib/haptics'
 import { SheetSectionTitle } from '../components/timer-v2/SheetSectionTitle'
 import { ScrollEdgeFade } from '../components/timer-v2/ScrollEdgeFade'
 
@@ -103,7 +102,7 @@ export function TimerV2RunningScreen(props: Props) {
     if (tooltipTimer.current) clearTimeout(tooltipTimer.current)
     setTooltip(message)
     tooltipTimer.current = setTimeout(() => setTooltip(null), 2800)
-    void Haptics.selectionAsync().catch(() => undefined)
+    selectionHaptic()
   }
 
   const focusPaused = props.focusReason === 'paused-by-android'

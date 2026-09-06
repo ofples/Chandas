@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import Slider from '@react-native-community/slider'
-import * as Haptics from 'expo-haptics'
 import Reanimated, { FadeIn, FadeInDown, FadeOut, LinearTransition, interpolate, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import type { CueSettings, PatternTrack, SoundRef, TimerMode, TimerV2State } from '../types'
@@ -21,6 +20,7 @@ import { RunLengthConfig } from '../components/timer-v2/run-length-config'
 import { ScheduleConfig } from '../components/timer-v2/schedule-config'
 import { ScheduleTimelinePreview } from '../components/timer-v2/ScheduleTimelinePreview'
 import { SegmentedControl } from '../components/timer-v2/SegmentedControl'
+import { HapticsSheet } from '../components/timer-v2/haptics-sheet'
 import {
   addPatternTrack, addSequenceStep, chooseProgramMode, duplicateSequenceStep, patchPatternTrack, patchSequenceStep,
   patchCompletionCue, removePatternTrack, removeSequenceStep, reorderSequenceSteps, setCompletionCueEnabled, setPatternSubBellsEnabled,
@@ -30,6 +30,7 @@ import { soundTitle } from '../lib/soundLibrary'
 import { validOffsets } from '../lib/timerV2'
 import { useTheme } from '../theme/ThemeContext'
 import { useSoundAvailability } from '../hooks/use-sound-availability'
+import { mediumHaptic, selectionHaptic, setAppHapticsEnabled, tapHaptic } from '../lib/haptics'
 import { ChandasTimerService, isNativeServiceAvailable } from '../native/ChandasTimerService'
 import { GentleNotice, type AppNotice } from '../components/timer-v2/experience-feedback'
 import { hasAvailableTime } from '../lib/activeHours'
@@ -39,7 +40,6 @@ import { normalizeSubBellColor, subBellColorValue } from '../lib/subBellColors'
 import { ColorSelector } from '../components/timer-v2/ColorSelector'
 import { SheetTextButton } from '../components/timer-v2/SheetTextButton'
 import { SwipeToDeleteRow } from '../components/timer-v2/swipe-to-delete-row'
-import { tapHaptic } from '../lib/haptics'
 import { advancedRevealState, shouldRevealAdvanced } from '../lib/advanced-reveal'
 import { useKeyboardVisible } from '../hooks/use-keyboard-visible'
 import { ScrollEdgeFade } from '../components/timer-v2/ScrollEdgeFade'
@@ -80,6 +80,7 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
   const [mixerOpen, setMixerOpen] = useState(false)
   const [scheduleOpen, setScheduleOpen] = useState(false)
   const [systemAccessOpen, setSystemAccessOpen] = useState(false)
+  const [hapticsOpen, setHapticsOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
   const [sequenceReordering, setSequenceReordering] = useState(false)
   const scrollRef = useRef<ScrollView>(null)
@@ -96,6 +97,7 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
   const program = state.workingPrograms[state.workingPrograms.selectedMode]
   const settings = state.settings
   const alarmSoundSupported = !isNativeServiceAvailable || ChandasTimerService.getCapabilities()?.supportsAlarmSound === true
+  const hapticsSupported = !isNativeServiceAvailable || ChandasTimerService.getCapabilities()?.supportsHapticProfiles === true
 
   const changeSettings = (patch: Partial<typeof settings>) => onChange({ ...state, settings: { ...settings, ...patch } })
   const cue = cueTarget ? cueForTarget(state, cueTarget) : null
@@ -153,7 +155,7 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
     advancedPullProgressRef.current = progress
     advancedRevealProgress.value = progress
     const reachedThreshold = shouldRevealAdvanced(progress, ADVANCED_REVEAL_THRESHOLD)
-    if (reachedThreshold && !advancedPullThresholdRef.current) void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => undefined)
+    if (reachedThreshold && !advancedPullThresholdRef.current) mediumHaptic()
     advancedPullThresholdRef.current = reachedThreshold
   }
   const finishAdvancedPull = () => {
@@ -258,6 +260,8 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
 
           <ColorSelector label="Appearance" detail="Choose a calm color and canvas." value={accentColor} onChange={setAccentColor} accessibilityLabel="Primary interface color" trailing={<Pressable hitSlop={8} onPress={() => { tapHaptic(); toggleTheme() }} style={({ pressed }) => [styles.roundIcon, { borderColor: tokens.border, backgroundColor: pressed ? tokens.accentGlow : 'transparent', opacity: pressed ? 0.72 : 1 }]} accessibilityRole="button" accessibilityLabel={`Use ${theme === 'dark' ? 'light' : 'dark'} appearance`}><LightbulbIcon color={tokens.accent} /></Pressable>} />
 
+          {hapticsSupported ? <View style={styles.settingRow}><Pressable style={styles.flex} onPress={() => { tapHaptic(); setHapticsOpen(true) }} accessibilityRole="button" accessibilityLabel="Configure haptics"><Text style={[styles.rowTitle, { color: tokens.text }]}>Haptics</Text><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>{settings.haptics.enabled ? 'Patterns for timer cues and alarm.' : 'Off · patterns preserved'}</Text></Pressable><Toggle value={settings.haptics.enabled} onChange={enabled => { setAppHapticsEnabled(enabled); changeSettings({ haptics: { ...settings.haptics, enabled } }) }} accessibilityLabel="Haptics" /></View> : null}
+
           {Platform.OS === 'android' ? <FocusControl state={focusState} enabled={settings.focusAutomationEnabled} onChange={onFocusAutomationChange} onResume={() => { onFocusAutomationChange(false); onFocusAutomationChange(true) }} onOpenAccessSettings={onOpenFocusSettings} onOpenRuleSettings={onOpenFocusRuleSettings} /> : null}
 
           {Platform.OS === 'android' ? <ActionRow title="System integrations" detail={androidAccessSummary(androidAccess)} onPress={() => setSystemAccessOpen(true)} /> : null}
@@ -280,6 +284,7 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
       {cue ? <SoundPickerSheet visible title={cueTitle} cue={cue} masterVolume={settings.masterVolume} onChange={patchCue} onBack={trackId || cueTarget?.kind === 'step' || mixerOpen ? () => setCueTarget(null) : undefined} onClose={() => setCueTarget(null)} onFeedback={onFeedback} /> : null}
       <BottomSheet visible={scheduleOpen} title="Schedule" onClose={() => setScheduleOpen(false)}><ScheduleConfig showHeading={false} showEnabledControl={false} value={settings.availability} onChange={availability => changeSettings({ availability })} /></BottomSheet>
       {Platform.OS === 'android' ? <BottomSheet visible={systemAccessOpen} title="System integrations" onClose={() => setSystemAccessOpen(false)}><SystemAccessPanel access={androidAccess} settings={settings} onChangeSettings={changeSettings} onOpenExactAlarmSettings={onOpenExactAlarmSettings} onOpenFullScreenIntentSettings={onOpenFullScreenIntentSettings} onRequestCallMuteAccess={onRequestCallMuteAccess} onRequestNotificationAccess={onRequestNotificationAccess} /></BottomSheet> : null}
+      {hapticsSupported ? <HapticsSheet visible={hapticsOpen} value={settings.haptics} onChange={haptics => changeSettings({ haptics })} onClose={() => setHapticsOpen(false)} /> : null}
       <PresetLibrarySheet visible={presetsOpen} state={state} onChange={onChange} onClose={() => setPresetsOpen(false)} onFeedback={onFeedback} />
       <TimerHelpSheet visible={helpOpen} onClose={() => setHelpOpen(false)} onOpenFocusSettings={onOpenFocusSettings} />
     </KeyboardAvoidingView>
@@ -600,7 +605,7 @@ function EditableTitle({ value, onCommit, accessibilityLabel, large = false }: {
     setEditing(false)
   }
   if (editing) return <TextInput autoFocus value={draft} selectTextOnFocus blurOnSubmit onChangeText={text => setDraft([...text].slice(0, 60).join(''))} onBlur={commit} onSubmitEditing={commit} returnKeyType="done" style={[styles.editableTitleInput, large && styles.editableTitleLarge, { color: tokens.text, borderBottomColor: tokens.accent }]} accessibilityLabel={accessibilityLabel} />
-  return <Pressable onPress={() => { setDraft(value); editingRef.current = true; setEditing(true); void Haptics.selectionAsync().catch(() => undefined) }} style={[styles.editableTitle, { borderBottomColor: tokens.textMuted }]} accessibilityRole="button" accessibilityLabel={`Edit ${accessibilityLabel}`} accessibilityHint="Tap to rename"><Text numberOfLines={1} style={[styles.editableTitleText, large && styles.editableTitleTextLarge, { color: tokens.text }]}>{value}</Text></Pressable>
+  return <Pressable onPress={() => { setDraft(value); editingRef.current = true; setEditing(true); selectionHaptic() }} style={[styles.editableTitle, { borderBottomColor: tokens.textMuted }]} accessibilityRole="button" accessibilityLabel={`Edit ${accessibilityLabel}`} accessibilityHint="Tap to rename"><Text numberOfLines={1} style={[styles.editableTitleText, large && styles.editableTitleTextLarge, { color: tokens.text }]}>{value}</Text></Pressable>
 }
 
 function PatternTimelinePreview({ tracks, mainMinutes, onPress }: { tracks: PatternTrack[]; mainMinutes: number; onPress?: () => void }) {
