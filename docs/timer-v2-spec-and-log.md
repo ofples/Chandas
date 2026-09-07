@@ -1453,6 +1453,7 @@ Do not edit old entries to reflect new conclusions. Add a superseding entry and 
 | 2026-09-07 | D-117 | Accepted | A selected configuration is a focused detail state rather than a card nested inside the Configurations sheet: its saved name becomes the sheet title, `Cancel` and `Load` occupy the standard leading/trailing header positions, and one `Export` action copies the portable representation. Successful export raises a gentle toast offering the secondary `Save file` action. App feedback renders exactly once in the topmost visible sheet's native modal window, falling back to the root window only when no sheet is open, so modal backdrops never dim or cover feedback. |
 | 2026-09-07 | D-118 | Accepted | Web exposes Haptics only on a coarse-pointer touch device, matching Expo's usable touch-feedback route; desktop web hides the Advanced Haptics row and skips all haptic calls even if the browser advertises a vibration API without tactile hardware. Other native-only integrations remain omitted on web. While a sheet is closing, its last visible title, actions, body, and footer remain frozen so state cleanup cannot swap content into the outgoing surface. Web sheets use a short content entrance and immediate portal dismissal instead of React Native Web's whole-modal fade, which otherwise blends sheet text with the screen underneath for 250 ms. Native modal animation remains unchanged. |
 | 2026-09-07 | D-119 | Accepted | Setup help is one shared contextual mode across the main editor and every setup modal. Each explanation begins with the same quiet circled-info mark and uses plain task-oriented copy. When help is off, its `?` action stays beside the Cycle/Sequence title. When help is on, that action moves to a fixed safe-area top-right position so scrolling cannot hide it; while a sheet is open, the root action is suppressed and one active `?` appears in the sheet's fixed header beside Done/Load. Switching help off anywhere immediately hides every explanation and restores the ordinary title-level action. |
+| 2026-09-07 | D-120 | Accepted | Configuration intake is one quiet `Load` action beside `Save`, with no separate import heading or transport choices. Load first validates clipboard content; a valid Chandas configuration is saved as a new immutable local copy and applied immediately, while an unavailable, empty, or unrelated clipboard opens the file picker without an error detour. A clipboard success toast offers `Load from file instead`. File cancellation remains silent, malformed selected files receive gentle feedback, and the existing unsaved-working-copy confirmation runs before either source is applied. This supersedes D-116's imported-preview flow while retaining its validation, normalization, fresh identity, duplicate naming, and portability warning rules. |
 
 ### Decision-entry template
 
@@ -2871,6 +2872,23 @@ This section is append-only. Every implementation session should record scope, m
 
 **Verification run:** TypeScript compilation, full JavaScript tests, and live Expo Web inspection of help activation, pinned placement, modal contextual copy, duplicate-control suppression, and dismissal from inside a modal.
 
+### 2026-09-07 — Clipboard-first configuration loading
+
+**Status:** Complete in source.
+
+**Scope:** Configuration-library action hierarchy and source selection.
+
+**Behavior implemented:**
+
+- Removed the separate Import configuration heading, explanation, and parallel Paste/Open file actions. The save-name row now ends with the two plain-language actions `Save` and `Load`.
+- Load checks the clipboard first. Valid Chandas content is normalized, saved under a fresh local identity and non-conflicting name, and applied as the working configuration in one flow. The success toast offers `Load from file instead` without adding permanent controls to the sheet.
+- Empty, unavailable, or unrelated clipboard content quietly opens the system file picker. Cancelling the picker remains silent; an invalid selected file still receives specific gentle feedback.
+- Both clipboard and file loads retain the unsaved-working-copy confirmation. Device-specific sounds retain their portability warning, and asynchronous toast actions read the latest state so they cannot restore an obsolete configuration list.
+
+**Migration impact:** JavaScript/UI only beyond the existing configuration-transfer dependencies; no additional native capability or runtime-fingerprint change.
+
+**Verification run:** TypeScript compilation, full JavaScript tests, whitespace validation, and live Expo Web inspection of the simplified Save/Load row and configuration list hierarchy.
+
 ### Implementation-entry template
 
 ```md
@@ -2944,3 +2962,4 @@ This section is append-only. Every implementation session should record scope, m
 | 4.8 | 2026-09-07 | Focused configuration details around Cancel, Load, and one clipboard-first Export action, with optional file save in a toast that now renders above the topmost modal overlay. |
 | 4.9 | 2026-09-07 | Hid unavailable desktop-web haptics and stabilized shared sheet dismissal by freezing outgoing content and avoiding React Native Web's translucent whole-modal fade. |
 | 4.10 | 2026-09-07 | Extended icon-led setup help into every editing sheet and kept one active help toggle pinned in the viewport or fixed modal header until explanations are hidden. |
+| 4.11 | 2026-09-07 | Replaced the separate configuration-import block with one clipboard-first Load action that falls through to file selection and applies valid configurations directly behind the existing unsaved-work safeguard. |

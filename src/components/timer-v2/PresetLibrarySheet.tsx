@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { successHaptic } from '../../lib/haptics'
 import Animated, { FadeIn, FadeInDown, FadeOut, LinearTransition, useReducedMotion } from 'react-native-reanimated'
@@ -15,7 +15,7 @@ import { subBellColorValue } from '../../lib/subBellColors'
 import { tapHaptic } from '../../lib/haptics'
 import { SwipeToDeleteRow } from './swipe-to-delete-row'
 import { formatCompactDurationSeconds, patternDurationSeconds, sequenceStepDurationSeconds, trackCadenceSeconds, trackSelectedOffsetsSeconds } from '../../lib/timerV2'
-import { configurationTransferFilename, parseConfigurationTransfer, serializeConfiguration, type ConfigurationTransferError } from '../../lib/configuration-transfer'
+import { configurationTransferFilename, parseConfigurationTransfer, serializeConfiguration, type ConfigurationTransferError, type ConfigurationTransferResult } from '../../lib/configuration-transfer'
 import { copyConfigurationText, pickConfigurationText, readConfigurationTextFromClipboard, saveConfigurationFile } from '../../lib/configuration-transfer-io'
 
 const FILTERS = [{ value: 'all', label: 'All' }, { value: 'pattern', label: 'Cycle' }, { value: 'sequence', label: 'Sequence' }] as const
@@ -35,7 +35,9 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedba
   const [filter, setFilter] = useState<'all' | TimerMode>('all')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [savedName, setSavedName] = useState<string | null>(null)
-  const [transferAction, setTransferAction] = useState<'copy' | 'save-file' | 'paste' | 'open-file' | null>(null)
+  const [transferAction, setTransferAction] = useState<'copy' | 'save-file' | 'load' | 'open-file' | null>(null)
+  const stateRef = useRef(state)
+  stateRef.current = state
   const presets = useMemo(() => state.presets.filter(preset => filter === 'all' || preset.program.mode === filter), [filter, state.presets])
   const selected = state.presets.find(preset => preset.id === selectedId) ?? null
   const canSave = name.trim().length > 0
@@ -67,14 +69,8 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedba
     setSelectedId(current => current === preset.id ? null : current)
     onFeedback({ title: 'Configuration removed', message: 'Your current working copy was not changed.', tone: 'info' })
   }
-  const load = (preset: ProgramPreset) => {
-    const apply = () => {
-      onChange(loadProgramPreset(state, preset.id))
-      setSelectedId(null)
-      onClose()
-      onFeedback({ title: 'Configuration loaded', message: `“${preset.name}” is ready to adjust.`, tone: 'success' })
-    }
-    if (!hasUnsavedProgramChanges(state)) {
+  const confirmWorkingCopyReplacement = (sourceState: TimerV2State, apply: () => void) => {
+    if (!hasUnsavedProgramChanges(sourceState)) {
       apply()
       return
     }
@@ -88,42 +84,82 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedba
       { text: 'Load', style: 'destructive', onPress: apply },
     ])
   }
-
-  const importText = (text: string) => {
-    const result = parseConfigurationTransfer(text, state.presets.map(preset => preset.name))
-    if (!result.ok) {
-      onFeedback(configurationImportError(result.error))
-      return
+  const load = (preset: ProgramPreset) => {
+    const apply = () => {
+      onChange(loadProgramPreset(state, preset.id))
+      setSelectedId(null)
+      onClose()
+      onFeedback({ title: 'Configuration loaded', message: `“${preset.name}” is ready to adjust.`, tone: 'success' })
     }
-    onChange({ ...state, presets: [result.preset, ...state.presets] })
-    setFilter('all')
-    setSelectedId(result.preset.id)
-    onFeedback({
-      title: 'Configuration imported',
-      message: result.hasDeviceSpecificSounds
-        ? `“${result.preset.name}” is ready to review. Sounds chosen from another device may need to be selected again.`
-        : `“${result.preset.name}” is ready to review and load.`,
-      tone: 'success',
-    })
-    successHaptic()
+    confirmWorkingCopyReplacement(state, apply)
   }
-  const paste = async () => {
-    if (transferAction) return
-    setTransferAction('paste')
-    try {
-      importText(await readConfigurationTextFromClipboard())
-    } catch {
-      onFeedback({ title: 'Could not read the clipboard', message: 'Copy a Chandas configuration and try again.', tone: 'attention' })
-    } finally {
-      setTransferAction(null)
+
+  const applyImportedConfiguration = (result: Extract<ConfigurationTransferResult, { ok: true }>, source: 'clipboard' | 'file') => {
+    const sourceState = stateRef.current
+    const apply = () => {
+      const latestState = stateRef.current
+      const stateWithPreset: TimerV2State = {
+        ...latestState,
+        presets: [result.preset, ...latestState.presets.filter(preset => preset.id !== result.preset.id)],
+      }
+      onChange(loadProgramPreset(stateWithPreset, result.preset.id))
+      setFilter('all')
+      setSelectedId(null)
+      onClose()
+      onFeedback({
+        title: source === 'clipboard' ? 'Loaded from clipboard' : 'Configuration loaded',
+        message: result.hasDeviceSpecificSounds
+          ? `“${result.preset.name}” is ready. Sounds chosen from another device may need to be selected again.`
+          : `“${result.preset.name}” is ready to adjust.`,
+        tone: 'success',
+        actionLabel: source === 'clipboard' ? 'Load from file instead' : undefined,
+        onAction: source === 'clipboard' ? () => void openFile() : undefined,
+      })
+      successHaptic()
     }
+    confirmWorkingCopyReplacement(sourceState, apply)
+  }
+  const importText = (text: string, source: 'clipboard' | 'file', reportError = true): boolean => {
+    const currentState = stateRef.current
+    const result = parseConfigurationTransfer(text, currentState.presets.map(preset => preset.name))
+    if (!result.ok) {
+      if (reportError) onFeedback(configurationImportError(result.error))
+      return false
+    }
+    applyImportedConfiguration(result, source)
+    return true
   }
   const openFile = async () => {
     if (transferAction) return
     setTransferAction('open-file')
     try {
       const text = await pickConfigurationText()
-      if (text !== null) importText(text)
+      if (text !== null) importText(text, 'file')
+    } catch {
+      onFeedback({ title: 'Could not open that file', message: 'Choose a Chandas configuration file and try again.', tone: 'attention' })
+    } finally {
+      setTransferAction(null)
+    }
+  }
+  const loadExternalConfiguration = async () => {
+    if (transferAction) return
+    setTransferAction('load')
+    let loadedFromClipboard = false
+    try {
+      const clipboardText = await readConfigurationTextFromClipboard()
+      loadedFromClipboard = importText(clipboardText, 'clipboard', false)
+    } catch {
+      // Clipboard access can be unavailable or empty. In either case, fall through
+      // to the file picker without presenting a dead-end error.
+    }
+    if (loadedFromClipboard) {
+      setTransferAction(null)
+      return
+    }
+    setTransferAction('open-file')
+    try {
+      const text = await pickConfigurationText()
+      if (text !== null) importText(text, 'file')
     } catch {
       onFeedback({ title: 'Could not open that file', message: 'Choose a Chandas configuration file and try again.', tone: 'attention' })
     } finally {
@@ -167,7 +203,7 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedba
       visible={visible}
       title={selected?.name ?? 'Configurations'}
       accessibilityTitle={selected?.name ?? 'Configurations'}
-      help={selected ? 'Review this saved setup before loading it as a new working copy. Export copies a portable version and then offers to save it as a file.' : 'Save the current setup for later, or import one from the clipboard or a Chandas file. Open a saved setup to review it before loading.'}
+      help={selected ? 'Review this saved setup before loading it as a new working copy. Export copies a portable version and then offers to save it as a file.' : 'Save the current setup for later. Load checks the clipboard for a Chandas configuration first, then lets you choose a file.'}
       onClose={selected ? () => setSelectedId(null) : onClose}
       leadingAction={selected ? { label: 'Cancel', tone: 'muted', onPress: () => setSelectedId(null) } : undefined}
       trailingAction={selected ? { label: 'Load', disabled: Boolean(transferAction), onPress: () => load(selected) } : undefined}
@@ -184,13 +220,12 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedba
           style={[styles.input, { color: tokens.text, borderColor: tokens.border, backgroundColor: tokens.surfaceHi }]}
           accessibilityLabel="New configuration name"
         />
-        <SheetTextButton disabled={!canSave} label="Save" onPress={save} />
+        <View style={styles.saveActions}>
+          <SheetTextButton disabled={!canSave || Boolean(transferAction)} label="Save" onPress={save} />
+          <SheetTextButton disabled={Boolean(transferAction)} label={transferAction === 'load' || transferAction === 'open-file' ? 'Loading…' : 'Load'} onPress={() => void loadExternalConfiguration()} />
+        </View>
       </View> : null}
       {!selected && savedName ? <GentleNotice title="Configuration saved" message={`“${savedName}” is ready to load.`} tone="success" /> : null}
-      {!selected ? <View style={styles.transferRow}>
-        <View style={styles.copy}><Text style={[styles.presetTitle, { color: tokens.text }]}>Import configuration</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>Paste one, or open a Chandas file.</Text></View>
-        <View style={styles.transferActions}><SheetTextButton disabled={Boolean(transferAction)} label={transferAction === 'paste' ? 'Pasting…' : 'Paste'} onPress={() => void paste()} /><SheetTextButton disabled={Boolean(transferAction)} label={transferAction === 'open-file' ? 'Opening…' : 'Open file'} onPress={() => void openFile()} /></View>
-      </View> : null}
       {!selected ? <SegmentedControl items={FILTERS} value={filter} onChange={setFilter} accessibilityLabel="Configuration type" /> : null}
       {selected ? <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 130)} style={styles.inspector}>
         <View style={styles.copy}><PresetVisual program={selected.program} /><Text style={[styles.date, { color: tokens.textMuted }]}>Saved {new Date(selected.createdAt).toLocaleString()}</Text><PresetDetails preset={selected} /><Text style={[styles.helper, { color: tokens.text }]}>Loads as a new working copy.</Text></View>
@@ -256,6 +291,7 @@ const styles = StyleSheet.create({
   helper: { fontSize: 12, lineHeight: 18 },
   current: { gap: 3 },
   saveRow: { flexDirection: 'row', gap: 8 },
+  saveActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   input: { flex: 1, minHeight: 45, borderWidth: 1.5, borderRadius: 11, paddingHorizontal: 12, fontSize: 14 },
   list: { gap: 9 },
   empty: { padding: 18, borderWidth: 1.5, borderStyle: 'dashed', borderRadius: 13, gap: 4 },
@@ -269,8 +305,6 @@ const styles = StyleSheet.create({
   action: { fontSize: 12, fontWeight: '700' },
   delete: { fontSize: 11, textDecorationLine: 'underline' },
   inspector: { gap: 12 },
-  transferRow: { minHeight: 54, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  transferActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 10 },
   exportActions: { flexDirection: 'row', alignItems: 'center' },
   details: { borderTopWidth: 1, borderBottomWidth: 1, paddingVertical: 9, gap: 5 },
   detailLine: { fontSize: 11, lineHeight: 16 },
