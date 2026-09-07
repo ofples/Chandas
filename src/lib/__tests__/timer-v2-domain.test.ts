@@ -15,6 +15,7 @@ function pattern(): PatternProgram {
     schemaVersion: 2,
     mode: 'pattern',
     label: 'Focus cycle',
+    labelIsCustom: true,
     mainMinutes: 30,
     mainCue: { sound: { kind: 'builtin', id: 'temple-gong' }, volume: 0.8 },
     completionCue: null,
@@ -553,11 +554,30 @@ describe('timer v2 validation and presets', () => {
     delete (old.tracks![0] as Partial<PatternProgram['tracks'][number]>).color
     ;(old.tracks![1] as { color?: string }).color = 'not-a-palette-color'
     const normalized = normalizePatternProgram(old)
-    expect(normalized.label).toBe('Main Interval')
+    expect(normalized.label).toBe('30-minute cycle')
+    expect(normalized.labelIsCustom).toBe(false)
     expect(normalized.subBellsEnabled).toBe(true)
     expect(normalized.tracks[0].label).toBe('Sub-bell 1')
     expect(normalized.tracks.map(track => track.color)).toEqual(['violet', 'blue'])
     expect(normalized.completionCue).toBeNull()
+  })
+
+  it('keeps an automatic Cycle name in step with its duration without replacing a custom name', () => {
+    const initial = defaultTimerV2State()
+    const resizedDefault = updatePatternMainDurationSeconds(initial, 45 * 60)
+    expect(resizedDefault.workingPrograms.pattern.label).toBe('45-minute cycle')
+    expect(resizedDefault.workingPrograms.pattern.labelIsCustom).toBe(false)
+
+    const named = {
+      ...initial,
+      workingPrograms: {
+        ...initial.workingPrograms,
+        pattern: { ...initial.workingPrograms.pattern, label: 'Morning practice', labelIsCustom: true },
+      },
+    }
+    const resizedCustom = updatePatternMainDurationSeconds(named, 90)
+    expect(resizedCustom.workingPrograms.pattern.label).toBe('Morning practice')
+    expect(resizedCustom.workingPrograms.pattern.labelIsCustom).toBe(true)
   })
 
   it('normalizes optional final-gong settings without enabling them for older programs', () => {

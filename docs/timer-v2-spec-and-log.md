@@ -2830,3 +2830,4 @@ This section is append-only. Every implementation session should record scope, m
 | 4.1 | 2026-09-07 | Made the exact closing boundary of an active-hours range audible without extending availability, Focus, or late-cue replay into quiet hours. |
 | 4.2 | 2026-09-07 | Replaced generic Android running copy with the current Cycle/Sequence identity and a seven-character step-aware promoted status chip. |
 | 4.3 | 2026-09-07 | Moved setup guidance inline, made running help mode/visibility-aware, shared Advanced state across contexts, and prevented stale top sheet scrims. |
+| 4.4 | 2026-09-07 | Replaced the ambiguous default Cycle title with a duration-aware name that follows duration changes until renamed, and rewrote its inline help as a concrete countdown–gong–restart explanation. |

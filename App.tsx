@@ -23,7 +23,7 @@ import { clockOffsetLabel } from './src/lib/clockAlignment'
 
 const FALLBACK_PROGRAM = {
   schemaVersion: 2 as const, mode: 'pattern' as const, mainMinutes: 30,
-  label: 'Main Interval',
+  label: '30-minute cycle', labelIsCustom: false,
   mainCue: { sound: { kind: 'builtin' as const, id: 'temple-gong' as const }, volume: 1 }, completionCue: null, subBellsEnabled: false, tracks: [], alignment: { kind: 'elapsed' as const },
   runPolicy: { kind: 'continuous' as const, cycleCount: 1, durationSeconds: 30 * 60 },
 }

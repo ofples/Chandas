@@ -397,8 +397,8 @@ function PatternEditor({ state, onChange, enhancedClockAlignmentSupported, onOpe
   })
   return <>
     <View style={styles.section}>
-      <View style={styles.titleWithHelp}><EditableTitle value={program.label} onCommit={label => onChange(updatePattern(state, value => ({ ...value, label })))} accessibilityLabel="main interval name" /><HelpButton active={showHelp} onPress={onToggleHelp} /></View>
-      <InlineHelp visible={showHelp}>This cycle repeats the same main interval. Tap its name whenever you want to rename it.</InlineHelp>
+      <View style={styles.titleWithHelp}><EditableTitle value={program.label} onCommit={label => onChange(updatePattern(state, value => ({ ...value, label, labelIsCustom: true })))} accessibilityLabel="cycle name" /><HelpButton active={showHelp} onPress={onToggleHelp} /></View>
+      <InlineHelp visible={showHelp}>The timer counts down, sounds the gong, then starts the next cycle. Tap the name to rename it.</InlineHelp>
       <Text style={[styles.rowTitle, { color: tokens.text }]}>Main interval</Text>
       <InlineHelp visible={showHelp}>Choose how much time passes between main gongs.</InlineHelp>
       <DurationSelector value={program.mainMinutes} valueSeconds={durationSeconds} secondPrecision={state.settings.secondPrecisionEnabled} presets={MAIN_PRESETS} fadeColor={tokens.bg} onChange={minutes => changeMainMinutes(state, minutes, onChange)} onChangeSeconds={changeDurationSeconds} />

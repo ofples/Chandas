@@ -89,6 +89,8 @@ export interface PatternProgram {
   schemaVersion: 2
   mode: 'pattern'
   label: string
+  /** False while the duration-derived default label should follow duration changes. */
+  labelIsCustom?: boolean
   mainMinutes: number
   /** Exact duration used by second-precision runtimes; absent legacy values use mainMinutes. */
   mainDurationSeconds?: number

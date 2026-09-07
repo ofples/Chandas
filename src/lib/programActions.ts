@@ -17,6 +17,7 @@ import {
   clampDuration,
   clampVolume,
   createProgramId,
+  defaultPatternLabel,
   defaultPatternProgram,
   defaultSequenceProgram,
   normalizeLabel,
@@ -95,6 +96,7 @@ export function updatePatternMainDurationSeconds(state: TimerV2State, seconds: n
     const mainMinutes = durationMinutesProjection(mainDurationSeconds)
     return {
       ...program,
+      label: program.labelIsCustom ? program.label : defaultPatternLabel(mainDurationSeconds),
       mainMinutes,
       mainDurationSeconds,
       tracks: program.tracks.map(track => {

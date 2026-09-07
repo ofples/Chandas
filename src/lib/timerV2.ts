@@ -93,6 +93,22 @@ export function formatCompactDurationSeconds(value: number): string {
   return parts.join(' ')
 }
 
+/** Friendly Cycle name used until the person gives the cycle a name of their own. */
+export function defaultPatternLabel(value: number): string {
+  const seconds = clampCueDurationSeconds(value, 30 * 60)
+  if (seconds % 60 === 0) return `${seconds / 60}-minute cycle`
+  if (seconds < 60) return `${seconds}-second cycle`
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s cycle`
+}
+
+function isAutomaticPatternLabel(value: string): boolean {
+  return value === 'Main Interval'
+    || value === 'Main interval'
+    || /^\d+-minute cycle$/.test(value)
+    || /^\d+-second cycle$/.test(value)
+    || /^\d+m \d+s cycle$/.test(value)
+}
+
 export function clampSnapOffset(value: unknown, fallback = 0): number {
   return clamp(whole(value, fallback), 0, 59)
 }
@@ -132,7 +148,8 @@ export function defaultPatternProgram(): PatternProgram {
   return {
     schemaVersion: TIMER_V2_SCHEMA_VERSION,
     mode: 'pattern',
-    label: 'Main Interval',
+    label: defaultPatternLabel(30 * 60),
+    labelIsCustom: false,
     mainMinutes: 30,
     mainDurationSeconds: 30 * 60,
     mainCue: defaultCue('temple-gong'),
@@ -273,11 +290,16 @@ export function normalizePatternProgram(value: Partial<PatternProgram> | undefin
     if (/^Sub-bell \d+$/.test(track.label)) track.label = `Sub-bell ${index + 1}`
   })
   const offset = value?.alignment?.kind === 'local-clock' ? canonicalClockOffset(mainDurationSeconds, clampSnapOffset(value.alignment.offsetMinutes)) : undefined
-  const label = normalizeLabel(value?.label, 'Main Interval')
+  const rawLabel = normalizeLabel(value?.label, defaultPatternLabel(mainDurationSeconds))
+  const hasSavedLabel = typeof value?.label === 'string' && value.label.trim().length > 0
+  const labelIsCustom = hasSavedLabel && (typeof value?.labelIsCustom === 'boolean'
+    ? value.labelIsCustom
+    : !isAutomaticPatternLabel(rawLabel))
   return {
     schemaVersion: TIMER_V2_SCHEMA_VERSION,
     mode: 'pattern',
-    label: label === 'Main interval' ? 'Main Interval' : label,
+    label: labelIsCustom ? rawLabel : defaultPatternLabel(mainDurationSeconds),
+    labelIsCustom,
     mainMinutes,
     ...(typeof value?.mainDurationSeconds === 'number' ? { mainDurationSeconds } : {}),
     mainCue: normalizeCue(value?.mainCue, defaultCue('temple-gong')),
@@ -403,7 +425,8 @@ export function migrateLegacyConfig(legacy: Partial<TimerConfig>): TimerV2State 
   const pattern: PatternProgram = {
     schemaVersion: TIMER_V2_SCHEMA_VERSION,
     mode: 'pattern',
-    label: 'Main Interval',
+    label: defaultPatternLabel(mainMinutes * 60),
+    labelIsCustom: false,
     mainMinutes,
     mainDurationSeconds: mainMinutes * 60,
     mainCue: defaultCue('temple-gong'),

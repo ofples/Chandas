@@ -51,7 +51,7 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedba
     if (!canSave) return
     const cleanName = name.trim()
     const namedState = state.workingPrograms.selectedMode === 'pattern'
-      ? updatePattern(state, program => ({ ...program, label: cleanName }))
+      ? updatePattern(state, program => ({ ...program, label: cleanName, labelIsCustom: true }))
       : state
     onChange(saveProgramPreset(namedState, cleanName))
     setSavedName(cleanName)
