@@ -249,29 +249,27 @@ class ChandasTimerServiceModule : Module() {
 
     Function("toggleAlarmOnce") {
       val context = appContext.reactContext
-      if (context != null && TimerStateStore.load(context) != null) {
-        TimerStateStore.toggleAlarmOnce(context)
-      }
+      if (context != null) TimerScheduler.toggleAlarmOnce(context)
     }
 
     Function("muteForIterations") { count: Int ->
       val context = appContext.reactContext ?: return@Function
-      if (TimerStateStore.load(context) != null) TimerStateStore.muteForIterations(context, count)
+      TimerScheduler.muteForIterations(context, count)
     }
 
     Function("muteForMinutes") { minutes: Int ->
       val context = appContext.reactContext ?: return@Function
-      if (TimerStateStore.load(context) != null) TimerStateStore.muteForMinutes(context, minutes)
+      TimerScheduler.muteForMinutes(context, minutes)
     }
 
     Function("muteForSeconds") { seconds: Int ->
       val context = appContext.reactContext ?: return@Function
-      if (TimerStateStore.load(context) != null) TimerStateStore.muteForSeconds(context, seconds)
+      TimerScheduler.muteForSeconds(context, seconds)
     }
 
     Function("clearMute") {
       val context = appContext.reactContext
-      if (context != null) TimerStateStore.clearMute(context)
+      if (context != null) TimerScheduler.clearMute(context)
     }
 
     RegisterActivityContracts {
@@ -380,13 +378,13 @@ class ChandasTimerServiceModule : Module() {
 
     Function("isFocusModeActive") {
       val context = appContext.reactContext
-      context != null && FocusModeController.isActive(context)
+      context != null && TimerScheduler.isFocusActive(context)
     }
 
     Function("getFocusState") {
       val context = appContext.reactContext
       if (context == null) focusBundle(NativeFocusState(false, false, false, false, "unknown", "unknown"))
-      else focusBundle(FocusModeController.query(context))
+      else focusBundle(TimerScheduler.queryFocus(context))
     }
 
     Function("openNotificationPolicySettings") {
@@ -401,12 +399,12 @@ class ChandasTimerServiceModule : Module() {
 
     Function("refreshFocusMode") {
       val context = appContext.reactContext
-      if (context != null) FocusModeController.query(context)
+      if (context != null) TimerScheduler.queryFocus(context)
     }
 
     Function("setFocusModeEnabled") { enabled: Boolean ->
       val context = appContext.reactContext ?: return@Function
-      FocusModeController.setAutomationFromApp(context, enabled)
+      TimerScheduler.setFocusEnabled(context, enabled)
     }
 
     OnStartObserving("onAlarmStateChanged") {

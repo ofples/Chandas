@@ -72,6 +72,52 @@ object TimerScheduler {
   }
 
   @Synchronized
+  fun toggleAlarmOnce(context: Context) {
+    if (TimerStateStore.load(context) != null) TimerStateStore.toggleAlarmOnce(context)
+  }
+
+  @Synchronized
+  fun muteForIterations(context: Context, count: Int) {
+    if (TimerStateStore.load(context) != null) TimerStateStore.muteForIterations(context, count)
+  }
+
+  @Synchronized
+  fun muteForMinutes(context: Context, minutes: Int) {
+    if (TimerStateStore.load(context) != null) TimerStateStore.muteForMinutes(context, minutes)
+  }
+
+  @Synchronized
+  fun muteForSeconds(context: Context, seconds: Int) {
+    if (TimerStateStore.load(context) != null) TimerStateStore.muteForSeconds(context, seconds)
+  }
+
+  @Synchronized
+  fun clearMute(context: Context) {
+    TimerStateStore.clearMute(context)
+  }
+
+  @Synchronized
+  fun queryFocus(context: Context): NativeFocusState = FocusModeController.query(context)
+
+  @Synchronized
+  fun isFocusActive(context: Context): Boolean = FocusModeController.isActive(context)
+
+  @Synchronized
+  fun setFocusEnabled(context: Context, enabled: Boolean) {
+    FocusModeController.setAutomationFromApp(context, enabled)
+  }
+
+  @Synchronized
+  fun reconcileFocus(context: Context, forceApply: Boolean = false) {
+    FocusModeController.reconcile(context, forceApply = forceApply)
+  }
+
+  @Synchronized
+  fun handleFocusRuleStatus(context: Context, ruleId: String?, status: Int) {
+    FocusModeController.handleRuleStatus(context, ruleId, status)
+  }
+
+  @Synchronized
   fun stop(context: Context) {
     cancelScheduledEvent(context)
     ChandasCueService.stop(context)

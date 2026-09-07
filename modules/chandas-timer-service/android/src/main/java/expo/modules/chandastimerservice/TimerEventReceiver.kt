@@ -19,7 +19,7 @@ class TimerEventReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
     when (intent.action) {
       ACTION_STOP -> TimerScheduler.stop(context)
-      ACTION_FOCUS_END -> FocusModeController.reconcile(context)
+      ACTION_FOCUS_END -> TimerScheduler.reconcileFocus(context)
       ACTION_FIRE -> {
         val type = TimerEventType.fromValue(intent.getStringExtra(EXTRA_EVENT_TYPE)) ?: return
         val triggerAt = intent.getLongExtra(EXTRA_TRIGGER_AT, -1L)

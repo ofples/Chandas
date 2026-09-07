@@ -26,6 +26,7 @@ EAS regenerates it from these inputs.
 | N-14 | High | Exact scheduling ignores the durable `setNext` result and catches only permission failures. Other persistence/platform failures can leave an active session with no future alarm. | Resolved | `Fail closed when exact scheduling fails` |
 | N-15 | Medium | The resolved Android manifest includes legacy broad read/write storage permissions even though sound import uses the system document picker and app-private storage. | Resolved | `Remove legacy Android storage permissions` |
 | N-16 | Medium | Static native registries rely only on per-event stop-observing callbacks; a whole bridge/module teardown can retain stale closures while Android services keep running. | Resolved | `Release native listeners with the Expo module` |
+| N-17 | High | Mute/Alarm Once and Focus callbacks mutate the same persisted session outside the scheduler lock. A Focus repair can overwrite a concurrently re-aligned anchor with an older snapshot. | Resolved | `Serialize native controls and Focus state` |
 
 ## Reviewed and currently acceptable
 
