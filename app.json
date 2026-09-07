@@ -49,13 +49,14 @@
         }
       ],
       "expo-font",
-      "./modules/chandas-timer-service/app.plugin.js",
       [
         "expo-notifications",
         {
+          "icon": "./assets/android-icon-monochrome.png",
           "color": "#7c6ff7"
         }
       ],
+      "./modules/chandas-timer-service/app.plugin.js",
       "expo-asset",
       [
         "expo-splash-screen",
