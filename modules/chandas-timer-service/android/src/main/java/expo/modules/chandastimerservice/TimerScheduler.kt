@@ -18,6 +18,8 @@ object TimerScheduler {
     return manager.canScheduleExactAlarms()
   }
 
+  /** Serializes each persisted-state/alarm transaction across JS, receivers, and services. */
+  @Synchronized
   fun start(context: Context, config: TimerConfig): Boolean {
     if (!canScheduleExactAlarms(context)) return false
     if (!isValidConfig(config)) return false
@@ -39,6 +41,7 @@ object TimerScheduler {
     return scheduled
   }
 
+  @Synchronized
   fun update(context: Context, config: TimerConfig) {
     if (TimerStateStore.load(context) == null) return
     // Never replace a valid persisted schedule with a malformed program. The
@@ -56,6 +59,7 @@ object TimerScheduler {
     scheduleNext(context)
   }
 
+  @Synchronized
   fun stop(context: Context) {
     cancelScheduledEvent(context)
     TimerSoundPlayer.stopAll()
@@ -69,6 +73,7 @@ object TimerScheduler {
     TimerStateRegistry.notify(TimerScheduleState(false, 0L, 0L, null, canScheduleExactAlarms(context)))
   }
 
+  @Synchronized
   fun restore(context: Context, resetRinging: Boolean, wallClockChanged: Boolean = false) {
     var stored = TimerStateStore.load(context) ?: return
     if (!isValidConfig(stored)) {
@@ -99,6 +104,7 @@ object TimerScheduler {
     scheduleNext(context, stored)
   }
 
+  @Synchronized
   fun scheduleNext(context: Context, config: TimerConfig? = TimerStateStore.load(context)): Boolean {
     val initial = config ?: return false
     if (!isValidConfig(initial)) return false
@@ -191,6 +197,7 @@ object TimerScheduler {
     return true
   }
 
+  @Synchronized
   fun handleTriggered(
     context: Context,
     triggerAt: Long,
@@ -429,6 +436,7 @@ object TimerScheduler {
     TimerStateRegistry.notify(TimerScheduleState(false, 0L, 0L, null, false))
   }
 
+  @Synchronized
   fun cancelScheduledEvent(context: Context) {
     val operation = PendingIntent.getBroadcast(
       context,
