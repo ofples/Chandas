@@ -38,8 +38,7 @@ export function HapticsSheet({ visible, value, onChange, onClose }: Props) {
     if (!await previewHapticProfile(profile)) setPreviewFailed(true)
   }
 
-  return <BottomSheet visible={visible} title="Haptics" onClose={onClose}>
-    <Text style={[styles.intro, { color: tokens.textMuted }]}>Choose how timer cues feel. Turning Haptics off also silences taps and feedback.</Text>
+  return <BottomSheet visible={visible} title="Haptics" help="Choose a vibration pattern and strength for each kind of cue. Turning Haptics off also silences taps and interface feedback." onClose={onClose}>
     <View style={styles.list}>
       {ROWS.map((row, index) => {
         const profile = value[row.key]
@@ -86,7 +85,6 @@ function PreviewButton({ onPress, label }: { onPress: () => void; label: string 
 }
 
 const styles = StyleSheet.create({
-  intro: { fontSize: 12, lineHeight: 18, marginBottom: 2 },
   list: { gap: 0 },
   divider: { height: 1 },
   row: { minHeight: 66, flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 },

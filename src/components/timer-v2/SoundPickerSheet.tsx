@@ -96,7 +96,7 @@ export function SoundPickerSheet({ visible, title, cue, masterVolume, onChange, 
   </View>
 
   return (
-    <BottomSheet visible={visible} title={title} onClose={close} onBack={onBack ? () => { stopPreview(); onBack() } : undefined} footer={volumeFooter}>
+    <BottomSheet visible={visible} title={title} help="Choose where the sound comes from, tap play to hear it, then set this cue’s own volume below. Built-in sounds travel with saved configurations." onClose={close} onBack={onBack ? () => { stopPreview(); onBack() } : undefined} footer={volumeFooter}>
       <SegmentedControl items={SOUND_TABS} value={tab} onChange={value => { stopPreview(); setTab(value) }} accessibilityLabel="Sound source" />
 
       {message ? <GentleNotice title={message.title} message={message.detail} tone="attention" /> : null}

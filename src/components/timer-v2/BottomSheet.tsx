@@ -7,6 +7,7 @@ import { useKeyboardVisible } from '../../hooks/use-keyboard-visible'
 import { SheetTextButton } from './SheetTextButton'
 import { FadedVerticalScrollView } from './FadedVerticalScrollView'
 import { SheetFeedbackOverlay, useFeedbackSheetRegistration } from './feedback-layer'
+import { ContextualHelp, HelpToggleButton, useSetupHelp } from './inline-help'
 
 interface Props {
   visible: boolean
@@ -17,6 +18,7 @@ interface Props {
   onBack?: () => void
   leadingAction?: SheetHeaderAction
   trailingAction?: SheetHeaderAction
+  help?: ReactNode
   children: ReactNode
   scroll?: boolean
   footer?: ReactNode
@@ -31,22 +33,23 @@ interface SheetHeaderAction {
 }
 
 /** Shared, keyboard-safe sheet used by every Timer v2 secondary flow. */
-export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClose, onBack, leadingAction, trailingAction, children, scroll = true, footer }: Props) {
+export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClose, onBack, leadingAction, trailingAction, help, children, scroll = true, footer }: Props) {
   const { tokens } = useTheme()
   const insets = useSafeAreaInsets()
   const keyboardVisible = useKeyboardVisible(visible)
   const reducedMotion = useReducedMotion()
+  const setupHelp = useSetupHelp()
   const sheetId = useId()
   const setSheetVisible = useFeedbackSheetRegistration()
   useEffect(() => {
     setSheetVisible?.(sheetId, visible)
     return () => setSheetVisible?.(sheetId, false)
   }, [setSheetVisible, sheetId, visible])
-  const presentation = { title, accessibilityTitle, eyebrow, onClose, onBack, leadingAction, trailingAction, children, scroll, footer }
+  const presentation = { title, accessibilityTitle, eyebrow, onClose, onBack, leadingAction, trailingAction, help, children, scroll, footer }
   const lastVisiblePresentation = useRef(presentation)
   useEffect(() => {
     if (visible) lastVisiblePresentation.current = presentation
-  }, [visible, title, accessibilityTitle, eyebrow, onClose, onBack, leadingAction, trailingAction, children, scroll, footer])
+  }, [visible, title, accessibilityTitle, eyebrow, onClose, onBack, leadingAction, trailingAction, help, children, scroll, footer])
   const presented = visible ? presentation : lastVisiblePresentation.current
   const body = presented.scroll
     ? <FadedVerticalScrollView fadeColor={tokens.surface} resetKey={visible} style={styles.scroll} keyboardShouldPersistTaps="never" keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'} contentContainerStyle={styles.body}>{presented.children}</FadedVerticalScrollView>
@@ -69,9 +72,12 @@ export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClo
                 : presented.onBack
                   ? <SheetTextButton label="‹ Back" onPress={presented.onBack} accessibilityLabel="Back" />
                   : <View style={styles.actionSpacer} />}
-              {presented.trailingAction
-                ? <SheetTextButton {...presented.trailingAction} />
-                : <SheetTextButton label="Done" onPress={presented.onClose} accessibilityLabel={`Close ${presented.accessibilityTitle ?? (typeof presented.title === 'string' ? presented.title : 'sheet')}`} />}
+              <View style={styles.trailingActions}>
+                {presented.trailingAction
+                  ? <SheetTextButton {...presented.trailingAction} />
+                  : <SheetTextButton label="Done" onPress={presented.onClose} accessibilityLabel={`Close ${presented.accessibilityTitle ?? (typeof presented.title === 'string' ? presented.title : 'sheet')}`} />}
+                {setupHelp.visible && setupHelp.onChange ? <HelpToggleButton active onPress={() => setupHelp.onChange?.(false)} /> : null}
+              </View>
             </View>
             <View style={styles.header}>
               <View style={styles.heading}>
@@ -79,6 +85,7 @@ export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClo
                 {typeof presented.title === 'string' ? <Text style={[styles.title, { color: tokens.text }]}>{presented.title}</Text> : presented.title}
               </View>
             </View>
+            <ContextualHelp>{presented.help}</ContextualHelp>
             {body}
             {presented.footer}
           </Animated.View>
@@ -95,6 +102,7 @@ const styles = StyleSheet.create({
   backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.58)' },
   sheet: { width: '100%', maxWidth: 680, maxHeight: '92%', minHeight: 220, alignSelf: 'center', borderWidth: 1.5, borderBottomWidth: 0, borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 20, paddingTop: 16, gap: 16 },
   actions: { minHeight: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  trailingActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   actionSpacer: { width: 44 },
   header: { minHeight: 40, justifyContent: 'center', paddingBottom: 4 },
   heading: { flex: 1, gap: 3 },

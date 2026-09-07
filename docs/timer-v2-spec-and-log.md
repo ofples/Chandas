@@ -1452,6 +1452,7 @@ Do not edit old entries to reflect new conclusions. Add a superseding entry and 
 | 2026-09-07 | D-116 | Accepted | A saved configuration is portable as one versioned, human-readable Chandas JSON envelope. A selected configuration can be copied or saved as a `.chandas.json` file; the library can paste or open either representation. Import validates and normalizes before mutation, creates a fresh local identity and non-conflicting name, saves the imported copy, and opens its preview without replacing unsaved work. Device-specific sound references are retained with a gentle portability warning. |
 | 2026-09-07 | D-117 | Accepted | A selected configuration is a focused detail state rather than a card nested inside the Configurations sheet: its saved name becomes the sheet title, `Cancel` and `Load` occupy the standard leading/trailing header positions, and one `Export` action copies the portable representation. Successful export raises a gentle toast offering the secondary `Save file` action. App feedback renders exactly once in the topmost visible sheet's native modal window, falling back to the root window only when no sheet is open, so modal backdrops never dim or cover feedback. |
 | 2026-09-07 | D-118 | Accepted | Web exposes Haptics only on a coarse-pointer touch device, matching Expo's usable touch-feedback route; desktop web hides the Advanced Haptics row and skips all haptic calls even if the browser advertises a vibration API without tactile hardware. Other native-only integrations remain omitted on web. While a sheet is closing, its last visible title, actions, body, and footer remain frozen so state cleanup cannot swap content into the outgoing surface. Web sheets use a short content entrance and immediate portal dismissal instead of React Native Web's whole-modal fade, which otherwise blends sheet text with the screen underneath for 250 ms. Native modal animation remains unchanged. |
+| 2026-09-07 | D-119 | Accepted | Setup help is one shared contextual mode across the main editor and every setup modal. Each explanation begins with the same quiet circled-info mark and uses plain task-oriented copy. When help is off, its `?` action stays beside the Cycle/Sequence title. When help is on, that action moves to a fixed safe-area top-right position so scrolling cannot hide it; while a sheet is open, the root action is suppressed and one active `?` appears in the sheet's fixed header beside Done/Load. Switching help off anywhere immediately hides every explanation and restores the ordinary title-level action. |
 
 ### Decision-entry template
 
@@ -2853,6 +2854,23 @@ This section is append-only. Every implementation session should record scope, m
 
 **Verification run:** TypeScript compilation, full JavaScript tests, source inspection of Expo Haptics and React Native Web ModalAnimation behavior, and frame-by-frame live Expo Web inspection at 60 ms and after dismissal. The unsupported desktop Haptics row was confirmed absent.
 
+### 2026-09-07 — Contextual help throughout setup
+
+**Status:** Complete in source.
+
+**Scope:** Shared help presentation, persistent toggle placement, and contextual guidance for every Timer v2 setup sheet.
+
+**Behavior implemented:**
+
+- Main-screen explanations now use one shared icon-led component with a quiet circled `i`, consistent spacing, selectable copy, and the existing gentle entrance/exit motion.
+- Help visibility is shared through modal portals. Sub-bells, Sub-bell editing, Sequence-step editing, sound selection, duration entry, Mixer, Schedule, Configurations/detail, Haptics, and Android system integrations each supply concise guidance specific to the task in that sheet.
+- While help is active, the title-level `?` moves to a safe-area-aware fixed position above the scrolling setup content. Opening a sheet suppresses that root control and places exactly one active `?` beside the sheet's fixed trailing action, where it remains reachable as the body scrolls.
+- Turning help off from either context removes all explanations together and restores the ordinary title-level help action.
+
+**Migration impact:** JavaScript/UI only; no native capability, dependency, or runtime-fingerprint change.
+
+**Verification run:** TypeScript compilation, full JavaScript tests, and live Expo Web inspection of help activation, pinned placement, modal contextual copy, duplicate-control suppression, and dismissal from inside a modal.
+
 ### Implementation-entry template
 
 ```md
@@ -2925,3 +2943,4 @@ This section is append-only. Every implementation session should record scope, m
 | 4.7 | 2026-09-07 | Added versioned single-configuration copy/paste and file transfer with safe import preview, validation, duplicate naming, and device-sound portability feedback. |
 | 4.8 | 2026-09-07 | Focused configuration details around Cancel, Load, and one clipboard-first Export action, with optional file save in a toast that now renders above the topmost modal overlay. |
 | 4.9 | 2026-09-07 | Hid unavailable desktop-web haptics and stabilized shared sheet dismissal by freezing outgoing content and avoiding React Native Web's translucent whole-modal fade. |
+| 4.10 | 2026-09-07 | Extended icon-led setup help into every editing sheet and kept one active help toggle pinned in the viewport or fixed modal header until explanations are hidden. |

@@ -167,6 +167,7 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedba
       visible={visible}
       title={selected?.name ?? 'Configurations'}
       accessibilityTitle={selected?.name ?? 'Configurations'}
+      help={selected ? 'Review this saved setup before loading it as a new working copy. Export copies a portable version and then offers to save it as a file.' : 'Save the current setup for later, or import one from the clipboard or a Chandas file. Open a saved setup to review it before loading.'}
       onClose={selected ? () => setSelectedId(null) : onClose}
       leadingAction={selected ? { label: 'Cancel', tone: 'muted', onPress: () => setSelectedId(null) } : undefined}
       trailingAction={selected ? { label: 'Load', disabled: Boolean(transferAction), onPress: () => load(selected) } : undefined}

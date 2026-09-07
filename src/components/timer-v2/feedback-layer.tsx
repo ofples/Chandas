@@ -38,3 +38,7 @@ export function useFeedbackSheetRegistration() {
   const layer = use(FeedbackLayerContext)
   return layer?.setSheetVisible
 }
+
+export function useHasVisibleSheet() {
+  return Boolean(use(FeedbackLayerContext)?.activeSheetId)
+}

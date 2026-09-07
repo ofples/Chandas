@@ -40,8 +40,7 @@ export function CustomMinutePicker({ title, initial, initialSeconds, secondPreci
     onConfirm(Math.max(min, Math.min(max, totalMinutes || initial)))
   }
 
-  return <BottomSheet visible title={title} onClose={onClose} scroll={false}>
-    <Text style={[styles.helper, { color: tokens.textMuted }]}>Set an elapsed duration.</Text>
+  return <BottomSheet visible title={title} help={`Enter the elapsed time in ${secondPrecision ? 'hours, minutes, and seconds' : 'hours and minutes'}. This is a duration, not a time of day.`} onClose={onClose} scroll={false}>
     <View style={styles.fields}>
       <DurationField label="Hours" value={hours} onChange={setHours} maxLength={3} />
       <Text style={[styles.colon, { color: tokens.textMuted }]}>:</Text>
@@ -61,7 +60,6 @@ function DurationField({ label, value, onChange, maxLength }: { label: string; v
 }
 
 const styles = StyleSheet.create({
-  helper: { fontSize: 12, lineHeight: 17 },
   fields: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'center', gap: 9, paddingVertical: 4 },
   fieldWrap: { alignItems: 'center', gap: 6 },
   input: { width: 86, minHeight: 52, borderWidth: 1.5, borderRadius: 12, fontFamily: 'JetBrainsMono-Regular', fontSize: 24, paddingHorizontal: 8, textAlign: 'center', fontVariant: ['tabular-nums'] },
