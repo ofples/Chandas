@@ -33,7 +33,7 @@ import { hapticFeedbackAvailable, mediumHaptic, selectionHaptic, setAppHapticsEn
 import { ChandasTimerService, isNativeServiceAvailable } from '../native/ChandasTimerService'
 import { GentleNotice, type AppNotice } from '../components/timer-v2/experience-feedback'
 import { hasAvailableTime } from '../lib/activeHours'
-import { LightbulbIcon, MixerIcon } from '../components/Icons'
+import { EyeIcon, LightbulbIcon, MixerIcon } from '../components/Icons'
 import { edgeAutoScrollStep, previewIndexForItem, previewOffsetForItem, type ReorderPreview } from '../lib/reorder-preview'
 import { normalizeSubBellColor, subBellColorValue } from '../lib/subBellColors'
 import { ColorSelector } from '../components/timer-v2/ColorSelector'
@@ -543,17 +543,17 @@ function TrackEditorSheet({ visible, state, trackId, secondPrecision, onChange, 
   const offsets = validOffsetsForCadenceSeconds(patternDurationSeconds(program), cadenceSeconds)
   const selectedOffsets = trackSelectedOffsetsSeconds(track)
   const index = program.tracks.findIndex(value => value.id === trackId)
+  const shownOnWatchFace = track.showOnWatchFace !== false
   const preview = async () => {
     try {
       if (!await ChandasTimerService.previewSound(track.sound, state.settings.masterVolume * track.volume)) onFeedback({ title: 'Preview stayed quiet', message: 'This sound could not be opened. Its safe fallback will still be used.', tone: 'attention' })
     } catch { onFeedback({ title: 'Preview stayed quiet', message: 'Nothing changed. Try another sound or check the phone’s Alarm volume.', tone: 'attention' }) }
   }
   const allSelected = offsets.length > 0 && offsets.every(offset => selectedOffsets.includes(offset))
-  return <BottomSheet visible={visible} title={<EditableTitle value={track.label} onCommit={label => onChange(patchPatternTrack(state, track.id, { label }))} accessibilityLabel={`Sub-bell ${index + 1} name`} large />} accessibilityTitle={track.label} help="Choose how often this bell can occur. Its watch-face setting controls only the colored ring; the bell and its next-cue countdown still work normally." onBack={onBack} onClose={onClose}>
+  return <BottomSheet visible={visible} title={<EditableTitle value={track.label} onCommit={label => onChange(patchPatternTrack(state, track.id, { label }))} accessibilityLabel={`Sub-bell ${index + 1} name`} large />} accessibilityTitle={track.label} help="Choose how often this bell occurs and how it sounds. Color & visibility changes its watch-face ring without silencing it." onBack={onBack} onClose={onClose}>
     <View style={styles.trackEditorContent}>
     <DurationSelector value={track.cadenceMinutes} valueSeconds={cadenceSeconds} secondPrecision={secondPrecision} presets={CADENCE_PRESETS} min={1} max={240} onChange={minutes => onChange(setTrackCadence(state, track.id, minutes))} onChangeSeconds={seconds => onChange(setTrackCadenceSeconds(state, track.id, seconds))} label="Repeat every" />
-    <ColorSelector value={normalizeSubBellColor(track.color, index)} onChange={color => onChange(patchPatternTrack(state, track.id, { color }))} accessibilityLabel="Sub-bell color" />
-    <View style={styles.settingRow}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Show on watch face</Text><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>Display this bell’s colored ring while running.</Text></View><Toggle value={track.showOnWatchFace !== false} onChange={showOnWatchFace => onChange(patchPatternTrack(state, track.id, { showOnWatchFace }))} accessibilityLabel={`Show ${track.label} on watch face`} /></View>
+    <ColorSelector label="Color & visibility" detail="Watch face" value={normalizeSubBellColor(track.color, index)} onChange={color => onChange(patchPatternTrack(state, track.id, { color }))} accessibilityLabel="Choose sub-bell color" trailing={<Pressable hitSlop={8} onPress={() => { tapHaptic(); onChange(patchPatternTrack(state, track.id, { showOnWatchFace: !shownOnWatchFace })) }} style={({ pressed }) => [styles.roundIcon, { borderColor: shownOnWatchFace ? tokens.accent : tokens.border, backgroundColor: shownOnWatchFace ? tokens.accentGlow : 'transparent', opacity: pressed ? 0.68 : shownOnWatchFace ? 1 : 0.72 }]} accessibilityRole="switch" accessibilityLabel={`${track.label} watch-face ring`} accessibilityState={{ checked: shownOnWatchFace }}><EyeIcon visible={shownOnWatchFace} color={shownOnWatchFace ? tokens.accent : tokens.textMuted} /></Pressable>} />
     <VolumeControl label="Volume" value={track.volume} onChange={volume => onChange(patchPatternTrack(state, track.id, { volume }))} onPreview={() => void preview()} />
     <CueRow title="Sound" detail={soundTitle(track.sound)} sound={track.sound} onPress={onEditCue} />
     <View style={styles.gridHeading}><Pressable onPress={() => { tapHaptic(); setCuesOpen(open => !open) }} style={styles.settingRow} accessibilityRole="button" accessibilityState={{ expanded: cuesOpen }} accessibilityLabel="Customize sub-bell cues"><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Customize cues</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{selectedOffsets.length} of {offsets.length} selected</Text></View><Text style={[styles.chevron, { color: tokens.accent }]}>›</Text></Pressable></View>

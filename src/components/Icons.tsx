@@ -94,6 +94,22 @@ export function LightbulbIcon({ color }: { color: string }) {
   )
 }
 
+export function EyeIcon({ visible = true, color }: { visible?: boolean; color: string }) {
+  return (
+    <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <Circle cx={12} cy={12} r={2.75} stroke={color} strokeWidth={1.8} />
+      {!visible ? <Line x1={3.5} y1={3.5} x2={20.5} y2={20.5} stroke={color} strokeWidth={2} strokeLinecap="round" /> : null}
+    </Svg>
+  )
+}
+
 // Circular-arrow "restart" icon — used when unsyncing from the clock.
 export function RestartIcon({ color }: { color: string }) {
   return (
