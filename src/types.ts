@@ -68,7 +68,11 @@ export interface PatternTrack extends CueSettings {
   color?: SubBellColorId
   enabled: boolean
   cadenceMinutes: number
+  /** Exact repeat interval; absent legacy values use cadenceMinutes. */
+  cadenceSeconds?: number
   selectedOffsetsMinutes: number[]
+  /** Exact cue positions; absent legacy values use selectedOffsetsMinutes. */
+  selectedOffsetsSeconds?: number[]
 }
 
 export type SubBellColorId =

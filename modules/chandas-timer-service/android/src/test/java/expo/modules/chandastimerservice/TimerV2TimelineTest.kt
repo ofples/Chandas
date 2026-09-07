@@ -99,6 +99,31 @@ class TimerV2TimelineTest {
     assertEquals(31_000L, requireNotNull(TimerV2Timeline.next(sequence.toString(), 1_000L, 21_000L)).at)
   }
 
+  @Test fun exactSecondSubBellCadenceDrivesOffsetsAndCollisionPriority() {
+    val root = JSONObject(fixtures.getJSONObject("patternCollision").getJSONObject("program").toString())
+    val tracks = root.getJSONArray("tracks")
+    tracks.getJSONObject(0)
+      .put("cadenceMinutes", 2)
+      .put("cadenceSeconds", 90)
+      .put("selectedOffsetsMinutes", org.json.JSONArray())
+      .put("selectedOffsetsSeconds", org.json.JSONArray().put(90).put(180))
+    tracks.getJSONObject(1)
+      .put("cadenceMinutes", 1)
+      .put("cadenceSeconds", 30)
+      .put("selectedOffsetsMinutes", org.json.JSONArray())
+      .put("selectedOffsetsSeconds", org.json.JSONArray().put(90).put(180))
+
+    assertTrue(TimerV2Timeline.isValid(root.toString()))
+    val event = requireNotNull(TimerV2Timeline.next(root.toString(), 0L, 89_000L))
+    assertEquals(90_000L, event.at)
+    assertEquals("pattern:0:0:offset-seconds:90", event.logicalId)
+    assertEquals("higher", event.winner.cueId)
+    assertEquals(90L, event.winner.cadenceSeconds)
+
+    tracks.getJSONObject(0).remove("selectedOffsetsSeconds")
+    assertFalse(TimerV2Timeline.isValid(root.toString()))
+  }
+
   @Test fun localClockAlignmentSupportsExactCyclesAndWholeSequenceRounds() {
     val previousTimezone = TimeZone.getDefault()
     TimeZone.setDefault(TimeZone.getTimeZone("UTC"))

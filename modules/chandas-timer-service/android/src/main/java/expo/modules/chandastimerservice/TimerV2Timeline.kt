@@ -32,6 +32,7 @@ data class TimerV2Candidate(
   val soundId: String,
   val volume: Float,
   val cadenceMinutes: Int? = null,
+  val cadenceSeconds: Long? = null,
   val trackOrder: Int? = null,
 )
 
@@ -226,23 +227,26 @@ object TimerV2Timeline {
     while (cycle < Long.MAX_VALUE / 2) {
       val start = anchor + cycle * duration
       val candidates = mutableMapOf<Long, MutableList<Candidate>>()
-      candidates.getOrPut(start + duration) { mutableListOf() }.add(Candidate("main", "pattern-main", true, -1, 0, cueSound(root.optJSONObject("mainCue")), cueVolume(root.optJSONObject("mainCue"))))
+      candidates.getOrPut(start + duration) { mutableListOf() }.add(Candidate("main", "pattern-main", true, -1, 0L, cueSound(root.optJSONObject("mainCue")), cueVolume(root.optJSONObject("mainCue"))))
       for (trackIndex in 0 until tracks.length()) {
         val track = tracks.optJSONObject(trackIndex) ?: continue
         if (!track.optBoolean("enabled", true)) continue
-        val offsets = track.optJSONArray("selectedOffsetsMinutes") ?: continue
+        val exactOffsets = track.has("selectedOffsetsSeconds")
+        val offsets = track.optJSONArray(if (exactOffsets) "selectedOffsetsSeconds" else "selectedOffsetsMinutes") ?: continue
+        val cadenceSeconds = if (track.has("cadenceSeconds")) track.optLong("cadenceSeconds", 0L) else track.optInt("cadenceMinutes", 0).toLong() * 60L
         for (offsetIndex in 0 until offsets.length()) {
-          val offset = offsets.optInt(offsetIndex, -1)
-          if (offset <= 0 || offset * MINUTE >= duration) continue
-          candidates.getOrPut(start + offset * MINUTE) { mutableListOf() }.add(Candidate(track.optString("id", "track:$trackIndex"), "pattern-track", false, trackIndex, track.optInt("cadenceMinutes", 0), cueSound(track), cueVolume(track)))
+          val offsetSeconds = offsets.optLong(offsetIndex, -1L) * if (exactOffsets) 1L else 60L
+          if (offsetSeconds <= 0L || offsetSeconds * 1_000L >= duration) continue
+          candidates.getOrPut(start + offsetSeconds * 1_000L) { mutableListOf() }.add(Candidate(track.optString("id", "track:$trackIndex"), "pattern-track", false, trackIndex, cadenceSeconds, cueSound(track), cueVolume(track)))
         }
       }
       val at = candidates.keys.filter { it > now }.minOrNull()
       if (at != null) {
         val items = candidates.getValue(at)
         val main = items.firstOrNull { it.main }
-        val winner = main ?: items.sortedWith(compareByDescending<Candidate> { it.cadenceMinutes }.thenBy { it.trackOrder }).first()
-        val boundary = if (winner.main) "main" else "offset:${(at - start) / MINUTE}"
+        val winner = main ?: items.sortedWith(compareByDescending<Candidate> { it.cadenceSeconds }.thenBy { it.trackOrder }).first()
+        val offsetSeconds = (at - start) / 1_000L
+        val boundary = if (winner.main) "main" else if (offsetSeconds % 60L == 0L) "offset:${offsetSeconds / 60L}" else "offset-seconds:$offsetSeconds"
         val resolved = items.map { it.toPublic() }
         return TimerV2Event(
           at,
@@ -320,8 +324,8 @@ object TimerV2Timeline {
     return if (sound.optString("kind") == "builtin") sound.optString("id", "clear-bell") else sound.optString("uri", "clear-bell")
   }
   private fun cueVolume(cue: JSONObject?): Float = cue?.optDouble("volume", 1.0)?.toFloat()?.coerceIn(0f, 1f) ?: 1f
-  private data class Candidate(val cueId: String, val kind: String, val main: Boolean, val trackOrder: Int, val cadenceMinutes: Int, val soundId: String, val volume: Float) {
-    fun toPublic() = TimerV2Candidate(cueId, kind, soundId, volume, cadenceMinutes.takeUnless { main }, trackOrder.takeUnless { main })
+  private data class Candidate(val cueId: String, val kind: String, val main: Boolean, val trackOrder: Int, val cadenceSeconds: Long, val soundId: String, val volume: Float) {
+    fun toPublic() = TimerV2Candidate(cueId, kind, soundId, volume, ((cadenceSeconds + 59L) / 60L).toInt().takeUnless { main }, cadenceSeconds.takeUnless { main }, trackOrder.takeUnless { main })
   }
 
   private fun runEndAt(root: JSONObject, anchor: Long, startedAt: Long): Long? {
@@ -382,13 +386,18 @@ object TimerV2Timeline {
       val trackId = track.optString("id")
       if (trackId.isBlank() || trackId.length > MAX_ID_CHARACTERS || !trackIds.add(trackId) || !validCue(track)) return false
       val cadence = track.optInt("cadenceMinutes", -1)
-      if (cadence !in 1..MAX_DURATION_MINUTES) return false
-      val offsets = track.optJSONArray("selectedOffsetsMinutes") ?: return false
-      if (offsets.length() > MAX_DURATION_MINUTES - 1) return false
-      val seenOffsets = mutableSetOf<Int>()
+      val hasExactCadence = track.has("cadenceSeconds")
+      val hasExactOffsets = track.has("selectedOffsetsSeconds")
+      if (hasExactCadence != hasExactOffsets) return false
+      val cadenceSeconds = if (hasExactCadence) track.optLong("cadenceSeconds", -1L) else cadence.toLong() * 60L
+      if (cadence !in 1..MAX_DURATION_MINUTES || cadenceSeconds !in 1L..MAX_DURATION_SECONDS || cadence != ((cadenceSeconds + 59L) / 60L).toInt()) return false
+      val offsets = track.optJSONArray(if (hasExactOffsets) "selectedOffsetsSeconds" else "selectedOffsetsMinutes") ?: return false
+      if (offsets.length().toLong() > MAX_DURATION_SECONDS - 1L) return false
+      val seenOffsets = mutableSetOf<Long>()
       for (offsetIndex in 0 until offsets.length()) {
-        val offset = offsets.optInt(offsetIndex, -1)
-        if (offset < 1 || offset * 60L >= mainDurationSeconds || offset % cadence != 0 || !seenOffsets.add(offset)) return false
+        val storedOffset = offsets.optLong(offsetIndex, -1L)
+        val offsetSeconds = storedOffset * if (hasExactOffsets) 1L else 60L
+        if (offsetSeconds < 1L || offsetSeconds >= mainDurationSeconds || offsetSeconds % cadenceSeconds != 0L || !seenOffsets.add(offsetSeconds)) return false
       }
     }
     return validAlignment(root, required = true) && validRunPolicy(root)

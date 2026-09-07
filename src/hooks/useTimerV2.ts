@@ -193,6 +193,12 @@ function builtInSoundsFor(program: TimerProgram, alarmSound: SoundRef): BuiltInS
   return [...ids]
 }
 
+function requiresExactSubBellRuntime(program: TimerProgram): boolean {
+  return program.mode === 'pattern'
+    && program.subBellsEnabled
+    && program.tracks.some(track => track.enabled && (typeof track.cadenceSeconds === 'number' || Array.isArray(track.selectedOffsetsSeconds)))
+}
+
 function alignedAnchorForStart(program: TimerProgram, now: number): number {
   if (program.alignment.kind !== 'local-clock') return now
   return alignedClockAnchor(programCycleDurationMs(program) / 1_000, program.alignment.offsetMinutes, now)
@@ -390,6 +396,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     if (!hasAvailableTime(effectiveAvailabilityForProgram(programRef.current, settingsRef.current.availability), acceptedAt)) return false
     if (nextProgramEvent(programRef.current, anchor, acceptedAt, startedAt, endsAt) === null) return false
     if (isNativeServiceAvailable && !ChandasTimerService.canScheduleExactAlarms()) return false
+    if (isNativeServiceAvailable && requiresExactSubBellRuntime(programRef.current) && ChandasTimerService.getCapabilities()?.supportsSubBellSecondPrecision !== true) return false
     if (isNativeServiceAvailable) await ChandasTimerService.prepareBuiltInSounds(builtInSoundsFor(programRef.current, settingsRef.current.alarmSound))
     await setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: false })
     await activateDisplayWakeLock()
@@ -547,6 +554,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     if (!runningRef.current) return false
     const request = ++reanchorRequestRef.current
     if (isNativeServiceAvailable && !ChandasTimerService.canScheduleExactAlarms()) return false
+    if (isNativeServiceAvailable && requiresExactSubBellRuntime(nextProgram) && ChandasTimerService.getCapabilities()?.supportsSubBellSecondPrecision !== true) return false
     if (isNativeServiceAvailable) await ChandasTimerService.prepareBuiltInSounds(builtInSoundsFor(nextProgram, settingsRef.current.alarmSound))
     if (request !== reanchorRequestRef.current || !runningRef.current) return false
     const anchor = alignToClock ? alignedAnchorForStart(nextProgram, Date.now()) : Date.now()

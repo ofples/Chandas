@@ -2764,6 +2764,24 @@ This section is append-only. Every implementation session should record scope, m
 
 **Verification run:** TypeScript compilation, automated application tests, whitespace validation, and Expo Web visual inspection of the running help and configuration inline-help states. Native touch, TalkBack, reduced-motion, and small-screen checks remain part of the next device pass.
 
+### 2026-09-07 — Exact Sub-bell timing
+
+**Status:** Complete in source; contract-v10 Android build and physical-device verification remain required.
+
+**Scope:** Second-precision Sub-bell repeat durations, cue positions, collision priority, progress visuals, saved configurations, and native scheduling.
+
+**Behavior implemented:**
+
+- When Advanced `Second precision` is enabled, the Sub-bell `Repeat every` Custom sheet uses the same Hours, Minutes, and Seconds input as the main Cycle and Sequence steps. Minute presets stay unchanged and fast.
+- Added additive exact `cadenceSeconds` and `selectedOffsetsSeconds` fields. Existing minute-only configurations continue to normalize and schedule identically; exact values retain safe legacy projections without inventing rounded cue times.
+- Cue selection, main-duration resizing, automatic longer-cadence overlap priority, JavaScript scheduling, nested progress rings, timeline previews, and saved-configuration summaries now use canonical seconds.
+- Very dense cue grids remain schedulable but do not render hundreds of interactive cells at once. The editor explains that a longer repeat interval is needed to customize individual occurrences, while Clear/Select all remains available.
+- Android contract v10 validates and schedules exact Sub-bell offsets, uses exact cadence for collision precedence, and emits stable second-aware logical identities. Older runtimes do not expose this editor and refuse to start an imported exact Sub-bell program rather than playing rounded or missing cues.
+
+**Migration impact:** Additive optional fields under the existing schema. Minute-only records and presets are unchanged. Exact Sub-bell playback requires a contract-v10 Android binary; the web/JavaScript runtime supports it immediately.
+
+**Verification run:** TypeScript compilation, JavaScript domain tests for normalization/editing/scheduling, live Expo Web inspection of the Hours/Minutes/Seconds Sub-bell sheet, whitespace validation, and static Kotlin parity review. Local native compilation remains prohibited by repository policy.
+
 ### Implementation-entry template
 
 ```md
@@ -2831,3 +2849,4 @@ This section is append-only. Every implementation session should record scope, m
 | 4.2 | 2026-09-07 | Replaced generic Android running copy with the current Cycle/Sequence identity and a seven-character step-aware promoted status chip. |
 | 4.3 | 2026-09-07 | Moved setup guidance inline, made running help mode/visibility-aware, shared Advanced state across contexts, and prevented stale top sheet scrims. |
 | 4.4 | 2026-09-07 | Replaced the ambiguous default Cycle title with a duration-aware name that follows duration changes until renamed, and rewrote its inline help as a concrete countdown–gong–restart explanation. |
+| 4.5 | 2026-09-07 | Extended Advanced second precision through Sub-bell cadence, selected cues, visuals, presets, collision priority, and contract-v10 Android scheduling. |

@@ -1,5 +1,5 @@
 import type { PatternProgram, SequenceProgram, SoundRef, TimerMode, TimerProgram } from '../types'
-import { patternDurationSeconds, sequenceStepDurationSeconds } from './timerV2'
+import { patternDurationSeconds, sequenceStepDurationSeconds, trackCadenceSeconds, trackSelectedOffsetsSeconds } from './timerV2'
 
 export interface TimelineCueCandidate {
   cueId: string
@@ -7,6 +7,7 @@ export interface TimelineCueCandidate {
   sound: SoundRef
   volume: number
   cadenceMinutes?: number
+  cadenceSeconds?: number
   trackOrder?: number
 }
 
@@ -30,8 +31,6 @@ export interface TimelinePosition {
   nextEvent: ScheduledProgramEvent | null
 }
 
-const MINUTE_MS = 60_000
-
 /** Visual progress between cue boundaries inside the current Pattern cycle. */
 export function cueSegmentProgress(offsets: number[], mainMinutes: number, elapsedMinutes: number): number {
   const selected = [...offsets].sort((left, right) => left - right)
@@ -53,7 +52,7 @@ function winnerForCandidates(candidates: TimelineCueCandidate[]): TimelineCueCan
   // A slower bell carries more structural weight. Stable track order breaks the
   // uncommon tie between two tracks with the same repeat interval.
   return candidates.slice().sort((left, right) =>
-    (right.cadenceMinutes ?? 0) - (left.cadenceMinutes ?? 0)
+    (right.cadenceSeconds ?? (right.cadenceMinutes ?? 0) * 60) - (left.cadenceSeconds ?? (left.cadenceMinutes ?? 0) * 60)
       || (left.trackOrder ?? Number.MAX_SAFE_INTEGER) - (right.trackOrder ?? Number.MAX_SAFE_INTEGER),
   )[0]
 }
@@ -70,8 +69,8 @@ export function nextPatternEvent(program: PatternProgram, anchor: number, now = 
     }])
     if (program.subBellsEnabled !== false) program.tracks.forEach((track, trackOrder) => {
       if (!track.enabled) return
-      track.selectedOffsetsMinutes.forEach(offsetMinutes => {
-        const at = cycleStart + offsetMinutes * MINUTE_MS
+      trackSelectedOffsetsSeconds(track).forEach(offsetSeconds => {
+        const at = cycleStart + offsetSeconds * 1_000
         if (at >= mainAt) return
         const candidates = candidatesByTime.get(at) ?? []
         candidates.push({
@@ -80,6 +79,7 @@ export function nextPatternEvent(program: PatternProgram, anchor: number, now = 
           sound: track.sound,
           volume: track.volume,
           cadenceMinutes: track.cadenceMinutes,
+          cadenceSeconds: trackCadenceSeconds(track),
           trackOrder,
         })
         candidatesByTime.set(at, candidates)
@@ -89,7 +89,8 @@ export function nextPatternEvent(program: PatternProgram, anchor: number, now = 
     if (at !== undefined) {
       const candidates = candidatesByTime.get(at)!
       const winner = candidates[0].kind === 'pattern-main' ? candidates[0] : winnerForCandidates(candidates)
-      const boundary = winner.kind === 'pattern-main' ? 'main' : `offset:${Math.round((at - cycleStart) / MINUTE_MS)}`
+      const offsetSeconds = Math.round((at - cycleStart) / 1_000)
+      const boundary = winner.kind === 'pattern-main' ? 'main' : offsetSeconds % 60 === 0 ? `offset:${offsetSeconds / 60}` : `offset-seconds:${offsetSeconds}`
       return {
         at,
         logicalId: logicalId('pattern', anchor, cycleIndex, boundary),

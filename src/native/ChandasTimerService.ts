@@ -156,6 +156,7 @@ export interface NativeTimerCapabilities {
   supportsAlarmVolume?: boolean
   supportsHapticProfiles?: boolean
   supportsSecondPrecision?: boolean
+  supportsSubBellSecondPrecision?: boolean
   supportsDualLiveCountdown?: boolean
   supportsProgramClockAlignment?: boolean
 }

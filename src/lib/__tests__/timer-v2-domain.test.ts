@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { PatternProgram, SequenceProgram } from '../../types'
-import { chooseProgramMode, deleteProgramPreset, hasUnsavedProgramChanges, loadProgramPreset, patchSequenceStep, saveProgramPreset, setPatternSubBellsEnabled, setTrackCadence, setTrackOffsets, updatePatternMainDurationSeconds, updatePatternMainMinutes } from '../programActions'
+import { chooseProgramMode, deleteProgramPreset, hasUnsavedProgramChanges, loadProgramPreset, patchSequenceStep, saveProgramPreset, setPatternSubBellsEnabled, setTrackCadence, setTrackCadenceSeconds, setTrackOffsets, setTrackOffsetsSeconds, updatePatternMainDurationSeconds, updatePatternMainMinutes } from '../programActions'
 import { alarmBehaviorAfterGesture, gateProgramAudio, isFreshScheduledEvent, iterationMuteFor, muteAfterScheduleChange, shouldSurfaceTimerSignal } from '../runtimeV2'
-import { defaultTimerV2State, migrateLegacyConfig, normalizeAvailabilityPolicy, normalizePatternProgram, normalizeSequenceProgram, normalizeSoundRef, parseTimerProgram, patternDurationSeconds, sequenceStepDurationSeconds, validOffsets } from '../timerV2'
+import { defaultTimerV2State, migrateLegacyConfig, normalizeAvailabilityPolicy, normalizePatternProgram, normalizeSequenceProgram, normalizeSoundRef, parseTimerProgram, patternDurationSeconds, sequenceStepDurationSeconds, trackCadenceSeconds, trackSelectedOffsetsSeconds, validOffsets, validOffsetsForCadenceSeconds } from '../timerV2'
 import { boundedRunProgress, cueSegmentProgress, nextPatternEvent, nextProgramEvent, nextSequenceEvent, runEndAt, timelinePosition } from '../timeline'
 import { effectiveAvailabilityForProgram, hasAvailableTime, isCueAllowedByActiveHours, isWithinActiveHours, nextActiveHoursStart, scheduleBoundaryMinutesForDay, scheduleRangeCountForDay, scheduleRenderedBoundaryMinutesForDay, scheduleSegmentsForDay, windowsOverlap } from '../activeHours'
 import { edgeAutoScrollStep, previewIndexForItem, previewOffsetForItem, reorderGestureIntent } from '../reorder-preview'
@@ -691,13 +691,29 @@ describe('timer v2 validation and presets', () => {
       ...initial,
       workingPrograms: {
         ...initial.workingPrograms,
-        pattern: { ...initial.workingPrograms.pattern, mainMinutes: 10, tracks: [{ ...track, cadenceMinutes: 2, selectedOffsetsMinutes: [2, 4, 6, 8] }] },
+        pattern: { ...initial.workingPrograms.pattern, mainMinutes: 10, mainDurationSeconds: 10 * 60, tracks: [{ ...track, cadenceMinutes: 2, selectedOffsetsMinutes: [2, 4, 6, 8] }] },
       },
     }
     const expanded = updatePatternMainMinutes(configured, 30)
     expect(expanded.workingPrograms.pattern.tracks[0].selectedOffsetsMinutes).toEqual(validOffsets(30, 2))
     const recadenced = setTrackCadence(configured, track.id, 5)
     expect(recadenced.workingPrograms.pattern.tracks[0].selectedOffsetsMinutes).toEqual([5])
+  })
+
+  it('stores, schedules, and edits exact-second sub-bell cadences without rounded legacy cues', () => {
+    const initial = setPatternSubBellsEnabled(defaultTimerV2State(), true)
+    const trackId = initial.workingPrograms.pattern.tracks[0].id
+    const exact = setTrackCadenceSeconds(initial, trackId, 90)
+    const track = exact.workingPrograms.pattern.tracks[0]
+    expect(trackCadenceSeconds(track)).toBe(90)
+    expect(track.cadenceMinutes).toBe(2)
+    expect(track.selectedOffsetsMinutes).toEqual([])
+    expect(trackSelectedOffsetsSeconds(track)).toEqual(validOffsetsForCadenceSeconds(30 * 60, 90))
+    expect(nextPatternEvent(exact.workingPrograms.pattern, 0, 0).at).toBe(90_000)
+
+    const selected = setTrackOffsetsSeconds(exact, trackId, [90, 270])
+    expect(trackSelectedOffsetsSeconds(selected.workingPrograms.pattern.tracks[0])).toEqual([90, 270])
+    expect(normalizePatternProgram(selected.workingPrograms.pattern)).toEqual(selected.workingPrograms.pattern)
   })
 
   it('preserves schedules for continuous runs and ignores them for bounded runs', () => {

@@ -24,6 +24,7 @@ import { defaultTimerHapticsSettings } from './haptic-profiles'
 
 export const TIMER_V2_SCHEMA_VERSION = 2 as const
 export const MAX_PATTERN_TRACKS = 5
+export const MAX_VISIBLE_PATTERN_OFFSETS = 480
 export const MAX_SEQUENCE_STEPS = 20
 export const MIN_DURATION_MINUTES = 1
 export const MAX_DURATION_MINUTES = 240
@@ -137,11 +138,48 @@ export function validOffsets(mainMinutes: number, cadenceMinutes: number): numbe
 }
 
 export function validOffsetsForDuration(mainDurationSeconds: number, cadenceMinutes: number): number[] {
+  return validOffsetsForCadenceSeconds(mainDurationSeconds, clampDuration(cadenceMinutes, 1) * 60).map(offset => offset / 60)
+}
+
+export function validOffsetsForCadenceSeconds(mainDurationSeconds: number, cadenceSeconds: number): number[] {
   const main = clampCueDurationSeconds(mainDurationSeconds, 30 * 60)
-  const cadence = clampDuration(cadenceMinutes, 1)
+  const cadence = clampCueDurationSeconds(cadenceSeconds, 60)
   const offsets: number[] = []
-  for (let offset = cadence; offset * 60 < main; offset += cadence) offsets.push(offset)
+  for (let offset = cadence; offset < main; offset += cadence) offsets.push(offset)
   return offsets
+}
+
+export function trackCadenceSeconds(track: Pick<PatternTrack, 'cadenceMinutes' | 'cadenceSeconds'>): number {
+  return clampCueDurationSeconds(track.cadenceSeconds, clampDuration(track.cadenceMinutes, 1) * 60)
+}
+
+export function trackSelectedOffsetsSeconds(track: Pick<PatternTrack, 'selectedOffsetsMinutes' | 'selectedOffsetsSeconds'>): number[] {
+  const source = Array.isArray(track.selectedOffsetsSeconds)
+    ? track.selectedOffsetsSeconds
+    : track.selectedOffsetsMinutes.map(offset => offset * 60)
+  return source.map(offset => whole(offset, -1)).filter(offset => offset > 0)
+}
+
+/** Writes exact timing while retaining a safe whole-minute projection for older binaries. */
+export function patternTrackTiming(cadenceSeconds: number, selectedOffsetsSeconds: number[]): Pick<PatternTrack, 'cadenceMinutes' | 'cadenceSeconds' | 'selectedOffsetsMinutes' | 'selectedOffsetsSeconds'> {
+  const cadence = clampCueDurationSeconds(cadenceSeconds, 60)
+  const selected = [...new Set(selectedOffsetsSeconds.map(offset => whole(offset, -1)).filter(offset => offset > 0))].sort((a, b) => a - b)
+  const minuteCompatible = cadence % 60 === 0 && selected.every(offset => offset % 60 === 0)
+  if (minuteCompatible) {
+    return {
+      cadenceMinutes: cadence / 60,
+      cadenceSeconds: undefined,
+      selectedOffsetsMinutes: selected.map(offset => offset / 60),
+      selectedOffsetsSeconds: undefined,
+    }
+  }
+  return {
+    cadenceMinutes: durationMinutesProjection(cadence),
+    cadenceSeconds: cadence,
+    // A pre-v10 Android binary must fail quiet rather than sound at rounded times.
+    selectedOffsetsMinutes: [],
+    selectedOffsetsSeconds: selected,
+  }
 }
 
 export function defaultPatternProgram(): PatternProgram {
@@ -258,19 +296,21 @@ export function normalizeSoundRef(value: unknown, fallback: SoundRef): SoundRef 
 }
 
 export function normalizeTrack(track: Partial<PatternTrack>, mainMinutes: number, fallbackLabel = 'Sub-bell', fallbackColorIndex = 0, mainDurationSeconds = mainMinutes * 60): PatternTrack {
-  const cadence = clampDuration(track.cadenceMinutes, 1)
-  const selected = Array.isArray(track.selectedOffsetsMinutes) ? track.selectedOffsetsMinutes.slice(0, MAX_DURATION_MINUTES - 1) : []
-  const selectedOffsetsMinutes = [...new Set(selected
+  const cadenceSeconds = trackCadenceSeconds({ cadenceMinutes: clampDuration(track.cadenceMinutes, 1), cadenceSeconds: track.cadenceSeconds })
+  const selectedSource = Array.isArray(track.selectedOffsetsSeconds)
+    ? track.selectedOffsetsSeconds.slice(0, MAX_CUE_DURATION_SECONDS - 1)
+    : (Array.isArray(track.selectedOffsetsMinutes) ? track.selectedOffsetsMinutes : []).slice(0, MAX_DURATION_MINUTES - 1).map(value => value * 60)
+  const selectedOffsetsSeconds = [...new Set(selectedSource
     .map(value => whole(value, -1))
-    .filter(value => value > 0 && value * 60 < mainDurationSeconds && value % cadence === 0))]
+    .filter(value => value > 0 && value < mainDurationSeconds && value % cadenceSeconds === 0))]
     .sort((a, b) => a - b)
+  const timing = patternTrackTiming(cadenceSeconds, selectedOffsetsSeconds)
   return {
     id: typeof track.id === 'string' && track.id.length > 0 && track.id.length <= MAX_ID_CHARACTERS ? track.id : createProgramId(),
     label: normalizeLabel(track.label, fallbackLabel),
     color: normalizeSubBellColor(track.color, fallbackColorIndex),
-    enabled: selectedOffsetsMinutes.length > 0 && track.enabled !== false,
-    cadenceMinutes: cadence,
-    selectedOffsetsMinutes,
+    enabled: selectedOffsetsSeconds.length > 0 && track.enabled !== false,
+    ...timing,
     ...normalizeCue(track, defaultCue('clear-bell')),
   }
 }
@@ -285,7 +325,7 @@ export function normalizePatternProgram(value: Partial<PatternProgram> | undefin
     if (trackIds.has(normalized.id)) normalized.id = createProgramId()
     trackIds.add(normalized.id)
     return normalized
-  }).sort((left, right) => right.cadenceMinutes - left.cadenceMinutes)
+  }).sort((left, right) => trackCadenceSeconds(right) - trackCadenceSeconds(left))
   tracks.forEach((track, index) => {
     if (/^Sub-bell \d+$/.test(track.label)) track.label = `Sub-bell ${index + 1}`
   })

@@ -24,7 +24,7 @@ import { SheetTextButton } from '../components/timer-v2/SheetTextButton'
 import { selectionHaptic, tapHaptic } from '../lib/haptics'
 import { SheetSectionTitle } from '../components/timer-v2/SheetSectionTitle'
 import { ScrollEdgeFade } from '../components/timer-v2/ScrollEdgeFade'
-import { formatCompactDurationSeconds, patternDurationSeconds, sequenceStepDurationSeconds } from '../lib/timerV2'
+import { formatCompactDurationSeconds, patternDurationSeconds, sequenceStepDurationSeconds, trackSelectedOffsetsSeconds } from '../lib/timerV2'
 import { formatCountdown } from '../lib/snapLogic'
 
 interface Props {
@@ -234,14 +234,14 @@ function TimerRings({ size, progress, position, program, muted, eventPulse }: { 
   }, [eventPulse, flash])
   const rings = useMemo(() => {
     if (program.mode === 'sequence') return [{ progress: position?.stepProgress ?? progress, stroke: tokens.accent, background: tokens.surfaceHi, backgroundOpacity: 1 }]
-    const mainMinutes = patternDurationSeconds(program) / 60
-    const elapsedMinutes = Math.max(0, Math.min(mainMinutes, progress * mainMinutes))
-    const activeTracks = (program.subBellsEnabled ? program.tracks : []).filter(track => track.enabled && track.selectedOffsetsMinutes.length > 0)
+    const mainSeconds = patternDurationSeconds(program)
+    const elapsedSeconds = Math.max(0, Math.min(mainSeconds, progress * mainSeconds))
+    const activeTracks = (program.subBellsEnabled ? program.tracks : []).filter(track => track.enabled && trackSelectedOffsetsSeconds(track).length > 0)
     return [
       { progress, stroke: tokens.accent, background: tokens.surfaceHi, backgroundOpacity: 1 },
       ...activeTracks.map((track, index) => {
         const stroke = subBellColorValue(track.color, index)
-        return { progress: cueSegmentProgress(track.selectedOffsetsMinutes, mainMinutes, elapsedMinutes), stroke, background: stroke, backgroundOpacity: 0.17 }
+        return { progress: cueSegmentProgress(trackSelectedOffsetsSeconds(track), mainSeconds, elapsedSeconds), stroke, background: stroke, backgroundOpacity: 0.17 }
       }),
     ]
   }, [position?.stepProgress, program, progress, tokens.accent, tokens.surfaceHi])

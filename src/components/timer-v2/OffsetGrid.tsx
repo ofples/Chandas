@@ -3,6 +3,7 @@ import { LayoutChangeEvent, Pressable, StyleSheet, Text, View } from 'react-nati
 import { useReducedMotion } from 'react-native-reanimated'
 import { useTheme } from '../../theme/ThemeContext'
 import { selectionHaptic } from '../../lib/haptics'
+import { formatCompactDurationSeconds } from '../../lib/timerV2'
 
 const GAP = 8
 const MIN_CELL = 52
@@ -10,11 +11,12 @@ const MIN_CELL = 52
 interface Props {
   offsets: number[]
   selected: number[]
+  unit?: 'minutes' | 'seconds'
   onChange: (offsets: number[]) => void
 }
 
-/** A deterministic tap-to-toggle minute grid. It deliberately never captures scrolling gestures. */
-export function OffsetGrid({ offsets, selected, onChange }: Props) {
+/** A deterministic tap-to-toggle elapsed-time grid. It deliberately never captures scrolling gestures. */
+export function OffsetGrid({ offsets, selected, unit = 'minutes', onChange }: Props) {
   const { tokens } = useTheme()
   const reducedMotion = useReducedMotion()
   const [width, setWidth] = useState(0)
@@ -36,17 +38,18 @@ export function OffsetGrid({ offsets, selected, onChange }: Props) {
         // Render from props so external Clear all / Select all / cadence changes
         // are visible immediately; the ref exists only for an in-flight paint.
         const active = renderedSelection.has(offset)
+        const label = unit === 'seconds' ? formatCompactDurationSeconds(offset) : `${offset}m`
         return (
           <Pressable
             key={offset}
             style={({ pressed }) => [styles.cell, { width: cellWidth, height: 48, borderColor: active ? tokens.accent : tokens.border, backgroundColor: active ? tokens.accentGlow : 'transparent', opacity: pressed ? 0.78 : 1, transform: [{ scale: pressed && !reducedMotion ? 0.96 : 1 }] }]}
             accessible
             accessibilityRole="button"
-            accessibilityLabel={`${offset} minutes after start, ${active ? 'selected' : 'not selected'}`}
+            accessibilityLabel={`${label} after start, ${active ? 'selected' : 'not selected'}`}
             accessibilityState={{ selected: active }}
             onPress={() => toggle(offset)}
           >
-            <Text style={[styles.minute, { color: active ? tokens.text : tokens.textMuted }]}>{offset}m</Text>
+            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72} style={[styles.minute, { color: active ? tokens.text : tokens.textMuted }]}>{label}</Text>
             <Text style={[styles.status, { color: tokens.textDisabled }]}>{active ? 'on' : 'off'}</Text>
           </Pressable>
         )

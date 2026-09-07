@@ -23,10 +23,10 @@ import { HapticsSheet } from '../components/timer-v2/haptics-sheet'
 import {
   addPatternTrack, addSequenceStep, chooseProgramMode, duplicateSequenceStep, patchPatternTrack, patchSequenceStep,
   patchCompletionCue, removePatternTrack, removeSequenceStep, reorderSequenceSteps, setCompletionCueEnabled, setPatternSubBellsEnabled,
-  setTrackCadence, setTrackOffsets, updatePattern, updatePatternMainDurationSeconds, updateSequence,
+  setTrackCadence, setTrackCadenceSeconds, setTrackOffsetsSeconds, updatePattern, updatePatternMainDurationSeconds, updateSequence,
 } from '../lib/programActions'
 import { soundTitle } from '../lib/soundLibrary'
-import { formatCompactDurationSeconds, patternDurationSeconds, sequenceStepDurationSeconds, validOffsets, validOffsetsForDuration } from '../lib/timerV2'
+import { MAX_VISIBLE_PATTERN_OFFSETS, formatCompactDurationSeconds, patternDurationSeconds, sequenceStepDurationSeconds, trackCadenceSeconds, trackSelectedOffsetsSeconds, validOffsetsForCadenceSeconds } from '../lib/timerV2'
 import { useTheme } from '../theme/ThemeContext'
 import { useSoundAvailability } from '../hooks/use-sound-availability'
 import { mediumHaptic, selectionHaptic, setAppHapticsEnabled, tapHaptic } from '../lib/haptics'
@@ -99,6 +99,7 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
   const alarmSoundSupported = !isNativeServiceAvailable || nativeCapabilities?.supportsAlarmSound === true
   const hapticsSupported = !isNativeServiceAvailable || nativeCapabilities?.supportsHapticProfiles === true
   const secondPrecisionSupported = !isNativeServiceAvailable || nativeCapabilities?.supportsSecondPrecision === true
+  const subBellSecondPrecisionSupported = !isNativeServiceAvailable || nativeCapabilities?.supportsSubBellSecondPrecision === true
   const programClockAlignmentSupported = !isNativeServiceAvailable || nativeCapabilities?.supportsProgramClockAlignment === true
 
   const changeSettings = (patch: Partial<typeof settings>) => onChange({ ...state, settings: { ...settings, ...patch } })
@@ -293,7 +294,7 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
       </View>
 
       <SubBellLibrarySheet visible={subBellsOpen} state={state} onChange={onChange} onEditTrack={setTrackId} onAdd={addTrack} onClose={() => { setTrackId(null); setSubBellsOpen(false) }} />
-      {trackId ? <TrackEditorSheet visible={subBellsOpen} state={state} trackId={trackId} onChange={onChange} onEditCue={() => setCueTarget({ kind: 'track', id: trackId })} onBack={() => setTrackId(null)} onClose={() => { setTrackId(null); setSubBellsOpen(false) }} onFeedback={onFeedback} /> : null}
+      {trackId ? <TrackEditorSheet visible={subBellsOpen} state={state} trackId={trackId} secondPrecision={settings.secondPrecisionEnabled && subBellSecondPrecisionSupported} onChange={onChange} onEditCue={() => setCueTarget({ kind: 'track', id: trackId })} onBack={() => setTrackId(null)} onClose={() => { setTrackId(null); setSubBellsOpen(false) }} onFeedback={onFeedback} /> : null}
       <MixerSheet visible={mixerOpen} state={state} onChange={onChange} onEditCue={setCueTarget} onClose={() => setMixerOpen(false)} onFeedback={onFeedback} />
       {cue ? <SoundPickerSheet visible title={cueTitle} cue={cue} masterVolume={settings.masterVolume} onChange={patchCue} onBack={trackId || cueTarget?.kind === 'step' || mixerOpen ? () => setCueTarget(null) : undefined} onClose={() => setCueTarget(null)} onFeedback={onFeedback} /> : null}
       <BottomSheet visible={scheduleOpen} title="Schedule" onClose={() => setScheduleOpen(false)}><ScheduleConfig showHeading={false} showEnabledControl={false} value={settings.availability} onChange={availability => changeSettings({ availability })} /></BottomSheet>
@@ -386,7 +387,7 @@ function PatternEditor({ state, onChange, enhancedClockAlignmentSupported, onOpe
   const program = state.workingPrograms.pattern
   const snapOffset = program.alignment.kind === 'local-clock' ? program.alignment.offsetMinutes : 0
   const activeTracks = program.tracks.filter(track => track.enabled)
-  const cueCount = activeTracks.reduce((count, track) => count + track.selectedOffsetsMinutes.length, 0)
+  const cueCount = activeTracks.reduce((count, track) => count + trackSelectedOffsetsSeconds(track).length, 0)
   const durationSeconds = patternDurationSeconds(program)
   const clockAlignmentAvailable = durationSeconds % 60 === 0 || enhancedClockAlignmentSupported
   const changeDurationSeconds = (seconds: number) => changeMainDurationSeconds(state, seconds, next => {
@@ -447,7 +448,7 @@ function SubBellLibrarySheet({ visible, state, onChange, onEditTrack, onAdd, onC
   const { tokens } = useTheme()
   const program = state.workingPrograms.pattern
   const activeTracks = program.tracks.filter(track => track.enabled)
-  const cueCount = activeTracks.reduce((count, track) => count + track.selectedOffsetsMinutes.length, 0)
+  const cueCount = activeTracks.reduce((count, track) => count + trackSelectedOffsetsSeconds(track).length, 0)
   return <BottomSheet visible={visible} title="Sub-bells" onClose={onClose}>
     <Text style={[styles.helper, { color: tokens.textMuted }]}>{`${activeTracks.length} active · ${cueCount} selected ${cueCount === 1 ? 'cue' : 'cues'}`}</Text>
     <PatternTimelinePreview tracks={program.subBellsEnabled ? program.tracks : []} mainDurationSeconds={patternDurationSeconds(program)} />
@@ -460,12 +461,13 @@ function SubBellLibrarySheet({ visible, state, onChange, onEditTrack, onAdd, onC
 function PatternTrackRow({ state, track, index, onChange, onEdit }: { state: TimerV2State; track: PatternTrack; index: number; onChange: (state: TimerV2State) => void; onEdit: () => void }) {
   const { tokens } = useTheme()
   const reducedMotion = useReducedMotion()
-  const occurrenceCount = validOffsetsForDuration(patternDurationSeconds(state.workingPrograms.pattern), track.cadenceMinutes).length
-  const selectionSummary = track.selectedOffsetsMinutes.length === occurrenceCount ? `${occurrenceCount} occurrence${occurrenceCount === 1 ? '' : 's'}` : `${track.selectedOffsetsMinutes.length}/${occurrenceCount} selected`
+  const selectedCount = trackSelectedOffsetsSeconds(track).length
+  const occurrenceCount = validOffsetsForCadenceSeconds(patternDurationSeconds(state.workingPrograms.pattern), trackCadenceSeconds(track)).length
+  const selectionSummary = selectedCount === occurrenceCount ? `${occurrenceCount} occurrence${occurrenceCount === 1 ? '' : 's'}` : `${selectedCount}/${occurrenceCount} selected`
   return <Reanimated.View entering={reducedMotion ? FadeIn.duration(80) : FadeInDown.duration(190)} exiting={FadeOut.duration(reducedMotion ? 70 : 130)} layout={reducedMotion ? undefined : LinearTransition.duration(160)}>
     <View style={[styles.trackSummary, index > 0 && { borderTopColor: tokens.border, borderTopWidth: StyleSheet.hairlineWidth }, { opacity: track.enabled ? 1 : 0.5 }]}>
       <View style={[styles.trackColorDot, { backgroundColor: subBellColorValue(track.color, index) }]} />
-      <Pressable style={styles.flex} onPress={onEdit} accessibilityRole="button" accessibilityLabel={`Edit ${track.label}`}><Text numberOfLines={1} style={[styles.rowTitle, { color: tokens.text }]}>{track.label}</Text><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>Every {track.cadenceMinutes}m · {soundTitle(track.sound)} · {selectionSummary}</Text></Pressable>
+      <Pressable style={styles.flex} onPress={onEdit} accessibilityRole="button" accessibilityLabel={`Edit ${track.label}`}><Text numberOfLines={1} style={[styles.rowTitle, { color: tokens.text }]}>{track.label}</Text><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>Every {formatCompactDurationSeconds(trackCadenceSeconds(track))} · {soundTitle(track.sound)} · {selectionSummary}</Text></Pressable>
       <Toggle value={track.enabled} onChange={enabled => onChange(patchPatternTrack(state, track.id, { enabled }))} accessibilityLabel={`Enable ${track.label}`} />
     </View>
   </Reanimated.View>
@@ -523,31 +525,33 @@ function SequenceStepEditorSheet({ state, stepId, onChange, onEditCue, onClose }
   </BottomSheet>
 }
 
-function TrackEditorSheet({ visible, state, trackId, onChange, onEditCue, onBack, onClose, onFeedback }: { visible: boolean; state: TimerV2State; trackId: string; onChange: (state: TimerV2State) => void; onEditCue: () => void; onBack: () => void; onClose: () => void; onFeedback: Props['onFeedback'] }) {
+function TrackEditorSheet({ visible, state, trackId, secondPrecision, onChange, onEditCue, onBack, onClose, onFeedback }: { visible: boolean; state: TimerV2State; trackId: string; secondPrecision: boolean; onChange: (state: TimerV2State) => void; onEditCue: () => void; onBack: () => void; onClose: () => void; onFeedback: Props['onFeedback'] }) {
   const { tokens } = useTheme()
   const reducedMotion = useReducedMotion()
   const [cuesOpen, setCuesOpen] = useState(false)
   const program = state.workingPrograms.pattern
   const track = program.tracks.find(value => value.id === trackId)
   if (!track) return null
-  const offsets = validOffsets(program.mainMinutes, track.cadenceMinutes)
+  const cadenceSeconds = trackCadenceSeconds(track)
+  const offsets = validOffsetsForCadenceSeconds(patternDurationSeconds(program), cadenceSeconds)
+  const selectedOffsets = trackSelectedOffsetsSeconds(track)
   const index = program.tracks.findIndex(value => value.id === trackId)
   const preview = async () => {
     try {
       if (!await ChandasTimerService.previewSound(track.sound, state.settings.masterVolume * track.volume)) onFeedback({ title: 'Preview stayed quiet', message: 'This sound could not be opened. Its safe fallback will still be used.', tone: 'attention' })
     } catch { onFeedback({ title: 'Preview stayed quiet', message: 'Nothing changed. Try another sound or check the phone’s Alarm volume.', tone: 'attention' }) }
   }
-  const allSelected = offsets.length > 0 && offsets.every(offset => track.selectedOffsetsMinutes.includes(offset))
+  const allSelected = offsets.length > 0 && offsets.every(offset => selectedOffsets.includes(offset))
   return <BottomSheet visible={visible} title={<EditableTitle value={track.label} onCommit={label => onChange(patchPatternTrack(state, track.id, { label }))} accessibilityLabel={`Sub-bell ${index + 1} name`} large />} accessibilityTitle={track.label} onBack={onBack} onClose={onClose}>
     <View style={styles.trackEditorContent}>
-    <DurationSelector value={track.cadenceMinutes} presets={CADENCE_PRESETS} min={1} max={240} onChange={minutes => onChange(setTrackCadence(state, track.id, minutes))} label="Repeat every" />
+    <DurationSelector value={track.cadenceMinutes} valueSeconds={cadenceSeconds} secondPrecision={secondPrecision} presets={CADENCE_PRESETS} min={1} max={240} onChange={minutes => onChange(setTrackCadence(state, track.id, minutes))} onChangeSeconds={seconds => onChange(setTrackCadenceSeconds(state, track.id, seconds))} label="Repeat every" />
     <ColorSelector value={normalizeSubBellColor(track.color, index)} onChange={color => onChange(patchPatternTrack(state, track.id, { color }))} accessibilityLabel="Sub-bell color" />
     <VolumeControl label="Volume" value={track.volume} onChange={volume => onChange(patchPatternTrack(state, track.id, { volume }))} onPreview={() => void preview()} />
     <CueRow title="Sound" detail={soundTitle(track.sound)} sound={track.sound} onPress={onEditCue} />
-    <View style={styles.gridHeading}><Pressable onPress={() => { tapHaptic(); setCuesOpen(open => !open) }} style={styles.settingRow} accessibilityRole="button" accessibilityState={{ expanded: cuesOpen }} accessibilityLabel="Customize sub-bell cues"><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Customize cues</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{track.selectedOffsetsMinutes.length} of {offsets.length} selected</Text></View><Text style={[styles.chevron, { color: tokens.accent }]}>›</Text></Pressable></View>
+    <View style={styles.gridHeading}><Pressable onPress={() => { tapHaptic(); setCuesOpen(open => !open) }} style={styles.settingRow} accessibilityRole="button" accessibilityState={{ expanded: cuesOpen }} accessibilityLabel="Customize sub-bell cues"><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Customize cues</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{selectedOffsets.length} of {offsets.length} selected</Text></View><Text style={[styles.chevron, { color: tokens.accent }]}>›</Text></Pressable></View>
     {cuesOpen ? <Reanimated.View entering={FadeInDown.duration(reducedMotion ? 70 : 150)} exiting={FadeOut.duration(reducedMotion ? 60 : 100)} style={styles.cueEditor}>
-      <View style={styles.gridActionRow}><Text style={[styles.helper, { color: tokens.textMuted }]}>Minutes after the main gong. Tap to toggle.</Text><SheetTextButton disabled={offsets.length === 0} label={allSelected ? 'Clear' : 'Select all'} onPress={() => onChange(setTrackOffsets(state, track.id, allSelected ? [] : offsets))} /></View>
-      <OffsetGrid offsets={offsets} selected={track.selectedOffsetsMinutes} onChange={selectedOffsetsMinutes => onChange(setTrackOffsets(state, track.id, selectedOffsetsMinutes))} />
+      <View style={styles.gridActionRow}><Text style={[styles.helper, { color: tokens.textMuted }]}>Time after the main gong. Tap to toggle.</Text><SheetTextButton disabled={offsets.length === 0} label={allSelected ? 'Clear' : 'Select all'} onPress={() => onChange(setTrackOffsetsSeconds(state, track.id, allSelected ? [] : offsets))} /></View>
+      {offsets.length <= MAX_VISIBLE_PATTERN_OFFSETS ? <OffsetGrid offsets={offsets} selected={selectedOffsets} unit="seconds" onChange={selected => onChange(setTrackOffsetsSeconds(state, track.id, selected))} /> : <GentleNotice title="Too many times to show" message={`This repeat interval creates ${offsets.length} cues. Choose a longer interval to customize individual times.`} />}
       {offsets.length === 0 ? <GentleNotice title="No bell times fit" message="Choose a shorter repeat interval or a longer main interval." /> : null}
     </Reanimated.View> : null}
     </View>
@@ -628,8 +632,8 @@ function changeMainMinutes(state: TimerV2State, minutes: number, onChange: (stat
 
 function changeMainDurationSeconds(state: TimerV2State, seconds: number, onChange: (state: TimerV2State) => void) {
   const nextState = updatePatternMainDurationSeconds(state, seconds)
-  const nextByTrack = new Map(nextState.workingPrograms.pattern.tracks.map(track => [track.id, new Set(track.selectedOffsetsMinutes)]))
-  const removed = state.workingPrograms.pattern.tracks.reduce((count, track) => count + track.selectedOffsetsMinutes.filter(offset => !nextByTrack.get(track.id)?.has(offset)).length, 0)
+  const nextByTrack = new Map(nextState.workingPrograms.pattern.tracks.map(track => [track.id, new Set(trackSelectedOffsetsSeconds(track))]))
+  const removed = state.workingPrograms.pattern.tracks.reduce((count, track) => count + trackSelectedOffsetsSeconds(track).filter(offset => !nextByTrack.get(track.id)?.has(offset)).length, 0)
   const apply = () => onChange(nextState)
   if (removed === 0 || Platform.OS === 'web') apply()
   else Alert.alert('Shorten main interval?', `${removed} selected cue${removed === 1 ? '' : 's'} outside the new interval will be removed.`, [{ text: 'Cancel', style: 'cancel' }, { text: 'Continue', onPress: apply }])
@@ -660,8 +664,8 @@ function PatternTimelinePreview({ tracks, mainDurationSeconds, onPress }: { trac
     <View style={[styles.timelineLine, { backgroundColor: tokens.border }]} />
     <View style={[styles.timelineBoundary, { left: 0, backgroundColor: tokens.accent }]} />
     <View style={[styles.timelineBoundary, { right: 0, backgroundColor: tokens.accent }]} />
-    {active.flatMap((track, trackIndex) => track.selectedOffsetsMinutes.map(offset => {
-      return <View key={`${track.id}:${offset}`} style={[styles.timelineCue, { left: `${offset * 60 / mainDurationSeconds * 100}%`, top: 8 + trackIndex * 6, backgroundColor: subBellColorValue(track.color, trackIndex) }]} />
+    {active.flatMap((track, trackIndex) => trackSelectedOffsetsSeconds(track).map(offset => {
+      return <View key={`${track.id}:${offset}`} style={[styles.timelineCue, { left: `${offset / mainDurationSeconds * 100}%`, top: 8 + trackIndex * 6, backgroundColor: subBellColorValue(track.color, trackIndex) }]} />
     }))}
     <Text style={[styles.timelineStart, { color: tokens.textMuted }]}>0</Text><Text style={[styles.timelineEnd, { color: tokens.textMuted }]}>{formatCompactDurationSeconds(mainDurationSeconds)}</Text>
   </Pressable>

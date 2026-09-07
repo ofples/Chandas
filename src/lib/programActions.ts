@@ -25,8 +25,11 @@ import {
   normalizeSequenceProgram,
   durationMinutesProjection,
   patternDurationSeconds,
+  patternTrackTiming,
+  trackCadenceSeconds,
+  trackSelectedOffsetsSeconds,
   validOffsets,
-  validOffsetsForDuration,
+  validOffsetsForCadenceSeconds,
 } from './timerV2'
 import { defaultSubBellColor } from './subBellColors'
 
@@ -100,13 +103,15 @@ export function updatePatternMainDurationSeconds(state: TimerV2State, seconds: n
       mainMinutes,
       mainDurationSeconds,
       tracks: program.tracks.map(track => {
-        const previousOffsets = validOffsetsForDuration(previousDurationSeconds, track.cadenceMinutes)
-        const nextOffsets = validOffsetsForDuration(mainDurationSeconds, track.cadenceMinutes)
-        if (mainDurationSeconds <= previousDurationSeconds) return { ...track, selectedOffsetsMinutes: track.selectedOffsetsMinutes.filter(offset => nextOffsets.includes(offset)) }
-        const selected = new Set(track.selectedOffsetsMinutes)
-        if (previousOffsets.length === 0 || previousOffsets.every(offset => selected.has(offset))) return { ...track, selectedOffsetsMinutes: nextOffsets }
+        const cadenceSeconds = trackCadenceSeconds(track)
+        const previousOffsets = validOffsetsForCadenceSeconds(previousDurationSeconds, cadenceSeconds)
+        const nextOffsets = validOffsetsForCadenceSeconds(mainDurationSeconds, cadenceSeconds)
+        const currentOffsets = trackSelectedOffsetsSeconds(track)
+        if (mainDurationSeconds <= previousDurationSeconds) return { ...track, ...patternTrackTiming(cadenceSeconds, currentOffsets.filter(offset => nextOffsets.includes(offset))) }
+        const selected = new Set(currentOffsets)
+        if (previousOffsets.length === 0 || previousOffsets.every(offset => selected.has(offset))) return { ...track, ...patternTrackTiming(cadenceSeconds, nextOffsets) }
         const selectedPattern = previousOffsets.map(offset => selected.has(offset))
-        return { ...track, selectedOffsetsMinutes: nextOffsets.filter((_, index) => selectedPattern[index % selectedPattern.length]) }
+        return { ...track, ...patternTrackTiming(cadenceSeconds, nextOffsets.filter((_, index) => selectedPattern[index % selectedPattern.length])) }
       }),
     }
   })
@@ -150,32 +155,50 @@ export function removePatternTrack(state: TimerV2State, trackId: string): TimerV
 }
 
 export function setTrackCadence(state: TimerV2State, trackId: string, cadenceMinutes: number): TimerV2State {
+  return setTrackCadenceSeconds(state, trackId, clampDuration(cadenceMinutes, 1) * 60)
+}
+
+export function setTrackCadenceSeconds(state: TimerV2State, trackId: string, cadenceSeconds: number): TimerV2State {
   return updatePattern(state, program => ({
     ...program,
     tracks: program.tracks.map(track => {
       if (track.id !== trackId) return track
-      const cadence = clampDuration(cadenceMinutes, track.cadenceMinutes)
-      const previousOffsets = validOffsets(program.mainMinutes, track.cadenceMinutes)
-      const selected = new Set(track.selectedOffsetsMinutes)
-      const selectedOffsetsMinutes = previousOffsets.length === 0 || previousOffsets.every(offset => selected.has(offset))
-        ? validOffsets(program.mainMinutes, cadence)
-        : track.selectedOffsetsMinutes.filter(offset => offset % cadence === 0)
-      return { ...track, cadenceMinutes: cadence, selectedOffsetsMinutes }
+      const previousCadence = trackCadenceSeconds(track)
+      const cadence = clampCueDurationSeconds(cadenceSeconds, previousCadence)
+      const mainDurationSeconds = patternDurationSeconds(program)
+      const previousOffsets = validOffsetsForCadenceSeconds(mainDurationSeconds, previousCadence)
+      const selectedOffsets = trackSelectedOffsetsSeconds(track)
+      const selected = new Set(selectedOffsets)
+      const nextOffsets = previousOffsets.length === 0 || previousOffsets.every(offset => selected.has(offset))
+        ? validOffsetsForCadenceSeconds(mainDurationSeconds, cadence)
+        : selectedOffsets.filter(offset => offset % cadence === 0 && offset < mainDurationSeconds)
+      return { ...track, ...patternTrackTiming(cadence, nextOffsets) }
     }),
   }))
 }
 
 export function setTrackOffsets(state: TimerV2State, trackId: string, offsets: number[]): TimerV2State {
-  return patchPatternTrack(state, trackId, { selectedOffsetsMinutes: offsets, enabled: offsets.length > 0 })
+  return setTrackOffsetsSeconds(state, trackId, offsets.map(offset => offset * 60))
+}
+
+export function setTrackOffsetsSeconds(state: TimerV2State, trackId: string, offsets: number[]): TimerV2State {
+  return updatePattern(state, program => ({
+    ...program,
+    tracks: program.tracks.map(track => track.id === trackId
+      ? { ...track, ...patternTrackTiming(trackCadenceSeconds(track), offsets), enabled: offsets.length > 0 }
+      : track),
+  }))
 }
 
 export function toggleTrackOffset(state: TimerV2State, trackId: string, offset: number): TimerV2State {
   const track = state.workingPrograms.pattern.tracks.find(value => value.id === trackId)
   if (!track) return state
-  const selectedOffsetsMinutes = track.selectedOffsetsMinutes.includes(offset)
-    ? track.selectedOffsetsMinutes.filter(value => value !== offset)
-    : [...track.selectedOffsetsMinutes, offset].sort((a, b) => a - b)
-  return setTrackOffsets(state, trackId, selectedOffsetsMinutes)
+  const offsetSeconds = offset * 60
+  const selectedOffsetsSeconds = trackSelectedOffsetsSeconds(track)
+  const next = selectedOffsetsSeconds.includes(offsetSeconds)
+    ? selectedOffsetsSeconds.filter(value => value !== offsetSeconds)
+    : [...selectedOffsetsSeconds, offsetSeconds].sort((a, b) => a - b)
+  return setTrackOffsetsSeconds(state, trackId, next)
 }
 
 export function updateSequence(state: TimerV2State, update: (program: SequenceProgram) => SequenceProgram): TimerV2State {

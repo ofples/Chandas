@@ -14,7 +14,7 @@ import { SheetTextButton } from './SheetTextButton'
 import { subBellColorValue } from '../../lib/subBellColors'
 import { tapHaptic } from '../../lib/haptics'
 import { SwipeToDeleteRow } from './swipe-to-delete-row'
-import { formatCompactDurationSeconds, patternDurationSeconds, sequenceStepDurationSeconds } from '../../lib/timerV2'
+import { formatCompactDurationSeconds, patternDurationSeconds, sequenceStepDurationSeconds, trackCadenceSeconds, trackSelectedOffsetsSeconds } from '../../lib/timerV2'
 
 const FILTERS = [{ value: 'all', label: 'All' }, { value: 'pattern', label: 'Cycle' }, { value: 'sequence', label: 'Sequence' }] as const
 
@@ -132,10 +132,10 @@ function PresetVisual({ program }: { program: TimerProgram }) {
   if (program.mode === 'pattern') {
     const durationSeconds = patternDurationSeconds(program)
     const tracks = program.subBellsEnabled ? program.tracks.filter(track => track.enabled) : []
-    const cues = tracks.reduce((count, track) => count + track.selectedOffsetsMinutes.length, 0)
+    const cues = tracks.reduce((count, track) => count + trackSelectedOffsetsSeconds(track).length, 0)
     return <View style={styles.visual} accessibilityLabel={`${formatCompactDurationSeconds(durationSeconds)} cycle with ${cues} sub-bell cues`}>
       <View style={styles.visualMeta}><Text style={[styles.visualKind, { color: tokens.text }]}>Cycle · {formatCompactDurationSeconds(durationSeconds)}</Text><Text style={[styles.visualCount, { color: tokens.textMuted }]}>{cues} cue{cues === 1 ? '' : 's'}</Text></View>
-      <View style={styles.visualTrack}><View style={[styles.visualLine, { backgroundColor: tokens.border }]} /><View style={[styles.visualBoundary, { left: 0, backgroundColor: tokens.accent }]} /><View style={[styles.visualBoundary, { right: 0, backgroundColor: tokens.accent }]} />{tracks.flatMap((track, trackIndex) => track.selectedOffsetsMinutes.map(offset => <View key={`${track.id}:${offset}`} style={[styles.visualCue, { left: `${offset * 60 / durationSeconds * 100}%`, backgroundColor: subBellColorValue(track.color, trackIndex) }]} />))}</View>
+      <View style={styles.visualTrack}><View style={[styles.visualLine, { backgroundColor: tokens.border }]} /><View style={[styles.visualBoundary, { left: 0, backgroundColor: tokens.accent }]} /><View style={[styles.visualBoundary, { right: 0, backgroundColor: tokens.accent }]} />{tracks.flatMap((track, trackIndex) => trackSelectedOffsetsSeconds(track).map(offset => <View key={`${track.id}:${offset}`} style={[styles.visualCue, { left: `${offset / durationSeconds * 100}%`, backgroundColor: subBellColorValue(track.color, trackIndex) }]} />))}</View>
     </View>
   }
   const total = Math.max(1, program.steps.reduce((sum, step) => sum + sequenceStepDurationSeconds(step), 0))
@@ -159,7 +159,7 @@ function PresetDetails({ preset }: { preset: ProgramPreset }) {
     <Text style={[styles.detailLine, { color: tokens.text }]}>Main · {formatCompactDurationSeconds(patternDurationSeconds(program))} · {soundTitle(program.mainCue.sound)} · {Math.round(program.mainCue.volume * 100)}%</Text>
     <Text style={[styles.detailLine, { color: tokens.text }]}>Timing · {program.alignment.kind === 'elapsed' ? 'starts when timer starts' : `aligned to :${String(program.alignment.offsetMinutes).padStart(2, '0')} local time`}</Text>
     {!program.subBellsEnabled ? <Text style={[styles.detailLine, { color: tokens.text }]}>Sub-bells off · settings preserved</Text> : null}
-    {program.tracks.map((track, index) => <Text key={track.id} style={[styles.detailLine, { color: tokens.text }]}>{index + 1}. {track.enabled ? `${track.cadenceMinutes}m · ${track.selectedOffsetsMinutes.join(', ') || 'no cues'}` : 'Off'} · {soundTitle(track.sound)} · {Math.round(track.volume * 100)}%</Text>)}
+    {program.tracks.map((track, index) => <Text key={track.id} style={[styles.detailLine, { color: tokens.text }]}>{index + 1}. {track.enabled ? `${formatCompactDurationSeconds(trackCadenceSeconds(track))} · ${trackSelectedOffsetsSeconds(track).map(formatCompactDurationSeconds).join(', ') || 'no cues'}` : 'Off'} · {soundTitle(track.sound)} · {Math.round(track.volume * 100)}%</Text>)}
   </View>
 }
 
