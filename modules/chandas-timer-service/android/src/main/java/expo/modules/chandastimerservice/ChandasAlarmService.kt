@@ -60,6 +60,19 @@ class ChandasAlarmService : Service() {
   }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    // START_STICKY restarts arrive without the original Intent. Persisted
+    // ringing state is authoritative, so reconstruct the alarm instead of
+    // silently ending a repeat-until-dismissed alarm after process reclaim.
+    if (intent == null) {
+      val config = TimerStateStore.load(this)
+      if (config != null && TimerStateStore.isRinging(this) && TimerStateStore.isAlarmVisible(this)) {
+        soundId = config.alarmSoundId
+        startRinging()
+        return if (TimerStateStore.isRinging(this)) START_STICKY else START_NOT_STICKY
+      }
+      stopSelf()
+      return START_NOT_STICKY
+    }
     when (intent?.action) {
       ACTION_STOP -> dismissAndResume()
       ACTION_UPDATE_VOLUME -> {
@@ -83,7 +96,7 @@ class ChandasAlarmService : Service() {
       }
       else -> stopSelf()
     }
-    return START_NOT_STICKY
+    return if (TimerStateStore.isRinging(this)) START_STICKY else START_NOT_STICKY
   }
 
   private fun startRinging() {
