@@ -137,18 +137,17 @@ class ChandasTimerServiceModule : Module() {
     Function("start") { record: TimerConfigRecord ->
       val context = appContext.reactContext ?: return@Function false
       val config = merge(record, null) ?: return@Function false
-      val started = TimerScheduler.start(context, config)
-      if (started) {
-        TimerStateStore.restoreControls(
-          context,
-          record.alarmOnceArmed == true,
-          record.mutedUntil ?: 0L,
-          record.mutedIterationEndId,
-          record.mutedIterationEndAt ?: 0L,
-          record.mutedIterationCount ?: 1,
-        )
-      }
-      started
+      TimerScheduler.start(
+        context,
+        config,
+        TimerControlState(
+          alarmOnceArmed = record.alarmOnceArmed == true,
+          mutedUntil = record.mutedUntil ?: 0L,
+          mutedIterationsRemaining = record.mutedIterationCount ?: 0,
+          mutedIterationEndId = record.mutedIterationEndId,
+          mutedIterationEndAt = record.mutedIterationEndAt ?: 0L,
+        ),
+      )
     }
 
     Function("update") { record: TimerConfigRecord ->

@@ -20,7 +20,11 @@ object TimerScheduler {
 
   /** Serializes each persisted-state/alarm transaction across JS, receivers, and services. */
   @Synchronized
-  fun start(context: Context, config: TimerConfig): Boolean {
+  fun start(
+    context: Context,
+    config: TimerConfig,
+    initialControls: TimerControlState = TimerControlState(false, 0L, 0, null, 0L),
+  ): Boolean {
     if (!canScheduleExactAlarms(context)) return false
     if (!isValidConfig(config)) return false
     ChandasCueService.stop(context)
@@ -29,6 +33,14 @@ object TimerScheduler {
     cancelScheduledEvent(context)
     TimerStateStore.save(context, config)
     TimerStateStore.beginSession(context)
+    TimerStateStore.restoreControls(
+      context,
+      initialControls.alarmOnceArmed,
+      initialControls.mutedUntil,
+      initialControls.mutedIterationEndId,
+      initialControls.mutedIterationEndAt,
+      initialControls.mutedIterationsRemaining.coerceAtLeast(1),
+    )
     TimerStateStore.setRinging(context, false)
     TimerStateStore.setAlarmVisible(context, false)
     TimerNotifications.ensureChannels(context)

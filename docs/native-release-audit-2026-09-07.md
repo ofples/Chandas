@@ -20,6 +20,8 @@ EAS regenerates it from these inputs.
 | N-08 | Critical | One-shot bells/gongs outlive `BroadcastReceiver.goAsync()` (packaged sounds reach 18.24 seconds) but have no service lifetime. Android may reclaim the process and cut them off or omit them. | Resolved | `Keep native cue playback alive` |
 | N-09 | Medium | Bridge/native validation permits non-finite volume values and imported remote URI schemes. This can persist unusable state or make an imported configuration initiate network media access. | Resolved | `Harden native sound and volume inputs` |
 | N-10 | Medium | The native module advertises dual live countdowns, but the running-notification builder no longer calls the dual formatter, so bounded runs omit their final countdown. | Resolved | `Restore bounded dual countdown status` |
+| N-11 | High | Restored mute and Alarm Once controls are persisted only after the first exact event is armed, leaving a race where an immediate cue can use stale/default controls. | Resolved | `Restore controls inside native start transaction` |
+| N-12 | High | The repeat-until-dismissed alarm service is non-sticky and cannot handle a null restart intent, so process reclamation can silently end an active alarm. | Open | — |
 
 ## Reviewed and currently acceptable
 
