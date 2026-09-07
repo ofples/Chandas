@@ -65,6 +65,24 @@ class TimerV2TimelineTest {
     }
   }
 
+  @Test fun notificationContextTracksTheCurrentSequenceStep() {
+    val fixture = fixtures.getJSONObject("sequence")
+    val program = fixture.getJSONObject("program").toString()
+    val anchor = fixture.getLong("anchor")
+
+    assertEquals(TimerV2NotificationContext("Prepare", "1P"), TimerV2Timeline.notificationContext(program, anchor, 0L))
+    assertEquals(TimerV2NotificationContext("Deep work", "2D"), TimerV2Timeline.notificationContext(program, anchor, 300_000L))
+    assertEquals(TimerV2NotificationContext("Reset", "3R"), TimerV2Timeline.notificationContext(program, anchor, 1_800_000L))
+    assertEquals(TimerV2NotificationContext("Prepare", "1P"), TimerV2Timeline.notificationContext(program, anchor, 1_920_000L))
+  }
+
+  @Test fun notificationContextNamesPatternAndSupportsOlderPrograms() {
+    val root = JSONObject(fixtures.getJSONObject("patternCollision").getJSONObject("program").toString())
+    assertEquals(TimerV2NotificationContext("Main interval", "M"), TimerV2Timeline.notificationContext(root.toString(), 0L, 0L))
+    root.put("label", "Meditation")
+    assertEquals(TimerV2NotificationContext("Meditation", "M"), TimerV2Timeline.notificationContext(root.toString(), 0L, 0L))
+  }
+
   @Test fun exactSecondDurationsDrivePatternAndSequenceBoundaries() {
     val pattern = JSONObject(fixtures.getJSONObject("patternCollision").getJSONObject("program").toString())
       .put("mainMinutes", 1)

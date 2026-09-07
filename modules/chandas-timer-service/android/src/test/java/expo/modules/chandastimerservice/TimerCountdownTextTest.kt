@@ -43,4 +43,16 @@ class TimerCountdownTextTest {
   @Test fun expiredCurrentCountdownProducesNoChipText() {
     assertNull(TimerCountdownText.compact(currentAt = 10L, finalAt = 20L, currentIsFinal = false, now = 10L))
   }
+
+  @Test fun statusChipCombinesStepIdentityAndNextCueCountdownWithinSevenCharacters() {
+    assertEquals("2D·12s", TimerCountdownText.compactStatus(identity = "2D", currentAt = 12_000L, now = 0L))
+    assertEquals("2D·1:12", TimerCountdownText.compactStatus(identity = "2D", currentAt = 72_000L, now = 0L))
+    assertEquals("12·1:12", TimerCountdownText.compactStatus(identity = "12D", currentAt = 72_000L, now = 0L))
+    assertEquals("M·120m", TimerCountdownText.compactStatus(identity = "M", currentAt = 7_200_000L, now = 0L))
+  }
+
+  @Test fun statusChipFallsBackToCountdownAndRejectsExpiredDeadlines() {
+    assertEquals("1:12", TimerCountdownText.compactStatus(identity = "", currentAt = 72_000L, now = 0L))
+    assertNull(TimerCountdownText.compactStatus(identity = "2D", currentAt = 10L, now = 10L))
+  }
 }

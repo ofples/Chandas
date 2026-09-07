@@ -89,7 +89,7 @@ class ChandasCountdownService : Service() {
       finish(removeNotification = config?.notificationsEnabled != true)
       return false
     }
-    val notification = TimerNotifications.buildRunning(this, config, includeDualCountdown = true)
+    val notification = TimerNotifications.buildRunning(this, config, includeCompactStatus = true)
     // Paused schedules intentionally have no ticking target. Drop the updater
     // until the exact resume event posts the notification and starts it again.
     if (NotificationCompat.getShortCriticalText(notification) == null) {
@@ -143,7 +143,7 @@ class ChandasCountdownService : Service() {
         runCatching {
           manager.notify(
             TimerNotifications.RUNNING_ID,
-            TimerNotifications.buildRunning(this, config, includeDualCountdown = false),
+            TimerNotifications.buildRunning(this, config, includeCompactStatus = false),
           )
         }
       }

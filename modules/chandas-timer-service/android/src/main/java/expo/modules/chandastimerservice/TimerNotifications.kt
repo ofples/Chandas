@@ -70,8 +70,8 @@ object TimerNotifications {
     ensureChannels(context)
     val now = System.currentTimeMillis()
     // Keep the platform chronometer as the no-service fallback. The live
-    // updater replaces this with dual compact text once it is foreground.
-    val notification = buildRunning(context, config, now, includeDualCountdown = false)
+    // updater adds context-aware compact text once it is foreground.
+    val notification = buildRunning(context, config, now, includeCompactStatus = false)
     runCatching { manager.notify(RUNNING_ID, notification) }
     if (
       config.liveCountdownEnabled &&
@@ -91,10 +91,12 @@ object TimerNotifications {
     context: Context,
     config: TimerConfig,
     now: Long = System.currentTimeMillis(),
-    includeDualCountdown: Boolean = false,
+    includeCompactStatus: Boolean = false,
   ): Notification {
     val copy = TimerNotificationCopy.from(config.notificationPresentation)
-    val event = config.timerV2Program?.let { TimerV2Timeline.next(it, config.timerV2Anchor, now, config.timerV2StartedAt, config.timerV2EndsAt) }
+    val program = config.timerV2Program
+    val event = program?.let { TimerV2Timeline.next(it, config.timerV2Anchor, now, config.timerV2StartedAt, config.timerV2EndsAt) }
+    val notificationContext = program?.let { TimerV2Timeline.notificationContext(it, config.timerV2Anchor, now) }
     val completedProgram = config.timerV2Program != null && event == null
     val next = event?.at ?: if (completedProgram) 0L else TimerMath.nextTick(now, config.mainMs, config.phase)
     val activeNow = ActiveHours.isActive(config, now)
@@ -112,10 +114,10 @@ object TimerNotifications {
       completedProgram -> copy.sessionEnds(formatTime(config.timerV2EndsAt.takeIf { it > 0L } ?: now))
       event?.completesRun == true -> copy.sessionEnds(formatTime(next))
       endsBeforeResume -> copy.sessionEnds(formatTime(config.timerV2EndsAt))
-      activeNow && activeAtNext -> copy.nextCue(formatTime(next))
+      activeNow && activeAtNext -> notificationContext?.label ?: copy.nextCue(formatTime(next))
       else -> copy.resumes(formatTime(resumesAt))
     }
-    val title = config.timerV2Program?.let(TimerV2Timeline::notificationTitle) ?: copy.runningTitle
+    val title = program?.let(TimerV2Timeline::notificationTitle) ?: copy.runningTitle
     val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
     val contentIntent = launchIntent?.let {
       PendingIntent.getActivity(
@@ -145,10 +147,9 @@ object TimerNotifications {
         .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
         .setPriority(NotificationCompat.PRIORITY_LOW)
     if (config.liveCountdownEnabled && countdownAt > now) {
-      val compactCountdown = TimerCountdownText.compact(
+      val compactCountdown = TimerCountdownText.compactStatus(
+        identity = notificationContext?.compactIdentity.orEmpty(),
         currentAt = countdownAt,
-        finalAt = config.timerV2EndsAt,
-        currentIsFinal = event?.completesRun == true || endsBeforeResume,
         now = now,
       )
       builder
@@ -160,7 +161,7 @@ object TimerNotifications {
         // status-bar chip. The notification countdown remains useful when the
         // OS or OEM chooses standard presentation instead.
         .setRequestPromotedOngoing(true)
-      if (includeDualCountdown) compactCountdown?.let(builder::setShortCriticalText)
+      if (includeCompactStatus) compactCountdown?.let(builder::setShortCriticalText)
     }
     return builder.build()
   }
@@ -214,6 +215,7 @@ object TimerNotifications {
 
 /** Pure compact-countdown formatting kept separate from notification plumbing. */
 internal object TimerCountdownText {
+  private const val MAX_STATUS_CHIP_CHARACTERS = 7
   private const val SECOND_MS = 1_000L
   private const val MINUTE_MS = 60_000L
   private const val HOUR_SECONDS = 3_600L
@@ -225,6 +227,21 @@ internal object TimerCountdownText {
     val current = formatCurrent(currentRemaining, compactMinutes = hasFinalPair)
     if (!hasFinalPair) return current
     return "$current·${ceilUnits(finalAt - now, MINUTE_MS)}m"
+  }
+
+  /**
+   * Android recommends at most seven characters for promoted-notification
+   * critical text. Fit as much interval identity as possible before the live
+   * next-cue countdown so the system does not truncate an arbitrary suffix.
+   */
+  fun compactStatus(identity: String, currentAt: Long, now: Long): String? {
+    val remaining = currentAt - now
+    if (remaining <= 0L) return null
+    val countdown = formatStatusCountdown(remaining)
+    val availableIdentityCharacters = MAX_STATUS_CHIP_CHARACTERS - countdown.length - 1
+    if (availableIdentityCharacters <= 0 || identity.isBlank()) return countdown.take(MAX_STATUS_CHIP_CHARACTERS)
+    val prefix = identity.takeCodePoints(availableIdentityCharacters)
+    return if (prefix.isEmpty()) countdown else "$prefix·$countdown"
   }
 
   private fun formatCurrent(remainingMs: Long, compactMinutes: Boolean): String {
@@ -242,7 +259,22 @@ internal object TimerCountdownText {
     }
   }
 
+  private fun formatStatusCountdown(remainingMs: Long): String {
+    val totalSeconds = ceilUnits(remainingMs, SECOND_MS)
+    if (totalSeconds < 60L) return "${totalSeconds}s"
+    if (totalSeconds < HOUR_SECONDS) {
+      return "${totalSeconds / 60L}:${(totalSeconds % 60L).twoDigits()}"
+    }
+    return "${ceilUnits(remainingMs, MINUTE_MS)}m"
+  }
+
   private fun ceilUnits(value: Long, unit: Long): Long = ((value - 1L) / unit) + 1L
 
   private fun Long.twoDigits(): String = toString().padStart(2, '0')
+
+  private fun String.takeCodePoints(count: Int): String {
+    if (count <= 0 || isEmpty()) return ""
+    val end = offsetByCodePoints(0, minOf(count, codePointCount(0, length)))
+    return substring(0, end)
+  }
 }

@@ -3,6 +3,7 @@ package expo.modules.chandastimerservice
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Calendar
+import java.util.Locale
 import java.util.TimeZone
 import kotlin.math.max
 
@@ -32,6 +33,12 @@ data class TimerV2Candidate(
   val volume: Float,
   val cadenceMinutes: Int? = null,
   val trackOrder: Int? = null,
+)
+
+/** User-facing identity of the interval that contains [now]. */
+data class TimerV2NotificationContext(
+  val label: String,
+  val compactIdentity: String,
 )
 
 /** Native mirror of src/lib/timeline.ts. It intentionally schedules only one future event. */
@@ -169,6 +176,23 @@ object TimerV2Timeline {
     }
   }.getOrNull()
 
+  /**
+   * Resolves the interval that is currently in progress, rather than the cue
+   * returned by [next]. Sequence cues mark the end of their corresponding
+   * steps, so deriving this from the next cue would be ambiguous at a boundary.
+   */
+  fun notificationContext(serialized: String, anchor: Long, now: Long): TimerV2NotificationContext? = runCatching {
+    val root = JSONObject(serialized)
+    when (root.optString("mode")) {
+      "pattern" -> {
+        val label = root.optString("label").trim().ifEmpty { "Main interval" }
+        TimerV2NotificationContext(label, compactInitial(label))
+      }
+      "sequence" -> currentSequenceContext(root.optJSONArray("steps") ?: return@runCatching null, anchor, now)
+      else -> null
+    }
+  }.getOrNull()
+
   /** Exact seasonal-offset boundary so local-clock patterns can realign even on pre-API 37 Android. */
   fun nextTimezoneTransition(now: Long): Long? {
     val timezone = TimeZone.getDefault()
@@ -258,6 +282,33 @@ object TimerV2Timeline {
       cycle += 1
     }
     return null
+  }
+
+  private fun currentSequenceContext(steps: JSONArray, anchor: Long, now: Long): TimerV2NotificationContext? {
+    val duration = sequenceDuration(steps)
+    if (duration <= 0L || steps.length() == 0) return null
+    val elapsed = if (now <= anchor) 0L else Math.floorMod(now - anchor, duration)
+    var stepEnd = 0L
+    for (index in 0 until steps.length()) {
+      val step = steps.optJSONObject(index) ?: continue
+      stepEnd += stepDuration(step)
+      if (elapsed < stepEnd) {
+        val label = step.optString("label").trim().ifEmpty { "Step ${index + 1}" }
+        return TimerV2NotificationContext(label, "${index + 1}${compactInitial(label)}")
+      }
+    }
+    return null
+  }
+
+  private fun compactInitial(label: String): String {
+    val codePoints = label.codePoints().iterator()
+    while (codePoints.hasNext()) {
+      val codePoint = codePoints.nextInt()
+      if (Character.isLetterOrDigit(codePoint)) {
+        return String(Character.toChars(codePoint)).uppercase(Locale.ROOT)
+      }
+    }
+    return ""
   }
 
   private fun patternDuration(root: JSONObject): Long = if (root.has("mainDurationSeconds")) root.optLong("mainDurationSeconds", 0L) * 1_000L else root.optInt("mainMinutes", 0).toLong() * MINUTE
