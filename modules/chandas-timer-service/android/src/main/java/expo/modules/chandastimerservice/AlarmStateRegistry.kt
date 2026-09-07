@@ -1,20 +1,9 @@
 package expo.modules.chandastimerservice
 
 object AlarmStateRegistry {
-  private val listeners = mutableSetOf<(Boolean) -> Unit>()
+  private val listeners = NativeListenerRegistry<Boolean>()
 
-  @Synchronized
-  fun add(listener: (Boolean) -> Unit) {
-    listeners.add(listener)
-  }
-
-  @Synchronized
-  fun remove(listener: (Boolean) -> Unit) {
-    listeners.remove(listener)
-  }
-
-  @Synchronized
-  fun notify(ringing: Boolean) {
-    listeners.toList().forEach { it(ringing) }
-  }
+  fun add(listener: (Boolean) -> Unit) = listeners.add(listener)
+  fun remove(listener: (Boolean) -> Unit) = listeners.remove(listener)
+  fun notify(ringing: Boolean) = listeners.notify(ringing)
 }

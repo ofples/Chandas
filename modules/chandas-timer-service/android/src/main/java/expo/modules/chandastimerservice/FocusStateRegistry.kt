@@ -16,9 +16,9 @@ data class NativeFocusState(
 )
 
 object FocusStateRegistry {
-  private val listeners = mutableSetOf<(NativeFocusState) -> Unit>()
+  private val listeners = NativeListenerRegistry<NativeFocusState>()
 
-  @Synchronized fun add(listener: (NativeFocusState) -> Unit) { listeners.add(listener) }
-  @Synchronized fun remove(listener: (NativeFocusState) -> Unit) { listeners.remove(listener) }
-  @Synchronized fun notify(state: NativeFocusState) { listeners.toList().forEach { it(state) } }
+  fun add(listener: (NativeFocusState) -> Unit) = listeners.add(listener)
+  fun remove(listener: (NativeFocusState) -> Unit) = listeners.remove(listener)
+  fun notify(state: NativeFocusState) = listeners.notify(state)
 }

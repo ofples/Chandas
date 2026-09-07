@@ -14,20 +14,9 @@ data class TimerEventSignal(
 )
 
 object TimerEventRegistry {
-  private val listeners = mutableSetOf<(TimerEventSignal) -> Unit>()
+  private val listeners = NativeListenerRegistry<TimerEventSignal>()
 
-  @Synchronized
-  fun add(listener: (TimerEventSignal) -> Unit) {
-    listeners.add(listener)
-  }
-
-  @Synchronized
-  fun remove(listener: (TimerEventSignal) -> Unit) {
-    listeners.remove(listener)
-  }
-
-  @Synchronized
-  fun notify(event: TimerEventSignal) {
-    listeners.toList().forEach { it(event) }
-  }
+  fun add(listener: (TimerEventSignal) -> Unit) = listeners.add(listener)
+  fun remove(listener: (TimerEventSignal) -> Unit) = listeners.remove(listener)
+  fun notify(event: TimerEventSignal) = listeners.notify(event)
 }

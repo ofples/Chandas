@@ -9,9 +9,9 @@ data class TimerScheduleState(
 )
 
 object TimerStateRegistry {
-  private val listeners = mutableSetOf<(TimerScheduleState) -> Unit>()
+  private val listeners = NativeListenerRegistry<TimerScheduleState>()
 
-  @Synchronized fun add(listener: (TimerScheduleState) -> Unit) { listeners.add(listener) }
-  @Synchronized fun remove(listener: (TimerScheduleState) -> Unit) { listeners.remove(listener) }
-  @Synchronized fun notify(state: TimerScheduleState) { listeners.toList().forEach { it(state) } }
+  fun add(listener: (TimerScheduleState) -> Unit) = listeners.add(listener)
+  fun remove(listener: (TimerScheduleState) -> Unit) = listeners.remove(listener)
+  fun notify(state: TimerScheduleState) = listeners.notify(state)
 }
