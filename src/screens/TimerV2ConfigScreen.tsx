@@ -107,6 +107,7 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
 
   const changeSettings = (patch: Partial<typeof settings>) => onChange({ ...state, settings: { ...settings, ...patch } })
   const cue = cueTarget ? cueForTarget(state, cueTarget) : null
+  const soundPickerVisible = cue !== null
   const cueTitle = cueTarget?.kind === 'main' ? 'Main gong' : cueTarget?.kind === 'alarm' ? 'Alarm sound' : cueTarget?.kind === 'track' ? 'Sub-bell sound' : cueTarget?.kind === 'step' ? 'Step sound' : cueTarget?.kind === 'completion' ? 'Final gong' : ''
   const patchCue = (patch: Partial<CueSettings>) => {
     if (!cueTarget) return
@@ -239,7 +240,7 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
         <SegmentedControl items={MODE_CHOICES} value={state.workingPrograms.selectedMode} onChange={selectMode} accessibilityLabel="Timer mode" />
 
         <Reanimated.View key={program.mode} entering={FadeIn.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 120)} style={styles.modeContent}>
-          {program.mode === 'pattern' ? <PatternEditor state={state} onChange={onChange} enhancedClockAlignmentSupported={programClockAlignmentSupported} onOpenSubBells={() => setSubBellsOpen(true)} showHelp={inlineHelpVisible} onToggleHelp={() => setInlineHelpVisible(visible => !visible)} /> : <SequenceEditor state={state} onChange={onChange} clockAlignmentSupported={programClockAlignmentSupported} onEditCue={setCueTarget} onAdd={addStep} showHelp={inlineHelpVisible} onToggleHelp={() => setInlineHelpVisible(visible => !visible)} onReorderingChange={handleSequenceReordering} onAutoScroll={autoScrollSequence} />}
+          {program.mode === 'pattern' ? <PatternEditor state={state} onChange={onChange} enhancedClockAlignmentSupported={programClockAlignmentSupported} onOpenSubBells={() => setSubBellsOpen(true)} showHelp={inlineHelpVisible} onToggleHelp={() => setInlineHelpVisible(visible => !visible)} /> : <SequenceEditor state={state} onChange={onChange} clockAlignmentSupported={programClockAlignmentSupported} soundPickerVisible={soundPickerVisible && cueTarget?.kind === 'step'} onEditCue={setCueTarget} onAdd={addStep} showHelp={inlineHelpVisible} onToggleHelp={() => setInlineHelpVisible(visible => !visible)} onReorderingChange={handleSequenceReordering} onAutoScroll={autoScrollSequence} />}
         </Reanimated.View>
 
         <View style={styles.section}>
@@ -299,10 +300,9 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
         </Pressable>
       </View>
 
-      <SubBellLibrarySheet visible={subBellsOpen} state={state} onChange={onChange} onEditTrack={setTrackId} onAdd={addTrack} onClose={() => { setTrackId(null); setSubBellsOpen(false) }} />
-      {trackId ? <TrackEditorSheet visible={subBellsOpen} state={state} trackId={trackId} secondPrecision={settings.secondPrecisionEnabled && subBellSecondPrecisionSupported} onChange={onChange} onEditCue={() => setCueTarget({ kind: 'track', id: trackId })} onBack={() => setTrackId(null)} onClose={() => { setTrackId(null); setSubBellsOpen(false) }} onFeedback={onFeedback} /> : null}
-      <MixerSheet visible={mixerOpen} state={state} onChange={onChange} onEditCue={setCueTarget} onClose={() => setMixerOpen(false)} onFeedback={onFeedback} />
-      {cue ? <SoundPickerSheet visible title={cueTitle} cue={cue} masterVolume={settings.masterVolume} onChange={patchCue} onBack={trackId || cueTarget?.kind === 'step' || mixerOpen ? () => setCueTarget(null) : undefined} onClose={() => setCueTarget(null)} onFeedback={onFeedback} /> : null}
+      <SubBellFlowSheet visible={subBellsOpen && !soundPickerVisible} state={state} trackId={trackId} secondPrecision={settings.secondPrecisionEnabled && subBellSecondPrecisionSupported} onChange={onChange} onEditTrack={setTrackId} onEditCue={() => { if (trackId) setCueTarget({ kind: 'track', id: trackId }) }} onAdd={addTrack} onBack={() => setTrackId(null)} onClose={() => { setTrackId(null); setSubBellsOpen(false) }} onFeedback={onFeedback} />
+      <MixerSheet visible={mixerOpen && !soundPickerVisible} state={state} onChange={onChange} onEditCue={setCueTarget} onClose={() => setMixerOpen(false)} onFeedback={onFeedback} />
+      {cue ? <SoundPickerSheet visible={soundPickerVisible} title={cueTitle} cue={cue} masterVolume={settings.masterVolume} onChange={patchCue} onBack={trackId || cueTarget?.kind === 'step' || mixerOpen ? () => setCueTarget(null) : undefined} onClose={() => setCueTarget(null)} onFeedback={onFeedback} /> : null}
       <BottomSheet visible={scheduleOpen} title="Schedule" help="Add one or more weekly time ranges. A continuous timer stays quiet outside them and resumes automatically when the next active range begins." onClose={() => setScheduleOpen(false)}><ScheduleConfig showHeading={false} showEnabledControl={false} value={settings.availability} onChange={availability => changeSettings({ availability })} /></BottomSheet>
       {Platform.OS === 'android' ? <BottomSheet visible={systemAccessOpen} title="System integrations" help="These optional Android permissions keep timing reliable with the screen off, silence cues during calls, and show useful running controls." onClose={() => setSystemAccessOpen(false)}><SystemAccessPanel access={androidAccess} settings={settings} onChangeSettings={changeSettings} onOpenExactAlarmSettings={onOpenExactAlarmSettings} onOpenFullScreenIntentSettings={onOpenFullScreenIntentSettings} onRequestCallMuteAccess={onRequestCallMuteAccess} onRequestNotificationAccess={onRequestNotificationAccess} /></BottomSheet> : null}
       {hapticsSupported ? <HapticsSheet visible={hapticsOpen} value={settings.haptics} onChange={haptics => changeSettings({ haptics })} onClose={() => setHapticsOpen(false)} /> : null}
@@ -426,7 +426,7 @@ function PatternEditor({ state, onChange, enhancedClockAlignmentSupported, onOpe
   </>
 }
 
-function SequenceEditor({ state, onChange, clockAlignmentSupported, onEditCue, onAdd, showHelp, onToggleHelp, onReorderingChange, onAutoScroll }: { state: TimerV2State; onChange: (state: TimerV2State) => void; clockAlignmentSupported: boolean; onEditCue: (target: CueTarget) => void; onAdd: () => void; showHelp: boolean; onToggleHelp: () => void; onReorderingChange: (active: boolean) => void; onAutoScroll: (pageY: number, canMoveEarlier: boolean, canMoveLater: boolean) => number }) {
+function SequenceEditor({ state, onChange, clockAlignmentSupported, soundPickerVisible, onEditCue, onAdd, showHelp, onToggleHelp, onReorderingChange, onAutoScroll }: { state: TimerV2State; onChange: (state: TimerV2State) => void; clockAlignmentSupported: boolean; soundPickerVisible: boolean; onEditCue: (target: CueTarget) => void; onAdd: () => void; showHelp: boolean; onToggleHelp: () => void; onReorderingChange: (active: boolean) => void; onAutoScroll: (pageY: number, canMoveEarlier: boolean, canMoveLater: boolean) => number }) {
   const { tokens } = useTheme()
   const [editingStepId, setEditingStepId] = useState<string | null>(null)
   const [dragPreview, setDragPreview] = useState<ReorderPreview | null>(null)
@@ -447,22 +447,34 @@ function SequenceEditor({ state, onChange, clockAlignmentSupported, onEditCue, o
       <InlineHelp visible={showHelp}>Turn this on when you want each full round to begin on a familiar clock mark.</InlineHelp>
       {program.alignment.kind === 'local-clock' ? <ClockSnapSelector cycleDurationSeconds={totalSeconds} value={program.alignment.offsetMinutes} compact fadeColor={tokens.bg} onChange={offsetMinutes => onChange(updateSequence(state, value => ({ ...value, alignment: { kind: 'local-clock', offsetMinutes } })))} /> : null}
     </> : null}
-    {editingStepId ? <SequenceStepEditorSheet state={state} stepId={editingStepId} onChange={onChange} onEditCue={() => onEditCue({ kind: 'step', id: editingStepId })} onClose={() => setEditingStepId(null)} /> : null}
+    {editingStepId ? <SequenceStepEditorSheet visible={!soundPickerVisible} state={state} stepId={editingStepId} onChange={onChange} onEditCue={() => onEditCue({ kind: 'step', id: editingStepId })} onClose={() => setEditingStepId(null)} /> : null}
   </View>
 }
 
-function SubBellLibrarySheet({ visible, state, onChange, onEditTrack, onAdd, onClose }: { visible: boolean; state: TimerV2State; onChange: (state: TimerV2State) => void; onEditTrack: (id: string) => void; onAdd: () => void; onClose: () => void }) {
+function SubBellFlowSheet({ visible, state, trackId, secondPrecision, onChange, onEditTrack, onEditCue, onAdd, onBack, onClose, onFeedback }: { visible: boolean; state: TimerV2State; trackId: string | null; secondPrecision: boolean; onChange: (state: TimerV2State) => void; onEditTrack: (id: string) => void; onEditCue: () => void; onAdd: () => void; onBack: () => void; onClose: () => void; onFeedback: Props['onFeedback'] }) {
+  const reducedMotion = useReducedMotion()
+  const program = state.workingPrograms.pattern
+  const track = trackId ? program.tracks.find(value => value.id === trackId) : null
+  const editing = Boolean(track)
+  return <BottomSheet visible={visible} presentationKey={track?.id ?? 'library'} title={track ? <EditableTitle value={track.label} onCommit={label => onChange(patchPatternTrack(state, track.id, { label }))} accessibilityLabel={`Sub-bell ${program.tracks.findIndex(value => value.id === track.id) + 1} name`} large /> : 'Sub-bells'} accessibilityTitle={track?.label ?? 'Sub-bells'} help={track ? 'Choose how often this bell occurs and how it sounds. Color & visibility changes its watch-face ring without silencing it.' : 'Sub-bells add smaller cues inside each main interval. Open a bell to choose its rhythm, sound, color, volume, and exact cue positions.'} onBack={editing ? onBack : undefined} onClose={onClose}>
+    <Reanimated.View key={track?.id ?? 'library'} entering={FadeIn.duration(reducedMotion ? 70 : 130)}>
+      {track ? <TrackEditorContent state={state} trackId={track.id} secondPrecision={secondPrecision} onChange={onChange} onEditCue={onEditCue} onFeedback={onFeedback} /> : <SubBellLibraryContent state={state} onChange={onChange} onEditTrack={onEditTrack} onAdd={onAdd} />}
+    </Reanimated.View>
+  </BottomSheet>
+}
+
+function SubBellLibraryContent({ state, onChange, onEditTrack, onAdd }: { state: TimerV2State; onChange: (state: TimerV2State) => void; onEditTrack: (id: string) => void; onAdd: () => void }) {
   const { tokens } = useTheme()
   const program = state.workingPrograms.pattern
   const activeTracks = program.tracks.filter(track => track.enabled)
   const cueCount = activeTracks.reduce((count, track) => count + trackSelectedOffsetsSeconds(track).length, 0)
-  return <BottomSheet visible={visible} title="Sub-bells" help="Sub-bells add smaller cues inside each main interval. Open a bell to choose its rhythm, sound, color, volume, and exact cue positions." onClose={onClose}>
+  return <View style={styles.trackEditorContent}>
     <Text style={[styles.helper, { color: tokens.textMuted }]}>{`${activeTracks.length} active · ${cueCount} selected ${cueCount === 1 ? 'cue' : 'cues'}`}</Text>
     <PatternTimelinePreview tracks={program.subBellsEnabled ? program.tracks : []} mainDurationSeconds={patternDurationSeconds(program)} />
     {program.tracks.length === 0 ? <GentleNotice title="No sub-bells yet" message="Add one when you want an extra cue within the main interval." /> : program.subBellsEnabled && cueCount === 0 ? <GentleNotice title="No sub-bell cues are active" message="The main gong will still play. Open a sub-bell to choose its cue positions." /> : null}
     <View style={styles.trackList}>{program.tracks.map((track, index) => <SwipeToDeleteRow key={track.id} accessibilityLabel={`Delete ${track.label}`} onDelete={() => onChange(removePatternTrack(state, track.id))}><PatternTrackRow state={state} track={track} index={index} onChange={onChange} onEdit={() => onEditTrack(track.id)} /></SwipeToDeleteRow>)}</View>
     <AddRowButton disabled={program.tracks.length >= 5} onPress={onAdd} title={program.tracks.length >= 5 ? '5 sub-bell limit reached' : '+ Add sub-bell'} />
-  </BottomSheet>
+  </View>
 }
 
 function PatternTrackRow({ state, track, index, onChange, onEdit }: { state: TimerV2State; track: PatternTrack; index: number; onChange: (state: TimerV2State) => void; onEdit: () => void }) {
@@ -507,7 +519,7 @@ function SequenceStepRow({ state, stepId, index, dragPreview, onEdit, onDelete, 
   </Reanimated.View>
 }
 
-function SequenceStepEditorSheet({ state, stepId, onChange, onEditCue, onClose }: { state: TimerV2State; stepId: string; onChange: (state: TimerV2State) => void; onEditCue: () => void; onClose: () => void }) {
+function SequenceStepEditorSheet({ visible, state, stepId, onChange, onEditCue, onClose }: { visible: boolean; state: TimerV2State; stepId: string; onChange: (state: TimerV2State) => void; onEditCue: () => void; onClose: () => void }) {
   const { tokens } = useTheme()
   const [previewError, setPreviewError] = useState<string | null>(null)
   const program = state.workingPrograms.sequence
@@ -523,7 +535,7 @@ function SequenceStepEditorSheet({ state, stepId, onChange, onEditCue, onClose }
     }
   }
   const close = () => { ChandasTimerService.stopSoundPreview(); setPreviewError(null); onClose() }
-  return <BottomSheet visible eyebrow={`Step ${index + 1} of ${program.steps.length}`} title={<EditableTitle value={step.label} onCommit={label => onChange(patchSequenceStep(state, step.id, { label }))} accessibilityLabel={`Step ${index + 1} name`} large />} accessibilityTitle={step.label} help="Set how long this step lasts, how loudly it plays, and which sound marks its boundary. Tap the title to rename it." onClose={close}>
+  return <BottomSheet visible={visible} eyebrow={`Step ${index + 1} of ${program.steps.length}`} title={<EditableTitle value={step.label} onCommit={label => onChange(patchSequenceStep(state, step.id, { label }))} accessibilityLabel={`Step ${index + 1} name`} large />} accessibilityTitle={step.label} help="Set how long this step lasts, how loudly it plays, and which sound marks its boundary. Tap the title to rename it." onClose={close}>
     {previewError ? <GentleNotice title="Preview stayed quiet" message={previewError} tone="attention" /> : null}
     <DurationSelector value={step.durationMinutes} valueSeconds={sequenceStepDurationSeconds(step)} secondPrecision={state.settings.secondPrecisionEnabled} presets={STEP_PRESETS} fadeColor={tokens.surface} onChange={durationMinutes => onChange(patchSequenceStep(state, step.id, { durationMinutes }))} onChangeSeconds={durationSeconds => onChange(patchSequenceStep(state, step.id, { durationSeconds }))} />
     <VolumeControl label="Volume" value={step.volume} onChange={volume => onChange(patchSequenceStep(state, step.id, { volume }))} onPreview={() => void preview()} />
@@ -532,7 +544,7 @@ function SequenceStepEditorSheet({ state, stepId, onChange, onEditCue, onClose }
   </BottomSheet>
 }
 
-function TrackEditorSheet({ visible, state, trackId, secondPrecision, onChange, onEditCue, onBack, onClose, onFeedback }: { visible: boolean; state: TimerV2State; trackId: string; secondPrecision: boolean; onChange: (state: TimerV2State) => void; onEditCue: () => void; onBack: () => void; onClose: () => void; onFeedback: Props['onFeedback'] }) {
+function TrackEditorContent({ state, trackId, secondPrecision, onChange, onEditCue, onFeedback }: { state: TimerV2State; trackId: string; secondPrecision: boolean; onChange: (state: TimerV2State) => void; onEditCue: () => void; onFeedback: Props['onFeedback'] }) {
   const { tokens } = useTheme()
   const reducedMotion = useReducedMotion()
   const [cuesOpen, setCuesOpen] = useState(false)
@@ -550,8 +562,7 @@ function TrackEditorSheet({ visible, state, trackId, secondPrecision, onChange, 
     } catch { onFeedback({ title: 'Preview stayed quiet', message: 'Nothing changed. Try another sound or check the phone’s Alarm volume.', tone: 'attention' }) }
   }
   const allSelected = offsets.length > 0 && offsets.every(offset => selectedOffsets.includes(offset))
-  return <BottomSheet visible={visible} title={<EditableTitle value={track.label} onCommit={label => onChange(patchPatternTrack(state, track.id, { label }))} accessibilityLabel={`Sub-bell ${index + 1} name`} large />} accessibilityTitle={track.label} help="Choose how often this bell occurs and how it sounds. Color & visibility changes its watch-face ring without silencing it." onBack={onBack} onClose={onClose}>
-    <View style={styles.trackEditorContent}>
+  return <View style={styles.trackEditorContent}>
     <DurationSelector value={track.cadenceMinutes} valueSeconds={cadenceSeconds} secondPrecision={secondPrecision} presets={CADENCE_PRESETS} min={1} max={240} onChange={minutes => onChange(setTrackCadence(state, track.id, minutes))} onChangeSeconds={seconds => onChange(setTrackCadenceSeconds(state, track.id, seconds))} label="Repeat every" />
     <ColorSelector label="Color & visibility" detail="Watch face" value={normalizeSubBellColor(track.color, index)} onChange={color => onChange(patchPatternTrack(state, track.id, { color }))} accessibilityLabel="Choose sub-bell color" trailing={<Pressable hitSlop={8} onPress={() => { tapHaptic(); onChange(patchPatternTrack(state, track.id, { showOnWatchFace: !shownOnWatchFace })) }} style={({ pressed }) => [styles.roundIcon, { borderColor: shownOnWatchFace ? tokens.accent : tokens.border, backgroundColor: shownOnWatchFace ? tokens.accentGlow : 'transparent', opacity: pressed ? 0.68 : shownOnWatchFace ? 1 : 0.72 }]} accessibilityRole="switch" accessibilityLabel={`${track.label} watch-face ring`} accessibilityState={{ checked: shownOnWatchFace }}><EyeIcon visible={shownOnWatchFace} color={shownOnWatchFace ? tokens.accent : tokens.textMuted} /></Pressable>} />
     <VolumeControl label="Volume" value={track.volume} onChange={volume => onChange(patchPatternTrack(state, track.id, { volume }))} onPreview={() => void preview()} />
@@ -562,8 +573,7 @@ function TrackEditorSheet({ visible, state, trackId, secondPrecision, onChange, 
       {offsets.length <= MAX_VISIBLE_PATTERN_OFFSETS ? <OffsetGrid offsets={offsets} selected={selectedOffsets} unit="seconds" onChange={selected => onChange(setTrackOffsetsSeconds(state, track.id, selected))} /> : <GentleNotice title="Too many times to show" message={`This repeat interval creates ${offsets.length} cues. Choose a longer interval to customize individual times.`} />}
       {offsets.length === 0 ? <GentleNotice title="No bell times fit" message="Choose a shorter repeat interval or a longer main interval." /> : null}
     </Reanimated.View> : null}
-    </View>
-  </BottomSheet>
+  </View>
 }
 
 function MixerSheet({ visible, state, onChange, onEditCue, onClose, onFeedback }: { visible: boolean; state: TimerV2State; onChange: (state: TimerV2State) => void; onEditCue: (target: CueTarget) => void; onClose: () => void; onFeedback: Props['onFeedback'] }) {

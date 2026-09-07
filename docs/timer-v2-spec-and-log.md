@@ -1458,6 +1458,7 @@ Do not edit old entries to reflect new conclusions. Add a superseding entry and 
 | 2026-09-07 | D-122 | Accepted | Fixed controls must not sit inside a modal's fading scroll surface. In the sound picker, the source selector is pinned between the sheet header/help and the independently scrolling sound results; only the results pass beneath continuation scrims. Vertical continuation fades use a compact 20-point depth so they soften the content boundary without obscuring a selected control or a large portion of the final visible row. Horizontal rails retain their wider fades because their continuation direction and available height differ. |
 | 2026-09-07 | D-123 | Accepted | Sub-bell cue cells communicate selection through their existing border, fill, and text contrast only; redundant visible ON/OFF labels are removed. Accessibility labels and selected state continue to announce the same explicit selection information without adding visual noise. |
 | 2026-09-07 | D-124 | Accepted | Sub-bell color and running-ring visibility share one ordinary `Color & visibility` row with the quiet subtitle `Watch face`. The color swatch expands the existing palette in place, while the adjacent eye directly toggles whether that bell's ring appears. This control remains available in the simple editor; there is no separate visibility row and no Advanced-mode dependency. Hiding the ring still does not silence or disable the bell. |
+| 2026-09-07 | D-125 | Accepted | A nested editing flow must never keep multiple native modal portals visible at once. The Sub-bells library and bell editor share one stable sheet host and replace only its keyed presentation; sound selection temporarily becomes the sole visible sheet while preserving its parent state. Mixer and Sequence sound-selection handoffs follow the same exclusive-ownership rule. Returning removes outgoing content immediately, resets the revealed presentation to its top, and must not replay a stale exit frame or dismiss the parent. |
 
 ### Decision-entry template
 
@@ -2943,6 +2944,23 @@ This section is append-only. Every implementation session should record scope, m
 
 **Verification run:** TypeScript compilation, full JavaScript tests, whitespace validation, and live Expo Web inspection.
 
+### 2026-09-07 — Stable nested-sheet ownership
+
+**Status:** Complete in source.
+
+**Scope:** Sub-bell, sound-picker, Mixer, and Sequence-step modal lifecycle.
+
+**Behavior implemented:**
+
+- Replaced the independent Sub-bells library and bell-editor modal portals with one stable sheet host whose title, help, navigation action, and body change in place.
+- Made sound selection the only visible modal while it is active. Its parent editor remains mounted with its state preserved, then returns directly when Done is pressed.
+- Applied the same exclusive handoff to Mixer sound editing and Sequence-step sound editing, eliminating stacked interactive overlays in those paths.
+- Keyed each in-place Sub-bell presentation so its scroll position and edge fades reset, and removed the outgoing body's exit animation so stale editor content cannot replay during the return transition.
+
+**Migration impact:** JavaScript/UI lifecycle only; no native rebuild or runtime-fingerprint change.
+
+**Verification run:** TypeScript compilation, all 112 JavaScript tests, whitespace validation, and live Expo Web inspection. The accessibility tree now exposes exactly one modal layer at each stage; Done was exercised from Sub-bell sound to bell editor and from bell editor to the still-open Sub-bells library.
+
 ### Implementation-entry template
 
 ```md
@@ -3021,3 +3039,4 @@ This section is append-only. Every implementation session should record scope, m
 | 4.13 | 2026-09-07 | Pinned sound-source selection outside the fading list and shortened vertical continuation scrims so selected tabs and visible sound rows remain clear. |
 | 4.14 | 2026-09-07 | Removed redundant ON/OFF captions from Sub-bell cue cells while retaining their visual and accessible selection states. |
 | 4.15 | 2026-09-07 | Combined each Sub-bell's color and watch-face visibility into one compact row with an inline palette and direct eye toggle. |
+| 4.16 | 2026-09-07 | Replaced stacked nested modal portals with a stable Sub-bells sheet and exclusive sound-editor handoffs, preventing stale-content flashes and pass-through dismissal. |
