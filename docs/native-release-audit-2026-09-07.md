@@ -24,6 +24,7 @@ EAS regenerates it from these inputs.
 | N-12 | High | The repeat-until-dismissed alarm service is non-sticky and cannot handle a null restart intent, so process reclamation can silently end an active alarm. | Resolved | `Restore reclaimed native alarms` |
 | N-13 | Critical | Alarm delivery marks state as ringing before an uncaught foreground-service launch. A rejected launch can leave a visible ringing/lock-screen state with no service or sound. | Resolved | `Fail alarm service launch without limbo` |
 | N-14 | High | Exact scheduling ignores the durable `setNext` result and catches only permission failures. Other persistence/platform failures can leave an active session with no future alarm. | Resolved | `Fail closed when exact scheduling fails` |
+| N-15 | Medium | The resolved Android manifest includes legacy broad read/write storage permissions even though sound import uses the system document picker and app-private storage. | Resolved | `Remove legacy Android storage permissions` |
 
 ## Reviewed and currently acceptable
 
