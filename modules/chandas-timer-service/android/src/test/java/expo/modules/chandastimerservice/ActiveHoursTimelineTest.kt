@@ -139,6 +139,25 @@ class ActiveHoursTimelineTest {
     assertEquals(0, local.get(Calendar.MILLISECOND))
   }
 
+  @Test fun localClockSchedulerHasAnExactDailyRephasingBoundary() = withTimeZone("Asia/Kolkata") {
+    val now = Calendar.getInstance().apply {
+      clear()
+      set(2026, Calendar.SEPTEMBER, 6, 23, 59, 59)
+      set(Calendar.MILLISECOND, 500)
+    }.timeInMillis
+
+    val boundary = Calendar.getInstance().apply {
+      timeInMillis = TimerV2Timeline.nextLocalDateBoundary(now)
+    }
+    assertEquals(2026, boundary.get(Calendar.YEAR))
+    assertEquals(Calendar.SEPTEMBER, boundary.get(Calendar.MONTH))
+    assertEquals(7, boundary.get(Calendar.DAY_OF_MONTH))
+    assertEquals(0, boundary.get(Calendar.HOUR_OF_DAY))
+    assertEquals(0, boundary.get(Calendar.MINUTE))
+    assertEquals(0, boundary.get(Calendar.SECOND))
+    assertEquals(0, boundary.get(Calendar.MILLISECOND))
+  }
+
   @Test fun reorderAloneChangesTheCollisionWinner() {
     val root = JSONObject(fixtures.getJSONObject("patternCollision").getJSONObject("program").toString())
     val tracks = root.getJSONArray("tracks")

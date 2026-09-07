@@ -146,7 +146,10 @@ object TimerScheduler {
     }
     val transition = active.timerV2Program
       ?.takeIf(TimerV2Timeline::isLocalClock)
-      ?.let { TimerV2Timeline.nextTimezoneTransition(now) }
+      ?.let {
+        val midnight = TimerV2Timeline.nextLocalDateBoundary(now)
+        TimerV2Timeline.nextTimezoneTransition(now, midnight)?.let { minOf(it, midnight) } ?: midnight
+      }
     if (transition != null && transition > now && transition < triggerAt) {
       triggerAt = transition
       type = TimerEventType.REALIGN
@@ -214,7 +217,7 @@ object TimerScheduler {
 
     TimerStateStore.clearNext(context)
     val realignment = reconcileLocalClock(context, stored, System.currentTimeMillis())
-    if (type == TimerEventType.REALIGN || realignment.changed) {
+    if (type == TimerEventType.REALIGN) {
       scheduleNext(context, realignment.config)
       onFinished()
       return

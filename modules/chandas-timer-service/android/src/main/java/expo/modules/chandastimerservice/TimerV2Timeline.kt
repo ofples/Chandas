@@ -199,10 +199,10 @@ object TimerV2Timeline {
   }.getOrNull()
 
   /** Exact seasonal-offset boundary so local-clock patterns can realign even on pre-API 37 Android. */
-  fun nextTimezoneTransition(now: Long): Long? {
+  fun nextTimezoneTransition(now: Long, horizon: Long = now + TIMEZONE_TRANSITION_LOOKAHEAD_MS): Long? {
     val timezone = TimeZone.getDefault()
     val currentOffset = timezone.getOffset(now)
-    val horizon = now + TIMEZONE_TRANSITION_LOOKAHEAD_MS
+    if (horizon <= now) return null
     var before = now
 
     while (before < horizon) {
@@ -222,6 +222,16 @@ object TimerV2Timeline {
     }
     return null
   }
+
+  /** Next civil midnight; used as an explicit daily local-clock re-phasing sentinel. */
+  fun nextLocalDateBoundary(now: Long): Long = Calendar.getInstance().apply {
+    timeInMillis = now
+    add(Calendar.DAY_OF_MONTH, 1)
+    set(Calendar.HOUR_OF_DAY, 0)
+    set(Calendar.MINUTE, 0)
+    set(Calendar.SECOND, 0)
+    set(Calendar.MILLISECOND, 0)
+  }.timeInMillis
 
   private fun nextPattern(root: JSONObject, anchor: Long, now: Long): TimerV2Event? {
     val duration = patternDuration(root)
