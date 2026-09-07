@@ -1448,6 +1448,7 @@ Do not edit old entries to reflect new conclusions. Add a superseding entry and 
 | 2026-09-06 | D-112 | Accepted | Compact paired countdowns use a middle dot without surrounding spaces and omit the leading minute zero: `12s·10m` and `1:12·5m`. This preserves the two-value meaning while fitting both common forms within Android's suggested seven-character chip budget. Single/terminal countdowns retain their full clock formatting. This supersedes only D-111's paired separator and padding examples. |
 | 2026-09-06 | D-113 | Accepted | Clock alignment belongs to the complete repeating program, not to the precision of one component. Cycle aligns by its exact main duration; Sequence aligns by the sum of its exact steps, so `1:30 + 3:30` forms a clock-aligned five-minute round. The phase control stays minute-first in both ordinary and Second precision modes. Exact periods may begin at a chosen minute phase and continue on their exact cadence. Only mathematically distinct minute phases are offered, local civil phase is rebuilt after timezone/DST changes, and Reset returns either mode to elapsed timing. This supersedes D-018's Pattern-only scope, section 10.4's Sequence prohibition, and D-110's automatic unsnap rule. |
 | 2026-09-07 | D-114 | Accepted | Active-hour state remains half-open—`04:00–22:00` is paused and Focus-inactive from `22:00`—but an ordinary cue whose authoritative scheduled timestamp is exactly the closing transition is audible. This applies to main gongs, Sub-bells, and Sequence step/cycle bells. A mute override beginning at the same instant still wins. Android accepts up to five seconds of ordinary delivery latency for that exact boundary cue without opening the quiet window or replaying any earlier/missed cue. |
+| 2026-09-07 | D-115 | Accepted | Advanced Second precision applies to every elapsed-duration input: Cycle duration, Sequence steps, bounded run duration, Sub-bell repeat cadence/cue positions, and custom timed mute. Minute presets remain the default fast path. Schedule ranges and clock phase stay minute-based because they select wall-clock positions. This supersedes D-110's minute-only Sub-bell restriction. |
 
 ### Decision-entry template
 
@@ -2782,6 +2783,22 @@ This section is append-only. Every implementation session should record scope, m
 
 **Verification run:** TypeScript compilation, JavaScript domain tests for normalization/editing/scheduling, live Expo Web inspection of the Hours/Minutes/Seconds Sub-bell sheet, whitespace validation, and static Kotlin parity review. Local native compilation remains prohibited by repository policy.
 
+### 2026-09-07 — Complete second-precision elapsed inputs
+
+**Status:** Complete in source; contract-v10 Android build and physical-device verification remain required for exact background muting.
+
+**Scope:** Running-screen custom mute duration and final audit of elapsed-duration inputs.
+
+**Behavior implemented:**
+
+- The running timer's custom Mute duration sheet now exposes Hours, Minutes, and Seconds whenever Advanced `Second precision` is enabled, matching Cycle, Sequence-step, bounded-run, and Sub-bell duration editors.
+- Timed mute state preserves the exact chosen second and Android contract v10 applies the same duration while the app is backgrounded. Older Android binaries safely round the native fallback upward to the next minute rather than resuming bells too early.
+- Schedule ranges and clock-alignment phase remain minute-based because they select readable wall-clock positions rather than elapsed durations.
+
+**Migration impact:** JavaScript state remains compatible. Exact background mute expiry uses the additive `muteForSeconds` contract-v10 native method; older binaries retain safe minute fallback behavior.
+
+**Verification run:** TypeScript compilation, JavaScript domain tests for exact mute expiry and clamping, whitespace validation, and static native bridge review. Local native compilation remains prohibited by repository policy.
+
 ### Implementation-entry template
 
 ```md
@@ -2850,3 +2867,4 @@ This section is append-only. Every implementation session should record scope, m
 | 4.3 | 2026-09-07 | Moved setup guidance inline, made running help mode/visibility-aware, shared Advanced state across contexts, and prevented stale top sheet scrims. |
 | 4.4 | 2026-09-07 | Replaced the ambiguous default Cycle title with a duration-aware name that follows duration changes until renamed, and rewrote its inline help as a concrete countdown–gong–restart explanation. |
 | 4.5 | 2026-09-07 | Extended Advanced second precision through Sub-bell cadence, selected cues, visuals, presets, collision priority, and contract-v10 Android scheduling. |
+| 4.6 | 2026-09-07 | Completed Second precision coverage with exact custom timed mute UI, state, and contract-v10 background enforcement while retaining a safe older-runtime fallback. |

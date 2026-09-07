@@ -48,6 +48,12 @@ export function emptyRuntimeMute(): RuntimeMuteState {
   return { mutedUntil: 0 }
 }
 
+/** Builds a wall-clock mute window from an elapsed duration without rounding it to minutes. */
+export function timestampMuteForSeconds(now: number, seconds: number): RuntimeMuteState {
+  const durationSeconds = Math.max(1, Math.min(86_400, Math.round(seconds)))
+  return { mutedUntil: now + durationSeconds * 1_000 }
+}
+
 /** Pure transition table for the intentionally exclusive alarm tap gestures. */
 export function alarmBehaviorAfterGesture(current: AlarmBehavior, gesture: 'single' | 'double'): AlarmBehavior {
   if (gesture === 'double') return current === 'locked' ? 'off' : 'locked'

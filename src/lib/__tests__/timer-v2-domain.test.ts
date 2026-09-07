@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { PatternProgram, SequenceProgram } from '../../types'
 import { chooseProgramMode, deleteProgramPreset, hasUnsavedProgramChanges, loadProgramPreset, patchSequenceStep, saveProgramPreset, setPatternSubBellsEnabled, setTrackCadence, setTrackCadenceSeconds, setTrackOffsets, setTrackOffsetsSeconds, updatePatternMainDurationSeconds, updatePatternMainMinutes } from '../programActions'
-import { alarmBehaviorAfterGesture, gateProgramAudio, isFreshScheduledEvent, iterationMuteFor, muteAfterScheduleChange, shouldSurfaceTimerSignal } from '../runtimeV2'
+import { alarmBehaviorAfterGesture, gateProgramAudio, isFreshScheduledEvent, iterationMuteFor, muteAfterScheduleChange, shouldSurfaceTimerSignal, timestampMuteForSeconds } from '../runtimeV2'
 import { defaultTimerV2State, migrateLegacyConfig, normalizeAvailabilityPolicy, normalizePatternProgram, normalizeSequenceProgram, normalizeSoundRef, parseTimerProgram, patternDurationSeconds, sequenceStepDurationSeconds, trackCadenceSeconds, trackSelectedOffsetsSeconds, validOffsets, validOffsetsForCadenceSeconds } from '../timerV2'
 import { boundedRunProgress, cueSegmentProgress, nextPatternEvent, nextProgramEvent, nextSequenceEvent, runEndAt, timelinePosition } from '../timeline'
 import { effectiveAvailabilityForProgram, hasAvailableTime, isCueAllowedByActiveHours, isWithinActiveHours, nextActiveHoursStart, scheduleBoundaryMinutesForDay, scheduleRangeCountForDay, scheduleRenderedBoundaryMinutesForDay, scheduleSegmentsForDay, windowsOverlap } from '../activeHours'
@@ -195,6 +195,12 @@ describe('timer v2 audio gate', () => {
   it('clears only cycle mute when a schedule identity changes', () => {
     expect(muteAfterScheduleChange({ mutedUntil: 123, iteration: { endsAtLogicalId: 'old', endsAt: 456, iterations: 2 } })).toEqual({ mutedUntil: 123 })
     expect(muteAfterScheduleChange({ mutedUntil: 123 })).toEqual({ mutedUntil: 123 })
+  })
+
+  it('retains exact seconds in elapsed mute windows and clamps unsafe values', () => {
+    expect(timestampMuteForSeconds(10_000, 75)).toEqual({ mutedUntil: 85_000 })
+    expect(timestampMuteForSeconds(10_000, 0)).toEqual({ mutedUntil: 11_000 })
+    expect(timestampMuteForSeconds(10_000, 100_000)).toEqual({ mutedUntil: 86_410_000 })
   })
 
   it('rings and then consumes Alarm Once at a Pattern main boundary', () => {

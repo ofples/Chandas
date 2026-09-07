@@ -233,7 +233,11 @@ object TimerStateStore {
   }
 
   fun muteForMinutes(context: Context, minutes: Int): TimerControlState {
-    val until = System.currentTimeMillis() + minutes.coerceIn(1, NativeTimerContract.MAX_MUTE_MINUTES) * 60_000L
+    return muteForSeconds(context, minutes.coerceIn(1, NativeTimerContract.MAX_MUTE_MINUTES) * 60)
+  }
+
+  fun muteForSeconds(context: Context, seconds: Int): TimerControlState {
+    val until = System.currentTimeMillis() + seconds.coerceIn(1, NativeTimerContract.MAX_MUTE_MINUTES * 60) * 1_000L
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
       .putLong(MUTED_UNTIL, until)
       .remove(MUTED_ITERATIONS)

@@ -157,6 +157,7 @@ export interface NativeTimerCapabilities {
   supportsHapticProfiles?: boolean
   supportsSecondPrecision?: boolean
   supportsSubBellSecondPrecision?: boolean
+  supportsMuteSecondPrecision?: boolean
   supportsDualLiveCountdown?: boolean
   supportsProgramClockAlignment?: boolean
 }
@@ -204,6 +205,7 @@ interface ChandasTimerServiceModule {
   toggleAlarmOnce(): void
   muteForIterations(count: number): void
   muteForMinutes(minutes: number): void
+  muteForSeconds?(seconds: number): void
   clearMute(): void
   pickDeviceSound(kind: 'alarm' | 'notification' | 'unknown'): Promise<{ uri: string; title: string } | null>
   pickAudioDocument(): Promise<{ uri: string; title: string; mimeType?: string } | null>
@@ -356,6 +358,11 @@ export const ChandasTimerService = {
   },
   muteForMinutes(minutes: number) {
     native?.muteForMinutes(minutes)
+  },
+  muteForSeconds(seconds: number) {
+    const normalized = Math.max(1, Math.min(86_400, Math.round(seconds)))
+    if (native?.muteForSeconds) native.muteForSeconds(normalized)
+    else native?.muteForMinutes(Math.ceil(normalized / 60))
   },
   clearMute() {
     native?.clearMute()

@@ -128,6 +128,7 @@ class ChandasTimerServiceModule : Module() {
         "supportsHapticProfiles" to true,
         "supportsSecondPrecision" to true,
         "supportsSubBellSecondPrecision" to true,
+        "supportsMuteSecondPrecision" to true,
         "supportsDualLiveCountdown" to true,
         "supportsProgramClockAlignment" to true,
       )
@@ -262,6 +263,11 @@ class ChandasTimerServiceModule : Module() {
     Function("muteForMinutes") { minutes: Int ->
       val context = appContext.reactContext ?: return@Function
       if (TimerStateStore.load(context) != null) TimerStateStore.muteForMinutes(context, minutes)
+    }
+
+    Function("muteForSeconds") { seconds: Int ->
+      val context = appContext.reactContext ?: return@Function
+      if (TimerStateStore.load(context) != null) TimerStateStore.muteForSeconds(context, seconds)
     }
 
     Function("clearMute") {

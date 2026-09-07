@@ -48,8 +48,9 @@ interface Props {
   onSnapToClock: (offsetMinutes: number) => Promise<boolean>
   onPressAlarm: () => void
   onMuteForIterations: (count: number) => void
-  onMuteForMinutes: (minutes: number) => void
+  onMuteForSeconds: (seconds: number) => void
   onClearMute: () => void
+  secondPrecision: boolean
   masterVolume: number
   onMasterVolumeChange: (value: number) => void
   onCueVolumeChange: (cueId: string, volume: number) => void
@@ -171,7 +172,7 @@ export function TimerV2RunningScreen(props: Props) {
     {props.focusActive ? <Animated.View entering={FadeIn.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 140)} pointerEvents="none" style={[styles.focusBorder, { borderColor: tokens.accent }]} /> : null}
     <RunningMixerSheet visible={mixerOpen} onClose={() => setMixerOpen(false)} program={props.program} masterVolume={props.masterVolume} onMasterVolumeChange={props.onMasterVolumeChange} onCueVolumeChange={props.onCueVolumeChange} mute={props.mute} onMuteIterations={props.onMuteForIterations} onClearMute={props.onClearMute} onCustom={() => { setMixerOpen(false); setCustomMute(true) }} />
     <SnapSheet visible={snapOpen} cycleDurationSeconds={cycleDurationSeconds} current={props.program.alignment.kind === 'local-clock' ? props.program.alignment.offsetMinutes : 0} onSelect={props.onSnapToClock} onClose={() => setSnapOpen(false)} />
-    {customMute ? <CustomMinutePicker title="Mute duration" initial={15} min={1} max={1440} onConfirm={minutes => { props.onMuteForMinutes(minutes); setCustomMute(false) }} onClose={() => setCustomMute(false)} /> : null}
+    {customMute ? <CustomMinutePicker title="Mute duration" initial={15} initialSeconds={15 * 60} secondPrecision={props.secondPrecision} min={1} max={1440} minSeconds={1} maxSeconds={86_400} onConfirm={minutes => { props.onMuteForSeconds(minutes * 60); setCustomMute(false) }} onConfirmSeconds={seconds => { props.onMuteForSeconds(seconds); setCustomMute(false) }} onClose={() => setCustomMute(false)} /> : null}
     <TimerHelpSheet
       visible={helpOpen}
       mode={props.program.mode}

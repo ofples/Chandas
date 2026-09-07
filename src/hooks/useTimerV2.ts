@@ -7,7 +7,7 @@ import { effectiveAvailabilityForProgram, hasAvailableTime, isCueAllowedByActive
 import { formatCountdown } from '../lib/snapLogic'
 import { sourceForSound, soundTitle } from '../lib/soundLibrary'
 import { boundedRunProgress, nextProgramEvent, programCycleDurationMs, runEndAt, timelinePosition, type TimelinePosition } from '../lib/timeline'
-import { alarmBehaviorAfterGesture, emptyRuntimeMute, gateProgramAudio, isFreshScheduledEvent, iterationMuteFor, muteAfterScheduleChange, shouldSurfaceTimerSignal, type RuntimeMuteState } from '../lib/runtimeV2'
+import { alarmBehaviorAfterGesture, emptyRuntimeMute, gateProgramAudio, isFreshScheduledEvent, iterationMuteFor, muteAfterScheduleChange, shouldSurfaceTimerSignal, timestampMuteForSeconds, type RuntimeMuteState } from '../lib/runtimeV2'
 import { clearTimerV2Session, saveTimerV2Session } from '../lib/storage'
 import { ChandasTimerService, isNativeServiceAvailable, type NativeTimerConfig } from '../native/ChandasTimerService'
 import { selectionHaptic, startRepeatingAlarmHaptic, stopRepeatingAlarmHaptic, tapHaptic, timerCueHaptic } from '../lib/haptics'
@@ -74,6 +74,7 @@ export interface UseTimerV2Return extends TimerV2Display {
   pressAlarm: () => void
   muteForIterations: (count: number) => void
   muteForMinutes: (minutes: number) => void
+  muteForSeconds: (seconds: number) => void
   clearMute: () => void
   eventPulse: number
   completionPulse: number
@@ -536,12 +537,16 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     tapHaptic()
   }, [updateRuntimeState])
 
-  const muteForMinutes = useCallback((minutes: number) => {
-    const next = { mutedUntil: Date.now() + Math.max(1, Math.min(1_440, Math.round(minutes))) * 60_000 }
+  const muteForSeconds = useCallback((seconds: number) => {
+    const next = timestampMuteForSeconds(Date.now(), seconds)
     updateRuntimeState(next, alarmBehaviorRef.current)
-    if (isNativeServiceAvailable && runningRef.current) ChandasTimerService.muteForMinutes(minutes)
+    if (isNativeServiceAvailable && runningRef.current) ChandasTimerService.muteForSeconds(seconds)
     tapHaptic()
   }, [updateRuntimeState])
+
+  const muteForMinutes = useCallback((minutes: number) => {
+    muteForSeconds(minutes * 60)
+  }, [muteForSeconds])
 
   const clearMute = useCallback(() => {
     updateRuntimeState(emptyRuntimeMute(), alarmBehaviorRef.current)
@@ -711,6 +716,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     pressAlarm,
     muteForIterations,
     muteForMinutes,
+    muteForSeconds,
     clearMute,
     eventPulse,
     completionPulse,
