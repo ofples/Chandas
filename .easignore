@@ -32,6 +32,7 @@ build/
 
 # Local-only product material
 /docs
+/artifacts
 /legacy-web
 /mockups
 /migration-progress.md
