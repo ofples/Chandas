@@ -451,6 +451,11 @@ class ChandasTimerServiceModule : Module() {
 
     OnDestroy {
       TimerSoundPlayer.stopPreview()
+      AlarmStateRegistry.remove(ringingListener)
+      TimerControlRegistry.remove(controlListener)
+      TimerEventRegistry.remove(timerEventListener)
+      FocusStateRegistry.remove(focusListener)
+      TimerStateRegistry.remove(stateListener)
     }
   }
 

@@ -25,6 +25,7 @@ EAS regenerates it from these inputs.
 | N-13 | Critical | Alarm delivery marks state as ringing before an uncaught foreground-service launch. A rejected launch can leave a visible ringing/lock-screen state with no service or sound. | Resolved | `Fail alarm service launch without limbo` |
 | N-14 | High | Exact scheduling ignores the durable `setNext` result and catches only permission failures. Other persistence/platform failures can leave an active session with no future alarm. | Resolved | `Fail closed when exact scheduling fails` |
 | N-15 | Medium | The resolved Android manifest includes legacy broad read/write storage permissions even though sound import uses the system document picker and app-private storage. | Resolved | `Remove legacy Android storage permissions` |
+| N-16 | Medium | Static native registries rely only on per-event stop-observing callbacks; a whole bridge/module teardown can retain stale closures while Android services keep running. | Resolved | `Release native listeners with the Expo module` |
 
 ## Reviewed and currently acceptable
 
