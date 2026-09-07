@@ -16,7 +16,7 @@ import java.util.Locale
 object TimerNotifications {
   const val RUNNING_ID = 1001
   const val ALARM_ID = 1002
-  private const val EVENT_ID = 1003
+  internal const val EVENT_ID = 1003
 
   const val RUNNING_CHANNEL = "chandas-running"
   const val EVENT_CHANNEL = "chandas-events"
@@ -170,8 +170,17 @@ object TimerNotifications {
     if (type == TimerEventType.ACTIVE_START || type == TimerEventType.REALIGN) return
     if (!config.notificationsEnabled) return
     ensureChannels(context)
-    val copy = TimerNotificationCopy.from(config.notificationPresentation)
     val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    runCatching { manager.notify(EVENT_ID, buildEvent(context, config.notificationPresentation, type)) }
+  }
+
+  internal fun buildEvent(
+    context: Context,
+    notificationPresentation: String?,
+    type: TimerEventType,
+    playbackOngoing: Boolean = false,
+  ): Notification {
+    val copy = TimerNotificationCopy.from(notificationPresentation)
     val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
     val contentIntent = launchIntent?.let {
       PendingIntent.getActivity(
@@ -182,19 +191,16 @@ object TimerNotifications {
       )
     }
     val title = if (type == TimerEventType.MAIN) copy.mainEventTitle else if (type == TimerEventType.V2) copy.cueEventTitle else copy.bellEventTitle
-    runCatching { manager.notify(
-      EVENT_ID,
-      NotificationCompat.Builder(context, EVENT_CHANNEL)
-        .setContentTitle(title)
-        .setContentText(copy.eventBody)
-        .setSmallIcon(smallIcon())
-        .setAutoCancel(true)
-        .setTimeoutAfter(8_000L)
-        .setContentIntent(contentIntent)
-        .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-        .setVibrate(longArrayOf(0L))
-        .build(),
-    ) }
+    val builder = NotificationCompat.Builder(context, EVENT_CHANNEL)
+      .setContentTitle(title)
+      .setContentText(copy.eventBody)
+      .setSmallIcon(smallIcon())
+      .setContentIntent(contentIntent)
+      .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+      .setVibrate(longArrayOf(0L))
+    if (playbackOngoing) builder.setOngoing(true)
+    else builder.setAutoCancel(true).setTimeoutAfter(8_000L)
+    return builder.build()
   }
 
   fun cancelRunning(context: Context) {

@@ -23,6 +23,7 @@ object TimerScheduler {
   fun start(context: Context, config: TimerConfig): Boolean {
     if (!canScheduleExactAlarms(context)) return false
     if (!isValidConfig(config)) return false
+    ChandasCueService.stop(context)
     TimerSoundPlayer.stopAll()
     TimerHaptics.stop(context)
     cancelScheduledEvent(context)
@@ -62,6 +63,7 @@ object TimerScheduler {
   @Synchronized
   fun stop(context: Context) {
     cancelScheduledEvent(context)
+    ChandasCueService.stop(context)
     TimerSoundPlayer.stopAll()
     TimerHaptics.stop(context)
     TimerStateStore.clear(context)
@@ -281,8 +283,10 @@ object TimerScheduler {
     TimerHaptics.cue(context, config.haptics, primary = type == TimerEventType.MAIN)
     scheduleNext(context, config)
     val sound = if (type == TimerEventType.MAIN) R.raw.gong else R.raw.bell
-    TimerSoundPlayer.play(
+    playCue(
       context,
+      config,
+      type,
       if (type == TimerEventType.MAIN) "temple-gong" else "clear-bell",
       sound,
       config.volume,
@@ -343,13 +347,36 @@ object TimerScheduler {
     TimerHaptics.cue(context, config.haptics, primary = event.boundary != TimerV2Boundary.PATTERN_OFFSET)
     if (event.completesRun) completeSession(context) else scheduleNext(context, config)
     emitV2Event(event, suppressed = false, reason = "none")
-    TimerSoundPlayer.play(
+    playCue(
       context,
+      config,
+      TimerEventType.V2,
       event.winner.soundId,
       resourceForV2Sound(event.winner.soundId),
       (config.volume * event.winner.volume).coerceIn(0f, 1f),
       onFinished,
     )
+  }
+
+  private fun playCue(
+    context: Context,
+    config: TimerConfig,
+    type: TimerEventType,
+    soundId: String,
+    fallbackResId: Int,
+    volume: Float,
+    onReceiverFinished: () -> Unit,
+  ) {
+    val handedOff = ChandasCueService.play(
+      context,
+      soundId,
+      fallbackResId,
+      volume,
+      type,
+      config.notificationPresentation,
+    )
+    if (handedOff) onReceiverFinished()
+    else TimerSoundPlayer.play(context, soundId, fallbackResId, volume, onReceiverFinished)
   }
 
   private fun emitV2Event(event: TimerV2Event, suppressed: Boolean, reason: String) {
@@ -412,6 +439,7 @@ object TimerScheduler {
   /** Durably ends a bounded session before its final one-shot begins. */
   private fun completeSession(context: Context) {
     cancelScheduledEvent(context)
+    ChandasCueService.stop(context)
     TimerSoundPlayer.stopAll()
     TimerStateStore.clear(context)
     FocusModeController.deactivate(context)
@@ -428,6 +456,7 @@ object TimerScheduler {
     // never ring. Exact-alarm access is a hard runtime requirement, so fail
     // closed and make the inactive state authoritative everywhere.
     cancelScheduledEvent(context)
+    ChandasCueService.stop(context)
     TimerSoundPlayer.stopAll()
     TimerHaptics.stop(context)
     TimerStateStore.clear(context)
