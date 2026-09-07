@@ -460,7 +460,11 @@ object TimerV2Timeline {
       "android", "document" -> {
         val uri = sound.optString("uri")
         val title = sound.optString("title")
-        uri.isNotBlank() && uri.length <= MAX_URI_CHARACTERS && title.isNotBlank() && title.codePointCount(0, title.length) <= 60
+        uri.isNotBlank() &&
+          uri.length <= MAX_URI_CHARACTERS &&
+          TimerSoundSource.isPersistentUri(sound.optString("kind"), uri) &&
+          title.isNotBlank() &&
+          title.codePointCount(0, title.length) <= 60
       }
       else -> false
     }

@@ -104,6 +104,7 @@ object TimerSoundPlayer {
   }
 
   fun canOpen(context: Context, soundId: String): Boolean = runCatching {
+    if (!TimerSoundSource.isRuntimeSoundId(soundId)) return@runCatching false
     if (!soundId.contains("://")) {
       return@runCatching builtInResource(soundId) != null || TimerSoundCache.resolve(context, soundId) != null
     }

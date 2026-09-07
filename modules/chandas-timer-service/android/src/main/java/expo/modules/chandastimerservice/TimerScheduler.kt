@@ -424,6 +424,9 @@ object TimerScheduler {
 
   private fun isValidConfig(config: TimerConfig): Boolean {
     if (config.mainMs !in 1L..MAX_NATIVE_INTERVAL_MS || config.subMs !in 1L..MAX_NATIVE_INTERVAL_MS) return false
+    if (!config.volume.isFinite() || config.volume !in 0f..1f) return false
+    if (!config.alarmVolume.isFinite() || config.alarmVolume !in 0f..1f) return false
+    if (!TimerSoundSource.isRuntimeSoundId(config.alarmSoundId)) return false
     if (!ActiveHours.isValid(config) || !ActiveHours.hasPotentialAvailability(config)) return false
     val program = config.timerV2Program ?: return true
     if (!TimerV2Timeline.isValid(program)) return false

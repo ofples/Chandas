@@ -294,6 +294,7 @@ class ChandasTimerServiceModule : Module() {
 
     AsyncFunction("previewSound") { soundId: String, fallbackSoundId: String, volume: Float ->
       val context = appContext.reactContext ?: return@AsyncFunction false
+      if (!volume.isFinite() || !TimerSoundSource.isRuntimeSoundId(soundId)) return@AsyncFunction false
       val available = TimerSoundPlayer.canOpen(context, soundId)
       val fallback = TimerSoundPlayer.builtInResource(fallbackSoundId) ?: R.raw.bell
       TimerSoundPlayer.preview(context, soundId, fallback, volume.coerceIn(0f, 1f))
@@ -494,6 +495,13 @@ class ChandasTimerServiceModule : Module() {
     val mainMs = record.mainMs ?: previous?.mainMs ?: return null
     val subMs = record.subMs ?: previous?.subMs ?: return null
     if (mainMs <= 0L || subMs <= 0L) return null
+    val volume = record.volume ?: previous?.volume ?: 0.8f
+    val alarmVolume = record.alarmVolume ?: previous?.alarmVolume ?: 1f
+    if (!volume.isFinite() || !alarmVolume.isFinite()) return null
+    val alarmSoundId = (record.alarmSoundId ?: previous?.alarmSoundId ?: "alarm-tone")
+      .takeIf { it.isNotBlank() && it.length <= NativeTimerContract.MAX_SOUND_ID_CHARACTERS }
+      ?.takeIf(TimerSoundSource::isRuntimeSoundId)
+      ?: return null
     val defaults = TimerHapticsConfig()
     val haptics = TimerHapticsConfig(
       enabled = record.hapticsEnabled ?: previous?.haptics?.enabled ?: defaults.enabled,
@@ -506,10 +514,9 @@ class ChandasTimerServiceModule : Module() {
       subMs = subMs,
       phase = record.phase ?: previous?.phase ?: 0L,
       subEnabled = record.subEnabled ?: previous?.subEnabled ?: true,
-      volume = (record.volume ?: previous?.volume ?: 0.8f).coerceIn(0f, 1f),
-      alarmSoundId = (record.alarmSoundId ?: previous?.alarmSoundId ?: "alarm-tone")
-        .takeIf { it.isNotBlank() && it.length <= NativeTimerContract.MAX_SOUND_ID_CHARACTERS } ?: "alarm-tone",
-      alarmVolume = (record.alarmVolume ?: previous?.alarmVolume ?: 1f).coerceIn(0f, 1f),
+      volume = volume.coerceIn(0f, 1f),
+      alarmSoundId = alarmSoundId,
+      alarmVolume = alarmVolume.coerceIn(0f, 1f),
       haptics = haptics,
       notificationsEnabled = record.notificationsEnabled ?: previous?.notificationsEnabled ?: true,
       liveCountdownEnabled = record.liveCountdownEnabled ?: previous?.liveCountdownEnabled ?: false,

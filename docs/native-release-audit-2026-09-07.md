@@ -18,7 +18,7 @@ EAS regenerates it from these inputs.
 | N-06 | High | Bridge event listeners execute inline without fault isolation. A stale/throwing listener can interrupt native cleanup, scheduling, or cue delivery. | Resolved | `Isolate native bridge listener failures` |
 | N-07 | High | Local-clock programs depend on the manifest `DATE_CHANGED` broadcast for daily re-phasing, but modern Android does not exempt that implicit broadcast for manifest receivers. | Resolved | `Schedule explicit local-clock midnight realignment` |
 | N-08 | Critical | One-shot bells/gongs outlive `BroadcastReceiver.goAsync()` (packaged sounds reach 18.24 seconds) but have no service lifetime. Android may reclaim the process and cut them off or omit them. | Resolved | `Keep native cue playback alive` |
-| N-09 | Medium | Bridge/native validation permits non-finite volume values and imported remote URI schemes. This can persist unusable state or make an imported configuration initiate network media access. | Open | — |
+| N-09 | Medium | Bridge/native validation permits non-finite volume values and imported remote URI schemes. This can persist unusable state or make an imported configuration initiate network media access. | Resolved | `Harden native sound and volume inputs` |
 
 ## Reviewed and currently acceptable
 

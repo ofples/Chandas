@@ -545,6 +545,11 @@ describe('timer v2 validation and presets', () => {
     productionIds.forEach(id => expect(normalizeSoundRef({ kind: 'builtin', id }, fallback)).toEqual({ kind: 'builtin', id }))
     expect(normalizeSoundRef({ kind: 'builtin', id: 'not-real' }, fallback)).toEqual(fallback)
     expect(normalizeSoundRef({ kind: 'document', uri: '', title: 'Missing' }, fallback)).toEqual(fallback)
+    expect(normalizeSoundRef({ kind: 'document', uri: 'https://example.com/tone.mp3', title: 'Remote' }, fallback)).toEqual(fallback)
+    expect(normalizeSoundRef({ kind: 'document', uri: 'file:///sdcard/tone.mp3', title: 'File' }, fallback)).toEqual(fallback)
+    expect(normalizeSoundRef({ kind: 'android', uri: 'android.resource://android/raw/tone', title: 'System' }, fallback)).toEqual({
+      kind: 'android', uri: 'android.resource://android/raw/tone', title: 'System', ringtoneType: 'unknown',
+    })
     expect(normalizeSoundRef({ kind: 'android', uri: 'content://tone', title: 'Tone', ringtoneType: 'future' }, fallback)).toEqual({
       kind: 'android', uri: 'content://tone', title: 'Tone', ringtoneType: 'unknown',
     })

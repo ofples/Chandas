@@ -281,11 +281,11 @@ export function normalizeSoundRef(value: unknown, fallback: SoundRef): SoundRef 
     const id = LEGACY_BUILT_IN_SOUND_ALIASES[candidate.id] ?? candidate.id
     if (BUILT_IN_SOUND_IDS.has(id as BuiltInSoundId)) return { kind: 'builtin', id: id as BuiltInSoundId }
   }
-  if (candidate.kind === 'android' && typeof candidate.uri === 'string' && candidate.uri.length > 0 && candidate.uri.length <= MAX_URI_CHARACTERS && typeof candidate.title === 'string') {
+  if (candidate.kind === 'android' && typeof candidate.uri === 'string' && isPersistentSoundUri('android', candidate.uri) && candidate.uri.length <= MAX_URI_CHARACTERS && typeof candidate.title === 'string') {
     const ringtoneType = candidate.ringtoneType === 'alarm' || candidate.ringtoneType === 'notification' ? candidate.ringtoneType : 'unknown'
     return { kind: 'android', uri: candidate.uri, title: normalizeLabel(candidate.title, 'Android sound'), ringtoneType }
   }
-  if (candidate.kind === 'document' && typeof candidate.uri === 'string' && candidate.uri.length > 0 && candidate.uri.length <= MAX_URI_CHARACTERS && typeof candidate.title === 'string') {
+  if (candidate.kind === 'document' && typeof candidate.uri === 'string' && isPersistentSoundUri('document', candidate.uri) && candidate.uri.length <= MAX_URI_CHARACTERS && typeof candidate.title === 'string') {
     return {
       kind: 'document',
       uri: candidate.uri,
@@ -294,6 +294,12 @@ export function normalizeSoundRef(value: unknown, fallback: SoundRef): SoundRef 
     }
   }
   return fallback
+}
+
+function isPersistentSoundUri(kind: 'android' | 'document', uri: string): boolean {
+  if (uri.length === 0) return false
+  if (/^content:\/\//i.test(uri)) return true
+  return kind === 'android' && /^android\.resource:\/\//i.test(uri)
 }
 
 export function normalizeTrack(track: Partial<PatternTrack>, mainMinutes: number, fallbackLabel = 'Sub-bell', fallbackColorIndex = 0, mainDurationSeconds = mainMinutes * 60): PatternTrack {
