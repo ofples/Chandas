@@ -7,7 +7,7 @@ function preset(): ProgramPreset {
   const program = defaultPatternProgram()
   program.mainDurationSeconds = 95
   program.mainMinutes = 2
-  program.tracks[0] = { ...program.tracks[0], cadenceMinutes: 1, cadenceSeconds: 15, selectedOffsetsMinutes: [], selectedOffsetsSeconds: [15, 30, 45, 60, 75, 90], enabled: true }
+  program.tracks[0] = { ...program.tracks[0], cadenceMinutes: 1, cadenceSeconds: 15, selectedOffsetsMinutes: [], selectedOffsetsSeconds: [15, 30, 45, 60, 75, 90], showOnWatchFace: false, enabled: true }
   return { id: 'local-only', name: 'Physio / morning', createdAt: 123, program }
 }
 
@@ -22,7 +22,10 @@ describe('configuration transfer', () => {
     expect(imported.preset.name).toBe('Physio / morning')
     expect(patternDurationSeconds(imported.preset.program.mode === 'pattern' ? imported.preset.program : defaultPatternProgram())).toBe(95)
     expect(imported.preset.program.mode).toBe('pattern')
-    if (imported.preset.program.mode === 'pattern') expect(trackCadenceSeconds(imported.preset.program.tracks[0])).toBe(15)
+    if (imported.preset.program.mode === 'pattern') {
+      expect(trackCadenceSeconds(imported.preset.program.tracks[0])).toBe(15)
+      expect(imported.preset.program.tracks[0].showOnWatchFace).toBe(false)
+    }
   })
 
   it('gives duplicate imported names a clear suffix', () => {

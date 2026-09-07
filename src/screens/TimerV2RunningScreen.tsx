@@ -237,7 +237,7 @@ function TimerRings({ size, progress, position, program, muted, eventPulse }: { 
     if (program.mode === 'sequence') return [{ progress: position?.stepProgress ?? progress, stroke: tokens.accent, background: tokens.surfaceHi, backgroundOpacity: 1 }]
     const mainSeconds = patternDurationSeconds(program)
     const elapsedSeconds = Math.max(0, Math.min(mainSeconds, progress * mainSeconds))
-    const activeTracks = (program.subBellsEnabled ? program.tracks : []).filter(track => track.enabled && trackSelectedOffsetsSeconds(track).length > 0)
+    const activeTracks = (program.subBellsEnabled ? program.tracks : []).filter(track => track.enabled && track.showOnWatchFace !== false && trackSelectedOffsetsSeconds(track).length > 0)
     return [
       { progress, stroke: tokens.accent, background: tokens.surfaceHi, backgroundOpacity: 1 },
       ...activeTracks.map((track, index) => {

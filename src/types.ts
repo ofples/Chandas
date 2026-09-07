@@ -66,6 +66,8 @@ export interface PatternTrack extends CueSettings {
   label: string
   /** Visual identity only; timing and collision precedence remain unchanged. */
   color?: SubBellColorId
+  /** False hides only this Sub-bell's ring on the running watch face. */
+  showOnWatchFace?: boolean
   enabled: boolean
   cadenceMinutes: number
   /** Exact repeat interval; absent legacy values use cadenceMinutes. */

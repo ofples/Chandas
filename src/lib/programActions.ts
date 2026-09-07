@@ -125,6 +125,7 @@ export function addPatternTrack(state: TimerV2State): TimerV2State {
       id: createProgramId(),
       label: `Sub-bell ${program.tracks.length + 1}`,
       color: defaultSubBellColor(program.tracks.length),
+      showOnWatchFace: true,
       enabled: true,
       cadenceMinutes,
       selectedOffsetsMinutes: validOffsets(program.mainMinutes, cadenceMinutes),

@@ -80,6 +80,13 @@ describe('timer v2 timeline contracts', () => {
     expect(normalizePatternProgram(reversed).tracks.map(track => track.id)).toEqual(['top', 'bottom'])
   })
 
+  it('shows legacy sub-bells on the watch face while preserving an explicit hidden ring', () => {
+    expect(normalizePatternProgram(pattern()).tracks.every(track => track.showOnWatchFace)).toBe(true)
+    const hidden = pattern()
+    hidden.tracks[0].showOnWatchFace = false
+    expect(normalizePatternProgram(hidden).tracks.find(track => track.id === 'top')?.showOnWatchFace).toBe(false)
+  })
+
   it('uses stable source order when colliding tracks have equal cadence', () => {
     const equal = pattern()
     equal.tracks[0].cadenceMinutes = 2
@@ -549,7 +556,7 @@ describe('timer v2 validation and presets', () => {
   it('rejects unsupported program schema versions without throwing', () => {
     expect(parseTimerProgram('{"schemaVersion":99,"mode":"pattern"}')).toBeNull()
     expect(parseTimerProgram('{not json')).toBeNull()
-    expect(parseTimerProgram(JSON.stringify(pattern()))).toEqual(pattern())
+    expect(parseTimerProgram(JSON.stringify(pattern()))).toEqual(normalizePatternProgram(pattern()))
   })
 
   it('adds names and stable visual colors to older Pattern records', () => {

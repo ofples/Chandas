@@ -69,13 +69,11 @@ export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClo
             <View style={styles.actions}>
               {presented.leadingAction
                 ? <SheetTextButton {...presented.leadingAction} />
-                : presented.onBack
-                  ? <SheetTextButton label="‹ Back" onPress={presented.onBack} accessibilityLabel="Back" />
-                  : <View style={styles.actionSpacer} />}
+                : <View style={styles.actionSpacer} />}
               <View style={styles.trailingActions}>
                 {presented.trailingAction
                   ? <SheetTextButton {...presented.trailingAction} />
-                  : <SheetTextButton label="Done" onPress={presented.onClose} accessibilityLabel={`Close ${presented.accessibilityTitle ?? (typeof presented.title === 'string' ? presented.title : 'sheet')}`} />}
+                  : <SheetTextButton label="Done" onPress={presented.onBack ?? presented.onClose} accessibilityLabel={`${presented.onBack ? 'Finish editing' : 'Close'} ${presented.accessibilityTitle ?? (typeof presented.title === 'string' ? presented.title : 'sheet')}`} />}
                 {setupHelp.visible && setupHelp.onChange ? <HelpToggleButton active onPress={() => setupHelp.onChange?.(false)} /> : null}
               </View>
             </View>

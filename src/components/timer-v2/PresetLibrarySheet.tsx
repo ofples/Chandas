@@ -205,7 +205,9 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedba
       accessibilityTitle={selected?.name ?? 'Configurations'}
       help={selected ? 'Review this saved setup before loading it as a new working copy. Export copies a portable version and then offers to save it as a file.' : 'Save the current setup for later. Load checks the clipboard for a Chandas configuration first, then lets you choose a file.'}
       onClose={selected ? () => setSelectedId(null) : onClose}
-      leadingAction={selected ? { label: 'Cancel', tone: 'muted', onPress: () => setSelectedId(null) } : undefined}
+      leadingAction={selected
+        ? { label: 'Cancel', tone: 'muted', onPress: () => setSelectedId(null) }
+        : { label: transferAction === 'load' || transferAction === 'open-file' ? 'Loading…' : 'Load', disabled: Boolean(transferAction), onPress: () => void loadExternalConfiguration() }}
       trailingAction={selected ? { label: 'Load', disabled: Boolean(transferAction), onPress: () => load(selected) } : undefined}
     >
       {!selected ? <View style={styles.current}><Text style={[styles.presetTitle, { color: tokens.text }]}>Save current {state.workingPrograms.selectedMode === 'pattern' ? 'Cycle' : 'Sequence'}</Text><PresetVisual program={state.workingPrograms[state.workingPrograms.selectedMode]} /></View> : null}
@@ -220,10 +222,7 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedba
           style={[styles.input, { color: tokens.text, borderColor: tokens.border, backgroundColor: tokens.surfaceHi }]}
           accessibilityLabel="New configuration name"
         />
-        <View style={styles.saveActions}>
-          <SheetTextButton disabled={!canSave || Boolean(transferAction)} label="Save" onPress={save} />
-          <SheetTextButton disabled={Boolean(transferAction)} label={transferAction === 'load' || transferAction === 'open-file' ? 'Loading…' : 'Load'} onPress={() => void loadExternalConfiguration()} />
-        </View>
+        <View style={styles.saveAction}><SheetTextButton disabled={!canSave || Boolean(transferAction)} label="Save" onPress={save} /></View>
       </View> : null}
       {!selected && savedName ? <GentleNotice title="Configuration saved" message={`“${savedName}” is ready to load.`} tone="success" /> : null}
       {!selected ? <SegmentedControl items={FILTERS} value={filter} onChange={setFilter} accessibilityLabel="Configuration type" /> : null}
@@ -291,7 +290,7 @@ const styles = StyleSheet.create({
   helper: { fontSize: 12, lineHeight: 18 },
   current: { gap: 3 },
   saveRow: { flexDirection: 'row', gap: 8 },
-  saveActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  saveAction: { paddingHorizontal: 7 },
   input: { flex: 1, minHeight: 45, borderWidth: 1.5, borderRadius: 11, paddingHorizontal: 12, fontSize: 14 },
   list: { gap: 9 },
   empty: { padding: 18, borderWidth: 1.5, borderStyle: 'dashed', borderRadius: 13, gap: 4 },

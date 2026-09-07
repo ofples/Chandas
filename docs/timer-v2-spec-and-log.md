@@ -1454,6 +1454,7 @@ Do not edit old entries to reflect new conclusions. Add a superseding entry and 
 | 2026-09-07 | D-118 | Accepted | Web exposes Haptics only on a coarse-pointer touch device, matching Expo's usable touch-feedback route; desktop web hides the Advanced Haptics row and skips all haptic calls even if the browser advertises a vibration API without tactile hardware. Other native-only integrations remain omitted on web. While a sheet is closing, its last visible title, actions, body, and footer remain frozen so state cleanup cannot swap content into the outgoing surface. Web sheets use a short content entrance and immediate portal dismissal instead of React Native Web's whole-modal fade, which otherwise blends sheet text with the screen underneath for 250 ms. Native modal animation remains unchanged. |
 | 2026-09-07 | D-119 | Accepted | Setup help is one shared contextual mode across the main editor and every setup modal. Each explanation begins with the same quiet circled-info mark and uses plain task-oriented copy. When help is off, its `?` action stays beside the Cycle/Sequence title. When help is on, that action moves to a fixed safe-area top-right position so scrolling cannot hide it; while a sheet is open, the root action is suppressed and one active `?` appears in the sheet's fixed header beside Done/Load. Switching help off anywhere immediately hides every explanation and restores the ordinary title-level action. |
 | 2026-09-07 | D-120 | Accepted | Configuration intake is one quiet `Load` action beside `Save`, with no separate import heading or transport choices. Load first validates clipboard content; a valid Chandas configuration is saved as a new immutable local copy and applied immediately, while an unavailable, empty, or unrelated clipboard opens the file picker without an error detour. A clipboard success toast offers `Load from file instead`. File cancellation remains silent, malformed selected files receive gentle feedback, and the existing unsaved-working-copy confirmation runs before either source is applied. This supersedes D-116's imported-preview flow while retaining its validation, normalization, fresh identity, duplicate naming, and portability warning rules. |
+| 2026-09-07 | D-121 | Accepted | Configuration `Load` is a library-level header action, while `Save` alone remains attached to the current working-copy name. A nested sheet never presents competing Back and Done actions: its sole default Done action returns to the parent sheet, and Android system Back follows the same path; tapping the backdrop may still dismiss the complete sheet flow. Each Pattern Sub-bell stores an independent `Show on watch face` preference, defaulting on for legacy and new bells. Turning it off removes only that bell's colored running ring; cue scheduling, audio, collision priority, haptics, and next-cue text remain unchanged. |
 
 ### Decision-entry template
 
@@ -2889,6 +2890,23 @@ This section is append-only. Every implementation session should record scope, m
 
 **Verification run:** TypeScript compilation, full JavaScript tests, whitespace validation, and live Expo Web inspection of the simplified Save/Load row and configuration list hierarchy.
 
+### 2026-09-07 — Clearer sheet navigation and optional Sub-bell rings
+
+**Status:** Complete in source.
+
+**Scope:** Configuration header hierarchy, nested-sheet completion semantics, and running watch-face density.
+
+**Behavior implemented:**
+
+- Moved clipboard/file Load from the current-configuration save row into the Configurations sheet's leading header position. Save remains beside the editable name with added horizontal breathing room.
+- Removed the shared sheet's automatic Back action. When a nested editor has a parent, its single Done action returns to that parent and Android system Back performs the same transition. Root sheets still close on Done, while explicit task pairs such as Cancel/Load remain intact.
+- Added `Show on watch face` to every Sub-bell editor. It defaults on, is preserved through working copies, saved configurations, imports, exports, and legacy normalization, and hides only the corresponding inner running ring.
+- Hidden-ring Sub-bells continue to sound, vibrate, participate in overlap resolution, and appear as the next cue in the watch-face text; the control's subtitle and contextual help make that scope explicit.
+
+**Migration impact:** Additive JavaScript state and UI only. Existing records normalize the new optional presentation flag to on, and Android's JSON scheduler ignores the presentation-only field, so no native rebuild or runtime-fingerprint change is required.
+
+**Verification run:** TypeScript compilation, full JavaScript tests including legacy/default and configuration-transfer coverage, whitespace validation, and live Expo Web inspection of the Configurations and nested Sub-bell flows.
+
 ### Implementation-entry template
 
 ```md
@@ -2963,3 +2981,4 @@ This section is append-only. Every implementation session should record scope, m
 | 4.9 | 2026-09-07 | Hid unavailable desktop-web haptics and stabilized shared sheet dismissal by freezing outgoing content and avoiding React Native Web's translucent whole-modal fade. |
 | 4.10 | 2026-09-07 | Extended icon-led setup help into every editing sheet and kept one active help toggle pinned in the viewport or fixed modal header until explanations are hidden. |
 | 4.11 | 2026-09-07 | Replaced the separate configuration-import block with one clipboard-first Load action that falls through to file selection and applies valid configurations directly behind the existing unsaved-work safeguard. |
+| 4.12 | 2026-09-07 | Moved configuration Load into the sheet header, unified nested navigation around one Done action, and added a saved per-Sub-bell option to hide only its running watch-face ring. |
