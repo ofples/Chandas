@@ -1459,6 +1459,7 @@ Do not edit old entries to reflect new conclusions. Add a superseding entry and 
 | 2026-09-07 | D-123 | Accepted | Sub-bell cue cells communicate selection through their existing border, fill, and text contrast only; redundant visible ON/OFF labels are removed. Accessibility labels and selected state continue to announce the same explicit selection information without adding visual noise. |
 | 2026-09-07 | D-124 | Accepted | Sub-bell color and running-ring visibility share one ordinary `Color & visibility` row with the quiet subtitle `Watch face`. The color swatch expands the existing palette in place, while the adjacent eye directly toggles whether that bell's ring appears. This control remains available in the simple editor; there is no separate visibility row and no Advanced-mode dependency. Hiding the ring still does not silence or disable the bell. |
 | 2026-09-07 | D-125 | Accepted | A nested editing flow must never keep multiple native modal portals visible at once. The Sub-bells library and bell editor share one stable sheet host and replace only its keyed presentation; sound selection temporarily becomes the sole visible sheet while preserving its parent state. Mixer and Sequence sound-selection handoffs follow the same exclusive-ownership rule. Returning removes outgoing content immediately, resets the revealed presentation to its top, and must not replay a stale exit frame or dismiss the parent. |
+| 2026-09-07 | D-126 | Accepted | A continuation scrim may cover only content that is meant to scroll beneath it. Persistent controls such as the setup Mixer's master Volume and the running Sound & mute master Volume belong in the sheet's pinned region; only their channel or action lists scroll and fade. Shared vertical scrollers clear offset and user-scroll state in the layout phase whenever their presentation resets, preventing a stale top scrim from appearing for one painted frame. Fixed headers, help, segmented sound sources, and sticky cue-volume footers remain outside the fading viewport; ordinary list content and horizontal choice rails retain edge-aware fades. |
 
 ### Decision-entry template
 
@@ -2961,6 +2962,23 @@ This section is append-only. Every implementation session should record scope, m
 
 **Verification run:** TypeScript compilation, all 112 JavaScript tests, whitespace validation, and live Expo Web inspection. The accessibility tree now exposes exactly one modal layer at each stage; Done was exercised from Sub-bell sound to bell editor and from bell editor to the still-open Sub-bells library.
 
+### 2026-09-07 — Continuation-scrim boundary audit
+
+**Status:** Complete in source.
+
+**Scope:** Shared vertical/horizontal fades and every Timer v2 sheet/screen that uses them.
+
+**Behavior implemented:**
+
+- Moved the setup Mixer's master Volume control and separator into pinned sheet content, leaving only the per-sound channels inside its fading scroller.
+- Moved the running Sound & mute master Volume and mixer disclosure into pinned sheet content, leaving expanded channels and mute actions to scroll normally.
+- Changed shared vertical-scroll reset handling from a post-paint effect to a layout-phase reset and immediately returned the native/web scroll view to the top. Reopening a sheet or switching its keyed presentation can no longer paint one stale top scrim frame.
+- Audited the remaining sheet boundaries: headers and contextual help are globally fixed; sound-source selection is pinned; cue volume is a sticky footer; duration-entry and clock-snap sheets do not scroll; Schedule, Configurations, Haptics, Help, permissions, Sub-bell lists/editors, and channel lists contain ordinary scrollable content; horizontal duration, color, and clock rails retain their clipped left/right continuation fades.
+
+**Migration impact:** JavaScript/layout only; no native rebuild or runtime-fingerprint change.
+
+**Verification run:** TypeScript compilation, all 112 JavaScript tests, whitespace validation, static inspection of every `BottomSheet`, `FadedVerticalScrollView`, `FadedHorizontalScrollView`, and `ScrollEdgeFade` usage, plus live Expo Web inspection confirming the Mixer master control is structurally outside the scrolling channel list.
+
 ### Implementation-entry template
 
 ```md
@@ -3040,3 +3058,4 @@ This section is append-only. Every implementation session should record scope, m
 | 4.14 | 2026-09-07 | Removed redundant ON/OFF captions from Sub-bell cue cells while retaining their visual and accessible selection states. |
 | 4.15 | 2026-09-07 | Combined each Sub-bell's color and watch-face visibility into one compact row with an inline palette and direct eye toggle. |
 | 4.16 | 2026-09-07 | Replaced stacked nested modal portals with a stable Sub-bells sheet and exclusive sound-editor handoffs, preventing stale-content flashes and pass-through dismissal. |
+| 4.17 | 2026-09-07 | Pinned both master Volume controls outside fading modal bodies and reset shared vertical scrim state before paint after every sheet/presentation change. |

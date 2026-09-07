@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { ScrollView, StyleSheet, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent, type ScrollViewProps } from 'react-native'
 import Animated, { FadeIn, FadeOut, useReducedMotion } from 'react-native-reanimated'
 import { ScrollEdgeFade } from './ScrollEdgeFade'
@@ -21,9 +21,10 @@ export function FadedVerticalScrollView({ children, fadeColor, resetKey, style, 
   const showTop = overflow && userHasScrolled && offset > 2
   const showBottom = overflow && offset + viewportHeight < contentHeight - 2
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setOffset(0)
     setUserHasScrolled(false)
+    scrollRef.current?.scrollTo({ y: 0, animated: false })
     requestAnimationFrame(() => scrollRef.current?.scrollTo({ y: 0, animated: false }))
   }, [resetKey])
 
