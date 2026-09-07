@@ -50,7 +50,6 @@ export function OffsetGrid({ offsets, selected, unit = 'minutes', onChange }: Pr
             onPress={() => toggle(offset)}
           >
             <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72} style={[styles.minute, { color: active ? tokens.text : tokens.textMuted }]}>{label}</Text>
-            <Text style={[styles.status, { color: tokens.textDisabled }]}>{active ? 'on' : 'off'}</Text>
           </Pressable>
         )
       })}
@@ -60,7 +59,6 @@ export function OffsetGrid({ offsets, selected, unit = 'minutes', onChange }: Pr
 
 const styles = StyleSheet.create({
   grid: { width: '100%', flexDirection: 'row', flexWrap: 'wrap', gap: GAP },
-  cell: { borderWidth: 1.5, borderRadius: 10, justifyContent: 'center', alignItems: 'center', gap: 2 },
+  cell: { borderWidth: 1.5, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
   minute: { fontFamily: 'JetBrainsMono-Regular', fontSize: 12 },
-  status: { fontSize: 8, fontWeight: '700', letterSpacing: 0.6, textTransform: 'uppercase' },
 })

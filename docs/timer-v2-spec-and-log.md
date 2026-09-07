@@ -1456,6 +1456,7 @@ Do not edit old entries to reflect new conclusions. Add a superseding entry and 
 | 2026-09-07 | D-120 | Accepted | Configuration intake is one quiet `Load` action beside `Save`, with no separate import heading or transport choices. Load first validates clipboard content; a valid Chandas configuration is saved as a new immutable local copy and applied immediately, while an unavailable, empty, or unrelated clipboard opens the file picker without an error detour. A clipboard success toast offers `Load from file instead`. File cancellation remains silent, malformed selected files receive gentle feedback, and the existing unsaved-working-copy confirmation runs before either source is applied. This supersedes D-116's imported-preview flow while retaining its validation, normalization, fresh identity, duplicate naming, and portability warning rules. |
 | 2026-09-07 | D-121 | Accepted | Configuration `Load` is a library-level header action, while `Save` alone remains attached to the current working-copy name. A nested sheet never presents competing Back and Done actions: its sole default Done action returns to the parent sheet, and Android system Back follows the same path; tapping the backdrop may still dismiss the complete sheet flow. Each Pattern Sub-bell stores an independent `Show on watch face` preference, defaulting on for legacy and new bells. Turning it off removes only that bell's colored running ring; cue scheduling, audio, collision priority, haptics, and next-cue text remain unchanged. |
 | 2026-09-07 | D-122 | Accepted | Fixed controls must not sit inside a modal's fading scroll surface. In the sound picker, the source selector is pinned between the sheet header/help and the independently scrolling sound results; only the results pass beneath continuation scrims. Vertical continuation fades use a compact 20-point depth so they soften the content boundary without obscuring a selected control or a large portion of the final visible row. Horizontal rails retain their wider fades because their continuation direction and available height differ. |
+| 2026-09-07 | D-123 | Accepted | Sub-bell cue cells communicate selection through their existing border, fill, and text contrast only; redundant visible ON/OFF labels are removed. Accessibility labels and selected state continue to announce the same explicit selection information without adding visual noise. |
 
 ### Decision-entry template
 
@@ -2925,6 +2926,21 @@ This section is append-only. Every implementation session should record scope, m
 
 **Verification run:** TypeScript compilation, all JavaScript tests, whitespace validation, and live Expo Web inspection of the sound picker structure and fixed selector placement.
 
+### 2026-09-07 — Quieter cue selection cells
+
+**Status:** Complete in source.
+
+**Scope:** Sub-bell cue-grid selection presentation.
+
+**Behavior implemented:**
+
+- Removed the visible ON/OFF caption from every cue cell; selected fill, accent border, and text contrast remain the single visual selection language.
+- Preserved each cell's accessible selected state and spoken `selected`/`not selected` label.
+
+**Migration impact:** JavaScript/UI only; no native rebuild or runtime-fingerprint change.
+
+**Verification run:** TypeScript compilation, full JavaScript tests, whitespace validation, and live Expo Web inspection.
+
 ### Implementation-entry template
 
 ```md
@@ -3001,3 +3017,4 @@ This section is append-only. Every implementation session should record scope, m
 | 4.11 | 2026-09-07 | Replaced the separate configuration-import block with one clipboard-first Load action that falls through to file selection and applies valid configurations directly behind the existing unsaved-work safeguard. |
 | 4.12 | 2026-09-07 | Moved configuration Load into the sheet header, unified nested navigation around one Done action, and added a saved per-Sub-bell option to hide only its running watch-face ring. |
 | 4.13 | 2026-09-07 | Pinned sound-source selection outside the fading list and shortened vertical continuation scrims so selected tabs and visible sound rows remain clear. |
+| 4.14 | 2026-09-07 | Removed redundant ON/OFF captions from Sub-bell cue cells while retaining their visual and accessible selection states. |
