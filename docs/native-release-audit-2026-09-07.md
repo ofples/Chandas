@@ -27,6 +27,7 @@ EAS regenerates it from these inputs.
 | N-15 | Medium | The resolved Android manifest includes legacy broad read/write storage permissions even though sound import uses the system document picker and app-private storage. | Resolved | `Remove legacy Android storage permissions` |
 | N-16 | Medium | Static native registries rely only on per-event stop-observing callbacks; a whole bridge/module teardown can retain stale closures while Android services keep running. | Resolved | `Release native listeners with the Expo module` |
 | N-17 | High | Mute/Alarm Once and Focus callbacks mutate the same persisted session outside the scheduler lock. A Focus repair can overwrite a concurrently re-aligned anchor with an older snapshot. | Resolved | `Serialize native controls and Focus state` |
+| N-18 | High | Focus active-hours shutdown relies on a separate exact alarm whose scheduling failure is ignored; without a cue at the boundary, DND can remain active until a much later event. | Resolved | `Add authoritative Focus end events` |
 
 ## Reviewed and currently acceptable
 

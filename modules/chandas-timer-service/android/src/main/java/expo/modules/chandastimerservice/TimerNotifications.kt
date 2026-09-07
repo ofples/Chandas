@@ -169,7 +169,7 @@ object TimerNotifications {
   }
 
   fun postEvent(context: Context, config: TimerConfig, type: TimerEventType) {
-    if (type == TimerEventType.ACTIVE_START || type == TimerEventType.REALIGN) return
+    if (type == TimerEventType.ACTIVE_START || type == TimerEventType.ACTIVE_END || type == TimerEventType.REALIGN) return
     if (!config.notificationsEnabled) return
     ensureChannels(context)
     val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

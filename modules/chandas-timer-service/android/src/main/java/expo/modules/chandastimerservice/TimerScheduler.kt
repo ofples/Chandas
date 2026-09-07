@@ -203,6 +203,12 @@ object TimerScheduler {
       type = TimerEventType.ACTIVE_START
       logicalId = "active-start:$triggerAt"
     }
+    val activeEndsAt = ActiveHours.currentWindowEnd(active, now)
+    if (activeEndsAt != null && activeEndsAt > now && activeEndsAt < triggerAt) {
+      triggerAt = activeEndsAt
+      type = TimerEventType.ACTIVE_END
+      logicalId = "active-end:$triggerAt"
+    }
     val transition = active.timerV2Program
       ?.takeIf(TimerV2Timeline::isLocalClock)
       ?.let {
@@ -288,8 +294,10 @@ object TimerScheduler {
     }
     val config = realignment.config
     val now = System.currentTimeMillis()
-    if (type == TimerEventType.ACTIVE_START) {
-      FocusModeController.reconcile(context, config)
+    // Every authoritative event also reconciles Focus. This covers a cue that
+    // lands exactly on the closing boundary and backs up the dedicated end PI.
+    FocusModeController.reconcile(context, config)
+    if (type == TimerEventType.ACTIVE_START || type == TimerEventType.ACTIVE_END) {
       scheduleNext(context, config)
       onFinished()
       return

@@ -58,6 +58,7 @@ enum class TimerEventType(val value: String) {
   SUB("sub"),
   V2("v2"),
   ACTIVE_START("activeStart"),
+  ACTIVE_END("activeEnd"),
   REALIGN("realign");
 
   companion object {
