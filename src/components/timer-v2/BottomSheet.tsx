@@ -19,6 +19,7 @@ interface Props {
   leadingAction?: SheetHeaderAction
   trailingAction?: SheetHeaderAction
   help?: ReactNode
+  pinnedContent?: ReactNode
   children: ReactNode
   scroll?: boolean
   footer?: ReactNode
@@ -33,7 +34,7 @@ interface SheetHeaderAction {
 }
 
 /** Shared, keyboard-safe sheet used by every Timer v2 secondary flow. */
-export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClose, onBack, leadingAction, trailingAction, help, children, scroll = true, footer }: Props) {
+export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClose, onBack, leadingAction, trailingAction, help, pinnedContent, children, scroll = true, footer }: Props) {
   const { tokens } = useTheme()
   const insets = useSafeAreaInsets()
   const keyboardVisible = useKeyboardVisible(visible)
@@ -45,11 +46,11 @@ export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClo
     setSheetVisible?.(sheetId, visible)
     return () => setSheetVisible?.(sheetId, false)
   }, [setSheetVisible, sheetId, visible])
-  const presentation = { title, accessibilityTitle, eyebrow, onClose, onBack, leadingAction, trailingAction, help, children, scroll, footer }
+  const presentation = { title, accessibilityTitle, eyebrow, onClose, onBack, leadingAction, trailingAction, help, pinnedContent, children, scroll, footer }
   const lastVisiblePresentation = useRef(presentation)
   useEffect(() => {
     if (visible) lastVisiblePresentation.current = presentation
-  }, [visible, title, accessibilityTitle, eyebrow, onClose, onBack, leadingAction, trailingAction, help, children, scroll, footer])
+  }, [visible, title, accessibilityTitle, eyebrow, onClose, onBack, leadingAction, trailingAction, help, pinnedContent, children, scroll, footer])
   const presented = visible ? presentation : lastVisiblePresentation.current
   const body = presented.scroll
     ? <FadedVerticalScrollView fadeColor={tokens.surface} resetKey={visible} style={styles.scroll} keyboardShouldPersistTaps="never" keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'} contentContainerStyle={styles.body}>{presented.children}</FadedVerticalScrollView>
@@ -84,6 +85,7 @@ export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClo
               </View>
             </View>
             <ContextualHelp>{presented.help}</ContextualHelp>
+            {presented.pinnedContent}
             {body}
             {presented.footer}
           </Animated.View>

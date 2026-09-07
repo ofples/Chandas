@@ -60,8 +60,8 @@ export function FadedVerticalScrollView({ children, fadeColor, resetKey, style, 
     >
       {children}
     </ScrollView>
-    {showTop ? <Animated.View pointerEvents="none" entering={enter} exiting={exit} style={StyleSheet.absoluteFill}><ScrollEdgeFade color={fadeColor} side="top" /></Animated.View> : null}
-    {showBottom ? <Animated.View pointerEvents="none" entering={enter} exiting={exit} style={StyleSheet.absoluteFill}><ScrollEdgeFade color={fadeColor} side="bottom" /></Animated.View> : null}
+    {showTop ? <Animated.View pointerEvents="none" entering={enter} exiting={exit} style={StyleSheet.absoluteFill}><ScrollEdgeFade color={fadeColor} side="top" size={20} /></Animated.View> : null}
+    {showBottom ? <Animated.View pointerEvents="none" entering={enter} exiting={exit} style={StyleSheet.absoluteFill}><ScrollEdgeFade color={fadeColor} side="bottom" size={20} /></Animated.View> : null}
   </View>
 }
 

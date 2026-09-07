@@ -96,9 +96,7 @@ export function SoundPickerSheet({ visible, title, cue, masterVolume, onChange, 
   </View>
 
   return (
-    <BottomSheet visible={visible} title={title} help="Choose where the sound comes from, tap play to hear it, then set this cue’s own volume below. Built-in sounds travel with saved configurations." onClose={close} onBack={onBack ? () => { stopPreview(); onBack() } : undefined} footer={volumeFooter}>
-      <SegmentedControl items={SOUND_TABS} value={tab} onChange={value => { stopPreview(); setTab(value) }} accessibilityLabel="Sound source" />
-
+    <BottomSheet visible={visible} title={title} help="Choose where the sound comes from, tap play to hear it, then set this cue’s own volume below. Built-in sounds travel with saved configurations." onClose={close} onBack={onBack ? () => { stopPreview(); onBack() } : undefined} pinnedContent={<SegmentedControl items={SOUND_TABS} value={tab} onChange={value => { stopPreview(); setTab(value) }} accessibilityLabel="Sound source" />} footer={volumeFooter}>
       {message ? <GentleNotice title={message.title} message={message.detail} tone="attention" /> : null}
 
       <Animated.View key={tab} entering={FadeIn.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 120)}>
