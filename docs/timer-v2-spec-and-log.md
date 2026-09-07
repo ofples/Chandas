@@ -1449,6 +1449,7 @@ Do not edit old entries to reflect new conclusions. Add a superseding entry and 
 | 2026-09-06 | D-113 | Accepted | Clock alignment belongs to the complete repeating program, not to the precision of one component. Cycle aligns by its exact main duration; Sequence aligns by the sum of its exact steps, so `1:30 + 3:30` forms a clock-aligned five-minute round. The phase control stays minute-first in both ordinary and Second precision modes. Exact periods may begin at a chosen minute phase and continue on their exact cadence. Only mathematically distinct minute phases are offered, local civil phase is rebuilt after timezone/DST changes, and Reset returns either mode to elapsed timing. This supersedes D-018's Pattern-only scope, section 10.4's Sequence prohibition, and D-110's automatic unsnap rule. |
 | 2026-09-07 | D-114 | Accepted | Active-hour state remains half-open—`04:00–22:00` is paused and Focus-inactive from `22:00`—but an ordinary cue whose authoritative scheduled timestamp is exactly the closing transition is audible. This applies to main gongs, Sub-bells, and Sequence step/cycle bells. A mute override beginning at the same instant still wins. Android accepts up to five seconds of ordinary delivery latency for that exact boundary cue without opening the quiet window or replaying any earlier/missed cue. |
 | 2026-09-07 | D-115 | Accepted | Advanced Second precision applies to every elapsed-duration input: Cycle duration, Sequence steps, bounded run duration, Sub-bell repeat cadence/cue positions, and custom timed mute. Minute presets remain the default fast path. Schedule ranges and clock phase stay minute-based because they select wall-clock positions. This supersedes D-110's minute-only Sub-bell restriction. |
+| 2026-09-07 | D-116 | Accepted | A saved configuration is portable as one versioned, human-readable Chandas JSON envelope. A selected configuration can be copied or saved as a `.chandas.json` file; the library can paste or open either representation. Import validates and normalizes before mutation, creates a fresh local identity and non-conflicting name, saves the imported copy, and opens its preview without replacing unsaved work. Device-specific sound references are retained with a gentle portability warning. |
 
 ### Decision-entry template
 
@@ -2799,6 +2800,24 @@ This section is append-only. Every implementation session should record scope, m
 
 **Verification run:** TypeScript compilation, JavaScript domain tests for exact mute expiry and clamping, whitespace validation, and static native bridge review. Local native compilation remains prohibited by repository policy.
 
+### 2026-09-07 — Portable configurations
+
+**Status:** Complete in source; a replacement native build is required before Android/iOS delivery.
+
+**Scope:** Copy/paste, file export/import, transfer validation, imported-preview flow, and gentle feedback.
+
+**Behavior implemented:**
+
+- A selected saved configuration now offers the shared text actions `Copy` and `Save file`. Copy writes the versioned configuration to the system clipboard; Save file downloads directly on web and opens the native file-sharing destination sheet on Android/iOS.
+- The main Configurations view adds one quiet Import configuration row with `Paste` and `Open file`. Successful imports are added as new immutable saved copies and opened in the existing visual inspector before the user chooses Load, so current unsaved edits are never discarded by import.
+- Transfer parsing is bounded to one small configuration, rejects malformed or unsupported future versions without changing state, normalizes every program field through the storage-domain rules, gives the import a fresh local identity and timestamp, and suffixes duplicate names.
+- Built-in sounds transfer normally. Android ringtone and picked-document references remain in the file, with feedback explaining that device-specific sounds may need to be selected again on another device.
+- Busy labels prevent duplicate transfer actions; cancellation is silent; empty clipboard, unreadable file, invalid content, oversized content, and future-version content receive concise recoverable feedback.
+
+**Migration impact:** The configuration envelope is additive and separate from local storage schema. `expo-clipboard`, `expo-document-picker`, `expo-file-system`, and `expo-sharing` are now direct dependencies, so mobile use requires a new native binary/runtime fingerprint. No permission or custom native-source change is required.
+
+**Verification run:** TypeScript compilation, domain tests for exact-timing round trip, duplicate naming, invalid/future/oversized rejection, and safe filenames; whitespace validation; live Expo Web inspection of the import row and selected-configuration export actions. Native clipboard, document provider, share destination, cancellation, and TalkBack behavior remain for the next device pass.
+
 ### Implementation-entry template
 
 ```md
@@ -2868,3 +2887,4 @@ This section is append-only. Every implementation session should record scope, m
 | 4.4 | 2026-09-07 | Replaced the ambiguous default Cycle title with a duration-aware name that follows duration changes until renamed, and rewrote its inline help as a concrete countdown–gong–restart explanation. |
 | 4.5 | 2026-09-07 | Extended Advanced second precision through Sub-bell cadence, selected cues, visuals, presets, collision priority, and contract-v10 Android scheduling. |
 | 4.6 | 2026-09-07 | Completed Second precision coverage with exact custom timed mute UI, state, and contract-v10 background enforcement while retaining a safe older-runtime fallback. |
+| 4.7 | 2026-09-07 | Added versioned single-configuration copy/paste and file transfer with safe import preview, validation, duplicate naming, and device-sound portability feedback. |
