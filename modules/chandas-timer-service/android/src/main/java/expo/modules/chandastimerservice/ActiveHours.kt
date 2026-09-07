@@ -8,7 +8,7 @@ object ActiveHours {
   private const val MAX_WINDOWS = 16
   private const val MAX_OVERRIDES = 256
   private const val EIGHT_DAYS_MS = 8L * 24L * 60L * 60L * 1_000L
-  private const val CLOSING_CUE_DELIVERY_GRACE_MS = 5_000L
+  private const val CUE_DELIVERY_GRACE_MS = 5_000L
 
   private data class Window(val id: String, val enabled: Boolean, val start: Int, val end: Int, val days: Int)
   private data class Override(val id: String, val startAt: Long, val endAt: Long, val behavior: String)
@@ -106,12 +106,12 @@ object ActiveHours {
     return isActive(policy, cueAt) || isClosingBoundary(policy, cueAt)
   }
 
-  /** Delivery-time guard for the one boundary cue allowed just after closure. */
+  /** Rejects every stale callback, including one delivered in a later active window. */
   fun allowsCueDelivery(config: TimerConfig, cueAt: Long, deliveredAt: Long): Boolean {
     val policy = policy(config) ?: return false
-    if (isActive(policy, deliveredAt)) return isActive(policy, cueAt) || isClosingBoundary(policy, cueAt)
     val delay = deliveredAt - cueAt
-    return delay in 0L..CLOSING_CUE_DELIVERY_GRACE_MS && isClosingBoundary(policy, cueAt)
+    if (delay !in 0L..CUE_DELIVERY_GRACE_MS) return false
+    return isActive(policy, cueAt) || isClosingBoundary(policy, cueAt)
   }
 
   private fun weeklyBoundary(window: Window, timestamp: Long, dayOffset: Int, startBoundary: Boolean): Long {

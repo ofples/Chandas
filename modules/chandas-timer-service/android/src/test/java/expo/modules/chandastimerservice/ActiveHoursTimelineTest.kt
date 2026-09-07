@@ -75,6 +75,23 @@ class ActiveHoursTimelineTest {
     assertFalse(ActiveHours.allowsCue(scheduled, closing + 1L))
   }
 
+  @Test fun ordinaryCueCannotReplayLateInsideAnActiveWindow() = withTimeZone("Asia/Kolkata") {
+    val scheduled = config(start = 4 * 60, end = 22 * 60, days = 0x7f)
+    val cue = localTime(2026, Calendar.SEPTEMBER, 4, 8)
+    assertTrue(ActiveHours.allowsCueDelivery(scheduled, cue, cue + 5_000L))
+    assertFalse(ActiveHours.allowsCueDelivery(scheduled, cue, cue + 5_001L))
+    assertFalse(ActiveHours.allowsCueDelivery(scheduled, cue, cue - 1L))
+    assertFalse(ActiveHours.allowsCueDelivery(scheduled, cue, cue + 8 * 60 * 60_000L))
+  }
+
+  @Test fun closingCueCannotReplayInTheNextActiveWindow() = withTimeZone("Asia/Kolkata") {
+    val scheduled = config(start = 4 * 60, end = 22 * 60, days = 0x7f)
+    val closing = localTime(2026, Calendar.SEPTEMBER, 4, 22)
+    val nextMorning = localTime(2026, Calendar.SEPTEMBER, 5, 4)
+    assertTrue(ActiveHours.isActive(scheduled, nextMorning))
+    assertFalse(ActiveHours.allowsCueDelivery(scheduled, closing, nextMorning))
+  }
+
   @Test fun multipleWindowsFormAUnionAndMuteOverrideWins() = withTimeZone("Asia/Kolkata") {
     val noon = localTime(2026, Calendar.SEPTEMBER, 4, 12)
     val policy = JSONObject()
