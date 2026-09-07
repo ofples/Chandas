@@ -12,9 +12,17 @@ EAS owns the Android `versionCode` remotely and increments it for every build. T
 
 ## Compatibility model
 
-Chandas currently pins Android updates to the production build-9 runtime (`f8c55f24f4972e429d24120aa843e8a0e32f1aaf`). The contract-v5 additions are capability-gated and backward compatible with contract v4, so this deliberate compatibility line lets the current and replacement binaries receive the same JavaScript while exposing native-only additions only where supported.
+Chandas derives each platform runtime from Expo's native fingerprint policy. A
+binary receives an OTA only when its native code, native dependencies, bundled
+assets, permissions, config plugins, and other fingerprinted inputs are
+compatible with that update. Never add a platform-specific manual runtime pin
+to bridge incompatible native generations.
 
-Use a new store build when any native dependency, Expo SDK package, config plugin, Android permission, app configuration field, or native timer-service code changes. JavaScript, TypeScript, styling, and bundled asset changes can normally ship as an EAS Update. Before making an incompatible native or bridge change, assign a new manual runtime version first; never publish code that assumes an unavailable capability to this compatibility line.
+Use a new store build when any native dependency, Expo SDK package, config
+plugin, Android permission, app configuration field, packaged asset, or native
+timer-service code changes. JavaScript, TypeScript, and styling changes can
+normally ship as an EAS Update when the fingerprint is unchanged. Never publish
+code that assumes an unavailable native capability.
 
 `ChandasTimerService.getCapabilities` advertises the installed engine's program schemas, safety ceilings, and additive features. Keep product limits, Focus status presentation, notification wording, and the dynamic sound catalog in the OTA layer when they fit that contract. The native ceilings are intentionally larger than the current UI and must not be treated as product defaults. A missing capability function or flag identifies an older binary; OTA code must preserve its documented fallback instead of assuming the new method exists.
 
@@ -70,7 +78,11 @@ Direct production publishing remains available for an urgent, already-verified c
 eas workflow:run .eas/workflows/publish-production-update.yml -F "message=Describe the hotfix" --non-interactive --wait
 ```
 
-This dedicated workflow performs the bundle export on EAS, runs type-checking and tests, and refuses to publish unless a production AAB exists for the pinned Android runtime. It never creates a native build as a side effect. Use the local `publish:production` script only on a machine explicitly provisioned for local Expo exports.
+This dedicated workflow performs the bundle export on EAS, runs type-checking
+and tests, computes the Android fingerprint, and refuses to publish unless a
+production AAB exists with that exact fingerprint. It never creates a native
+build as a side effect. Use the local `publish:production` script only on a
+machine explicitly provisioned for local Expo exports.
 
 For a cautious rollout, use EAS Update's rollout percentage on the production command and increase it from the dashboard after monitoring successful launches.
 
