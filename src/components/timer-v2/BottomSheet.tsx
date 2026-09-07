@@ -1,10 +1,11 @@
-import type { ReactNode } from 'react'
+import { type ReactNode, useEffect, useId } from 'react'
 import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '../../theme/ThemeContext'
 import { useKeyboardVisible } from '../../hooks/use-keyboard-visible'
 import { SheetTextButton } from './SheetTextButton'
 import { FadedVerticalScrollView } from './FadedVerticalScrollView'
+import { SheetFeedbackOverlay, useFeedbackSheetRegistration } from './feedback-layer'
 
 interface Props {
   visible: boolean
@@ -13,16 +14,32 @@ interface Props {
   eyebrow?: string
   onClose: () => void
   onBack?: () => void
+  leadingAction?: SheetHeaderAction
+  trailingAction?: SheetHeaderAction
   children: ReactNode
   scroll?: boolean
   footer?: ReactNode
 }
 
+interface SheetHeaderAction {
+  label: string
+  onPress: () => void
+  accessibilityLabel?: string
+  disabled?: boolean
+  tone?: 'accent' | 'muted' | 'danger'
+}
+
 /** Shared, keyboard-safe sheet used by every Timer v2 secondary flow. */
-export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClose, onBack, children, scroll = true, footer }: Props) {
+export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClose, onBack, leadingAction, trailingAction, children, scroll = true, footer }: Props) {
   const { tokens } = useTheme()
   const insets = useSafeAreaInsets()
   const keyboardVisible = useKeyboardVisible(visible)
+  const sheetId = useId()
+  const setSheetVisible = useFeedbackSheetRegistration()
+  useEffect(() => {
+    setSheetVisible?.(sheetId, visible)
+    return () => setSheetVisible?.(sheetId, false)
+  }, [setSheetVisible, sheetId, visible])
   const body = scroll
     ? <FadedVerticalScrollView fadeColor={tokens.surface} resetKey={visible} style={styles.scroll} keyboardShouldPersistTaps="never" keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'} contentContainerStyle={styles.body}>{children}</FadedVerticalScrollView>
     : <View style={styles.body}>{children}</View>
@@ -38,8 +55,14 @@ export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClo
             accessibilityViewIsModal
           >
             <View style={styles.actions}>
-              {onBack ? <SheetTextButton label="‹ Back" onPress={onBack} accessibilityLabel="Back" /> : <View style={styles.actionSpacer} />}
-              <SheetTextButton label="Done" onPress={onClose} accessibilityLabel={`Close ${accessibilityTitle ?? (typeof title === 'string' ? title : 'sheet')}`} />
+              {leadingAction
+                ? <SheetTextButton {...leadingAction} />
+                : onBack
+                  ? <SheetTextButton label="‹ Back" onPress={onBack} accessibilityLabel="Back" />
+                  : <View style={styles.actionSpacer} />}
+              {trailingAction
+                ? <SheetTextButton {...trailingAction} />
+                : <SheetTextButton label="Done" onPress={onClose} accessibilityLabel={`Close ${accessibilityTitle ?? (typeof title === 'string' ? title : 'sheet')}`} />}
             </View>
             <View style={styles.header}>
               <View style={styles.heading}>
@@ -50,6 +73,7 @@ export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClo
             {body}
             {footer}
           </View>
+          <SheetFeedbackOverlay sheetId={sheetId} />
         </View>
       </KeyboardAvoidingView>
     </Modal>

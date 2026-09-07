@@ -135,7 +135,13 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedba
     setTransferAction('copy')
     try {
       await copyConfigurationText(serializeConfiguration(preset))
-      onFeedback({ title: 'Configuration copied', message: `“${preset.name}” is ready to paste into Chandas.`, tone: 'success' })
+      onFeedback({
+        title: 'Copied to clipboard',
+        message: 'Would you also like to save this configuration as a file?',
+        tone: 'success',
+        actionLabel: 'Save file',
+        onAction: () => void saveFile(preset),
+      })
       successHaptic()
     } catch {
       onFeedback({ title: 'Could not copy the configuration', message: 'Please try again in a moment.', tone: 'attention' })
@@ -157,7 +163,14 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedba
   }
 
   return (
-    <BottomSheet visible={visible} title="Configurations" onClose={onClose}>
+    <BottomSheet
+      visible={visible}
+      title={selected?.name ?? 'Configurations'}
+      accessibilityTitle={selected?.name ?? 'Configurations'}
+      onClose={selected ? () => setSelectedId(null) : onClose}
+      leadingAction={selected ? { label: 'Cancel', tone: 'muted', onPress: () => setSelectedId(null) } : undefined}
+      trailingAction={selected ? { label: 'Load', disabled: Boolean(transferAction), onPress: () => load(selected) } : undefined}
+    >
       {!selected ? <View style={styles.current}><Text style={[styles.presetTitle, { color: tokens.text }]}>Save current {state.workingPrograms.selectedMode === 'pattern' ? 'Cycle' : 'Sequence'}</Text><PresetVisual program={state.workingPrograms[state.workingPrograms.selectedMode]} /></View> : null}
       {!selected ? <View style={styles.saveRow}>
         <TextInput
@@ -178,10 +191,9 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedba
         <View style={styles.transferActions}><SheetTextButton disabled={Boolean(transferAction)} label={transferAction === 'paste' ? 'Pasting…' : 'Paste'} onPress={() => void paste()} /><SheetTextButton disabled={Boolean(transferAction)} label={transferAction === 'open-file' ? 'Opening…' : 'Open file'} onPress={() => void openFile()} /></View>
       </View> : null}
       {!selected ? <SegmentedControl items={FILTERS} value={filter} onChange={setFilter} accessibilityLabel="Configuration type" /> : null}
-      {selected ? <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 130)} style={[styles.inspector, { borderColor: tokens.border, backgroundColor: tokens.surfaceHi }]}>
-        <View style={styles.copy}><Text style={[styles.presetTitle, { color: tokens.text }]}>{selected.name}</Text><PresetVisual program={selected.program} /><Text style={[styles.date, { color: tokens.textMuted }]}>Saved {new Date(selected.createdAt).toLocaleString()}</Text><PresetDetails preset={selected} /><Text style={[styles.helper, { color: tokens.text }]}>Loads as a new working copy.</Text></View>
-        <View style={styles.exportActions}><SheetTextButton disabled={Boolean(transferAction)} label={transferAction === 'copy' ? 'Copying…' : 'Copy'} onPress={() => void copy(selected)} /><SheetTextButton disabled={Boolean(transferAction)} label={transferAction === 'save-file' ? 'Saving…' : 'Save file'} onPress={() => void saveFile(selected)} /></View>
-        <View style={styles.inspectorActions}><SheetTextButton label="Cancel" tone="muted" onPress={() => setSelectedId(null)} /><SheetTextButton label="Load" onPress={() => load(selected)} /></View>
+      {selected ? <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 130)} style={styles.inspector}>
+        <View style={styles.copy}><PresetVisual program={selected.program} /><Text style={[styles.date, { color: tokens.textMuted }]}>Saved {new Date(selected.createdAt).toLocaleString()}</Text><PresetDetails preset={selected} /><Text style={[styles.helper, { color: tokens.text }]}>Loads as a new working copy.</Text></View>
+        <View style={styles.exportActions}><SheetTextButton disabled={Boolean(transferAction)} label={transferAction === 'copy' ? 'Exporting…' : 'Export'} accessibilityLabel="Copy configuration" onPress={() => void copy(selected)} /></View>
       </Animated.View> : null}
       {!selected ? <View style={styles.list}>
         {presets.length === 0 ? <GentleNotice title={state.presets.length === 0 ? 'No saved configurations yet' : `No ${filter === 'pattern' ? 'Cycle' : 'Sequence'} configurations`} message={state.presets.length === 0 ? 'Name the current setup above to save it.' : 'Try All or save the current setup.'} /> : presets.map(preset => {
@@ -255,13 +267,12 @@ const styles = StyleSheet.create({
   date: { fontSize: 10, marginTop: 2 },
   action: { fontSize: 12, fontWeight: '700' },
   delete: { fontSize: 11, textDecorationLine: 'underline' },
-  inspector: { borderWidth: 1.5, borderRadius: 14, padding: 14, gap: 12 },
+  inspector: { gap: 12 },
   transferRow: { minHeight: 54, flexDirection: 'row', alignItems: 'center', gap: 12 },
   transferActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 10 },
-  exportActions: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  exportActions: { flexDirection: 'row', alignItems: 'center' },
   details: { borderTopWidth: 1, borderBottomWidth: 1, paddingVertical: 9, gap: 5 },
   detailLine: { fontSize: 11, lineHeight: 16 },
-  inspectorActions: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 16 }, inspectorPrimary: { flexDirection: 'row', alignItems: 'center', gap: 16 },
   visual: { gap: 7, paddingVertical: 4 }, visualMeta: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }, visualKind: { fontSize: 12, fontWeight: '600' }, visualCount: { fontSize: 11 }, visualTrack: { height: 18, position: 'relative' }, visualLine: { position: 'absolute', left: 0, right: 0, top: 8, height: 2 }, visualBoundary: { position: 'absolute', top: 3, width: 2, height: 12, borderRadius: 1 }, visualCue: { position: 'absolute', top: 5, width: 8, height: 8, marginLeft: -4, borderRadius: 4 }, sequenceTrack: { height: 8, borderRadius: 4, overflow: 'hidden', flexDirection: 'row', gap: 2 }, sequenceSegment: { minWidth: 3 },
   chevron: { fontSize: 24, lineHeight: 26, fontWeight: '300' },
 })

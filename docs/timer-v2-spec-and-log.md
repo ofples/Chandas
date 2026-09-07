@@ -1450,6 +1450,7 @@ Do not edit old entries to reflect new conclusions. Add a superseding entry and 
 | 2026-09-07 | D-114 | Accepted | Active-hour state remains half-open—`04:00–22:00` is paused and Focus-inactive from `22:00`—but an ordinary cue whose authoritative scheduled timestamp is exactly the closing transition is audible. This applies to main gongs, Sub-bells, and Sequence step/cycle bells. A mute override beginning at the same instant still wins. Android accepts up to five seconds of ordinary delivery latency for that exact boundary cue without opening the quiet window or replaying any earlier/missed cue. |
 | 2026-09-07 | D-115 | Accepted | Advanced Second precision applies to every elapsed-duration input: Cycle duration, Sequence steps, bounded run duration, Sub-bell repeat cadence/cue positions, and custom timed mute. Minute presets remain the default fast path. Schedule ranges and clock phase stay minute-based because they select wall-clock positions. This supersedes D-110's minute-only Sub-bell restriction. |
 | 2026-09-07 | D-116 | Accepted | A saved configuration is portable as one versioned, human-readable Chandas JSON envelope. A selected configuration can be copied or saved as a `.chandas.json` file; the library can paste or open either representation. Import validates and normalizes before mutation, creates a fresh local identity and non-conflicting name, saves the imported copy, and opens its preview without replacing unsaved work. Device-specific sound references are retained with a gentle portability warning. |
+| 2026-09-07 | D-117 | Accepted | A selected configuration is a focused detail state rather than a card nested inside the Configurations sheet: its saved name becomes the sheet title, `Cancel` and `Load` occupy the standard leading/trailing header positions, and one `Export` action copies the portable representation. Successful export raises a gentle toast offering the secondary `Save file` action. App feedback renders exactly once in the topmost visible sheet's native modal window, falling back to the root window only when no sheet is open, so modal backdrops never dim or cover feedback. |
 
 ### Decision-entry template
 
@@ -2808,7 +2809,7 @@ This section is append-only. Every implementation session should record scope, m
 
 **Behavior implemented:**
 
-- A selected saved configuration now offers the shared text actions `Copy` and `Save file`. Copy writes the versioned configuration to the system clipboard; Save file downloads directly on web and opens the native file-sharing destination sheet on Android/iOS.
+- A selected saved configuration now becomes a focused detail sheet: its name is the title, `Cancel` and `Load` use the standard header positions, and a single `Export` action writes the versioned representation to the system clipboard. The success toast then offers `Save file` as an optional follow-up; that action downloads directly on web and opens the native file-sharing destination sheet on Android/iOS.
 - The main Configurations view adds one quiet Import configuration row with `Paste` and `Open file`. Successful imports are added as new immutable saved copies and opened in the existing visual inspector before the user chooses Load, so current unsaved edits are never discarded by import.
 - Transfer parsing is bounded to one small configuration, rejects malformed or unsupported future versions without changing state, normalizes every program field through the storage-domain rules, gives the import a fresh local identity and timestamp, and suffixes duplicate names.
 - Built-in sounds transfer normally. Android ringtone and picked-document references remain in the file, with feedback explaining that device-specific sounds may need to be selected again on another device.
@@ -2817,6 +2818,23 @@ This section is append-only. Every implementation session should record scope, m
 **Migration impact:** The configuration envelope is additive and separate from local storage schema. `expo-clipboard`, `expo-document-picker`, `expo-file-system`, and `expo-sharing` are now direct dependencies, so mobile use requires a new native binary/runtime fingerprint. No permission or custom native-source change is required.
 
 **Verification run:** TypeScript compilation, domain tests for exact-timing round trip, duplicate naming, invalid/future/oversized rejection, and safe filenames; whitespace validation; live Expo Web inspection of the import row and selected-configuration export actions. Native clipboard, document provider, share destination, cancellation, and TalkBack behavior remain for the next device pass.
+
+### 2026-09-07 — Focused configuration export and modal-safe feedback
+
+**Status:** Complete in source.
+
+**Scope:** Selected-configuration action hierarchy and feedback layering across root, sheet, and nested-sheet contexts.
+
+**Behavior implemented:**
+
+- The selected configuration's name is promoted to the sheet title. `Cancel` returns to the library, `Load` remains the clear completion action, and the former parallel `Copy`/`Save file` actions are consolidated into one `Export` action.
+- Export copies first and presents `Save file` only as a reversible follow-up in the success toast, keeping the detail surface quiet without removing either transfer route.
+- Bottom sheets register in a small visible-sheet stack. The root feedback host is suppressed while a sheet is active, and the topmost active sheet renders the same shared banner above its own backdrop. Nested sheets hand the feedback host back to their parent as they close.
+- Repeated or stale visibility registrations are no-ops, preventing render churn and duplicate sheet identifiers.
+
+**Migration impact:** JavaScript/UI only beyond the transfer dependencies already recorded above; this refinement introduces no additional native capability or fingerprint change.
+
+**Verification run:** TypeScript compilation, unit coverage for parent/nested sheet stack ordering and no-op registration, full JavaScript test suite, and live Expo Web inspection including an Export toast above the open configuration sheet.
 
 ### Implementation-entry template
 
@@ -2888,3 +2906,4 @@ This section is append-only. Every implementation session should record scope, m
 | 4.5 | 2026-09-07 | Extended Advanced second precision through Sub-bell cadence, selected cues, visuals, presets, collision priority, and contract-v10 Android scheduling. |
 | 4.6 | 2026-09-07 | Completed Second precision coverage with exact custom timed mute UI, state, and contract-v10 background enforcement while retaining a safe older-runtime fallback. |
 | 4.7 | 2026-09-07 | Added versioned single-configuration copy/paste and file transfer with safe import preview, validation, duplicate naming, and device-sound portability feedback. |
+| 4.8 | 2026-09-07 | Focused configuration details around Cancel, Load, and one clipboard-first Export action, with optional file save in a toast that now renders above the topmost modal overlay. |
