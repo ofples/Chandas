@@ -28,13 +28,18 @@ class ChandasAlarmService : Service() {
     const val EXTRA_SOUND_ID = "soundId"
     @Volatile private var live = false
 
-    /** Repairs a ringing alarm after process recreation without restarting a live player. */
-    fun ensureRunning(context: Context, config: TimerConfig) {
-      if (live || !TimerStateStore.isRinging(context)) return
+    fun start(context: Context, config: TimerConfig): Boolean = runCatching {
       ContextCompat.startForegroundService(context, Intent(context, ChandasAlarmService::class.java).apply {
         action = ACTION_START
         putExtra(EXTRA_SOUND_ID, config.alarmSoundId)
       })
+      true
+    }.getOrDefault(false)
+
+    /** Repairs a ringing alarm after process recreation without restarting a live player. */
+    fun ensureRunning(context: Context, config: TimerConfig) {
+      if (live || !TimerStateStore.isRinging(context)) return
+      start(context, config)
     }
   }
 
@@ -105,8 +110,14 @@ class ChandasAlarmService : Service() {
       return
     }
     stopHandled = false
-    TimerNotifications.ensureChannels(this)
-    promoteForeground(buildNotification(config))
+    val promoted = runCatching {
+      TimerNotifications.ensureChannels(this)
+      promoteForeground(buildNotification(config))
+    }.isSuccess
+    if (!promoted) {
+      failStartWithoutLimbo(config)
+      return
+    }
     TimerStateStore.setRinging(this, true)
     TimerStateStore.setAlarmVisible(this, true)
     AlarmStateRegistry.notify(true)
@@ -154,6 +165,25 @@ class ChandasAlarmService : Service() {
     } catch (_: Exception) {
       silenceAndResume()
     }
+  }
+
+  private fun failStartWithoutLimbo(config: TimerConfig) {
+    stopHandled = true
+    ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+    TimerStateStore.setRinging(this, false)
+    TimerStateStore.setAlarmVisible(this, false)
+    AlarmStateRegistry.notify(false)
+    TimerNotifications.postRunning(this, config)
+    TimerHaptics.cue(this, config.haptics, primary = true)
+    ChandasCueService.play(
+      this,
+      config.alarmSoundId,
+      R.raw.alarm,
+      (config.volume * config.alarmVolume).coerceIn(0f, 1f),
+      TimerEventType.MAIN,
+      config.notificationPresentation,
+    )
+    stopSelf()
   }
 
   private fun dismissAndResume() {

@@ -5,7 +5,6 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import androidx.core.content.ContextCompat
 import kotlin.math.min
 
 object TimerScheduler {
@@ -277,18 +276,7 @@ object TimerScheduler {
 
     if (type == TimerEventType.MAIN && (config.alarmModeEnabled || alarmOnce)) {
       scheduleNext(context, config)
-      TimerStateStore.setRinging(context, true)
-      TimerStateStore.setAlarmVisible(context, true)
-      AlarmStateRegistry.notify(true)
-      TimerNotifications.cancelRunning(context)
-      ContextCompat.startForegroundService(
-        context,
-        Intent(context, ChandasAlarmService::class.java).apply {
-          action = ChandasAlarmService.ACTION_START
-          putExtra(ChandasAlarmService.EXTRA_SOUND_ID, config.alarmSoundId)
-        },
-      )
-      onFinished()
+      launchAlarmOrFallback(context, config, type, onFinished)
       return
     }
 
@@ -344,16 +332,8 @@ object TimerScheduler {
     val alarmOnce = isPatternMain && !event.completesRun && TimerStateStore.consumeAlarmOnce(context)
     if (isPatternMain && !event.completesRun && (config.alarmModeEnabled || alarmOnce)) {
       scheduleNext(context, config)
-      TimerStateStore.setRinging(context, true)
-      TimerStateStore.setAlarmVisible(context, true)
-      AlarmStateRegistry.notify(true)
-      TimerNotifications.cancelRunning(context)
       emitV2Event(event, suppressed = false, reason = "none")
-      ContextCompat.startForegroundService(context, Intent(context, ChandasAlarmService::class.java).apply {
-        action = ChandasAlarmService.ACTION_START
-        putExtra(ChandasAlarmService.EXTRA_SOUND_ID, config.alarmSoundId)
-      })
-      onFinished()
+      launchAlarmOrFallback(context, config, TimerEventType.V2, onFinished)
       return
     }
     TimerHaptics.cue(context, config.haptics, primary = event.boundary != TimerV2Boundary.PATTERN_OFFSET)
@@ -389,6 +369,40 @@ object TimerScheduler {
     )
     if (handedOff) onReceiverFinished()
     else TimerSoundPlayer.play(context, soundId, fallbackResId, volume, onReceiverFinished)
+  }
+
+  private fun launchAlarmOrFallback(
+    context: Context,
+    config: TimerConfig,
+    type: TimerEventType,
+    onReceiverFinished: () -> Unit,
+  ) {
+    TimerStateStore.setRinging(context, true)
+    TimerStateStore.setAlarmVisible(context, true)
+    AlarmStateRegistry.notify(true)
+    TimerNotifications.cancelRunning(context)
+    if (ChandasAlarmService.start(context, config)) {
+      onReceiverFinished()
+      return
+    }
+
+    // Never leave an alarm overlay/state behind when Android rejects the
+    // foreground launch. Restore the running surface and preserve one audible
+    // alarm cue through the ordinary cue service.
+    TimerStateStore.setRinging(context, false)
+    TimerStateStore.setAlarmVisible(context, false)
+    AlarmStateRegistry.notify(false)
+    TimerNotifications.postRunning(context, config)
+    TimerHaptics.cue(context, config.haptics, primary = true)
+    playCue(
+      context,
+      config,
+      type,
+      config.alarmSoundId,
+      R.raw.alarm,
+      (config.volume * config.alarmVolume).coerceIn(0f, 1f),
+      onReceiverFinished,
+    )
   }
 
   private fun emitV2Event(event: TimerV2Event, suppressed: Boolean, reason: String) {
