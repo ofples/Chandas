@@ -55,4 +55,19 @@ class TimerCountdownTextTest {
     assertEquals("1:12", TimerCountdownText.compactStatus(identity = "", currentAt = 72_000L, now = 0L))
     assertNull(TimerCountdownText.compactStatus(identity = "2D", currentAt = 10L, now = 10L))
   }
+
+  @Test fun boundedProgramsKeepBothDeadlinesWhileContinuousProgramsKeepIdentity() {
+    assertEquals(
+      "12s·10m",
+      TimerCountdownText.forProgram(identity = "2D", currentAt = 12_000L, finalAt = 600_000L, currentIsFinal = false, now = 0L),
+    )
+    assertEquals(
+      "2D·12s",
+      TimerCountdownText.forProgram(identity = "2D", currentAt = 12_000L, finalAt = 0L, currentIsFinal = false, now = 0L),
+    )
+    assertEquals(
+      "12s",
+      TimerCountdownText.forProgram(identity = "2D", currentAt = 12_000L, finalAt = 12_000L, currentIsFinal = true, now = 0L),
+    )
+  }
 }

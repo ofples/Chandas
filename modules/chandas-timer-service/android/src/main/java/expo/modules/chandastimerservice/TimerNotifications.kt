@@ -147,9 +147,11 @@ object TimerNotifications {
         .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
         .setPriority(NotificationCompat.PRIORITY_LOW)
     if (config.liveCountdownEnabled && countdownAt > now) {
-      val compactCountdown = TimerCountdownText.compactStatus(
+      val compactCountdown = TimerCountdownText.forProgram(
         identity = notificationContext?.compactIdentity.orEmpty(),
         currentAt = countdownAt,
+        finalAt = config.timerV2EndsAt,
+        currentIsFinal = event?.completesRun == true || countdownAt == config.timerV2EndsAt,
         now = now,
       )
       builder
@@ -234,6 +236,11 @@ internal object TimerCountdownText {
     if (!hasFinalPair) return current
     return "$current·${ceilUnits(finalAt - now, MINUTE_MS)}m"
   }
+
+  /** Bounded runs prioritize both deadlines; continuous runs use interval identity. */
+  fun forProgram(identity: String, currentAt: Long, finalAt: Long, currentIsFinal: Boolean, now: Long): String? =
+    if (finalAt > 0L) compact(currentAt, finalAt, currentIsFinal, now)
+    else compactStatus(identity, currentAt, now)
 
   /**
    * Android recommends at most seven characters for promoted-notification
