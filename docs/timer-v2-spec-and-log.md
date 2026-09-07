@@ -1451,6 +1451,7 @@ Do not edit old entries to reflect new conclusions. Add a superseding entry and 
 | 2026-09-07 | D-115 | Accepted | Advanced Second precision applies to every elapsed-duration input: Cycle duration, Sequence steps, bounded run duration, Sub-bell repeat cadence/cue positions, and custom timed mute. Minute presets remain the default fast path. Schedule ranges and clock phase stay minute-based because they select wall-clock positions. This supersedes D-110's minute-only Sub-bell restriction. |
 | 2026-09-07 | D-116 | Accepted | A saved configuration is portable as one versioned, human-readable Chandas JSON envelope. A selected configuration can be copied or saved as a `.chandas.json` file; the library can paste or open either representation. Import validates and normalizes before mutation, creates a fresh local identity and non-conflicting name, saves the imported copy, and opens its preview without replacing unsaved work. Device-specific sound references are retained with a gentle portability warning. |
 | 2026-09-07 | D-117 | Accepted | A selected configuration is a focused detail state rather than a card nested inside the Configurations sheet: its saved name becomes the sheet title, `Cancel` and `Load` occupy the standard leading/trailing header positions, and one `Export` action copies the portable representation. Successful export raises a gentle toast offering the secondary `Save file` action. App feedback renders exactly once in the topmost visible sheet's native modal window, falling back to the root window only when no sheet is open, so modal backdrops never dim or cover feedback. |
+| 2026-09-07 | D-118 | Accepted | Web exposes Haptics only on a coarse-pointer touch device, matching Expo's usable touch-feedback route; desktop web hides the Advanced Haptics row and skips all haptic calls even if the browser advertises a vibration API without tactile hardware. Other native-only integrations remain omitted on web. While a sheet is closing, its last visible title, actions, body, and footer remain frozen so state cleanup cannot swap content into the outgoing surface. Web sheets use a short content entrance and immediate portal dismissal instead of React Native Web's whole-modal fade, which otherwise blends sheet text with the screen underneath for 250 ms. Native modal animation remains unchanged. |
 
 ### Decision-entry template
 
@@ -2836,6 +2837,22 @@ This section is append-only. Every implementation session should record scope, m
 
 **Verification run:** TypeScript compilation, unit coverage for parent/nested sheet stack ordering and no-op registration, full JavaScript test suite, and live Expo Web inspection including an Export toast above the open configuration sheet.
 
+### 2026-09-07 — Platform-aware haptics and stable sheet dismissal
+
+**Status:** Complete in source.
+
+**Scope:** Web capability presentation and shared BottomSheet exit lifecycle.
+
+**Behavior implemented:**
+
+- Haptic calls and the Advanced Haptics editor are available on native devices and coarse-pointer web devices. Desktop web hides the setting and avoids dispatching no-op vibration requests; Android-only Focus and system integrations remain hidden as before.
+- BottomSheet preserves its last visible title, header actions, body, footer, and callbacks throughout an outgoing transition. State cleanup after `visible=false` can no longer replace that presentation mid-dismissal.
+- React Native Web's whole-portal fade is replaced by a brief sheet entrance and immediate close. This prevents the translucent overlap that made outgoing modal text appear to flash over the setup screen. Native keeps the platform modal fade.
+
+**Migration impact:** JavaScript/UI only; no native capability, dependency, or runtime-fingerprint change.
+
+**Verification run:** TypeScript compilation, full JavaScript tests, source inspection of Expo Haptics and React Native Web ModalAnimation behavior, and frame-by-frame live Expo Web inspection at 60 ms and after dismissal. The unsupported desktop Haptics row was confirmed absent.
+
 ### Implementation-entry template
 
 ```md
@@ -2907,3 +2924,4 @@ This section is append-only. Every implementation session should record scope, m
 | 4.6 | 2026-09-07 | Completed Second precision coverage with exact custom timed mute UI, state, and contract-v10 background enforcement while retaining a safe older-runtime fallback. |
 | 4.7 | 2026-09-07 | Added versioned single-configuration copy/paste and file transfer with safe import preview, validation, duplicate naming, and device-sound portability feedback. |
 | 4.8 | 2026-09-07 | Focused configuration details around Cancel, Load, and one clipboard-first Export action, with optional file save in a toast that now renders above the topmost modal overlay. |
+| 4.9 | 2026-09-07 | Hid unavailable desktop-web haptics and stabilized shared sheet dismissal by freezing outgoing content and avoiding React Native Web's translucent whole-modal fade. |

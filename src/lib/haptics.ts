@@ -1,10 +1,19 @@
 import * as Haptics from 'expo-haptics'
+import { Platform } from 'react-native'
 import type { HapticProfile, TimerHapticsSettings } from '../types'
 import type { NativeTimerEvent } from '../native/ChandasTimerService'
 import { ChandasTimerService, isNativeServiceAvailable } from '../native/ChandasTimerService'
 
 let appHapticsEnabled = true
 let repeatingAlarmTimer: ReturnType<typeof setInterval> | null = null
+
+/** Whether this device exposes a haptic route that Expo can actually use. */
+export function hapticFeedbackAvailable(): boolean {
+  if (Platform.OS !== 'web') return true
+  // Desktop browsers can expose navigator.vibrate without any tactile hardware.
+  // Expo's touch-device fallback uses this same coarse-pointer signal.
+  return typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches === true
+}
 
 export function setAppHapticsEnabled(enabled: boolean): void {
   appHapticsEnabled = enabled
@@ -13,32 +22,33 @@ export function setAppHapticsEnabled(enabled: boolean): void {
 
 /** Fire-and-forget haptics. Every call is safe on devices without a vibrator. */
 export function tapHaptic(): void {
-  if (!appHapticsEnabled) return
+  if (!appHapticsEnabled || !hapticFeedbackAvailable()) return
   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined)
 }
 
 export function selectionHaptic(): void {
-  if (!appHapticsEnabled) return
+  if (!appHapticsEnabled || !hapticFeedbackAvailable()) return
   void Haptics.selectionAsync().catch(() => undefined)
 }
 
 export function mediumHaptic(): void {
-  if (!appHapticsEnabled) return
+  if (!appHapticsEnabled || !hapticFeedbackAvailable()) return
   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => undefined)
 }
 
 export function successHaptic(): void {
-  if (!appHapticsEnabled) return
+  if (!appHapticsEnabled || !hapticFeedbackAvailable()) return
   void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined)
 }
 
 export function timerCueHaptic(boundary: NativeTimerEvent['boundary'], settings: TimerHapticsSettings): void {
-  if (!settings.enabled) return
+  if (!settings.enabled || !hapticFeedbackAvailable()) return
   void playExpoProfile(boundary === 'pattern-offset' ? settings.subBell : settings.main)
 }
 
 /** Explicit previews remain available while the global switch is off. */
 export async function previewHapticProfile(profile: HapticProfile): Promise<boolean> {
+  if (!hapticFeedbackAvailable()) return false
   if (isNativeServiceAvailable && ChandasTimerService.getCapabilities()?.supportsHapticProfiles === true) {
     return ChandasTimerService.previewHaptic(profile)
   }
@@ -48,7 +58,7 @@ export async function previewHapticProfile(profile: HapticProfile): Promise<bool
 
 export function startRepeatingAlarmHaptic(settings: TimerHapticsSettings): void {
   stopRepeatingAlarmHaptic()
-  if (!settings.enabled) return
+  if (!settings.enabled || !hapticFeedbackAvailable()) return
   const play = () => { void playExpoProfile(settings.alarm) }
   play()
   repeatingAlarmTimer = setInterval(play, profileGroupDuration(settings.alarm) + 650)

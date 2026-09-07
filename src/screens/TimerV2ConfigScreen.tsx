@@ -29,7 +29,7 @@ import { soundTitle } from '../lib/soundLibrary'
 import { MAX_VISIBLE_PATTERN_OFFSETS, formatCompactDurationSeconds, patternDurationSeconds, sequenceStepDurationSeconds, trackCadenceSeconds, trackSelectedOffsetsSeconds, validOffsetsForCadenceSeconds } from '../lib/timerV2'
 import { useTheme } from '../theme/ThemeContext'
 import { useSoundAvailability } from '../hooks/use-sound-availability'
-import { mediumHaptic, selectionHaptic, setAppHapticsEnabled, tapHaptic } from '../lib/haptics'
+import { hapticFeedbackAvailable, mediumHaptic, selectionHaptic, setAppHapticsEnabled, tapHaptic } from '../lib/haptics'
 import { ChandasTimerService, isNativeServiceAvailable } from '../native/ChandasTimerService'
 import { GentleNotice, type AppNotice } from '../components/timer-v2/experience-feedback'
 import { hasAvailableTime } from '../lib/activeHours'
@@ -97,7 +97,7 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
   const settings = state.settings
   const nativeCapabilities = ChandasTimerService.getCapabilities()
   const alarmSoundSupported = !isNativeServiceAvailable || nativeCapabilities?.supportsAlarmSound === true
-  const hapticsSupported = !isNativeServiceAvailable || nativeCapabilities?.supportsHapticProfiles === true
+  const hapticsSupported = hapticFeedbackAvailable() && (!isNativeServiceAvailable || nativeCapabilities?.supportsHapticProfiles === true)
   const secondPrecisionSupported = !isNativeServiceAvailable || nativeCapabilities?.supportsSecondPrecision === true
   const subBellSecondPrecisionSupported = !isNativeServiceAvailable || nativeCapabilities?.supportsSubBellSecondPrecision === true
   const programClockAlignmentSupported = !isNativeServiceAvailable || nativeCapabilities?.supportsProgramClockAlignment === true
