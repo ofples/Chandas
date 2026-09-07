@@ -182,7 +182,10 @@ object TimerScheduler {
       },
       PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
-    TimerStateStore.setNext(context, triggerAt, type, logicalId, generation)
+    if (!runCatching { TimerStateStore.setNext(context, triggerAt, type, logicalId, generation) }.getOrDefault(false)) {
+      stop(context)
+      return false
+    }
     val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
     try {
       val showIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.let { launchIntent ->
@@ -204,8 +207,10 @@ object TimerScheduler {
         @Suppress("DEPRECATION")
         alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAt, operation)
       }
-    } catch (_: SecurityException) {
-      stopForExactAccess(context)
+    } catch (_: RuntimeException) {
+      // Permission revocation, OS alarm limits, and persistence/platform
+      // failures must never leave an apparently active timer without an alarm.
+      stop(context)
       return false
     }
     TimerNotifications.postRunning(context, active)

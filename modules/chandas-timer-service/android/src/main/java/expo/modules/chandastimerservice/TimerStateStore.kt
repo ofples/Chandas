@@ -145,14 +145,13 @@ object TimerStateStore {
   fun isAlarmVisible(context: Context): Boolean =
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(ALARM_VISIBLE, false)
 
-  fun setNext(context: Context, at: Long, type: TimerEventType, logicalId: String, generation: String) {
+  fun setNext(context: Context, at: Long, type: TimerEventType, logicalId: String, generation: String): Boolean =
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
       .putLong(NEXT_AT, at)
       .putString(NEXT_TYPE, type.value)
       .putString(NEXT_LOGICAL_ID, logicalId)
       .putString(SESSION_GENERATION, generation)
       .commit()
-  }
 
   fun clearNext(context: Context) {
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()

@@ -23,6 +23,7 @@ EAS regenerates it from these inputs.
 | N-11 | High | Restored mute and Alarm Once controls are persisted only after the first exact event is armed, leaving a race where an immediate cue can use stale/default controls. | Resolved | `Restore controls inside native start transaction` |
 | N-12 | High | The repeat-until-dismissed alarm service is non-sticky and cannot handle a null restart intent, so process reclamation can silently end an active alarm. | Resolved | `Restore reclaimed native alarms` |
 | N-13 | Critical | Alarm delivery marks state as ringing before an uncaught foreground-service launch. A rejected launch can leave a visible ringing/lock-screen state with no service or sound. | Resolved | `Fail alarm service launch without limbo` |
+| N-14 | High | Exact scheduling ignores the durable `setNext` result and catches only permission failures. Other persistence/platform failures can leave an active session with no future alarm. | Resolved | `Fail closed when exact scheduling fails` |
 
 ## Reviewed and currently acceptable
 
