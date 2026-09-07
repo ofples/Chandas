@@ -2730,6 +2730,40 @@ This section is append-only. Every implementation session should record scope, m
 
 **Risks or follow-ups:** OEM exact-alarm delivery delayed beyond five seconds is treated as stale and remains silent. This intentionally favors quiet-hours safety over replaying a substantially late closing gong.
 
+### 2026-09-07 — Current-interval notification identity
+
+**Status:** Complete in source; Android presentation requires the next native build and physical-device verification.
+
+**Scope:** Expanded running-notification copy and Android 16 promoted status-chip identity.
+
+**Behavior implemented:**
+
+- The expanded running notification names the interval that is currently in progress. Sequence mode follows exact step boundaries and wraps to step one; Cycle mode uses the editable main-interval name and safely falls back to `Main interval` for older saved programs.
+- The promoted status chip combines the Sequence step number, a compact title identity, and time to the next effective cue, such as `2D·1:12`. Cycle mode uses the main interval's compact identity.
+- Critical text is deliberately bounded to Android's suggested seven characters. When the countdown needs more room, identity is shortened first instead of leaving truncation to the system UI.
+
+**Migration impact:** Internal native presentation only. No stored-data, permission, manifest, dependency, program-schema, or bridge-capability change; a replacement Android binary is required.
+
+**Verification run:** TypeScript compilation, all 100 JavaScript tests, whitespace validation, focused native formatter and boundary cases added, and static review against Android's promoted-ongoing notification guidance. Local native compilation remains prohibited by repository policy.
+
+### 2026-09-07 — Contextual help and clean sheet entry
+
+**Status:** Complete in source; ready for OTA delivery after final release verification.
+
+**Scope:** Configuration guidance, running help, Advanced visibility, shared preference state, and reusable sheet edge fades.
+
+**Behavior implemented:**
+
+- The configuration question mark now toggles short explanations beside the controls they describe. Cycle and Sequence wording changes with the selected mode; optional-setting explanations only exist while Advanced mode itself is visible.
+- The running help sheet now contains only the timer display and controls that are actually visible for the current mode. Alarm and Focus guidance appears only in Advanced mode.
+- A simple `Show advanced` action in running help updates the same persisted `advancedModeEnabled` preference used by configuration, so visibility cannot diverge between screens.
+- Removed implementation details and edge-case policy language from user-facing help. Copy now explains intent and expected interaction in ordinary language.
+- Reopening any shared bottom sheet resets its scroller to the top. Its upper scrim cannot appear until the user has actually scrolled, preventing the first help item from opening already faded or clipped.
+
+**Migration impact:** JavaScript/UI-only and compatible with the current runtime fingerprint. No native source, packaged asset, permission, manifest, dependency, or schema change.
+
+**Verification run:** TypeScript compilation, automated application tests, whitespace validation, and Expo Web visual inspection of the running help and configuration inline-help states. Native touch, TalkBack, reduced-motion, and small-screen checks remain part of the next device pass.
+
 ### Implementation-entry template
 
 ```md
@@ -2794,3 +2828,5 @@ This section is append-only. Every implementation session should record scope, m
 | 3.9 | 2026-09-06 | Compacted paired status-chip values with a neutral middle dot and context-aware minute padding so common pairs fit Android's suggested seven-character budget. |
 | 4.0 | 2026-09-06 | Generalized clock alignment to exact Cycle durations and complete Sequence rounds, preserving the minute-first phase UI with contract-v9 native timezone reconciliation. |
 | 4.1 | 2026-09-07 | Made the exact closing boundary of an active-hours range audible without extending availability, Focus, or late-cue replay into quiet hours. |
+| 4.2 | 2026-09-07 | Replaced generic Android running copy with the current Cycle/Sequence identity and a seven-character step-aware promoted status chip. |
+| 4.3 | 2026-09-07 | Moved setup guidance inline, made running help mode/visibility-aware, shared Advanced state across contexts, and prevented stale top sheet scrims. |

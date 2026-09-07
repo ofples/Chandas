@@ -1,4 +1,4 @@
-import { useCallback, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ScrollView, StyleSheet, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent, type ScrollViewProps } from 'react-native'
 import Animated, { FadeIn, FadeOut, useReducedMotion } from 'react-native-reanimated'
 import { ScrollEdgeFade } from './ScrollEdgeFade'
@@ -6,17 +6,26 @@ import { ScrollEdgeFade } from './ScrollEdgeFade'
 interface Props extends Omit<ScrollViewProps, 'horizontal' | 'showsVerticalScrollIndicator'> {
   children: ReactNode
   fadeColor: string
+  resetKey?: unknown
 }
 
 /** A vertical scroller that gently marks only the edges with hidden content. */
-export function FadedVerticalScrollView({ children, fadeColor, style, contentContainerStyle, onLayout, onContentSizeChange, onScroll, ...props }: Props) {
+export function FadedVerticalScrollView({ children, fadeColor, resetKey, style, contentContainerStyle, onLayout, onContentSizeChange, onScroll, onScrollBeginDrag, ...props }: Props) {
   const reducedMotion = useReducedMotion()
+  const scrollRef = useRef<ScrollView>(null)
   const [viewportHeight, setViewportHeight] = useState(0)
   const [contentHeight, setContentHeight] = useState(0)
   const [offset, setOffset] = useState(0)
+  const [userHasScrolled, setUserHasScrolled] = useState(false)
   const overflow = contentHeight > viewportHeight + 2
-  const showTop = overflow && offset > 2
+  const showTop = overflow && userHasScrolled && offset > 2
   const showBottom = overflow && offset + viewportHeight < contentHeight - 2
+
+  useEffect(() => {
+    setOffset(0)
+    setUserHasScrolled(false)
+    requestAnimationFrame(() => scrollRef.current?.scrollTo({ y: 0, animated: false }))
+  }, [resetKey])
 
   const handleLayout = useCallback((event: LayoutChangeEvent) => {
     setViewportHeight(event.nativeEvent.layout.height)
@@ -30,14 +39,20 @@ export function FadedVerticalScrollView({ children, fadeColor, style, contentCon
     setOffset(Math.max(0, event.nativeEvent.contentOffset.y))
     onScroll?.(event)
   }, [onScroll])
+  const handleScrollBeginDrag = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    setUserHasScrolled(true)
+    onScrollBeginDrag?.(event)
+  }, [onScrollBeginDrag])
 
   const enter = reducedMotion ? undefined : FadeIn.duration(110)
   const exit = reducedMotion ? undefined : FadeOut.duration(90)
   return <View style={[styles.wrap, style]} onLayout={handleLayout}>
     <ScrollView
+      ref={scrollRef}
       {...props}
       showsVerticalScrollIndicator={false}
       onScroll={handleScroll}
+      onScrollBeginDrag={handleScrollBeginDrag}
       scrollEventThrottle={16}
       onContentSizeChange={handleContentSizeChange}
       contentContainerStyle={contentContainerStyle}

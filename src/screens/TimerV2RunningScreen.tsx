@@ -54,6 +54,7 @@ interface Props {
   onMasterVolumeChange: (value: number) => void
   onCueVolumeChange: (cueId: string, volume: number) => void
   showAdvancedControls: boolean
+  onShowAdvancedControls: () => void
   focusEnabled: boolean
   focusActive: boolean
   focusPolicyAccess: boolean
@@ -171,7 +172,15 @@ export function TimerV2RunningScreen(props: Props) {
     <RunningMixerSheet visible={mixerOpen} onClose={() => setMixerOpen(false)} program={props.program} masterVolume={props.masterVolume} onMasterVolumeChange={props.onMasterVolumeChange} onCueVolumeChange={props.onCueVolumeChange} mute={props.mute} onMuteIterations={props.onMuteForIterations} onClearMute={props.onClearMute} onCustom={() => { setMixerOpen(false); setCustomMute(true) }} />
     <SnapSheet visible={snapOpen} cycleDurationSeconds={cycleDurationSeconds} current={props.program.alignment.kind === 'local-clock' ? props.program.alignment.offsetMinutes : 0} onSelect={props.onSnapToClock} onClose={() => setSnapOpen(false)} />
     {customMute ? <CustomMinutePicker title="Mute duration" initial={15} min={1} max={1440} onConfirm={minutes => { props.onMuteForMinutes(minutes); setCustomMute(false) }} onClose={() => setCustomMute(false)} /> : null}
-    <TimerHelpSheet visible={helpOpen} onClose={() => setHelpOpen(false)} onOpenFocusSettings={props.onOpenFocusSettings} />
+    <TimerHelpSheet
+      visible={helpOpen}
+      mode={props.program.mode}
+      clockAlignmentVisible={clockAlignmentAvailable}
+      advancedModeEnabled={props.showAdvancedControls}
+      onShowAdvanced={props.onShowAdvancedControls}
+      onClose={() => setHelpOpen(false)}
+      onOpenFocusSettings={props.onOpenFocusSettings}
+    />
     {tooltip ? <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 160)} exiting={FadeOut.duration(reducedMotion ? 70 : 130)} style={[styles.tooltip, { backgroundColor: tokens.surfaceHi, borderColor: tokens.border, pointerEvents: 'none' }]}><Text style={[styles.tooltipText, { color: tokens.text }]}>{tooltip}</Text></Animated.View> : null}
   </View>
 }

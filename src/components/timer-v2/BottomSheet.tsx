@@ -24,7 +24,7 @@ export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClo
   const insets = useSafeAreaInsets()
   const keyboardVisible = useKeyboardVisible(visible)
   const body = scroll
-    ? <FadedVerticalScrollView fadeColor={tokens.surface} style={styles.scroll} keyboardShouldPersistTaps="never" keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'} contentContainerStyle={styles.body}>{children}</FadedVerticalScrollView>
+    ? <FadedVerticalScrollView fadeColor={tokens.surface} resetKey={visible} style={styles.scroll} keyboardShouldPersistTaps="never" keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'} contentContainerStyle={styles.body}>{children}</FadedVerticalScrollView>
     : <View style={styles.body}>{children}</View>
 
   return (

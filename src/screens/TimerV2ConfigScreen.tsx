@@ -14,7 +14,6 @@ import { OffsetGrid } from '../components/timer-v2/OffsetGrid'
 import { PresetLibrarySheet } from '../components/timer-v2/PresetLibrarySheet'
 import { ReorderHandle } from '../components/timer-v2/ReorderHandle'
 import { SoundPickerSheet } from '../components/timer-v2/SoundPickerSheet'
-import { TimerHelpSheet } from '../components/timer-v2/TimerHelpSheet'
 import { SoundName } from '../components/timer-v2/SoundName'
 import { RunLengthConfig } from '../components/timer-v2/run-length-config'
 import { ScheduleConfig } from '../components/timer-v2/schedule-config'
@@ -81,7 +80,7 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
   const [scheduleOpen, setScheduleOpen] = useState(false)
   const [systemAccessOpen, setSystemAccessOpen] = useState(false)
   const [hapticsOpen, setHapticsOpen] = useState(false)
-  const [helpOpen, setHelpOpen] = useState(false)
+  const [inlineHelpVisible, setInlineHelpVisible] = useState(false)
   const [sequenceReordering, setSequenceReordering] = useState(false)
   const scrollRef = useRef<ScrollView>(null)
   const scrollOffsetRef = useRef(0)
@@ -235,12 +234,14 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
         <SegmentedControl items={MODE_CHOICES} value={state.workingPrograms.selectedMode} onChange={selectMode} accessibilityLabel="Timer mode" />
 
         <Reanimated.View key={program.mode} entering={FadeIn.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 120)} style={styles.modeContent}>
-          {program.mode === 'pattern' ? <PatternEditor state={state} onChange={onChange} enhancedClockAlignmentSupported={programClockAlignmentSupported} onOpenSubBells={() => setSubBellsOpen(true)} onOpenHelp={() => setHelpOpen(true)} /> : <SequenceEditor state={state} onChange={onChange} clockAlignmentSupported={programClockAlignmentSupported} onEditCue={setCueTarget} onAdd={addStep} onOpenHelp={() => setHelpOpen(true)} onReorderingChange={handleSequenceReordering} onAutoScroll={autoScrollSequence} />}
+          {program.mode === 'pattern' ? <PatternEditor state={state} onChange={onChange} enhancedClockAlignmentSupported={programClockAlignmentSupported} onOpenSubBells={() => setSubBellsOpen(true)} showHelp={inlineHelpVisible} onToggleHelp={() => setInlineHelpVisible(visible => !visible)} /> : <SequenceEditor state={state} onChange={onChange} clockAlignmentSupported={programClockAlignmentSupported} onEditCue={setCueTarget} onAdd={addStep} showHelp={inlineHelpVisible} onToggleHelp={() => setInlineHelpVisible(visible => !visible)} onReorderingChange={handleSequenceReordering} onAutoScroll={autoScrollSequence} />}
         </Reanimated.View>
 
         <View style={styles.section}>
           <VolumeControl label="Volume" value={settings.masterVolume} onChange={masterVolume => changeSettings({ masterVolume })} onOpenMixer={() => setMixerOpen(true)} />
+          <InlineHelp visible={inlineHelpVisible}>Sets the overall timer volume. Open the mixer to adjust and preview each sound separately.</InlineHelp>
           {program.mode === 'pattern' ? <CueRow title="Main gong" detail={soundTitle(program.mainCue.sound)} sound={program.mainCue.sound} onPress={() => setCueTarget({ kind: 'main' })} /> : null}
+          {program.mode === 'pattern' ? <InlineHelp visible={inlineHelpVisible}>The main gong sounds when each main interval finishes.</InlineHelp> : null}
           <CompletionCueControls state={state} onChange={onChange} onEditCue={setCueTarget} onFeedback={onFeedback} />
         </View>
 
@@ -253,23 +254,31 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
           </Reanimated.View>
         </View> : <View style={styles.advancedSection}>
           {program.mode === 'pattern' && alarmSoundSupported ? <CueRow title="Alarm sound" detail={soundTitle(settings.alarmSound)} sound={settings.alarmSound} onPress={() => setCueTarget({ kind: 'alarm' })} /> : null}
+          {program.mode === 'pattern' && alarmSoundSupported ? <InlineHelp visible={inlineHelpVisible}>Choose what plays when you arm the alarm from the running timer.</InlineHelp> : null}
 
           {program.runPolicy.kind === 'continuous' ? <View style={styles.section}>
             <View style={styles.settingRow}><Pressable style={styles.flex} onPress={() => { tapHaptic(); setScheduleOpen(true) }} accessibilityRole="button" accessibilityLabel="Edit schedule"><Text style={[styles.rowTitle, { color: tokens.text }]}>Schedule</Text><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>{settings.availability.enabled ? `${settings.availability.weeklyWindows.filter(window => window.enabled && window.days !== 0).length} active time ranges` : 'Limit bells to chosen active times.'}</Text></Pressable><Toggle value={settings.availability.enabled} onChange={enabled => changeSettings({ availability: { ...settings.availability, enabled } })} accessibilityLabel="Timer schedule" /></View>
+            <InlineHelp visible={inlineHelpVisible}>Choose the days and times when a continuous timer is allowed to sound.</InlineHelp>
             {settings.availability.enabled ? <Reanimated.View entering={FadeInDown.duration(reducedMotion ? 80 : 160)} exiting={FadeOut.duration(reducedMotion ? 70 : 110)}><ScheduleTimelinePreview value={settings.availability} onPress={() => setScheduleOpen(true)} /></Reanimated.View> : null}
           </View> : null}
 
           <ActionRow title="Configurations" detail={state.workingPrograms.sourcePreset?.deleted ? 'Working copy · source removed' : state.workingPrograms.sourcePreset ? `Loaded from ${state.workingPrograms.sourcePreset.name}` : 'Working copy'} onPress={() => setPresetsOpen(true)} accessibilityLabel="Open saved configurations" />
+          <InlineHelp visible={inlineHelpVisible}>Save the current setup for later, or load a saved setup as a new working copy.</InlineHelp>
 
           <ColorSelector label="Appearance" detail="Choose a calm color and canvas." value={accentColor} onChange={setAccentColor} accessibilityLabel="Primary interface color" trailing={<Pressable hitSlop={8} onPress={() => { tapHaptic(); toggleTheme() }} style={({ pressed }) => [styles.roundIcon, { borderColor: tokens.border, backgroundColor: pressed ? tokens.accentGlow : 'transparent', opacity: pressed ? 0.72 : 1 }]} accessibilityRole="button" accessibilityLabel={`Use ${theme === 'dark' ? 'light' : 'dark'} appearance`}><LightbulbIcon color={tokens.accent} /></Pressable>} />
+          <InlineHelp visible={inlineHelpVisible}>Tap the color dot to reveal the palette. The lightbulb switches between light and dark appearance.</InlineHelp>
 
           {secondPrecisionSupported ? <View style={styles.settingRow}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Second precision</Text><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>{settings.secondPrecisionEnabled ? 'Seconds are available in custom durations.' : 'Keep duration setup minute-first.'}</Text></View><Toggle value={settings.secondPrecisionEnabled} onChange={secondPrecisionEnabled => changeSettings({ secondPrecisionEnabled })} accessibilityLabel="Second precision" /></View> : null}
+          {secondPrecisionSupported ? <InlineHelp visible={inlineHelpVisible}>Turn this on when an interval needs to be set more precisely than whole minutes.</InlineHelp> : null}
 
           {hapticsSupported ? <View style={styles.settingRow}><Pressable style={styles.flex} onPress={() => { tapHaptic(); setHapticsOpen(true) }} accessibilityRole="button" accessibilityLabel="Configure haptics"><Text style={[styles.rowTitle, { color: tokens.text }]}>Haptics</Text><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>{settings.haptics.enabled ? 'Patterns for timer cues and alarm.' : 'Off · patterns preserved'}</Text></Pressable><Toggle value={settings.haptics.enabled} onChange={enabled => { setAppHapticsEnabled(enabled); changeSettings({ haptics: { ...settings.haptics, enabled } }) }} accessibilityLabel="Haptics" /></View> : null}
+          {hapticsSupported ? <InlineHelp visible={inlineHelpVisible}>Choose how main gongs, sub-bells, and alarms feel, or turn vibration off completely.</InlineHelp> : null}
 
           {Platform.OS === 'android' ? <FocusControl state={focusState} enabled={settings.focusAutomationEnabled} onChange={onFocusAutomationChange} onResume={() => { onFocusAutomationChange(false); onFocusAutomationChange(true) }} onOpenAccessSettings={onOpenFocusSettings} onOpenRuleSettings={onOpenFocusRuleSettings} /> : null}
+          {Platform.OS === 'android' ? <InlineHelp visible={inlineHelpVisible}>Chandas Focus can manage its own Do Not Disturb rule while the timer runs.</InlineHelp> : null}
 
           {Platform.OS === 'android' ? <ActionRow title="System integrations" detail={androidAccessSummary(androidAccess)} onPress={() => setSystemAccessOpen(true)} /> : null}
+          {Platform.OS === 'android' ? <InlineHelp visible={inlineHelpVisible}>Manage Android access for precise timing, calls, alarms, and the running notification.</InlineHelp> : null}
 
           <Pressable onPress={() => setAdvancedMode(false)} style={styles.hideAdvanced} accessibilityRole="button" accessibilityLabel="Hide advanced settings"><Text style={[styles.link, { color: tokens.accent }]}>Hide advanced</Text></Pressable>
         </View>}
@@ -291,7 +300,6 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
       {Platform.OS === 'android' ? <BottomSheet visible={systemAccessOpen} title="System integrations" onClose={() => setSystemAccessOpen(false)}><SystemAccessPanel access={androidAccess} settings={settings} onChangeSettings={changeSettings} onOpenExactAlarmSettings={onOpenExactAlarmSettings} onOpenFullScreenIntentSettings={onOpenFullScreenIntentSettings} onRequestCallMuteAccess={onRequestCallMuteAccess} onRequestNotificationAccess={onRequestNotificationAccess} /></BottomSheet> : null}
       {hapticsSupported ? <HapticsSheet visible={hapticsOpen} value={settings.haptics} onChange={haptics => changeSettings({ haptics })} onClose={() => setHapticsOpen(false)} /> : null}
       <PresetLibrarySheet visible={presetsOpen} state={state} onChange={onChange} onClose={() => setPresetsOpen(false)} onFeedback={onFeedback} />
-      <TimerHelpSheet visible={helpOpen} onClose={() => setHelpOpen(false)} onOpenFocusSettings={onOpenFocusSettings} />
     </KeyboardAvoidingView>
   )
 }
@@ -335,13 +343,13 @@ function androidAccessSummary(access: Props['androidAccess']): string {
   return 'Timing, notifications and call mute'
 }
 
-function ProgramRunLength({ state, mode, onChange }: { state: TimerV2State; mode: 'pattern' | 'sequence'; onChange: (state: TimerV2State) => void }) {
+function ProgramRunLength({ state, mode, onChange, showHelp }: { state: TimerV2State; mode: 'pattern' | 'sequence'; onChange: (state: TimerV2State) => void; showHelp: boolean }) {
   if (mode === 'pattern') {
     const program = state.workingPrograms.pattern
-    return <RunLengthConfig mode="pattern" value={program.runPolicy} cycleDurationSeconds={patternDurationSeconds(program)} secondPrecision={state.settings.secondPrecisionEnabled} onChange={runPolicy => onChange(updatePattern(state, value => ({ ...value, runPolicy })))} />
+    return <View style={styles.section}><RunLengthConfig mode="pattern" value={program.runPolicy} cycleDurationSeconds={patternDurationSeconds(program)} secondPrecision={state.settings.secondPrecisionEnabled} onChange={runPolicy => onChange(updatePattern(state, value => ({ ...value, runPolicy })))} /><InlineHelp visible={showHelp}>Choose Continuous for an open-ended timer, Cycles for a set number of main intervals, or Duration for an exact total time.</InlineHelp></View>
   }
   const program = state.workingPrograms.sequence
-  return <RunLengthConfig mode="sequence" value={program.runPolicy} cycleDurationSeconds={program.steps.reduce((sum, step) => sum + sequenceStepDurationSeconds(step), 0)} secondPrecision={state.settings.secondPrecisionEnabled} onChange={runPolicy => onChange({ ...state, workingPrograms: { ...state.workingPrograms, sequence: { ...program, runPolicy } } })} />
+  return <View style={styles.section}><RunLengthConfig mode="sequence" value={program.runPolicy} cycleDurationSeconds={program.steps.reduce((sum, step) => sum + sequenceStepDurationSeconds(step), 0)} secondPrecision={state.settings.secondPrecisionEnabled} onChange={runPolicy => onChange({ ...state, workingPrograms: { ...state.workingPrograms, sequence: { ...program, runPolicy } } })} /><InlineHelp visible={showHelp}>Choose Continuous to repeat until stopped, Cycles for a set number of full rounds, or Duration for an exact total time.</InlineHelp></View>
 }
 
 function CompletionCueControls({ state, onChange, onEditCue, onFeedback }: { state: TimerV2State; onChange: (state: TimerV2State) => void; onEditCue: (target: CueTarget) => void; onFeedback: Props['onFeedback'] }) {
@@ -373,7 +381,7 @@ function CompletionCueControls({ state, onChange, onEditCue, onFeedback }: { sta
   </Reanimated.View>
 }
 
-function PatternEditor({ state, onChange, enhancedClockAlignmentSupported, onOpenSubBells, onOpenHelp }: { state: TimerV2State; onChange: (state: TimerV2State) => void; enhancedClockAlignmentSupported: boolean; onOpenSubBells: () => void; onOpenHelp: () => void }) {
+function PatternEditor({ state, onChange, enhancedClockAlignmentSupported, onOpenSubBells, showHelp, onToggleHelp }: { state: TimerV2State; onChange: (state: TimerV2State) => void; enhancedClockAlignmentSupported: boolean; onOpenSubBells: () => void; showHelp: boolean; onToggleHelp: () => void }) {
   const { tokens } = useTheme()
   const program = state.workingPrograms.pattern
   const snapOffset = program.alignment.kind === 'local-clock' ? program.alignment.offsetMinutes : 0
@@ -389,16 +397,20 @@ function PatternEditor({ state, onChange, enhancedClockAlignmentSupported, onOpe
   })
   return <>
     <View style={styles.section}>
-      <View style={styles.titleWithHelp}><EditableTitle value={program.label} onCommit={label => onChange(updatePattern(state, value => ({ ...value, label })))} accessibilityLabel="main interval name" /><HelpButton onPress={onOpenHelp} /></View>
+      <View style={styles.titleWithHelp}><EditableTitle value={program.label} onCommit={label => onChange(updatePattern(state, value => ({ ...value, label })))} accessibilityLabel="main interval name" /><HelpButton active={showHelp} onPress={onToggleHelp} /></View>
+      <InlineHelp visible={showHelp}>This cycle repeats the same main interval. Tap its name whenever you want to rename it.</InlineHelp>
       <Text style={[styles.rowTitle, { color: tokens.text }]}>Main interval</Text>
+      <InlineHelp visible={showHelp}>Choose how much time passes between main gongs.</InlineHelp>
       <DurationSelector value={program.mainMinutes} valueSeconds={durationSeconds} secondPrecision={state.settings.secondPrecisionEnabled} presets={MAIN_PRESETS} fadeColor={tokens.bg} onChange={minutes => changeMainMinutes(state, minutes, onChange)} onChangeSeconds={changeDurationSeconds} />
-      <ProgramRunLength state={state} mode="pattern" onChange={onChange} />
+      <ProgramRunLength state={state} mode="pattern" onChange={onChange} showHelp={showHelp} />
       <View style={styles.settingRow}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Align to clock</Text><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>{clockAlignmentAvailable ? 'Keep intervals on a wall-clock rhythm.' : 'Available in the next app build.'}</Text></View><Toggle disabled={!clockAlignmentAvailable} value={clockAlignmentAvailable && program.alignment.kind === 'local-clock'} onChange={enabled => onChange(updatePattern(state, value => ({ ...value, alignment: enabled ? { kind: 'local-clock', offsetMinutes: 0 } : { kind: 'elapsed' } })))} accessibilityLabel="Align pattern to clock" /></View>
+      <InlineHelp visible={showHelp}>Turn this on when you want each cycle to land on familiar clock marks instead of simply starting from now.</InlineHelp>
       {clockAlignmentAvailable && program.alignment.kind === 'local-clock' ? <ClockSnapSelector cycleDurationSeconds={durationSeconds} value={snapOffset} compact fadeColor={tokens.bg} onChange={offsetMinutes => onChange(updatePattern(state, value => ({ ...value, alignment: { kind: 'local-clock', offsetMinutes } })))} /> : null}
     </View>
 
     <View style={styles.section}>
       <View style={styles.settingRow}><Pressable style={styles.flex} onPress={() => { tapHaptic(); onOpenSubBells() }} accessibilityRole="button" accessibilityLabel="Configure sub-bells"><Text style={[styles.rowTitle, { color: tokens.text }]}>Sub Bells</Text><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>{program.tracks.length === 0 ? 'No sub-bells yet' : `${program.subBellsEnabled ? activeTracks.length : 0} active · ${program.subBellsEnabled ? cueCount : 0} selected`}</Text></Pressable><Toggle value={program.subBellsEnabled} onChange={enabled => onChange(setPatternSubBellsEnabled(state, enabled))} accessibilityLabel="Sub-bells" /></View>
+      <InlineHelp visible={showHelp}>Add smaller cues inside the main interval—for example, a reminder five minutes before the main gong.</InlineHelp>
       {program.subBellsEnabled ? <Reanimated.View entering={FadeInDown.duration(180)} exiting={FadeOut.duration(120)} style={styles.subBellBody}>
         <PatternTimelinePreview tracks={program.tracks} mainDurationSeconds={patternDurationSeconds(program)} onPress={onOpenSubBells} />
       </Reanimated.View> : null}
@@ -406,7 +418,7 @@ function PatternEditor({ state, onChange, enhancedClockAlignmentSupported, onOpe
   </>
 }
 
-function SequenceEditor({ state, onChange, clockAlignmentSupported, onEditCue, onAdd, onOpenHelp, onReorderingChange, onAutoScroll }: { state: TimerV2State; onChange: (state: TimerV2State) => void; clockAlignmentSupported: boolean; onEditCue: (target: CueTarget) => void; onAdd: () => void; onOpenHelp: () => void; onReorderingChange: (active: boolean) => void; onAutoScroll: (pageY: number, canMoveEarlier: boolean, canMoveLater: boolean) => number }) {
+function SequenceEditor({ state, onChange, clockAlignmentSupported, onEditCue, onAdd, showHelp, onToggleHelp, onReorderingChange, onAutoScroll }: { state: TimerV2State; onChange: (state: TimerV2State) => void; clockAlignmentSupported: boolean; onEditCue: (target: CueTarget) => void; onAdd: () => void; showHelp: boolean; onToggleHelp: () => void; onReorderingChange: (active: boolean) => void; onAutoScroll: (pageY: number, canMoveEarlier: boolean, canMoveLater: boolean) => number }) {
   const { tokens } = useTheme()
   const [editingStepId, setEditingStepId] = useState<string | null>(null)
   const [dragPreview, setDragPreview] = useState<ReorderPreview | null>(null)
@@ -417,12 +429,14 @@ function SequenceEditor({ state, onChange, clockAlignmentSupported, onEditCue, o
   const moveStep = useCallback((from: number, to: number) => onChange(reorderSequenceSteps(state, from, to)), [onChange, state])
   useEffect(() => () => onReorderingChange(false), [onReorderingChange])
   return <View style={styles.section}>
-    <View style={styles.titleWithHelp}><View style={styles.flex}><Text style={[styles.eyebrow, { color: tokens.textMuted }]}>SEQUENCE</Text><Text style={[styles.sectionValue, { color: tokens.text }]}>{formatClockDuration(totalSeconds)}</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{program.steps.length} step{program.steps.length === 1 ? '' : 's'} · repeats</Text></View><HelpButton onPress={onOpenHelp} /></View>
+    <View style={styles.titleWithHelp}><View style={styles.flex}><Text style={[styles.eyebrow, { color: tokens.textMuted }]}>SEQUENCE</Text><Text style={[styles.sectionValue, { color: tokens.text }]}>{formatClockDuration(totalSeconds)}</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{program.steps.length} step{program.steps.length === 1 ? '' : 's'} · repeats</Text></View><HelpButton active={showHelp} onPress={onToggleHelp} /></View>
+    <InlineHelp visible={showHelp}>Steps play in order and then repeat. Tap a step to edit it; hold its dotted handle to change the order.</InlineHelp>
     {program.steps.map((step, index) => <SequenceStepRow key={step.id} state={state} stepId={step.id} index={index} dragPreview={dragPreview} onEdit={() => setEditingStepId(step.id)} onDelete={() => onChange(removeSequenceStep(state, step.id))} onMove={moveStep} onPreviewChange={previewStep} onPreviewEnd={finishPreview} onReorderingChange={onReorderingChange} onAutoScroll={onAutoScroll} />)}
     {program.steps.length < 20 ? <AddRowButton onPress={onAdd} title="+ Add step" /> : null}
-    <ProgramRunLength state={state} mode="sequence" onChange={onChange} />
+    <ProgramRunLength state={state} mode="sequence" onChange={onChange} showHelp={showHelp} />
     {clockAlignmentSupported ? <>
       <View style={styles.settingRow}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Align to clock</Text><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>Keep the full sequence on a wall-clock rhythm.</Text></View><Toggle value={program.alignment.kind === 'local-clock'} onChange={enabled => onChange(updateSequence(state, value => ({ ...value, alignment: enabled ? { kind: 'local-clock', offsetMinutes: 0 } : { kind: 'elapsed' } })))} accessibilityLabel="Align sequence to clock" /></View>
+      <InlineHelp visible={showHelp}>Turn this on when you want each full round to begin on a familiar clock mark.</InlineHelp>
       {program.alignment.kind === 'local-clock' ? <ClockSnapSelector cycleDurationSeconds={totalSeconds} value={program.alignment.offsetMinutes} compact fadeColor={tokens.bg} onChange={offsetMinutes => onChange(updateSequence(state, value => ({ ...value, alignment: { kind: 'local-clock', offsetMinutes } })))} /> : null}
     </> : null}
     {editingStepId ? <SequenceStepEditorSheet state={state} stepId={editingStepId} onChange={onChange} onEditCue={() => onEditCue({ kind: 'step', id: editingStepId })} onClose={() => setEditingStepId(null)} /> : null}
@@ -570,9 +584,16 @@ function FocusControl({ state, enabled, onChange, onResume, onOpenAccessSettings
   return <View style={styles.section}><View style={styles.settingRow}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Chandas Focus</Text><Text numberOfLines={1} style={[styles.helper, { color: enabled && (paused || ruleDisabled) ? tokens.warm : tokens.textMuted }]}>{detail}</Text></View><Toggle value={enabled} onChange={onChange} accessibilityLabel="Chandas Focus automation" /></View>{enabled && !state.policyAccess ? <SheetTextButton label="Allow DND access" onPress={onOpenAccessSettings} /> : ruleDisabled ? <SheetTextButton label="Open Android settings" onPress={onOpenRuleSettings} /> : paused ? <SheetTextButton label="Resume Focus" onPress={onResume} /> : null}</View>
 }
 
-function HelpButton({ onPress }: { onPress: () => void }) {
+function HelpButton({ active, onPress }: { active: boolean; onPress: () => void }) {
   const { tokens } = useTheme()
-  return <Pressable hitSlop={5} onPress={() => { tapHaptic(); onPress() }} style={[styles.question, { borderColor: tokens.border }]} accessibilityRole="button" accessibilityLabel="Timer help"><Text style={[styles.questionText, { color: tokens.accent }]}>?</Text></Pressable>
+  return <Pressable hitSlop={5} onPress={() => { tapHaptic(); onPress() }} style={[styles.question, { borderColor: active ? tokens.accent : tokens.border, backgroundColor: active ? tokens.accentGlow : 'transparent' }]} accessibilityRole="button" accessibilityState={{ expanded: active }} accessibilityLabel={active ? 'Hide setup explanations' : 'Show setup explanations'}><Text style={[styles.questionText, { color: tokens.accent }]}>?</Text></Pressable>
+}
+
+function InlineHelp({ visible, children }: { visible: boolean; children: ReactNode }) {
+  const { tokens } = useTheme()
+  const reducedMotion = useReducedMotion()
+  if (!visible) return null
+  return <Reanimated.View entering={FadeInDown.duration(reducedMotion ? 70 : 150)} exiting={FadeOut.duration(reducedMotion ? 60 : 100)} style={styles.inlineHelp}><Text style={[styles.inlineHelpText, { color: tokens.textMuted }]}>{children}</Text></Reanimated.View>
 }
 
 function ActionRow({ title, detail, onPress, accessibilityLabel, accessory, onAccessoryPress, accessoryLabel }: { title: string; detail: string; onPress: () => void; accessibilityLabel?: string; accessory?: ReactNode; onAccessoryPress?: () => void; accessoryLabel?: string }) {
@@ -659,6 +680,7 @@ const styles = StyleSheet.create({
   screen: { flex: 1 }, content: { width: '100%', maxWidth: 620, alignSelf: 'center', paddingHorizontal: 20, gap: 23 }, modeContent: { gap: 23 },
   modeRow: { flexDirection: 'row', alignItems: 'center', gap: 10 }, eyebrow: { fontSize: 11, fontWeight: '700', letterSpacing: 1.4 }, titleWithHelp: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   question: { width: 36, height: 36, borderWidth: 1.5, borderRadius: 18, alignItems: 'center', justifyContent: 'center' }, questionText: { fontSize: 17, fontWeight: '800' },
+  inlineHelp: { paddingRight: 42 }, inlineHelpText: { fontSize: 12, lineHeight: 18 },
   modeTabs: { flex: 1 },
   chevron: { width: 22, textAlign: 'center', fontSize: 25, lineHeight: 27, fontWeight: '300' },
   section: { gap: 13 }, sectionValue: { fontFamily: 'JetBrainsMono-Light', fontSize: 31, marginTop: 2 }, headingBlock: { gap: 3 }, subBellBody: { gap: 10 }, trackList: { gap: 0 }, accessPanel: { gap: 4 },
