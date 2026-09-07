@@ -57,6 +57,25 @@ pure Kotlin tests where the logic permits it, TypeScript compilation, JavaScript
 tests, Expo config/autolinking inspection, and whitespace/diff checks. The final
 remote EAS build and physical-device matrix remain mandatory before promotion.
 
+## Completed source-level release gate
+
+- `npx tsc --noEmit`: passed.
+- `npm test -- --run`: 9 test files passed; 112 tests passed.
+- `npx expo install --check`: all dependencies match the installed Expo SDK.
+- Expo module autolinking resolves `chandas-timer-service` to
+  `ChandasTimerServiceModule` from the checked-in local module.
+- Expo public config resolves the runtime policy to `fingerprint`.
+- Expo Android introspection resolves both notification-icon metadata entries
+  to the generated circular notification drawable and marks microphone plus
+  legacy read/write storage permissions for removal.
+- The checked-in native manifest is well-formed and declares the alarm and cue
+  services as `mediaPlayback`, the countdown service as `specialUse`, its
+  required subtype property, and the corresponding foreground-service
+  permissions.
+- Local Kotlin/Gradle compilation and Android tests were intentionally not run:
+  repository policy prohibits native builds on this computer. They must run in
+  the next remote EAS build.
+
 ## Required device matrix after the remote build
 
 - Start, update, optimistic Stop, immediate restart, and repeated Stop while a
