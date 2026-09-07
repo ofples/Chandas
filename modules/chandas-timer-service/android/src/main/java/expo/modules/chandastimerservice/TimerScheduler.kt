@@ -395,8 +395,7 @@ object TimerScheduler {
     if (config.timerV2Anchor !in 1L..(Long.MAX_VALUE - duration)) return false
     if (config.timerV2StartedAt <= 0L) return false
     if (config.timerV2EndsAt > 0L && config.timerV2EndsAt <= config.timerV2StartedAt) return false
-    val derivedEnd = TimerV2Timeline.runEndAt(program, config.timerV2Anchor, config.timerV2StartedAt)
-    if ((derivedEnd != null) != (config.timerV2EndsAt > 0L)) return false
+    if (!TimerV2Timeline.hasMatchingRunEnd(program, config.timerV2Anchor, config.timerV2StartedAt, config.timerV2EndsAt)) return false
     return true
   }
 

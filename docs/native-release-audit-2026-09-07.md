@@ -13,7 +13,7 @@ EAS regenerates it from these inputs.
 | N-01 | Critical | Android is pinned to an old manual runtime ID despite incompatible contract-v10 native changes, allowing an old and new binary to share unsafe OTA code. | Resolved | `Restore fingerprint-safe Android updates` |
 | N-02 | High | The Chandas notification-icon plugin runs before `expo-notifications`, so the later plugin overwrites the intended circular default icon. | Resolved | `Preserve the circular notification icon` (official plugin now receives the circular source too) |
 | N-03 | Critical | Native active-hours delivery accepts an arbitrarily stale cue whenever delivery happens during an active window. Missed bells can replay much later. | Resolved | `Reject stale native cue delivery` |
-| N-04 | High | A bounded native program validates only the presence of `timerV2EndsAt`, not equality with the deadline derived from its run policy. | Open | — |
+| N-04 | High | A bounded native program validates only the presence of `timerV2EndsAt`, not equality with the deadline derived from its run policy. | Resolved | `Validate bounded native deadlines exactly` |
 | N-05 | Critical | Start, update, stop, restore, and exact-alarm delivery are multi-step state transactions without a shared lock. Interleaving can revive a stopped schedule or start sound after Stop. | Open | — |
 | N-06 | High | Bridge event listeners execute inline without fault isolation. A stale/throwing listener can interrupt native cleanup, scheduling, or cue delivery. | Open | — |
 | N-07 | High | Local-clock programs depend on the manifest `DATE_CHANGED` broadcast for daily re-phasing, but modern Android does not exempt that implicit broadcast for manifest receivers. | Open | — |

@@ -195,6 +195,22 @@ class TimerV2TimelineTest {
     assertEquals(null, TimerV2Timeline.next(root.toString(), 1_000L, endAt, 12 * 60_000L + 1_000L, endAt))
   }
 
+  @Test fun persistedDeadlineMustMatchTheRunPolicyExactly() {
+    val root = JSONObject(fixtures.getJSONObject("patternCollision").getJSONObject("program").toString())
+    root.put("runPolicy", JSONObject().put("kind", "cycles").put("cycleCount", 2).put("durationSeconds", 1_800))
+    val anchor = 1_000L
+    val startedAt = 12 * 60_000L + anchor
+    val endAt = requireNotNull(TimerV2Timeline.runEndAt(root.toString(), anchor, startedAt))
+
+    assertTrue(TimerV2Timeline.hasMatchingRunEnd(root.toString(), anchor, startedAt, endAt))
+    assertFalse(TimerV2Timeline.hasMatchingRunEnd(root.toString(), anchor, startedAt, endAt + 1L))
+    assertFalse(TimerV2Timeline.hasMatchingRunEnd(root.toString(), anchor, startedAt, 0L))
+
+    root.put("runPolicy", JSONObject().put("kind", "continuous").put("cycleCount", 2).put("durationSeconds", 1_800))
+    assertTrue(TimerV2Timeline.hasMatchingRunEnd(root.toString(), anchor, startedAt, 0L))
+    assertFalse(TimerV2Timeline.hasMatchingRunEnd(root.toString(), anchor, startedAt, endAt))
+  }
+
   @Test fun boundedDurationCreatesSyntheticCompletionBetweenCues() {
     val root = JSONObject(fixtures.getJSONObject("sequence").getJSONObject("program").toString())
     root.put("runPolicy", JSONObject().put("kind", "duration").put("cycleCount", 1).put("durationSeconds", 90))

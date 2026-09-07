@@ -102,6 +102,10 @@ object TimerV2Timeline {
     runEndAt(JSONObject(serialized), anchor, startedAt)
   }.getOrNull()
 
+  /** Persisted deadlines must be exactly the deadline implied by the run policy. */
+  fun hasMatchingRunEnd(serialized: String, anchor: Long, startedAt: Long, fixedEndsAt: Long): Boolean =
+    runEndAt(serialized, anchor, startedAt) == fixedEndsAt.takeIf { it > 0L }
+
   fun iterationEnd(serialized: String, anchor: Long, now: Long, count: Int): TimerV2IterationEnd? = runCatching {
     val root = JSONObject(serialized)
     val iterations = count.coerceIn(1, NativeTimerContract.MAX_MUTE_ITERATIONS)
