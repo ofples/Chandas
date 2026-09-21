@@ -8,7 +8,7 @@ This project has three isolated EAS channels and build profiles:
 | `preview` | Installable release APK | Device QA before production | `preview` |
 | `production` | Android App Bundle (AAB) | Google Play | `production` |
 
-EAS owns the Android `versionCode` remotely and increments it for every build. The user-facing version is kept in both `app.json` and `package.json`; these values must match. Version 2 starts at `2.0.0`.
+EAS owns the Android `versionCode` remotely and increments it for EAS builds. Local development builds do not replace that release versioning. The user-facing version is kept in both `app.json` and `package.json`; these values must match. Version 2 starts at `2.0.0`.
 
 ## Compatibility model
 
@@ -26,11 +26,19 @@ code that assumes an unavailable native capability.
 
 `ChandasTimerService.getCapabilities` advertises the installed engine's program schemas, safety ceilings, and additive features. Keep product limits, Focus status presentation, notification wording, and the dynamic sound catalog in the OTA layer when they fit that contract. The native ceilings are intentionally larger than the current UI and must not be treated as product defaults. A missing capability function or flag identifies an older binary; OTA code must preserve its documented fallback instead of assuming the new method exists.
 
+## Local development and verification
+
+The current Windows development machine can run Android emulators and local native builds. After confirming that the Android SDK, JDK, and an emulator or connected device are available, use `npm run android` (equivalent to `npx expo run:android`) to generate the ignored Android project, compile a development build, install it, and start Metro. For later JavaScript-only edits, `npm start` reconnects the installed development client without recompiling native code. Rebuild after changing native code, native dependencies, permissions, or config plugins.
+
+Local `expo prebuild`, targeted Gradle compile and unit-test tasks, Android Studio builds, `npx expo export`, and emulator or physical-device checks are permitted when useful. A local Android release variant can help catch release-only failures, but an unsigned local build is not a Play Store artifact. Do not treat an emulator as proof of background timing, haptics, audio routing, or notification presentation on a physical phone. The generated `android/` directory is ignored; source changes belong in `app.json`, the config plugin, or the checked-in native module. iOS compilation requires macOS and Xcode.
+
+Remote EAS Build remains an option for distributable artifacts and matching the configured release workflow. Expo does not officially support `eas build --local` on Windows; use Expo CLI and the Android toolchain for local builds, or use EAS Build remotely. [Expo local development](https://docs.expo.dev/guides/local-app-development/) · [EAS local build limitations](https://docs.expo.dev/build-reference/local-builds/)
+
 ## Before every release
 
 1. Start from the exact commit intended for release and ensure unrelated working-tree changes are not included.
 2. For a new store version, set the same semantic version in `app.json` and `package.json`, then refresh `package-lock.json` with `npm install`.
-3. Run `npm run release:check`. This verifies Expo package compatibility, TypeScript, and the test suite without performing a local native build.
+3. Run `npm run release:check`. This verifies Expo package compatibility, TypeScript, and the test suite. For native changes, also compile locally and run relevant Android tests and device checks before creating the release artifact.
 4. Review Android permissions and the local native module whenever either changed.
 5. Use the `preview` channel first for any OTA change. Do not use development-client behavior as proof that production update loading works; the full Updates API is a release-build feature.
 
@@ -81,8 +89,10 @@ eas workflow:run .eas/workflows/publish-production-update.yml -F "message=Descri
 This dedicated workflow performs the bundle export on EAS, runs type-checking
 and tests, computes the Android fingerprint, and refuses to publish unless a
 production AAB exists with that exact fingerprint. It never creates a native
-build as a side effect. Use the local `publish:production` script only on a
-machine explicitly provisioned for local Expo exports.
+build as a side effect. The local `publish:production` script is also available
+after verifying the exact commit, environment, credentials, matching Android
+fingerprint, and preview result. `eas update` performs the export locally, then
+uploads the bundle to EAS Update. [Expo update workflow](https://docs.expo.dev/eas-update/getting-started/)
 
 For a cautious rollout, use EAS Update's rollout percentage on the production command and increase it from the dashboard after monitoring successful launches.
 

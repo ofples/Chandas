@@ -4,7 +4,7 @@ import Slider from '@react-native-community/slider'
 import Svg, { Circle, Line } from 'react-native-svg'
 import Animated, { FadeIn, FadeInDown, FadeOut, ZoomIn, useReducedMotion } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import type { AlarmBehavior, CueSettings, TimerProgram } from '../types'
+import type { AlarmBehavior, CueSettings, ProgramPreset, TimerProgram } from '../types'
 import type { TimelinePosition } from '../lib/timeline'
 import { cueSegmentProgress, programCycleDurationMs } from '../lib/timeline'
 import { AlarmIcon, ClockIcon, FocusIcon, MixerIcon, RestartIcon, VolumeIcon } from '../components/Icons'
@@ -62,6 +62,10 @@ interface Props {
   focusReason: string
   onToggleFocus: () => void
   onOpenFocusSettings: () => void
+  configurations: ProgramPreset[]
+  activeConfigurationId?: string
+  configurationName?: string
+  onSelectConfiguration: (presetId: string) => Promise<boolean>
 }
 
 export function TimerV2RunningScreen(props: Props) {
@@ -73,7 +77,10 @@ export function TimerV2RunningScreen(props: Props) {
   const [customMute, setCustomMute] = useState(false)
   const [snapOpen, setSnapOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
+  const [configurationPickerOpen, setConfigurationPickerOpen] = useState(false)
+  const [selectingConfiguration, setSelectingConfiguration] = useState<string | null>(null)
   const [tooltip, setTooltip] = useState<string | null>(null)
+  const [controlsVisible, setControlsVisible] = useState(true)
   const tooltipTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const helpLongPressed = useRef(false)
   const size = Math.min(width * 0.79, 342)
@@ -87,12 +94,15 @@ export function TimerV2RunningScreen(props: Props) {
     : props.masterVolume <= 0
       ? 'Volume 0% · open sound controls'
       : null
+  const hasResume = props.activeHoursResumeAt > 0
   const resumeDate = new Date(props.activeHoursResumeAt)
   const endsBeforeResume = props.activeHoursPaused && props.runEndsAt > 0 && props.runEndsAt <= props.activeHoursResumeAt
   const mainLabel = endsBeforeResume
     ? formatDuration(Math.ceil(props.runRemainingMs / 1_000))
-    : props.activeHoursPaused
+    : props.activeHoursPaused && hasResume
       ? `${String(resumeDate.getHours()).padStart(2, '0')}:${String(resumeDate.getMinutes()).padStart(2, '0')}`
+      : props.activeHoursPaused
+        ? 'No active time'
       : props.mainCountdown
   const sequenceIndex = props.program.mode === 'sequence' ? props.position?.currentStepIndex ?? 0 : 0
   const sequenceLength = props.program.mode === 'sequence' ? props.program.steps.length : 0
@@ -124,17 +134,18 @@ export function TimerV2RunningScreen(props: Props) {
   }
 
   const focusPaused = props.focusReason === 'paused-by-android'
-  return <View onTouchStart={() => { if (tooltip) dismissTooltip() }} style={[styles.screen, { backgroundColor: tokens.bg, paddingTop: insets.top }]}>
+  const revealControls = () => { if (!controlsVisible) setControlsVisible(true); if (tooltip) dismissTooltip() }
+  return <View onTouchStart={revealControls} style={[styles.screen, { backgroundColor: tokens.bg, paddingTop: insets.top }]}>
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 140 }]}>
-      <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 220)} style={styles.topline}>
-        <View>{props.program.mode === 'sequence' && currentStep ? <Text numberOfLines={1} style={[styles.stepTitle, { color: tokens.text }]}>{currentStep.label}</Text> : props.program.mode === 'pattern' ? <Text numberOfLines={1} style={[styles.stepTitle, { color: tokens.text }]}>{props.program.label}</Text> : null}</View>
+      {controlsVisible ? <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 220)} exiting={FadeOut.duration(reducedMotion ? 70 : 120)} style={styles.topline}>
+        <Pressable disabled={props.configurations.length === 0} onPress={() => setConfigurationPickerOpen(true)} style={styles.configurationTitle} accessibilityRole={props.configurations.length ? 'button' : undefined} accessibilityLabel={props.configurations.length ? 'Switch saved configuration' : undefined}><View style={styles.configurationCopy}><Text numberOfLines={1} style={[styles.stepTitle, { color: tokens.text }]}>{props.configurationName ?? (props.program.mode === 'pattern' ? props.program.label : 'Sequence')}</Text>{props.program.mode === 'sequence' && currentStep ? <Text numberOfLines={1} style={[styles.configurationStep, { color: tokens.textMuted }]}>{currentStep.label}</Text> : null}</View>{props.configurations.length ? <Text style={[styles.configurationChevron, { color: tokens.accent }]}>⌄</Text> : null}</Pressable>
         <View style={styles.topRight}>{props.realigning ? <Animated.View entering={FadeIn.duration(120)} exiting={FadeOut.duration(100)} style={styles.syncing}><ActivityIndicator size="small" color={tokens.accent} /><Text style={[styles.focusStatus, { color: tokens.textMuted }]}>UPDATING</Text></Animated.View> : null}{focusPaused ? <Animated.Text entering={FadeIn.duration(160)} exiting={FadeOut.duration(120)} style={[styles.focusStatus, { color: tokens.warm }]}>FOCUS PAUSED</Animated.Text> : null}<Pressable hitSlop={7} onPressIn={() => { helpLongPressed.current = false }} onLongPress={() => { helpLongPressed.current = true; showTooltip('Open Timer help') }} onPressOut={() => setTimeout(() => { helpLongPressed.current = false }, 0)} onPress={() => { if (!helpLongPressed.current) { tapHaptic(); setHelpOpen(true) } }} style={({ pressed }) => [styles.helpButton, { borderColor: tokens.border, transform: [{ scale: pressed && !reducedMotion ? 0.94 : 1 }] }]} accessibilityRole="button" accessibilityLabel="Timer help"><Text style={[styles.helpGlyph, { color: tokens.accent }]}>?</Text></Pressable></View>
-      </Animated.View>
+      </Animated.View> : null}
 
-      <View style={[styles.visualStage, { minHeight: size + 112 }]}>
+      <Pressable onPress={() => { if (controlsVisible) setControlsVisible(false) }} accessibilityRole="button" accessibilityLabel={controlsVisible ? 'Hide timer controls' : 'Show timer controls'} accessibilityHint={controlsVisible ? 'Hides timer controls and leaves the running timer visible' : 'Shows timer controls'} style={[styles.visualStage, { minHeight: size + 112 }]}>
         <View style={[styles.timerStack, { height: size + 92 }]}>
         <Animated.View entering={reducedMotion ? FadeIn.duration(100) : ZoomIn.duration(260)}>
-          <Pressable onPress={runtimeMuted ? props.onClearMute : undefined} style={({ pressed }) => [styles.ringWrap, { width: size, height: size, transform: [{ scale: pressed && runtimeMuted && !reducedMotion ? 0.985 : 1 }] }]} accessibilityRole={runtimeMuted ? 'button' : undefined} accessibilityLabel={runtimeMuted ? 'Clear timer mute' : undefined}>
+          <Pressable onPress={() => { if (!controlsVisible) { setControlsVisible(true); return }; if (runtimeMuted) props.onClearMute() }} style={({ pressed }) => [styles.ringWrap, { width: size, height: size, transform: [{ scale: pressed && runtimeMuted && !reducedMotion ? 0.985 : 1 }] }]} accessibilityRole="button" accessibilityLabel={controlsVisible && runtimeMuted ? 'Clear timer mute' : controlsVisible ? 'Hide timer controls' : 'Show timer controls'}>
             <TimerRings size={size} progress={props.progress} position={props.position} program={props.program} muted={muted} eventPulse={props.eventPulse} />
             <View style={[styles.center, { opacity: runtimeMuted ? 0.72 : 1, pointerEvents: 'none' }]}>
               <Text style={[styles.mainTime, { color: tokens.text }]} adjustsFontSizeToFit numberOfLines={1}>{mainLabel}</Text>
@@ -145,18 +156,18 @@ export function TimerV2RunningScreen(props: Props) {
             {muted ? <View style={[styles.slash, { width: size * 0.72, backgroundColor: tokens.accent, pointerEvents: 'none' }]} /> : null}
           </Pressable>
         </Animated.View>
-        <View style={[styles.statusSlot, { top: size + 10 }]}>
+        {controlsVisible ? <View style={[styles.statusSlot, { top: size + 10 }]}>
           {props.runEndsAt > 0 ? <Animated.View entering={FadeIn.duration(150)} style={styles.runProgressBlock}>
             <BoundedRunBar width={Math.min(size * 0.82, 286)} progress={props.runProgress} segments={props.program.runPolicy.kind === 'cycles' ? props.program.runPolicy.cycleCount : 1} muted={runtimeMuted} />
             <Text style={[styles.runStatus, { color: tokens.textMuted }]}>Ends in {formatDuration(Math.ceil(props.runRemainingMs / 1_000))}</Text>
           </Animated.View> : null}
-          {muteStatus ? <Pressable onPress={runtimeMuted ? props.onClearMute : undefined} accessibilityRole={runtimeMuted ? 'button' : undefined} accessibilityLabel={runtimeMuted ? 'Clear timer mute' : undefined}><Animated.Text entering={FadeIn.duration(150)} exiting={FadeOut.duration(120)} style={[styles.muteStatus, { color: tokens.textMuted }]}>{muteStatus}</Animated.Text></Pressable> : null}
+          {controlsVisible && muteStatus ? <Pressable onPress={runtimeMuted ? props.onClearMute : undefined} accessibilityRole={runtimeMuted ? 'button' : undefined} accessibilityLabel={runtimeMuted ? 'Clear timer mute' : undefined}><Animated.Text entering={FadeIn.duration(150)} exiting={FadeOut.duration(120)} style={[styles.muteStatus, { color: tokens.textMuted }]}>{muteStatus}</Animated.Text></Pressable> : null}
+        </View> : null}
         </View>
-        </View>
-      </View>
+      </Pressable>
     </ScrollView>
 
-    <View style={[styles.bottom, { backgroundColor: tokens.bg, paddingBottom: insets.bottom + 17 }]}>
+    {controlsVisible ? <Animated.View entering={FadeIn.duration(reducedMotion ? 80 : 160)} exiting={FadeOut.duration(reducedMotion ? 70 : 120)} style={[styles.bottom, { backgroundColor: tokens.bg, paddingBottom: insets.bottom + 17 }]}>
       <View pointerEvents="none" style={styles.bottomFade}><ScrollEdgeFade color={tokens.bg} side="bottom" /></View>
       <View style={styles.controls}>
         <ControlButton label="Reset interval" tooltip={props.program.alignment.kind === 'local-clock' ? 'Unsnap from clock and reset the cycle' : 'Reset the cycle'} disabled={props.realigning} onPress={props.onRestartUnsynced} onTooltip={showTooltip}><RestartIcon color={tokens.accent} /></ControlButton>
@@ -167,11 +178,12 @@ export function TimerV2RunningScreen(props: Props) {
         <ControlButton label="Sound and mute" tooltip="Open volume, mixer and mute controls" active={mixerOpen || muted} onPress={() => setMixerOpen(true)} onTooltip={showTooltip}><VolumeIcon muted={muted} color={mixerOpen || muted ? tokens.accent : tokens.textMuted} /></ControlButton>
       </View>
       <Pressable onPress={() => { tapHaptic(); props.onStop() }} style={[styles.stop, { borderColor: tokens.border, backgroundColor: tokens.surfaceHi }]} accessibilityRole="button"><Text style={[styles.stopText, { color: tokens.textMuted }]}>Stop</Text></Pressable>
-    </View>
+    </Animated.View> : <Text pointerEvents="none" style={[styles.revealHint, { color: tokens.textMuted }]}>Tap to show controls</Text>}
 
     {props.focusActive ? <Animated.View entering={FadeIn.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 140)} pointerEvents="none" style={[styles.focusBorder, { borderColor: tokens.accent }]} /> : null}
     <RunningMixerSheet visible={mixerOpen} onClose={() => setMixerOpen(false)} program={props.program} masterVolume={props.masterVolume} onMasterVolumeChange={props.onMasterVolumeChange} onCueVolumeChange={props.onCueVolumeChange} mute={props.mute} onMuteIterations={props.onMuteForIterations} onClearMute={props.onClearMute} onCustom={() => { setMixerOpen(false); setCustomMute(true) }} />
-    <SnapSheet visible={snapOpen} cycleDurationSeconds={cycleDurationSeconds} current={props.program.alignment.kind === 'local-clock' ? props.program.alignment.offsetMinutes : 0} onSelect={props.onSnapToClock} onClose={() => setSnapOpen(false)} />
+    <SnapSheet visible={snapOpen} cycleDurationSeconds={cycleDurationSeconds} current={props.program.alignment.kind === 'local-clock' ? props.program.alignment.offsetMinutes : null} onSelect={props.onSnapToClock} onClose={() => setSnapOpen(false)} />
+    <ConfigurationPickerSheet visible={configurationPickerOpen} configurations={props.configurations} activeId={props.activeConfigurationId} selectingId={selectingConfiguration} onClose={() => setConfigurationPickerOpen(false)} onSelect={async id => { setSelectingConfiguration(id); try { if (await props.onSelectConfiguration(id)) setConfigurationPickerOpen(false) } finally { setSelectingConfiguration(null) } }} />
     {customMute ? <CustomMinutePicker title="Mute duration" initial={15} initialSeconds={15 * 60} secondPrecision={props.secondPrecision} min={1} max={1440} minSeconds={1} maxSeconds={86_400} onConfirm={minutes => { props.onMuteForSeconds(minutes * 60); setCustomMute(false) }} onConfirmSeconds={seconds => { props.onMuteForSeconds(seconds); setCustomMute(false) }} onClose={() => setCustomMute(false)} /> : null}
     <TimerHelpSheet
       visible={helpOpen}
@@ -311,10 +323,10 @@ function RunningMixerSheet({ visible, onClose, program, masterVolume, onMasterVo
   </BottomSheet>
 }
 
-function SnapSheet({ visible, cycleDurationSeconds, current, onSelect, onClose }: { visible: boolean; cycleDurationSeconds: number; current: number; onSelect: (offset: number) => Promise<boolean>; onClose: () => void }) {
+function SnapSheet({ visible, cycleDurationSeconds, current, onSelect, onClose }: { visible: boolean; cycleDurationSeconds: number; current: number | null; onSelect: (offset: number) => Promise<boolean>; onClose: () => void }) {
   const { tokens } = useTheme()
   const [applying, setApplying] = useState(false)
-  const [selected, setSelected] = useState(current)
+  const [selected, setSelected] = useState<number | null>(current)
   const [error, setError] = useState(false)
   useEffect(() => {
     if (!visible) return
@@ -342,20 +354,28 @@ function SnapSheet({ visible, cycleDurationSeconds, current, onSelect, onClose }
   }
   const close = () => { if (!applying) onClose() }
   return <BottomSheet visible={visible} title="Snap to clock" onClose={close} scroll={false}>
-    <View style={styles.snapStatus}><Text style={[styles.sheetHelp, { color: tokens.textMuted }]}>{applying ? `Aligning to :${String(selected).padStart(2, '0')}…` : 'Choose where each repeating cycle lands on the clock.'}</Text>{applying ? <ActivityIndicator size="small" color={tokens.accent} /> : null}</View>
+    <View style={styles.snapStatus}><Text style={[styles.sheetHelp, { color: tokens.textMuted }]}>{applying ? `Aligning to :${String(selected ?? 0).padStart(2, '0')}…` : current === null ? 'No clock phase is selected. Choose where each repeating cycle lands on the clock.' : 'Choose where each repeating cycle lands on the clock.'}</Text>{applying ? <ActivityIndicator size="small" color={tokens.accent} /> : null}</View>
     {error ? <GentleNotice title="Alignment stayed unchanged" message="The timer is still running on its previous rhythm. You can try again." tone="attention" /> : null}
     <ClockSnapSelector cycleDurationSeconds={cycleDurationSeconds} value={selected} onChange={offset => void select(offset)} disabled={applying} />
   </BottomSheet>
 }
 
+function ConfigurationPickerSheet({ visible, configurations, activeId, selectingId, onSelect, onClose }: { visible: boolean; configurations: ProgramPreset[]; activeId?: string; selectingId: string | null; onSelect: (id: string) => Promise<void>; onClose: () => void }) {
+  const { tokens } = useTheme()
+  return <BottomSheet visible={visible} title="Switch configuration" help="Switching begins this saved timer from now. Only configurations marked Show while running appear here." onClose={onClose}>
+    {configurations.map(preset => <Pressable key={preset.id} disabled={Boolean(selectingId)} onPress={() => void onSelect(preset.id)} style={[styles.configurationRow, { borderColor: preset.id === activeId ? tokens.accent : tokens.border, backgroundColor: preset.id === activeId ? tokens.accentGlow : 'transparent', opacity: selectingId && selectingId !== preset.id ? 0.45 : 1 }]} accessibilityRole="button" accessibilityState={{ selected: preset.id === activeId, busy: selectingId === preset.id }} accessibilityLabel={`Switch to ${preset.name}`}><View style={styles.configurationCopy}><Text numberOfLines={1} style={[styles.channelTitle, { color: tokens.text }]}>{preset.name}</Text><Text style={[styles.channelSound, { color: tokens.textMuted }]}>{preset.program.mode === 'pattern' ? 'Cycle' : 'Sequence'} · {preset.program.mode === 'pattern' ? formatCompactDurationSeconds(patternDurationSeconds(preset.program)) : `${preset.program.steps.length} steps`}</Text></View>{selectingId === preset.id ? <ActivityIndicator size="small" color={tokens.accent} /> : preset.id === activeId ? <Text style={[styles.configurationCurrent, { color: tokens.accent }]}>CURRENT</Text> : null}</Pressable>)}
+  </BottomSheet>
+}
+
 const styles = StyleSheet.create({
-  screen: { flex: 1 }, content: { flexGrow: 1, alignItems: 'center', paddingHorizontal: 20, paddingTop: 28 },
-  topline: { width: '100%', maxWidth: 480, minHeight: 40, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }, mode: { fontSize: 10, letterSpacing: 1.25, fontWeight: '800' }, stepTitle: { maxWidth: 240, fontSize: 17, fontWeight: '700' }, topRight: { flexDirection: 'row', alignItems: 'center', gap: 10 }, syncing: { flexDirection: 'row', alignItems: 'center', gap: 6 }, focusStatus: { fontSize: 9, letterSpacing: 1.1, fontWeight: '800' }, helpButton: { width: 40, height: 40, borderWidth: 1.5, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }, helpGlyph: { fontSize: 16, fontWeight: '800' },
+  screen: { flex: 1 }, content: { flexGrow: 1, alignItems: 'center', paddingHorizontal: 20, paddingTop: 28 }, revealHint: { position: 'absolute', bottom: 28, alignSelf: 'center', fontSize: 11, letterSpacing: 0.7 },
+  topline: { width: '100%', maxWidth: 480, minHeight: 40, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }, configurationTitle: { flex: 1, minWidth: 0, minHeight: 40, flexDirection: 'row', alignItems: 'center', gap: 5 }, configurationChevron: { fontSize: 18, lineHeight: 20 }, mode: { fontSize: 10, letterSpacing: 1.25, fontWeight: '800' }, stepTitle: { fontSize: 17, fontWeight: '700' }, configurationStep: { fontSize: 11, fontWeight: '600' }, topRight: { flexDirection: 'row', alignItems: 'center', gap: 10 }, syncing: { flexDirection: 'row', alignItems: 'center', gap: 6 }, focusStatus: { fontSize: 9, letterSpacing: 1.1, fontWeight: '800' }, helpButton: { width: 40, height: 40, borderWidth: 1.5, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }, helpGlyph: { fontSize: 16, fontWeight: '800' },
   visualStage: { flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center', paddingVertical: 14 }, timerStack: { width: '100%', alignItems: 'center' }, ringWrap: { alignItems: 'center', justifyContent: 'center' }, svg: { position: 'absolute' }, flash: { position: 'absolute' }, center: { alignItems: 'center', gap: 5, maxWidth: '69%' }, mainTime: { width: '100%', textAlign: 'center', fontFamily: 'JetBrainsMono-Light', fontSize: 55, fontVariant: ['tabular-nums'] }, mainCaption: { fontSize: 10, letterSpacing: 1.05, textTransform: 'uppercase' }, nextCue: { marginTop: 11, alignItems: 'center', gap: 2, maxWidth: '100%' }, nextCueName: { fontSize: 13, fontWeight: '700' }, nextCueTime: { fontFamily: 'JetBrainsMono-Regular', fontSize: 12 }, nextLabel: { fontSize: 8, letterSpacing: 1.1, fontWeight: '800' }, slash: { position: 'absolute', height: 4, borderRadius: 3, transform: [{ rotate: '-45deg' }] }, statusSlot: { position: 'absolute', left: 0, right: 0, minHeight: 74, alignItems: 'center', gap: 6 }, runProgressBlock: { alignItems: 'center', gap: 4 }, muteStatus: { maxWidth: 330, fontSize: 12, lineHeight: 17, textAlign: 'center' }, runStatus: { fontSize: 13, lineHeight: 18, textAlign: 'center', fontVariant: ['tabular-nums'] }, focusBorder: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderWidth: 3, zIndex: 100 },
   bottom: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 20, alignItems: 'center' }, bottomFade: { position: 'absolute', top: -34, left: 0, right: 0, height: 34 }, controls: { width: '100%', maxWidth: 480, flexDirection: 'row', gap: 8, marginBottom: 10 }, spacer: { flex: 1 }, iconButton: { width: 40, height: 40, borderWidth: 1.5, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }, badge: { position: 'absolute', right: -2, top: -3, minWidth: 14, height: 14, borderRadius: 7, paddingHorizontal: 3, alignItems: 'center', justifyContent: 'center' }, badgeText: { color: '#fff', fontSize: 8, fontWeight: '900' }, stop: { width: '100%', maxWidth: 480, borderWidth: 1.5, paddingVertical: 16, borderRadius: 99, alignItems: 'center' }, stopText: { fontSize: 14, textTransform: 'uppercase', letterSpacing: 1.1, fontWeight: '800' },
   channel: { minHeight: 78, gap: 3, paddingVertical: 5 }, masterBlock: { gap: 3 }, masterSlider: { flex: 1, height: 38 }, channelLabel: { gap: 2 }, channelControl: { minHeight: 40, flexDirection: 'row', alignItems: 'center', gap: 8 }, channelTitle: { fontSize: 13, fontWeight: '700' }, channelSound: { fontSize: 10 }, channelSlider: { flex: 1, height: 38 }, divider: { height: 1 }, sheetHelp: { flex: 1, fontSize: 12, lineHeight: 18 }, snapStatus: { minHeight: 24, flexDirection: 'row', alignItems: 'center', gap: 10 }, muteRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   channels: { gap: 2 },
   previewMini: { width: 30, height: 30, borderWidth: 1, borderRadius: 15, alignItems: 'center', justifyContent: 'center' }, previewGlyph: { fontSize: 9 },
   mixerButton: { width: 36, height: 36, borderWidth: 1, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  configurationRow: { minHeight: 61, borderWidth: 1.5, borderRadius: 13, paddingHorizontal: 13, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 10 }, configurationCopy: { flex: 1, minWidth: 0, gap: 3 }, configurationCurrent: { fontSize: 9, letterSpacing: 1, fontWeight: '800' },
   tooltip: { position: 'absolute', bottom: 126, alignSelf: 'center', maxWidth: '82%', paddingVertical: 10, paddingHorizontal: 14, borderRadius: 12, borderWidth: 1.5 }, tooltipText: { fontSize: 12, lineHeight: 17, textAlign: 'center' },
 })

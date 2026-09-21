@@ -56,13 +56,13 @@ class TimerCountdownTextTest {
     assertNull(TimerCountdownText.compactStatus(identity = "2D", currentAt = 10L, now = 10L))
   }
 
-  @Test fun boundedProgramsKeepBothDeadlinesWhileContinuousProgramsKeepIdentity() {
+  @Test fun boundedProgramsKeepBothDeadlinesWhileCycleStatusStaysTimerOnly() {
     assertEquals(
       "12s·10m",
       TimerCountdownText.forProgram(identity = "2D", currentAt = 12_000L, finalAt = 600_000L, currentIsFinal = false, now = 0L),
     )
     assertEquals(
-      "2D·12s",
+      "12s",
       TimerCountdownText.forProgram(identity = "2D", currentAt = 12_000L, finalAt = 0L, currentIsFinal = false, now = 0L),
     )
     assertEquals(

@@ -160,6 +160,7 @@ export interface NativeTimerCapabilities {
   supportsMuteSecondPrecision?: boolean
   supportsDualLiveCountdown?: boolean
   supportsProgramClockAlignment?: boolean
+  supportsProgramSchema3?: boolean
 }
 
 export interface NativeFocusState {

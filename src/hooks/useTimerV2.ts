@@ -10,9 +10,9 @@ import { boundedRunProgress, nextProgramEvent, programCycleDurationMs, runEndAt,
 import { alarmBehaviorAfterGesture, emptyRuntimeMute, gateProgramAudio, isFreshScheduledEvent, iterationMuteFor, muteAfterScheduleChange, shouldSurfaceTimerSignal, timestampMuteForSeconds, type RuntimeMuteState } from '../lib/runtimeV2'
 import { clearTimerV2Session, saveTimerV2Session } from '../lib/storage'
 import { ChandasTimerService, isNativeServiceAvailable, type NativeTimerConfig } from '../native/ChandasTimerService'
-import { selectionHaptic, startRepeatingAlarmHaptic, stopRepeatingAlarmHaptic, tapHaptic, timerCueHaptic } from '../lib/haptics'
+import { cueHapticProfile, selectionHaptic, startRepeatingAlarmHaptic, stopRepeatingAlarmHaptic, tapHaptic, timerCueHaptic } from '../lib/haptics'
 import { alignedClockAnchor } from '../lib/clockAlignment'
-import { patternDurationSeconds, sequenceStepDurationSeconds } from '../lib/timerV2'
+import { cueSounds, patternDurationSeconds, sequenceStepDurationSeconds } from '../lib/timerV2'
 
 const KEEP_AWAKE_TAG = 'chandas-running-v2'
 const ALARM_SOURCE = require('../../assets/sounds/alarm.mp3')
@@ -183,13 +183,14 @@ function builtInSoundsFor(program: TimerProgram, alarmSound: SoundRef): BuiltInS
   const add = (sound: SoundRef | undefined) => {
     if (sound?.kind === 'builtin') ids.add(sound.id)
   }
+  const addCue = (cue: { sound: SoundRef; sounds?: SoundRef[] } | undefined) => cueSounds(cue ?? { sound: { kind: 'builtin', id: 'clear-bell' } }).forEach(add)
   if (program.mode === 'pattern') {
-    add(program.mainCue.sound)
-    program.tracks.forEach(track => add(track.sound))
+    addCue(program.mainCue)
+    program.tracks.forEach(addCue)
   } else {
-    program.steps.forEach(step => add(step.sound))
+    program.steps.forEach(addCue)
   }
-  add(program.completionCue?.sound)
+  addCue(program.completionCue ?? undefined)
   add(alarmSound)
   return [...ids]
 }
@@ -198,6 +199,12 @@ function requiresExactSubBellRuntime(program: TimerProgram): boolean {
   return program.mode === 'pattern'
     && program.subBellsEnabled
     && program.tracks.some(track => track.enabled && (typeof track.cadenceSeconds === 'number' || Array.isArray(track.selectedOffsetsSeconds)))
+}
+
+function supportsProgram(program: TimerProgram): boolean {
+  if (!isNativeServiceAvailable) return true
+  const capabilities = ChandasTimerService.getCapabilities()
+  return capabilities !== null && capabilities.programSchemaMin <= program.schemaVersion && capabilities.programSchemaMax >= program.schemaVersion
 }
 
 function alignedAnchorForStart(program: TimerProgram, now: number): number {
@@ -238,6 +245,8 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
   const alarmTapTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const alarmTapStartRef = useRef<AlarmBehavior | null>(null)
   const reanchorRequestRef = useRef(0)
+  const cueSoundCursorRef = useRef(new Map<string, number>())
+  const previousCueSoundRef = useRef(new Map<string, number>())
   const clearRuntimeInterruption = useCallback(() => setRuntimeInterruption(null), [])
 
   useEffect(() => { programRef.current = program }, [program])
@@ -309,8 +318,25 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
       setIsAlarmRinging(true)
       return event.completesRun
     }
-    timerCueHaptic(event.boundary, activeSettings.haptics)
-    const source = sourceForSound(event.winner.sound)
+    if (event.winner.hapticOverride !== 'off') {
+      if (event.winner.hapticOverride) cueHapticProfile(event.winner.hapticOverride)
+      else timerCueHaptic(event.boundary, activeSettings.haptics)
+    }
+    if (event.winner.soundEnabled === false) return event.completesRun
+    const sounds = event.winner.sounds?.length ? event.winner.sounds : [event.winner.sound]
+    let sound = sounds[0]
+    if (sounds.length > 1 && event.winner.soundMode === 'random') {
+      const previous = previousCueSoundRef.current.get(event.winner.cueId)
+      const choices = sounds.map((_, index) => index).filter(index => index !== previous)
+      const selected = choices[Math.floor(Math.random() * choices.length)]
+      sound = sounds[selected]
+      previousCueSoundRef.current.set(event.winner.cueId, selected)
+    } else if (sounds.length > 1 && event.winner.soundMode === 'sequence') {
+      const index = cueSoundCursorRef.current.get(event.winner.cueId) ?? 0
+      sound = sounds[index % sounds.length]
+      cueSoundCursorRef.current.set(event.winner.cueId, (index + 1) % sounds.length)
+    }
+    const source = sourceForSound(sound)
     if (!source) return event.completesRun
     try { playerRef.current?.remove() } catch { /* player may already be released */ }
     const player = createAudioPlayer(source)
@@ -396,7 +422,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     const endsAt = restored?.endsAt && restored.endsAt > 0 ? restored.endsAt : runEndAt(programRef.current, anchor, startedAt)
     if (!hasAvailableTime(effectiveAvailabilityForProgram(programRef.current, settingsRef.current.availability), acceptedAt)) return false
     if (nextProgramEvent(programRef.current, anchor, acceptedAt, startedAt, endsAt) === null) return false
-    if (isNativeServiceAvailable && !ChandasTimerService.canScheduleExactAlarms()) return false
+    if (isNativeServiceAvailable && (!ChandasTimerService.canScheduleExactAlarms() || !supportsProgram(programRef.current))) return false
     if (isNativeServiceAvailable && requiresExactSubBellRuntime(programRef.current) && ChandasTimerService.getCapabilities()?.supportsSubBellSecondPrecision !== true) return false
     if (isNativeServiceAvailable) await ChandasTimerService.prepareBuiltInSounds(builtInSoundsFor(programRef.current, settingsRef.current.alarmSound))
     await setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: false })
@@ -558,7 +584,11 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
   const reanchor = useCallback(async (nextProgram: TimerProgram, alignToClock: boolean) => {
     if (!runningRef.current) return false
     const request = ++reanchorRequestRef.current
-    if (isNativeServiceAvailable && !ChandasTimerService.canScheduleExactAlarms()) return false
+    // A ringing alarm is intentionally exclusive. Never tear it down merely
+    // to attempt a replacement that could be rejected.
+    if (isNativeServiceAvailable && ChandasTimerService.getState().ringing) return false
+    if (!isNativeServiceAvailable && alarmPlayerRef.current) return false
+    if (isNativeServiceAvailable && (!ChandasTimerService.canScheduleExactAlarms() || !supportsProgram(nextProgram))) return false
     if (isNativeServiceAvailable && requiresExactSubBellRuntime(nextProgram) && ChandasTimerService.getCapabilities()?.supportsSubBellSecondPrecision !== true) return false
     if (isNativeServiceAvailable) await ChandasTimerService.prepareBuiltInSounds(builtInSoundsFor(nextProgram, settingsRef.current.alarmSound))
     if (request !== reanchorRequestRef.current || !runningRef.current) return false
@@ -576,7 +606,6 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings): U
     config.mutedIterationEndId = nextMute.iteration?.endsAtLogicalId
     config.mutedIterationEndAt = nextMute.iteration?.endsAt
     config.mutedIterationCount = nextMute.iteration?.iterations
-    dismissAlarm()
     if (isNativeServiceAvailable && !ChandasTimerService.start(config)) return false
     programRef.current = nextProgram
     anchorRef.current = anchor

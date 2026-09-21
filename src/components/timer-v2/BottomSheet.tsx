@@ -24,6 +24,7 @@ interface Props {
   children: ReactNode
   scroll?: boolean
   footer?: ReactNode
+  minHeight?: number
 }
 
 interface SheetHeaderAction {
@@ -35,7 +36,7 @@ interface SheetHeaderAction {
 }
 
 /** Shared, keyboard-safe sheet used by every Timer v2 secondary flow. */
-export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClose, onBack, leadingAction, trailingAction, help, presentationKey, pinnedContent, children, scroll = true, footer }: Props) {
+export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClose, onBack, leadingAction, trailingAction, help, presentationKey, pinnedContent, children, scroll = true, footer, minHeight }: Props) {
   const { tokens } = useTheme()
   const insets = useSafeAreaInsets()
   const keyboardVisible = useKeyboardVisible(visible)
@@ -47,11 +48,11 @@ export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClo
     setSheetVisible?.(sheetId, visible)
     return () => setSheetVisible?.(sheetId, false)
   }, [setSheetVisible, sheetId, visible])
-  const presentation = { title, accessibilityTitle, eyebrow, onClose, onBack, leadingAction, trailingAction, help, presentationKey, pinnedContent, children, scroll, footer }
+  const presentation = { title, accessibilityTitle, eyebrow, onClose, onBack, leadingAction, trailingAction, help, presentationKey, pinnedContent, children, scroll, footer, minHeight }
   const lastVisiblePresentation = useRef(presentation)
   useEffect(() => {
     if (visible) lastVisiblePresentation.current = presentation
-  }, [visible, title, accessibilityTitle, eyebrow, onClose, onBack, leadingAction, trailingAction, help, presentationKey, pinnedContent, children, scroll, footer])
+  }, [visible, title, accessibilityTitle, eyebrow, onClose, onBack, leadingAction, trailingAction, help, presentationKey, pinnedContent, children, scroll, footer, minHeight])
   const presented = visible ? presentation : lastVisiblePresentation.current
   const scrollResetKey = presented.presentationKey === undefined ? visible : `${visible ? 'open' : 'closed'}:${presented.presentationKey}`
   const body = presented.scroll
@@ -65,7 +66,7 @@ export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClo
           <Pressable style={StyleSheet.absoluteFill} onPress={presented.onClose} accessible={false} accessibilityRole="button" accessibilityLabel="Close sheet" />
           <Animated.View
             entering={Platform.OS === 'web' ? FadeInDown.duration(reducedMotion ? 80 : 180) : undefined}
-            style={[styles.sheet, { backgroundColor: tokens.surface, borderColor: tokens.border, paddingBottom: keyboardVisible ? 8 : Math.max(insets.bottom, 16) }]}
+            style={[styles.sheet, { backgroundColor: tokens.surface, borderColor: tokens.border, paddingBottom: keyboardVisible ? 8 : Math.max(insets.bottom, 16), minHeight: presented.minHeight ?? styles.sheet.minHeight }]}
             accessible={false}
             accessibilityViewIsModal
           >

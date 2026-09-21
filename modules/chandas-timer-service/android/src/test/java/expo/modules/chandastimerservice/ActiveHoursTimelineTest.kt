@@ -158,13 +158,13 @@ class ActiveHoursTimelineTest {
     assertEquals(0, boundary.get(Calendar.MILLISECOND))
   }
 
-  @Test fun reorderAloneChangesTheCollisionWinner() {
+  @Test fun reorderAloneDoesNotChangeTheStableCollisionWinner() {
     val root = JSONObject(fixtures.getJSONObject("patternCollision").getJSONObject("program").toString())
     val tracks = root.getJSONArray("tracks")
     val first = tracks.remove(0)
     tracks.put(first)
     val event = requireNotNull(TimerV2Timeline.next(root.toString(), 0L, 9 * 60_000L))
-    assertEquals("lower", event.winner.cueId)
+    assertEquals("higher", event.winner.cueId)
     assertEquals(2, event.candidates.size)
   }
 

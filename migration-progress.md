@@ -251,6 +251,8 @@ notification) rather than a notification-only v1.
 
 ## Verification
 
+The machine and build constraints recorded below are historical. The current Windows development machine can run Android emulators, local native builds, and local Expo bundling; see `AGENTS.md` and `docs/RELEASES.md` for the current workflow.
+
 **Cloud-container checks** (no Android SDK there): `tsc --noEmit` (clean), `expo-doctor`
 (20/20), `expo prebuild --platform android` (native project + autolinking + config-plugin
 merge all confirmed).

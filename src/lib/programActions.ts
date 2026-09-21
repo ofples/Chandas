@@ -144,7 +144,7 @@ export function setPatternSubBellsEnabled(state: TimerV2State, enabled: boolean)
 export function patchPatternTrack(state: TimerV2State, trackId: string, patch: Partial<PatternTrack>): TimerV2State {
   return updatePattern(state, program => ({
     ...program,
-    tracks: program.tracks.map(track => track.id === trackId ? { ...track, ...patch } : track),
+    tracks: program.tracks.map(track => track.id === trackId ? { ...track, ...patch, label: patch.label === undefined ? track.label : normalizeLabel(patch.label, track.label) } : track),
   }))
 }
 
@@ -152,6 +152,15 @@ export function removePatternTrack(state: TimerV2State, trackId: string): TimerV
   return updatePattern(state, program => {
     const tracks = program.tracks.filter(track => track.id !== trackId)
     return { ...program, tracks, subBellsEnabled: tracks.length > 0 && program.subBellsEnabled }
+  })
+}
+
+export function duplicatePatternTrack(state: TimerV2State, trackId: string): TimerV2State {
+  return updatePattern(state, program => {
+    if (program.tracks.length >= MAX_PATTERN_TRACKS) return program
+    const source = program.tracks.find(track => track.id === trackId)
+    if (!source) return program
+    return { ...program, tracks: [...program.tracks, { ...source, id: createProgramId(), label: normalizeLabel(`${source.label} copy`, source.label) }] }
   })
 }
 
@@ -299,7 +308,7 @@ export function saveProgramPreset(state: TimerV2State, name: string, now = Date.
   if (!trimmed) return state
   const program = selectedProgram(state)
   const snapshot = program.mode === 'pattern' ? normalizePatternProgram(program) : normalizeSequenceProgram(program)
-  const preset: ProgramPreset = { id: createProgramId(), name: trimmed, createdAt: now, program: snapshot }
+  const preset: ProgramPreset = { id: createProgramId(), name: trimmed, createdAt: now, program: snapshot, showInRunningSelector: true }
   return {
     ...state,
     presets: [preset, ...state.presets],
@@ -320,6 +329,41 @@ export function loadProgramPreset(state: TimerV2State, presetId: string): TimerV
       sourcePreset: { id: preset.id, name: preset.name, createdAt: preset.createdAt },
     } as WorkingProgramState,
   }
+}
+
+/** Optional, local examples. Once added, each is an ordinary editable saved configuration. */
+export function addStarterProgramPresets(state: TimerV2State, now = Date.now()): TimerV2State {
+  const names = new Set(state.presets.map(preset => preset.name.trim().toLocaleLowerCase()))
+  const create = (name: string, program: TimerProgram, offset: number): ProgramPreset | null => {
+    if (names.has(name.toLocaleLowerCase())) return null
+    names.add(name.toLocaleLowerCase())
+    return { id: createProgramId(), name, createdAt: now + offset, program, showInRunningSelector: true }
+  }
+  const work = defaultPatternProgram()
+  work.label = 'Work focus'
+  work.labelIsCustom = true
+  work.mainMinutes = 25
+  work.mainDurationSeconds = 25 * 60
+  work.subBellsEnabled = false
+  work.tracks = []
+  const movement = defaultPatternProgram()
+  movement.label = 'Movement reminder'
+  movement.labelIsCustom = true
+  movement.mainMinutes = 30
+  movement.mainDurationSeconds = 30 * 60
+  movement.subBellsEnabled = true
+  movement.tracks = [{ ...movement.tracks[0], label: 'Stretch', cadenceMinutes: 10, selectedOffsetsMinutes: [10, 20] }]
+  const morning = defaultSequenceProgram()
+  morning.steps = morning.steps.map((step, index) => index === 0 ? { ...step, label: 'Arrive', durationMinutes: 3, durationSeconds: 3 * 60 } : index === 1 ? { ...step, label: 'Practice', durationMinutes: 12, durationSeconds: 12 * 60 } : { ...step, label: 'Close', durationMinutes: 3, durationSeconds: 3 * 60 })
+  const study = defaultSequenceProgram()
+  study.steps = study.steps.map((step, index) => index === 0 ? { ...step, label: 'Review', durationMinutes: 5, durationSeconds: 5 * 60 } : index === 1 ? { ...step, label: 'Study', durationMinutes: 25, durationSeconds: 25 * 60 } : { ...step, label: 'Break', durationMinutes: 5, durationSeconds: 5 * 60 })
+  const starters = [
+    create('Work focus', normalizePatternProgram(work), 0),
+    create('Study round', normalizeSequenceProgram(study), 1),
+    create('Morning sequence', normalizeSequenceProgram(morning), 2),
+    create('Movement reminder', normalizePatternProgram(movement), 3),
+  ].filter((preset): preset is ProgramPreset => preset !== null)
+  return starters.length === 0 ? state : { ...state, presets: [...state.presets, ...starters] }
 }
 
 export function deleteProgramPreset(state: TimerV2State, presetId: string): TimerV2State {

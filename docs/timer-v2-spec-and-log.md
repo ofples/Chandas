@@ -4,16 +4,18 @@
 
 | Field | Value |
 | --- | --- |
-| Document status | Implemented in source; static/web verified; remote native build and device validation pending |
+| Document status | Existing implementation reviewed at 5eefc6e; local Android debug build verified; section 26 specifies planned fixes, not implemented features; device acceptance pending |
 | Product | Chandas Android interval timer |
 | Scope | Timer v2 program model, advanced scheduling, audio, Focus/DND, presets, runtime controls, and help |
 | Primary platform | Android |
-| Specification version | 2.6 |
+| Specification version | 4.19 |
 | Created | 2026-09-02 |
 | Implementation rule | Deliver as one cohesive refactor; intermediate builds do not have to be usable |
-| Build rule | Never run a local native build, Gradle task, Expo native run, prebuild, or export. Remote EAS only when explicitly requested. |
+| Build rule | Local Android emulator runs, native builds, Gradle tests, prebuild, and Expo export are allowed on the current machine. Follow `AGENTS.md` and `docs/RELEASES.md` for verification and publication. |
 
-This document is the implementation authority for Timer v2. It is also an append-only project log. Product decisions are recorded with stable IDs so implementation notes, deviations, and test evidence can refer back to them without rewriting history.
+This document is the implementation authority for Timer v2. It is also an append-only project log. Product decisions are recorded with stable IDs so implementation notes, deviations, and test evidence can refer back to them without rewriting history. Older entries that say local builds were prohibited describe the policy and verification environment at the time; they do not restrict work on the current machine.
+
+Current planning authority: [section 26](#26-september-2026-interaction-and-reliability-batch), with supporting findings in [the September 21 product review](timer-product-review-2026-09-21.md). Section 26 supersedes conflicting older interaction descriptions for this planned batch. Its explicitly marked design recommendations are proposed defaults, not implemented behavior or newly locked decisions. The earlier implementation log and change-log entries retain their historical meaning.
 
 ---
 
@@ -1313,7 +1315,7 @@ Storage fixtures:
 - Search for lingering flat-config field assumptions.
 - Validate app/plugin manifests by inspection without running prebuild.
 
-### 19.3 Native tests to add but not run locally
+### 19.3 Native tests (local execution permitted under current build policy)
 
 - Kotlin timeline fixtures matching TypeScript fixtures.
 - JSON round-trip tests.
@@ -3059,3 +3061,179 @@ This section is append-only. Every implementation session should record scope, m
 | 4.15 | 2026-09-07 | Combined each Sub-bell's color and watch-face visibility into one compact row with an inline palette and direct eye toggle. |
 | 4.16 | 2026-09-07 | Replaced stacked nested modal portals with a stable Sub-bells sheet and exclusive sound-editor handoffs, preventing stale-content flashes and pass-through dismissal. |
 | 4.17 | 2026-09-07 | Pinned both master Volume controls outside fading modal bodies and reset shared vertical scrim state before paint after every sheet/presentation change. |
+| 4.18 | 2026-09-21 | Reconciled current source and local build evidence; added the planned interaction/reliability batch in section 26, acceptance criteria, compatibility requirements, open design defaults, and a separate product review. No application features implemented by this revision. |
+
+| 4.19 | 2026-09-21 | Recorded user confirmation of dependency-upgrade flexibility, ordered sounds on successive bells, and audible bells exactly at scheduled active-time endings; added concrete boundary acceptance cases. |
+| 4.20 | 2026-09-21 | Implemented the section 26 interaction/reliability batch in TypeScript and the Android timer service. Added the local Android build policy, native schema v3, active/quiet scheduling, ordered/random sounds, haptic overrides, running configuration switching, and the manual acceptance record below. |
+
+## 26. September 2026 interaction and reliability batch
+
+### 26.1 Scope, status, and precedence
+
+**Status: implemented; device acceptance pending.** Reviewed against `5eefc6edbe6961b1b473b8dce5858712d34d1437`. Stable requirement IDs `B-01` through `B-17` cover every requested change. Automated checks establish domain, TypeScript, and native unit behavior; gesture, keyboard, haptic perception, and background behavior still require the manual record below.
+
+This section updates older descriptions of duration chips (D-051/D-054), editor closure, drag interaction (D-006/D-080), cue grids, weekly active windows (D-038/D-039), compact notification identity, and preset metadata (D-009). Immutable preset **programs** remain immutable; the requested visibility flag is mutable library metadata. The product names remain Cycle and Sequence. Existing five-track/twenty-step limits and bounded-run schedule bypass remain unless explicitly changed in a later decision.
+
+This revision delivers the described application code, native runtime changes, and the required drag dependency. It creates no release or publication. Product opportunities in the separate report are outside this batch.
+
+Confirmed follow-up (2026-09-21): dependency upgrades are authorized to choose the most suitable drag library; ordered sounds advance on successive bells; a bell exactly at the end of scheduled active time must be delivered. These outcomes are settled; delivery-grace details remain proposed below.
+
+### 26.2 Requested outcomes and acceptance criteria
+
+| ID | Requirement | Acceptance |
+| --- | --- | --- |
+| B-01 | Tap running display to hide/show controls | Background/timer tap hides header/footer controls, leaving the timer face/countdowns; next tap reveals without invoking a hidden control or unmuting. Buttons, sheets, drags and alarms own their gestures. Hidden controls are inaccessible to TalkBack; a named reveal action remains. New sessions begin revealed; alarm/critical error is visible. |
+| B-02 | Working haptic previews and Advanced cue overrides | General Main/Sub-bell/Alarm previews issue the selected pattern and strength, report known request failure, and remain usable with automatic haptics off. Advanced per-cue Inherit/Off/Custom is supported; global automatic haptic Off wins. Physical-device evidence is required. |
+| B-03 | Sound selection auditions the selected sound | User selection plays once at effective volume, replacing a prior preview. Opening/loading the picker is silent. Close, background, a newer preview or a real alarm cancels pending audition. Preview never consumes runtime sound order. |
+| B-04 | Status text matches the current interval | Cycle: next cue plus end of current main cycle, e.g. `9:12 • 15m`; no name prefix. Sequence: time to current step end then up to four visible characters of its name, e.g. `1:23 • Work`. Bounded session end is separate expanded information. |
+| B-05 | Custom duration is visibly selected | Main, sub-bell and Sequence selectors insert a nonpreset current duration into the scrollable choices, select it, and reveal it on open/selection. Custom remains a distinct trailing edit action. No duplicate chip when the value matches a preset. |
+| B-06 | One duration editing surface | Custom duration fields render in the current editor sheet without another duration modal. Support current limits and seconds mode; hiding seconds does not round stored durations. |
+| B-07 | Simple repeat plus after-start/before-end cues | Repeat every remains in simple controls. Optional After start and Before end can supplement it or work with repeat disabled. Advanced contains cadence occurrence selection. Repeated/one-off events at the same timestamp on one track ring once. |
+| B-08 | Sequence title has adequate width and height | Use the sub-bell title treatment, preserve full editable width, allow natural font height/padding, and keep title and Done usable with keyboard/large text on a small screen. No clipped editable glyphs. |
+| B-09 | Done commits title edits | Done explicitly commits the latest title draft before closing both editors, including when the keyboard is still open. Blank titles normalize to a meaningful default; closing and reopening shows the committed value. |
+| B-10 | Consistent reliable time entry | Shared clock component accepts `2 → 22 → 2:20 → 22:00`, colon paste, deletion and selected-text replacement. Drafts remain editable; invalid times get inline validation. Current and reachable legacy clock surfaces use the same component. |
+| B-11 | Clearer Sequence rows and editor deletion | Drag handle is outside shaded content; text has left padding. Editor Delete has a warning/second activation and cancel. Final step cannot be deleted into an invalid empty sequence. |
+| B-12 | Reliable animated Sequence reordering | Use an established compatible drag library; preview insertion immediately, animate neighboring rows, scroll at edges, commit once on release, retain stable identities, provide Move up/down actions and respect reduced motion. |
+| B-13 | Snap selector reflects actual state | Unsnapped means no phase selected, not `:00`. Pending choice is separate from confirmed alignment. Native failure leaves the old confirmed selection and timer intact; Stop wins over a pending request. |
+| B-14 | Recurring active and quiet schedule slots | Add Active/Quiet type to weekly slots. Quiet subtracts from the union of active slots; order has no effect. Auto-sort, distinguish types without color alone, and preview the resolved timeline and true next resume. |
+| B-15 | Running saved-configuration selector and visibility | Config name opens visible saved configurations. Each saved config has Show in running selector. Hidden configs remain in library; active hidden/deleted source remains a valid running snapshot. Switch only commits after native acceptance and preserves unsaved-work safeguards. |
+| B-16 | Remove redundant routine interval notifications | Recommended response to the user's question: remove generic per-cue “Interval reached” posts. Retain running/Stop, alarm and meaningful completion notifications and Android-required playback service presentation. Muted events do not create a routine notification. |
+| B-17 | Advanced multiple sounds and matching list actions | One sound per cue occurrence, chosen in ordered or random mode. Reorderable sound list, persistent runtime selection state, no consumption by previews/suppressed events. Add Duplicate and Delete to both Sequence and sub-bell editors, with new IDs, limits and consistent confirmation. |
+
+### 26.3 Presentation and editor contracts
+
+**Hidden controls:** proposed default is a timer-only display with its normal rings/countdowns. A single initial hint explains reveal. While quiet by schedule, show an understandable inactive timer state. A reveal tap does not trigger the existing timer-tap unmute action. Visible unmute remains explicit. Returning from a sheet does not unexpectedly hide the interface. Alarm tap-anywhere dismissal takes precedence over control visibility.
+
+**Clock input:** maintain a raw digit draft of at most four digits plus selection/caret state. For three digits, format one hour digit and two minute digits; never add a leading zero into the editable raw state. Final formatting pads valid clock values to `HH:MM`. Interpret 1–2 digits as minutes (`2` commits `00:02`, `22` commits `00:22`); this is a proposed default consistent with right-filled entry, not a previously approved interpretation. Support `22:00` paste as well as `2200`. Invalid hours/minutes are not clamped silently; `24:00` is invalid. Native 12/24-hour display preferences may be considered separately; the first implementation uses unambiguous 24-hour entry throughout.
+
+**Duration input:** share field styling, focus, error placement and keyboard handling with the clock editor; use distinct elapsed-duration parsing and limits. Hours may exceed 23 where run limits permit. A DurationFields component is embedded in the existing sheet; it must not create a second modal for each field. Backspace through separators, rapid input, middle replacement, empty input and keyboard Done all have defined results.
+
+**Editor commit:** titles and duration drafts belong to a draft controller that Done/Back can commit explicitly. Valid draft changes also survive ordinary scrim/Back dismissal. Invalid drafts prevent a successful Done and offer a clear discard route; no trap requiring force-close. Duplicate first commits valid edits, then clones. Confirmed Delete cancels the draft and must not resurrect the deleted item through a late blur callback. Title truncation is acceptable in list display, not as a substitute for adequate editing space.
+
+**Lists:** Duplicate Sequence inserts immediately after its source; sub-bells use automatic sorting. Disable Duplicate/Add at product limits with a concise reason. Delete confirmation resets when leaving the editor or choosing another item. Drag cancellation restores the previous order. Stable IDs identify items across reorder; never use row index as cue identity. Choose the library on interaction quality, accessibility, maintenance and native integration. Dependency upgrades are authorized when needed; no particular library or existing version is locked. Validate the resulting package set, upgrade migrations and actual native gesture behavior before adoption.
+
+### 26.4 Timing model for simple sub-bells
+
+Proposed additive track fields: `repeatEnabled` (legacy default true), `afterStartSeconds` and `beforeEndSeconds` (nullable positive integers). Existing cadence and selected-occurrence fields remain. Exact field names can be refined during implementation without changing these semantics.
+
+For a main duration L, compile each enabled track's event set as:
+
+1. Selected cadence occurrences, only when repeat is enabled.
+2. `afterStartSeconds`, when strictly between 0 and L.
+3. `L - beforeEndSeconds`, when strictly between 0 and L.
+4. Deduplicate and sort by exact seconds. Main boundaries remain excluded.
+
+Entering an invalid one-off offset must show a local error. If a previously valid setting becomes invalid after shortening the main duration, retain it as inactive with an explanation. Do not silently move it to a boundary or delete intent. Zero enabled sources creates an inactive track summary, not a mysterious enabled bell with no future event.
+
+Advanced cadence selection remains independent from explicit one-offs. When two sources coincide on one track, they share the track's sound/haptic setting and create one candidate. The existing cadence mask extension behavior is preserved for cadence events.
+
+**Proposed collision default requiring explicit implementation documentation:** terminal override has existing priority; main boundaries remain exclusive. Among colliding sub-tracks, tracks with an enabled cadence retain longest-cadence priority, then stable stored order for ties. One-off-only tracks follow cadence tracks and use stable stored order among themselves. This avoids letting an invisible disabled cadence control priority. It may be preferable to prioritize explicit one-offs instead; that is an open product choice, not a reason to silently alter D-049. The timeline preview should make the eventual audible result inspectable without exposing arbitration jargon in normal running UI.
+
+### 26.5 Weekly exclusions and boundary policy
+
+Add `behavior: 'active' | 'mute'` to weekly slots; missing legacy values normalize to active. The presentation label for mute is Quiet. At an instant, resolve the active weekly union plus absolute active overrides, then subtract every matching weekly/absolute quiet range. With Schedule disabled, bypass weekly slot rules as before; retain existing absolute override handling until calendar behavior is separately specified. Bounded sessions bypass the entire effective availability policy as they do today.
+
+Intervals use inclusive start/exclusive end. Equal start/end retains the existing full selected civil-day meaning and must be labeled All day. Overnight ranges belong to the selected start day. Local wall time and timezone/DST handling must match between JS and Kotlin. Quiet slots cannot be overridden by list order or an active override.
+
+Examples:
+
+| Inputs | Effective availability |
+| --- | --- |
+| Active daily 04:00–22:00, Quiet daily 09:00–11:00 | 04:00–09:00 and 11:00–22:00 |
+| Active Friday 22:00–Saturday 02:00, Quiet Saturday 00:30–01:00 | Friday 22:00–Saturday 00:30, then Saturday 01:00–02:00 |
+| Active 09:00–11:00, Quiet 08:00–12:00 | No active time for that day |
+| Active All day, Quiet 22:00–06:00 | Quiet crosses midnight; phase continues while sound is gated |
+
+Enumerate starts **and ends** when finding state transitions. An explicit no-future-availability result replaces the current synthetic `now + 8 days` fallback where applicable. Validate the resolved schedule, including overrides and weekly recurrence, rather than merely checking whether any row exists. With no active base, offer Add active hours/All day; do not treat an exclusion-only list as an implicit all-day schedule.
+
+**Confirmed closing-boundary behavior:** when a scheduled bell exactly coincides with the end of resolved active time, deliver that bell once, then gate subsequent cues. This includes an active range ending and a weekly Quiet range beginning inside an active range. Evaluate the scheduled event timestamp, so a small callback delay does not swallow the boundary bell. Availability/Focus still becomes inactive at the boundary; the bell does not extend the active window. Independent runtime mute, call suppression, global output settings and explicit absolute mute overrides retain their existing gates. Existing iteration-mute ending-boundary behavior remains intact.
+
+**Proposed freshness details:** retain the five-second delivery grace for the exact closing bell; suppress an ordinary earlier cue delivered after active time closes. Do not replay stale bells at the next opening. A bell at Quiet's end plays only if active time resumes there. Absolute mute overrides retain precedence, including at their start. These freshness/override details are implementation defaults, distinct from the user's confirmed requirement that a coincident schedule-ending bell must play.
+
+Boundary acceptance examples: Active 04:00–22:00 allows a bell scheduled at exactly 22:00; delivery at 22:00:00.500 still plays it once. Active 04:00–22:00 with Quiet 09:00–11:00 allows the exactly-09:00 closing bell, gates subsequent events inside Quiet, and permits an exactly-11:00 bell when active time resumes. A duplicate callback never adds a second bell. Test an independently muted closing bell separately; this exception must not unmute the timer.
+
+Focus exits at the actual half-open closing boundary. A permitted closing gong does not reactivate Focus. Running UI uses “Quiet until …”, not “Paused”, since phase continues. Bounded setup should briefly indicate that Schedule does not apply.
+
+### 26.6 Status presentation
+
+Define three distinct deadlines: next scheduled cue, current Cycle/step end, and bounded session end. Never substitute the third for the second in the compact Cycle badge.
+
+- Cycle: primary `m:ss` to next cue (or `h:mm:ss` when needed), secondary whole minutes rounded upward to current Cycle end. Below one minute, use seconds rounded upward. Example `9:12 • 15m`, then `12s • 43s` when there are two distinct imminent boundaries.
+- Collapse to one countdown only when the underlying timestamps coincide, not merely when rounded text matches. Example `43s`. No Cycle-name initial.
+- Sequence: countdown to current step end followed by its first four user-perceived characters, e.g. `1:23 • Work`. Use grapheme-safe truncation where supported; do not split emoji or combining marks. Empty names use a meaningful fallback.
+- For a duration-bounded run ending partway through the current interval, the actual terminal event wins: show time to finish and expose “Session ends” in expanded details, never a step/cycle deadline after the timer stops.
+- Expanded notification shows full current label and separately labeled session end if bounded. Quiet periods show resume state rather than a supposed imminent audible bell. Existing mute behavior remains explicit in the expanded status.
+
+Try the requested full strings on the target device before selecting a shorter fallback. Compact separators may become `·` without spaces. Prefer truncating step text before countdown text; do not promise the OS will show the whole string. If necessary use a countdown-only system chip and full paired text in expanded notification. This is a presentation fallback, not permission to omit the requested full format everywhere.
+
+### 26.7 Preset visibility and transactional switching
+
+`showInRunningSelector` is mutable metadata on each library entry, default true for old and new presets. It does not change the immutable saved program. Export/import must choose and document whether it is carried; proposed default is to preserve it, while ensuring a hidden imported preset is still visible in the library. Duplicate names are disambiguated by mode and existing creation metadata. Show the current snapshot even when its source is hidden or deleted. An empty selector explains how to add/show configurations.
+
+Proposed switch behavior:
+
+1. Selecting the current entry is a no-op; other choices load a working snapshot under existing unsaved-work protections.
+2. Validate duration, schedule availability and installed runtime capability, prepare all sound assets, and acquire a request generation. Disable conflicting pending actions; Stop invalidates preparation.
+3. Start elapsed programs at their beginning; aligned programs use their configured local-clock phase. Compute bounded run end from the accepted start. Display this switching behavior in the selector.
+4. Preserve global settings and timestamp mute. Clear iteration mute. Preserve armed alarm behavior only for a destination that supports it; Sequence clears Cycle-only Once/Locked. Explicitly clear/replace a ringing alarm as part of accepted replacement.
+5. Publish the new config name, program, timeline and persistence only after native acceptance. Native rejection preserves/reinstates the previous session including alarm state. Audit native Start itself: JS ordering alone does not prove atomic replacement.
+6. Session restoration uses the accepted snapshot and associated preset identity, never a later-edited/deleted library lookup. Storage-cache failure is reported accurately without stopping a healthy native schedule.
+
+### 26.8 Audio and haptic state
+
+Per-cue haptic override is absent/Inherit, Off, or Custom(profile). Put it in the shared cue model so main cues, Sequence steps, sub-bells and custom completion cues can use it. Automatic global haptics Off wins; explicit Preview remains an audition only. General alarm profile continues controlling the repeating alarm. Inherit resolves at playback time, so changing the default affects inheriting cues without rewriting saved programs.
+
+Preserve existing mute/call/schedule gates and inspect their current haptic behavior before changing them. A potential “vibration only” output mode is a separate proposal; zero audio level must not accidentally redefine mute. Native haptic success means the request was accepted, not proof the actuator was felt. Fallback failures must be observable, and parallel previews must cancel/supersede prior pending pulses.
+
+Proposed sound selection model is a nonempty ordered list with `single | sequence | random`. Legacy `sound` migrates to a one-element list. A compatibility projection may retain the first sound, but unsupported runtimes must not quietly claim to implement ordered/random behavior. Cache and availability checks visit every member.
+
+Confirmed: ordered sounds advance across successive bells, one sound per occurrence, wrapping to the first sound after the last. For [A, B, C], five eligible bells play A, B, C, A, B.
+
+For each eligible winning occurrence, resolve exactly one sound. Sequence advances after the playback request is accepted; failure with an accepted built-in fallback counts as that occurrence, while complete rejection does not. Persist the event claim and cursor/bag consistently so stale/retried callbacks cannot advance twice. Restore resumes state; explicit restart/config switch resets it. Suppressed and losing cues, previews, schedule scans, rendering, and notifications never consume a sound. Random uses a proposed persisted shuffle bag, avoiding immediate repetition across bags when at least two sounds exist.
+
+An unavailable sound remains configured and uses the existing fallback with an availability indication. Never silently delete it from the order. Editing a live list must either be explicitly unsupported in this batch or use a documented reset rule; stable cue IDs alone do not resolve a changed list. The recommended first scope edits sound lists in setup and resets their playback state on the next accepted start.
+
+### 26.9 Compatibility, tests, and definition of done
+
+All new timing semantics require equivalent normalization, event generation, gate behavior, serialization and persistence in TS and Kotlin. Advertise native capabilities and a compatible runtime boundary before enabling new one-off/quiet/multi-sound features. Older records migrate unchanged. Unsupported binaries must block affected Start/switch with actionable copy rather than ignore Quiet, invent rounded cues or partially honor a config.
+
+Extend configuration transfer validation and sound-reference discovery for all new fields. Imported files remain data; enforce existing limits, valid durations, nonempty sound lists and unique IDs. Never imply that a URI export includes the referenced audio file.
+
+Minimum acceptance matrix:
+
+| Area | Cases |
+| --- | --- |
+| Inputs/editors | `2200`, colon paste, `0000`, invalid `2400`/`2270`, backspace, middle replacement, IME Done, title Done while focused, Back/scrim, delete during edit, font scaling, hidden seconds retained |
+| Running gestures | Hide/reveal over muted ring, child buttons, long press, sheets, TalkBack, alarm arrival, critical error, rotation |
+| Drag/list | Fast and slow drag, scroll threshold, first/last rows, edge auto-scroll, cancellation, duplicate IDs avoided, step/track limits, last-step Delete, reduced motion |
+| Timing | Repeat-only, each one-off alone, combinations, duplicates, invalid after resize, equal/unequal cadence collisions, bounded terminal coincidence, no double sound/haptic |
+| Schedule | Active-minus-quiet, adjacent/overlapping/full-day/overnight slots, all excluded, future overrides, quiet start/end with coincident closing bell, exact 22:00 bell delivered at +500ms, duplicate callback, independently muted closing bell, late ordinary cue, DST/timezone change, no catch-up |
+| Switch/snap | Null vs zero, rapid requests, native rejection, Stop during prepare, active alarm, Sequence destination, timestamp/iteration mute, unavailable sounds, hidden/deleted source, dirty working copy, storage failure |
+| Sound/haptics | Rapid selection, close during async prepare, zero level, failure feedback, global Off preview, override inheritance, blocked haptics, process restoration of sound order, stale event deduplication |
+| Native lifecycle | Background/Doze, screen lock, process death/reboot, exact-alarm loss, unsupported runtime, required foreground service notification, quiet event notification suppression |
+
+Before fixing the baseline native tests, document why each expectation changes. Reordering collision priority must match D-049. Closing-window delivery must match the explicit policy selected in 26.5. Do not use green tests as a substitute for choosing the behavior.
+
+Current evidence: TypeScript and 112 JS tests pass; all 46 Android timer-service unit tests pass; local `:app:assembleDebug` passes. Manual device checks remain required. Physical-device haptic perception and interactive UI acceptance remain pending.
+
+Implementation order: shared input/editor and running-state fixes; list gestures/actions; shared schedule/cue model and migrations; transactional preset switching; multi-sound/haptic playback; notification presentation and device acceptance. Build locally per `AGENTS.md`, then follow `docs/RELEASES.md` for any publication. Record requirement IDs, evidence, deviations and unresolved device checks in the implementation log as work lands.
+
+### 26.10 Implementation record and manual acceptance checklist
+
+The implementation uses `react-native-reanimated-dnd` with Reanimated and Gesture Handler for Sequence reordering. The list owns its scroll area while dragging, commits one reorder on drop, keeps stable step IDs, provides an outside dotted handle, and retains move-earlier/later actions in the step editor. The shared clock entry component is also used by the reachable legacy active-hours picker. Optional starter configurations are added only on request and become ordinary editable saved configurations.
+
+Schema v3 is accepted by the native service and normalizes old schemas. It carries weekly Quiet windows, repeat/after-start/before-end sub-bell events, per-cue haptic overrides, per-cue vibration-only output, an ordered/random sound list, and saved-configuration visibility. Ordered audio persists its cursor only for eligible winning delivery; previews and suppressed/lost events do not consume it. The exact active-closing delivery exception is retained while independent mute/call gates continue to win.
+
+Final reliability review also made the replacement path alarm-safe: a ringing alarm rejects a configuration change before either runtime is torn down. The compact notification derives its paired end from the current Cycle or Sequence step, never the bounded-session deadline. A fully quiet schedule returns an explicit no-active-time state rather than a synthetic future resume. Stored after-start/before-end values that become out of range after a shorter Cycle remain visible as inactive and no longer prevent the rest of the configuration from starting. Sound-picker closure and backgrounding invalidate outstanding preview requests before they can start audio.
+
+Manual Android acceptance checklist:
+
+- [ ] On a compact handset and with large text, edit a long Sequence title, keep the keyboard open, tap Done, and reopen it. Confirm the full field remains usable and the title is saved.
+- [ ] Enter schedule times as `2200`, `22:00`, with deletion and replacement; confirm 22:00 persists. Repeat from the older Active hours surface.
+- [ ] Drag first, middle, and last Sequence rows slowly and quickly, including an internal-list edge scroll. Confirm neighboring rows animate, one reorder commits on release, cancellation restores order, and a handle drag never opens the editor.
+- [ ] Hide controls with a blank/timer tap; confirm only the timer face and reveal hint remain, the next tap restores controls, and a muted-ring tap does not clear mute while controls are hidden.
+- [ ] Set Active 04:00–22:00 and Quiet 09:00–11:00; verify the exact 09:00/22:00 bell plays once, later quiet bells do not replay, and an independently muted/call-suppressed boundary bell remains quiet.
+- [ ] Add two and then three sounds to a cue. Confirm ordered runtime output is A → B → C → A across successive eligible bells, random does not immediately repeat when alternatives exist, and previewing does not advance runtime order.
+- [ ] Preview Main, Sub-bell, Alarm, and per-cue haptics on a physical device. Verify Off/Default/Custom behavior, global automatic-haptics Off precedence, and vibration-only cues. Record device/OEM results because a successful request does not prove perceptibility.
+- [ ] Switch among visible saved configurations while running; try an aligned Cycle, a Sequence, a hidden/deleted source, Stop during a pending change, and a rejection such as revoked exact-alarm access. Confirm the existing session remains coherent on rejection.
+- [ ] Check quiet/mute explanation and the upcoming cue in foreground, background, restoration, screen off, and after process recreation. Confirm routine “Interval reached” notifications are absent.

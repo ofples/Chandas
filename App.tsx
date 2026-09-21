@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { StatusBar } from 'expo-status-bar'
 import * as Updates from 'expo-updates'
 import { AppState as NativeAppState, Linking, PermissionsAndroid, Platform, View } from 'react-native'
+import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { useFonts, JetBrainsMono_300Light, JetBrainsMono_400Regular } from '@expo-google-fonts/jetbrains-mono'
 import Reanimated, { FadeIn, FadeOut, useReducedMotion } from 'react-native-reanimated'
@@ -12,7 +13,7 @@ import { clearTimerV2Session, loadTimerV2Session, loadTimerV2StateResult, saveTi
 import { defaultTimerV2State, normalizeAvailabilityPolicy, parseTimerProgram, replaceWorkingProgram, selectedProgram } from './src/lib/timerV2'
 import { defaultTimerHapticsSettings, normalizeTimerHapticsSettings } from './src/lib/haptic-profiles'
 import { setAppHapticsEnabled, successHaptic, tapHaptic } from './src/lib/haptics'
-import { patchCompletionCue, patchPatternTrack, patchSequenceStep, updatePattern, updateSequence } from './src/lib/programActions'
+import { loadProgramPreset, patchCompletionCue, patchPatternTrack, patchSequenceStep, updatePattern, updateSequence } from './src/lib/programActions'
 import { TimerV2ConfigScreen } from './src/screens/TimerV2ConfigScreen'
 import { TimerV2RunningScreen } from './src/screens/TimerV2RunningScreen'
 import { AlarmRingingScreen } from './src/screens/AlarmRingingScreen'
@@ -23,7 +24,7 @@ import { AppErrorBoundary } from './src/components/timer-v2/app-error-boundary'
 import { clockOffsetLabel } from './src/lib/clockAlignment'
 
 const FALLBACK_PROGRAM = {
-  schemaVersion: 2 as const, mode: 'pattern' as const, mainMinutes: 30,
+  schemaVersion: 3 as const, mode: 'pattern' as const, mainMinutes: 30,
   label: '30-minute cycle', labelIsCustom: false,
   mainCue: { sound: { kind: 'builtin' as const, id: 'temple-gong' as const }, volume: 1 }, completionCue: null, subBellsEnabled: false, tracks: [], alignment: { kind: 'elapsed' as const },
   runPolicy: { kind: 'continuous' as const, cycleCount: 1, durationSeconds: 30 * 60 },
@@ -539,6 +540,32 @@ function Root() {
     }
   }
 
+  const switchRunningConfiguration = async (presetId: string): Promise<boolean> => {
+    if (!timerState || !program || realigningRef.current) return false
+    const preset = timerState.presets.find(value => value.id === presetId && value.showInRunningSelector !== false)
+    if (!preset) return false
+    if (timerState.workingPrograms.sourcePreset?.id === preset.id) return true
+    realigningRef.current = true
+    const generation = ++reanchorAttemptGeneration.current
+    setRealigning(true)
+    try {
+      const started = await timer.reanchor(preset.program, preset.program.alignment.kind === 'local-clock')
+      if (generation !== reanchorAttemptGeneration.current) return false
+      if (!started) {
+        showNotice({ title: timer.isAlarmRinging ? 'Dismiss the alarm first' : 'Configuration stayed unchanged', message: timer.isAlarmRinging ? 'The ringing alarm must be dismissed before changing configuration.' : 'The timer kept its existing schedule. You can try again.', tone: 'attention' })
+        return false
+      }
+      changeTimerState(loadProgramPreset(timerState, preset.id))
+      showNotice({ title: 'Configuration switched', message: `“${preset.name}” is now running.`, tone: 'success' })
+      return true
+    } catch {
+      if (generation === reanchorAttemptGeneration.current) showNotice({ title: 'Configuration stayed unchanged', message: 'The timer kept its existing schedule. You can try again.', tone: 'attention' })
+      return false
+    } finally {
+      if (generation === reanchorAttemptGeneration.current) { realigningRef.current = false; setRealigning(false) }
+    }
+  }
+
   const changeCueVolume = (cueId: string, volume: number) => {
     if (!timerState || !program) return
     if (cueId === '__chandas_completion__') changeTimerState(patchCompletionCue(timerState, program.mode, { volume }))
@@ -574,7 +601,7 @@ function Root() {
           accessibilityElementsHidden={timer.isAlarmRinging}
         >
           <Reanimated.View key={appState} style={{ flex: 1 }} entering={FadeIn.duration(reducedMotion ? 80 : 220)} exiting={FadeOut.duration(reducedMotion ? 70 : 150)}>
-            {appState === 'config' ? <TimerV2ConfigScreen state={timerState} onChange={changeTimerState} onStart={start} starting={starting} focusState={focusState} onFocusAutomationChange={setFocusAutomation} onOpenFocusSettings={openNotificationPolicySettings} onOpenFocusRuleSettings={openFocusRuleSettings} androidAccess={androidAccess} onOpenExactAlarmSettings={openExactAlarmSettings} onOpenFullScreenIntentSettings={openFullScreenIntentSettings} onRequestCallMuteAccess={() => void requestCallMuteAccess()} onRequestNotificationAccess={() => void requestNotificationAccess()} onFeedback={showNotice} /> : <TimerV2RunningScreen program={program} mainCountdown={timer.mainCountdown} nextCueCountdown={timer.nextCueCountdown} nextCueLabel={timer.nextCueLabel} progress={timer.progress} position={timer.position} eventPulse={timer.eventPulse} activeHoursPaused={timer.activeHoursPaused} activeHoursResumeAt={timer.activeHoursResumeAt} runEndsAt={timer.runEndsAt} runRemainingMs={timer.runRemainingMs} runProgress={timer.runProgress} mute={timer.mute} alarmBehavior={timer.alarmBehavior} realigning={realigning} onStop={stop} onRestartUnsynced={() => reanchor(false)} onSnapToClock={offset => reanchor(true, offset)} onPressAlarm={pressAlarm} onMuteForIterations={timer.muteForIterations} onMuteForSeconds={timer.muteForSeconds} onClearMute={timer.clearMute} secondPrecision={timerState.settings.secondPrecisionEnabled} masterVolume={timerState.settings.masterVolume} onMasterVolumeChange={masterVolume => changeTimerState({ ...timerState, settings: { ...timerState.settings, masterVolume } })} onCueVolumeChange={changeCueVolume} showAdvancedControls={timerState.settings.advancedModeEnabled} onShowAdvancedControls={() => changeTimerState({ ...timerState, settings: { ...timerState.settings, advancedModeEnabled: true } })} focusEnabled={timerState.settings.focusAutomationEnabled} focusActive={focusState.actual === 'active' && !timer.activeHoursPaused} focusPolicyAccess={focusState.policyAccess} focusReason={focusState.reason} onToggleFocus={focusState.reason === 'paused-by-android' ? resumeFocusAutomation : () => setFocusAutomation(!timerState.settings.focusAutomationEnabled)} onOpenFocusSettings={focusState.reason === 'rule-disabled' ? openFocusRuleSettings : openNotificationPolicySettings} />}
+            {appState === 'config' ? <TimerV2ConfigScreen state={timerState} onChange={changeTimerState} onStart={start} starting={starting} focusState={focusState} onFocusAutomationChange={setFocusAutomation} onOpenFocusSettings={openNotificationPolicySettings} onOpenFocusRuleSettings={openFocusRuleSettings} androidAccess={androidAccess} onOpenExactAlarmSettings={openExactAlarmSettings} onOpenFullScreenIntentSettings={openFullScreenIntentSettings} onRequestCallMuteAccess={() => void requestCallMuteAccess()} onRequestNotificationAccess={() => void requestNotificationAccess()} onFeedback={showNotice} /> : <TimerV2RunningScreen program={program} configurationName={timerState.workingPrograms.sourcePreset?.name} mainCountdown={timer.mainCountdown} nextCueCountdown={timer.nextCueCountdown} nextCueLabel={timer.nextCueLabel} progress={timer.progress} position={timer.position} eventPulse={timer.eventPulse} activeHoursPaused={timer.activeHoursPaused} activeHoursResumeAt={timer.activeHoursResumeAt} runEndsAt={timer.runEndsAt} runRemainingMs={timer.runRemainingMs} runProgress={timer.runProgress} mute={timer.mute} alarmBehavior={timer.alarmBehavior} realigning={realigning} onStop={stop} onRestartUnsynced={() => reanchor(false)} onSnapToClock={offset => reanchor(true, offset)} onPressAlarm={pressAlarm} onMuteForIterations={timer.muteForIterations} onMuteForSeconds={timer.muteForSeconds} onClearMute={timer.clearMute} secondPrecision={timerState.settings.secondPrecisionEnabled} masterVolume={timerState.settings.masterVolume} onMasterVolumeChange={masterVolume => changeTimerState({ ...timerState, settings: { ...timerState.settings, masterVolume } })} onCueVolumeChange={changeCueVolume} showAdvancedControls={timerState.settings.advancedModeEnabled} onShowAdvancedControls={() => changeTimerState({ ...timerState, settings: { ...timerState.settings, advancedModeEnabled: true } })} focusEnabled={timerState.settings.focusAutomationEnabled} focusActive={focusState.actual === 'active' && !timer.activeHoursPaused} focusPolicyAccess={focusState.policyAccess} focusReason={focusState.reason} onToggleFocus={focusState.reason === 'paused-by-android' ? resumeFocusAutomation : () => setFocusAutomation(!timerState.settings.focusAutomationEnabled)} onOpenFocusSettings={focusState.reason === 'rule-disabled' ? openFocusRuleSettings : openNotificationPolicySettings} configurations={timerState.presets.filter(preset => preset.showInRunningSelector !== false)} activeConfigurationId={timerState.workingPrograms.sourcePreset?.id} onSelectConfiguration={switchRunningConfiguration} />}
           </Reanimated.View>
         </View>
         {timer.isAlarmRinging && <AlarmRingingScreen onDismiss={timer.dismissAlarm} />}
@@ -586,5 +613,5 @@ function Root() {
 
 export default function App() {
   const [fontsLoaded] = useFonts({ 'JetBrainsMono-Light': JetBrainsMono_300Light, 'JetBrainsMono-Regular': JetBrainsMono_400Regular })
-  return <SafeAreaProvider><AppErrorBoundary>{fontsLoaded ? <ThemeProvider><Root /></ThemeProvider> : <AppLoadingScreen backgroundColor="#0b0c10" accentColor="#7c6ff7" textColor="#e8e8f0" message="Preparing Chandas…" />}</AppErrorBoundary></SafeAreaProvider>
+  return <GestureHandlerRootView style={{ flex: 1 }}><SafeAreaProvider><AppErrorBoundary>{fontsLoaded ? <ThemeProvider><Root /></ThemeProvider> : <AppLoadingScreen backgroundColor="#0b0c10" accentColor="#7c6ff7" textColor="#e8e8f0" message="Preparing Chandas…" />}</AppErrorBoundary></SafeAreaProvider></GestureHandlerRootView>
 }

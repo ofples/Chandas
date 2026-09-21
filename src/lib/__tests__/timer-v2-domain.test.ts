@@ -12,7 +12,7 @@ const minute = 60_000
 
 function pattern(): PatternProgram {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     mode: 'pattern',
     label: 'Focus cycle',
     labelIsCustom: true,
@@ -31,7 +31,7 @@ function pattern(): PatternProgram {
 
 function sequence(): SequenceProgram {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     mode: 'sequence',
     steps: [
       { id: 'work', label: 'Work', durationMinutes: 5, sound: { kind: 'builtin', id: 'clear-bell' }, volume: 0.8 },

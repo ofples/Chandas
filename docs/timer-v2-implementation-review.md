@@ -5,6 +5,10 @@ Status: source implementation complete; remote Android build and on-device valid
 Reviewed and remediated: 2026-09-03
 Scope: product specification, approved HTML mockup, React Native application, Android native module, persistence, scheduling, audio, Focus/DND, accessibility, and permitted verification
 
+This report records the verification limits on 2026-09-03. Its statements that local builds were prohibited are historical. The current machine permits local Android builds and emulator testing under `AGENTS.md` and `docs/RELEASES.md`.
+
+For the current source findings and planned fixes, see the [2026-09-21 product and reliability review](timer-product-review-2026-09-21.md) and [specification section 26](timer-v2-spec-and-log.md#26-september-2026-interaction-and-reliability-batch). The completion statements below describe the September 3 scope and do not establish that the newer batch is implemented or that current native tests all pass.
+
 ## 1. Executive assessment
 
 Timer v2 is now implemented as the cohesive program-based timer described in `timer-v2-spec-and-log.md`. The original review found fifteen substantive gaps. Each has been addressed in source, and the later completion audit found and fixed additional recovery and interaction defects.

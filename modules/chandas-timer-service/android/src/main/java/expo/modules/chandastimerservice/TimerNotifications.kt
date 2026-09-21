@@ -115,7 +115,7 @@ object TimerNotifications {
       event?.completesRun == true -> copy.sessionEnds(formatTime(next))
       endsBeforeResume -> copy.sessionEnds(formatTime(config.timerV2EndsAt))
       activeNow && activeAtNext -> notificationContext?.label ?: copy.nextCue(formatTime(next))
-      else -> copy.resumes(formatTime(resumesAt))
+      else -> if (resumesAt > 0L) copy.resumes(formatTime(resumesAt)) else "No active time"
     }
     val title = program?.let(TimerV2Timeline::notificationTitle) ?: copy.runningTitle
     val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
@@ -149,9 +149,10 @@ object TimerNotifications {
     if (config.liveCountdownEnabled && countdownAt > now) {
       val compactCountdown = TimerCountdownText.forProgram(
         identity = notificationContext?.compactIdentity.orEmpty(),
+        sequence = program?.let(TimerV2Timeline::isSequence) == true,
         currentAt = countdownAt,
-        finalAt = config.timerV2EndsAt,
-        currentIsFinal = event?.completesRun == true || countdownAt == config.timerV2EndsAt,
+        finalAt = notificationContext?.currentEndsAt ?: 0L,
+        currentIsFinal = event?.completesRun == true || countdownAt == notificationContext?.currentEndsAt,
         now = now,
       )
       builder
@@ -238,9 +239,10 @@ internal object TimerCountdownText {
   }
 
   /** Bounded runs prioritize both deadlines; continuous runs use interval identity. */
-  fun forProgram(identity: String, currentAt: Long, finalAt: Long, currentIsFinal: Boolean, now: Long): String? =
+  fun forProgram(identity: String, sequence: Boolean = false, currentAt: Long, finalAt: Long, currentIsFinal: Boolean, now: Long): String? =
     if (finalAt > 0L) compact(currentAt, finalAt, currentIsFinal, now)
-    else compactStatus(identity, currentAt, now)
+    else if (sequence) sequenceCompactStatus(identity, currentAt, now)
+    else formatStatusCountdown(currentAt - now)
 
   /**
    * Android recommends at most seven characters for promoted-notification
@@ -255,6 +257,13 @@ internal object TimerCountdownText {
     if (availableIdentityCharacters <= 0 || identity.isBlank()) return countdown.take(MAX_STATUS_CHIP_CHARACTERS)
     val prefix = identity.takeCodePoints(availableIdentityCharacters)
     return if (prefix.isEmpty()) countdown else "$prefix·$countdown"
+  }
+
+  /** Put the countdown first so the essential live value survives chip truncation. */
+  private fun sequenceCompactStatus(identity: String, currentAt: Long, now: Long): String? {
+    val countdown = formatStatusCountdown(currentAt - now)
+    if (countdown.isBlank() || identity.isBlank()) return countdown.take(MAX_STATUS_CHIP_CHARACTERS)
+    return "$countdown·${identity.take(4)}".take(MAX_STATUS_CHIP_CHARACTERS)
   }
 
   private fun formatCurrent(remainingMs: Long, compactMinutes: Boolean): String {

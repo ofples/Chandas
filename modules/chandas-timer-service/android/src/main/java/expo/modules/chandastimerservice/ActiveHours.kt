@@ -10,7 +10,7 @@ object ActiveHours {
   private const val EIGHT_DAYS_MS = 8L * 24L * 60L * 60L * 1_000L
   private const val CUE_DELIVERY_GRACE_MS = 5_000L
 
-  private data class Window(val id: String, val enabled: Boolean, val start: Int, val end: Int, val days: Int)
+  private data class Window(val id: String, val enabled: Boolean, val start: Int, val end: Int, val days: Int, val behavior: String = "active")
   private data class Override(val id: String, val startAt: Long, val endAt: Long, val behavior: String)
   private data class Policy(val enabled: Boolean, val windows: List<Window>, val overrides: List<Override>)
 
@@ -35,8 +35,9 @@ object ActiveHours {
         val start = item.optInt("startMinutes", -1)
         val end = item.optInt("endMinutes", -1)
         val days = item.optInt("days", -1)
-        if (id.isBlank() || id.length > 200 || !windowIds.add(id) || start !in 0..1_439 || end !in 0..1_439 || days !in 0..0x7f) return@runCatching null
-        Window(id, item.optBoolean("enabled", true), start, end, days)
+        val behavior = item.optString("behavior", "active")
+        if (id.isBlank() || id.length > 200 || !windowIds.add(id) || start !in 0..1_439 || end !in 0..1_439 || days !in 0..0x7f || behavior !in setOf("active", "mute")) return@runCatching null
+        Window(id, item.optBoolean("enabled", true), start, end, days, behavior)
       }
       val overrideIds = mutableSetOf<String>()
       val overrides = (0 until overridesJson.length()).map { index ->
@@ -57,8 +58,7 @@ object ActiveHours {
   fun hasPotentialAvailability(config: TimerConfig, now: Long = System.currentTimeMillis()): Boolean {
     val policy = policy(config) ?: return false
     if (!policy.enabled) return true
-    if (policy.windows.any { it.enabled && it.days != 0 }) return true
-    return policy.overrides.any { it.behavior == "active" && it.endAt > now }
+    return nextStart(config, now) > 0L
   }
 
   private fun isDayEnabled(window: Window, calendarDay: Int): Boolean =
@@ -82,9 +82,10 @@ object ActiveHours {
     overrides.any { it.behavior == behavior && it.startAt <= timestamp && timestamp < it.endAt }
 
   private fun isActive(policy: Policy, timestamp: Long): Boolean {
-    val weeklyActive = !policy.enabled || policy.windows.any { isWithin(it, timestamp) }
+    val weeklyActive = !policy.enabled || policy.windows.any { it.behavior == "active" && isWithin(it, timestamp) }
+    val weeklyQuiet = policy.enabled && policy.windows.any { it.behavior == "mute" && isWithin(it, timestamp) }
     val active = weeklyActive || matches(policy.overrides, timestamp, "active")
-    return active && !matches(policy.overrides, timestamp, "mute")
+    return active && !weeklyQuiet && !matches(policy.overrides, timestamp, "mute")
   }
 
   fun isActive(config: TimerConfig, timestamp: Long = System.currentTimeMillis()): Boolean =
@@ -106,12 +107,15 @@ object ActiveHours {
     return isActive(policy, cueAt) || isClosingBoundary(policy, cueAt)
   }
 
-  /** Rejects every stale callback, including one delivered in a later active window. */
+  /**
+   * An exact closing bell receives a short grace period, but an earlier bell
+   * never leaks into Quiet time merely because AlarmManager delivered it late.
+   */
   fun allowsCueDelivery(config: TimerConfig, cueAt: Long, deliveredAt: Long): Boolean {
     val policy = policy(config) ?: return false
     val delay = deliveredAt - cueAt
     if (delay !in 0L..CUE_DELIVERY_GRACE_MS) return false
-    return isActive(policy, cueAt) || isClosingBoundary(policy, cueAt)
+    return if (isClosingBoundary(policy, cueAt)) true else isActive(policy, cueAt) && isActive(policy, deliveredAt)
   }
 
   private fun weeklyBoundary(window: Window, timestamp: Long, dayOffset: Int, startBoundary: Boolean): Long {
@@ -150,9 +154,9 @@ object ActiveHours {
   }
 
   fun nextStart(config: TimerConfig, timestamp: Long = System.currentTimeMillis()): Long {
-    val policy = policy(config) ?: return timestamp + EIGHT_DAYS_MS
+    val policy = policy(config) ?: return 0L
     if (isActive(policy, timestamp)) return timestamp
-    return boundaries(policy, timestamp).firstOrNull { isActive(policy, it) } ?: timestamp + EIGHT_DAYS_MS
+    return boundaries(policy, timestamp).firstOrNull { isActive(policy, it) } ?: 0L
   }
 
   /** End of the connected active union, not merely the first window's end. */

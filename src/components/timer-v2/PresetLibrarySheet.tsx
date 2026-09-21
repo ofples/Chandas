@@ -3,7 +3,7 @@ import { Alert, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'r
 import { successHaptic } from '../../lib/haptics'
 import Animated, { FadeIn, FadeInDown, FadeOut, LinearTransition, useReducedMotion } from 'react-native-reanimated'
 import type { ProgramPreset, TimerMode, TimerProgram, TimerV2State } from '../../types'
-import { deleteProgramPreset, hasUnsavedProgramChanges, loadProgramPreset, saveProgramPreset, updatePattern } from '../../lib/programActions'
+import { addStarterProgramPresets, deleteProgramPreset, hasUnsavedProgramChanges, loadProgramPreset, saveProgramPreset, updatePattern } from '../../lib/programActions'
 import { soundTitle } from '../../lib/soundLibrary'
 import { useTheme } from '../../theme/ThemeContext'
 import { BottomSheet } from './BottomSheet'
@@ -14,6 +14,7 @@ import { SheetTextButton } from './SheetTextButton'
 import { subBellColorValue } from '../../lib/subBellColors'
 import { tapHaptic } from '../../lib/haptics'
 import { SwipeToDeleteRow } from './swipe-to-delete-row'
+import { Toggle } from '../Toggle'
 import { formatCompactDurationSeconds, patternDurationSeconds, sequenceStepDurationSeconds, trackCadenceSeconds, trackSelectedOffsetsSeconds } from '../../lib/timerV2'
 import { configurationTransferFilename, parseConfigurationTransfer, serializeConfiguration, type ConfigurationTransferError, type ConfigurationTransferResult } from '../../lib/configuration-transfer'
 import { copyConfigurationText, pickConfigurationText, readConfigurationTextFromClipboard, saveConfigurationFile } from '../../lib/configuration-transfer-io'
@@ -225,9 +226,11 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedba
         <View style={styles.saveAction}><SheetTextButton disabled={!canSave || Boolean(transferAction)} label="Save" onPress={save} /></View>
       </View> : null}
       {!selected && savedName ? <GentleNotice title="Configuration saved" message={`“${savedName}” is ready to load.`} tone="success" /> : null}
+      {!selected && state.presets.length === 0 ? <View style={[styles.starterRow, { borderColor: tokens.border }]}><View style={styles.copy}><Text style={[styles.presetTitle, { color: tokens.text }]}>Starter configurations</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>Add editable examples for work, study, a morning sequence, and movement reminders.</Text></View><SheetTextButton label="Add" onPress={() => onChange(addStarterProgramPresets(state))} accessibilityLabel="Add starter configurations" /></View> : null}
       {!selected ? <SegmentedControl items={FILTERS} value={filter} onChange={setFilter} accessibilityLabel="Configuration type" /> : null}
       {selected ? <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 130)} style={styles.inspector}>
         <View style={styles.copy}><PresetVisual program={selected.program} /><Text style={[styles.date, { color: tokens.textMuted }]}>Saved {new Date(selected.createdAt).toLocaleString()}</Text><PresetDetails preset={selected} /><Text style={[styles.helper, { color: tokens.text }]}>Loads as a new working copy.</Text></View>
+        <View style={styles.visibilityRow}><View style={styles.copy}><Text style={[styles.presetTitle, { color: tokens.text }]}>Show while running</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>Lets you switch to this saved configuration from the timer.</Text></View><Toggle value={selected.showInRunningSelector !== false} onChange={showInRunningSelector => onChange({ ...state, presets: state.presets.map(preset => preset.id === selected.id ? { ...preset, showInRunningSelector } : preset) })} accessibilityLabel={`Show ${selected.name} while timer is running`} /></View>
         <View style={styles.exportActions}><SheetTextButton disabled={Boolean(transferAction)} label={transferAction === 'copy' ? 'Exporting…' : 'Export'} accessibilityLabel="Copy configuration" onPress={() => void copy(selected)} /></View>
       </Animated.View> : null}
       {!selected ? <View style={styles.list}>
@@ -304,6 +307,8 @@ const styles = StyleSheet.create({
   action: { fontSize: 12, fontWeight: '700' },
   delete: { fontSize: 11, textDecorationLine: 'underline' },
   inspector: { gap: 12 },
+  visibilityRow: { minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: 12, borderTopWidth: 1, borderBottomWidth: 1, borderColor: 'transparent', paddingVertical: 7 },
+  starterRow: { minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderRadius: 13, padding: 12 },
   exportActions: { flexDirection: 'row', alignItems: 'center' },
   details: { borderTopWidth: 1, borderBottomWidth: 1, paddingVertical: 9, gap: 5 },
   detailLine: { fontSize: 11, lineHeight: 16 },

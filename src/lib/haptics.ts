@@ -46,14 +46,19 @@ export function timerCueHaptic(boundary: NativeTimerEvent['boundary'], settings:
   void playExpoProfile(boundary === 'pattern-offset' ? settings.subBell : settings.main)
 }
 
+/** JS fallback delivery for a cue profile that overrides the app default. */
+export function cueHapticProfile(profile: HapticProfile): void {
+  if (!hapticFeedbackAvailable()) return
+  void playExpoProfile(profile)
+}
+
 /** Explicit previews remain available while the global switch is off. */
 export async function previewHapticProfile(profile: HapticProfile): Promise<boolean> {
   if (!hapticFeedbackAvailable()) return false
   if (isNativeServiceAvailable && ChandasTimerService.getCapabilities()?.supportsHapticProfiles === true) {
-    return ChandasTimerService.previewHaptic(profile)
+    if (await ChandasTimerService.previewHaptic(profile)) return true
   }
-  await playExpoProfile(profile)
-  return true
+  return playExpoProfile(profile)
 }
 
 export function startRepeatingAlarmHaptic(settings: TimerHapticsSettings): void {
@@ -69,7 +74,7 @@ export function stopRepeatingAlarmHaptic(): void {
   repeatingAlarmTimer = null
 }
 
-async function playExpoProfile(profile: HapticProfile): Promise<void> {
+async function playExpoProfile(profile: HapticProfile): Promise<boolean> {
   const style = profile.strength === 'gentle'
     ? Haptics.ImpactFeedbackStyle.Light
     : profile.strength === 'balanced'
@@ -77,9 +82,10 @@ async function playExpoProfile(profile: HapticProfile): Promise<void> {
       : Haptics.ImpactFeedbackStyle.Heavy
   const count = profile.pattern === 'single' ? 1 : profile.pattern === 'double' ? 2 : 3
   for (let index = 0; index < count; index += 1) {
-    await Haptics.impactAsync(style).catch(() => undefined)
+    try { await Haptics.impactAsync(style) } catch { return false }
     if (index < count - 1) await delay(105)
   }
+  return true
 }
 
 function profileGroupDuration(profile: HapticProfile): number {

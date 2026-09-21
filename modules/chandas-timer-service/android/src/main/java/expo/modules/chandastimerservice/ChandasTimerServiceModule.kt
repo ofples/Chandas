@@ -131,6 +131,7 @@ class ChandasTimerServiceModule : Module() {
         "supportsMuteSecondPrecision" to true,
         "supportsDualLiveCountdown" to true,
         "supportsProgramClockAlignment" to true,
+        "supportsProgramSchema3" to true,
       )
     }
 

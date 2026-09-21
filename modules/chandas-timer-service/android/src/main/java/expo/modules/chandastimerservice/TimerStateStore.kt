@@ -19,6 +19,7 @@ object TimerStateStore {
   private const val MUTED_ITERATION_END_AT = "mutedIterationEndAt"
   private const val WALL_CLOCK_SAMPLE = "wallClockSample"
   private const val ELAPSED_CLOCK_SAMPLE = "elapsedClockSample"
+  private const val CUE_SOUND_CURSOR_PREFIX = "cueSoundCursor:"
 
   fun save(context: Context, config: TimerConfig) {
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
@@ -112,6 +113,23 @@ object TimerStateStore {
 
   fun clear(context: Context) {
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().commit()
+  }
+
+  /** Advances only after a cue passes every delivery gate. Scoped to its run. */
+  fun nextCueSoundIndex(context: Context, cueId: String, size: Int, mode: String): Int {
+    if (size <= 1) return 0
+    val generation = ensureSessionGeneration(context)
+    val key = "$CUE_SOUND_CURSOR_PREFIX$generation:$cueId"
+    val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    val previous = prefs.getInt(key, -1)
+    val next = if (mode == "random") {
+      // Avoid repeating the just-played choice when there is an alternative.
+      var candidate = kotlin.random.Random.nextInt(size)
+      if (candidate == previous) candidate = (candidate + 1 + kotlin.random.Random.nextInt(size - 1)) % size
+      candidate
+    } else Math.floorMod(previous + 1, size)
+    prefs.edit().putInt(key, next).commit()
+    return next
   }
 
   fun beginSession(context: Context): String {

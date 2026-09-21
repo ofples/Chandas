@@ -19,10 +19,16 @@ export function effectiveAvailabilityForProgram(program: Pick<TimerProgram, 'run
 /** Merged civil-time spans for one local weekday, including overnight carry-in. */
 export function scheduleSegmentsForDay(value: AvailabilityPolicy, day: number): AvailabilitySegment[] {
   if (!value.enabled) return [{ start: 0, end: 1_440 }]
+  const active = weeklySegmentsForDay(value.weeklyWindows, day, 'active')
+  const quiet = weeklySegmentsForDay(value.weeklyWindows, day, 'mute')
+  return subtractSegments(active, quiet)
+}
+
+function weeklySegmentsForDay(windows: WeeklyAvailabilityWindow[], day: number, behavior: 'active' | 'mute'): AvailabilitySegment[] {
   const normalizedDay = ((day % 7) + 7) % 7
   const previousDay = (normalizedDay + 6) % 7
-  const segments = value.weeklyWindows.flatMap(window => {
-    if (!window.enabled) return []
+  const segments = windows.flatMap(window => {
+    if (!window.enabled || (window.behavior ?? 'active') !== behavior) return []
     const start = normalizeMinute(window.startMinutes)
     const end = normalizeMinute(window.endMinutes)
     const selected = (candidate: number) => ((window.days & 0b1111111) & (1 << candidate)) !== 0
@@ -39,6 +45,16 @@ export function scheduleSegmentsForDay(value: AvailabilityPolicy, day: number): 
     else previous.end = Math.max(previous.end, segment.end)
     return merged
   }, [])
+}
+
+function subtractSegments(active: AvailabilitySegment[], quiet: AvailabilitySegment[]): AvailabilitySegment[] {
+  return quiet.reduce<AvailabilitySegment[]>((remaining, muted) => remaining.flatMap(segment => {
+    if (muted.end <= segment.start || muted.start >= segment.end) return [segment]
+    const pieces: AvailabilitySegment[] = []
+    if (muted.start > segment.start) pieces.push({ start: segment.start, end: muted.start })
+    if (muted.end < segment.end) pieces.push({ start: muted.end, end: segment.end })
+    return pieces
+  }), active)
 }
 
 /** Boundaries of the rendered union; hidden/subsumed ranges add no internal ticks. */
@@ -58,7 +74,7 @@ export function scheduleBoundaryMinutesForDay(value: AvailabilityPolicy, day: nu
   const normalizedDay = ((day % 7) + 7) % 7
   const previousDay = (normalizedDay + 6) % 7
   const boundaries = value.weeklyWindows.flatMap(window => {
-    if (!window.enabled) return []
+    if (!window.enabled || (window.behavior ?? 'active') !== 'active') return []
     const start = normalizeMinute(window.startMinutes)
     const end = normalizeMinute(window.endMinutes)
     const selected = (candidate: number) => ((window.days & 0b1111111) & (1 << candidate)) !== 0
@@ -78,7 +94,7 @@ export function scheduleRangeCountForDay(value: AvailabilityPolicy, day: number)
   const normalizedDay = ((day % 7) + 7) % 7
   const previousDay = (normalizedDay + 6) % 7
   return value.weeklyWindows.filter(window => {
-    if (!window.enabled) return false
+    if (!window.enabled || (window.behavior ?? 'active') !== 'active') return false
     const start = normalizeMinute(window.startMinutes)
     const end = normalizeMinute(window.endMinutes)
     const selectedToday = isDayEnabled(window, normalizedDay)
@@ -111,6 +127,7 @@ function policyFor(settings: AvailabilitySettings): AvailabilityPolicy {
       startMinutes: settings.activeHoursStart,
       endMinutes: settings.activeHoursEnd,
       days: settings.activeHoursDays,
+      behavior: 'active',
     }],
     overrides: [],
   }
@@ -140,9 +157,10 @@ function matchingOverride(overrides: AvailabilityOverride[], timestamp: number, 
 /** Resolves weekly civil time and future calendar-derived absolute overrides. */
 export function isWithinActiveHours(settings: AvailabilitySettings, timestamp = Date.now()): boolean {
   const policy = policyFor(settings)
-  const weeklyActive = !policy.enabled || policy.weeklyWindows.some(window => isWithinWindow(window, timestamp))
+  const weeklyActive = !policy.enabled || policy.weeklyWindows.some(window => (window.behavior ?? 'active') === 'active' && isWithinWindow(window, timestamp))
+  const weeklyQuiet = policy.enabled && policy.weeklyWindows.some(window => window.behavior === 'mute' && isWithinWindow(window, timestamp))
   const active = weeklyActive || matchingOverride(policy.overrides, timestamp, 'active')
-  return active && !matchingOverride(policy.overrides, timestamp, 'mute')
+  return active && !weeklyQuiet && !matchingOverride(policy.overrides, timestamp, 'mute')
 }
 
 /**
@@ -157,12 +175,14 @@ export function isCueAllowedByActiveHours(settings: AvailabilitySettings, cueAt:
   return Number.isFinite(cueAt) && isWithinActiveHours(policy, cueAt - 1)
 }
 
-function weeklyBoundary(window: WeeklyAvailabilityWindow, timestamp: number, dayOffset: number): number {
+function weeklyBoundary(window: WeeklyAvailabilityWindow, timestamp: number, dayOffset: number, edge: 'start' | 'end'): number {
   const start = normalizeMinute(window.startMinutes)
-  const boundaryMinute = start === normalizeMinute(window.endMinutes) ? 0 : start
+  const end = normalizeMinute(window.endMinutes)
+  const boundaryMinute = start === end ? 0 : edge === 'start' ? start : end
   const candidate = new Date(timestamp)
   candidate.setHours(Math.floor(boundaryMinute / 60), boundaryMinute % 60, 0, 0)
-  candidate.setDate(candidate.getDate() + dayOffset)
+  const isOvernightEnd = edge === 'end' && start > end
+  candidate.setDate(candidate.getDate() + dayOffset + (isOvernightEnd ? 1 : 0))
   return candidate.getTime()
 }
 
@@ -178,19 +198,29 @@ export function nextActiveHoursStart(settings: AvailabilitySettings, timestamp =
   for (const window of policy.weeklyWindows) {
     if (!policy.enabled || !window.enabled || (window.days & 0b1111111) === 0) continue
     for (let dayOffset = 0; dayOffset <= 8; dayOffset += 1) {
-      const start = weeklyBoundary(window, timestamp, dayOffset)
+      const start = weeklyBoundary(window, timestamp, dayOffset, 'start')
       if (start > timestamp && isDayEnabled(window, new Date(start).getDay())) candidates.add(start)
+      const end = weeklyBoundary(window, timestamp, dayOffset, 'end')
+      const startDay = new Date(start).getDay()
+      if (end > timestamp && isDayEnabled(window, startDay)) candidates.add(end)
     }
   }
   const sorted = [...candidates].sort((left, right) => left - right)
-  return sorted.find(candidate => isWithinActiveHours(policy, candidate)) ?? timestamp + 8 * DAY_MS
+  return sorted.find(candidate => isWithinActiveHours(policy, candidate)) ?? 0
 }
 
 /** True when a schedule has at least one possible base or future active slot. */
 export function hasAvailableTime(settings: AvailabilitySettings, timestamp = Date.now()): boolean {
   const policy = policyFor(settings)
   if (!policy.enabled) return true
-  if (policy.weeklyWindows.some(window => window.enabled && (window.days & 0b1111111) !== 0)) return true
+  const start = new Date(timestamp)
+  start.setSeconds(0, 0)
+  for (let dayOffset = 0; dayOffset <= 8; dayOffset += 1) {
+    const candidate = start.getTime() + dayOffset * DAY_MS
+    if (isWithinActiveHours(policy, candidate)) return true
+    const next = nextActiveHoursStart(policy, candidate)
+    if (next > 0) return true
+  }
   return policy.overrides.some(override => override.behavior === 'active' && override.endAt > timestamp)
 }
 

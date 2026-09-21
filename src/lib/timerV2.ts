@@ -22,7 +22,7 @@ import { defaultSubBellColor, normalizeSubBellColor } from './subBellColors'
 import { canonicalClockOffset } from './clockAlignment'
 import { defaultTimerHapticsSettings } from './haptic-profiles'
 
-export const TIMER_V2_SCHEMA_VERSION = 2 as const
+export const TIMER_V2_SCHEMA_VERSION = 3 as const
 export const MAX_PATTERN_TRACKS = 5
 export const MAX_VISIBLE_PATTERN_OFFSETS = 480
 export const MAX_SEQUENCE_STEPS = 20
@@ -168,9 +168,7 @@ export function patternTrackTiming(cadenceSeconds: number, selectedOffsetsSecond
   if (minuteCompatible) {
     return {
       cadenceMinutes: cadence / 60,
-      cadenceSeconds: undefined,
       selectedOffsetsMinutes: selected.map(offset => offset / 60),
-      selectedOffsetsSeconds: undefined,
     }
   }
   return {
@@ -263,7 +261,7 @@ export function defaultWorkingPrograms(): WorkingProgramState {
 
 export function defaultTimerV2State(): TimerV2State {
   return {
-    schemaVersion: TIMER_V2_SCHEMA_VERSION,
+    schemaVersion: 2,
     workingPrograms: defaultWorkingPrograms(),
     settings: defaultAppTimerSettings(),
     presets: [],
@@ -271,7 +269,49 @@ export function defaultTimerV2State(): TimerV2State {
 }
 
 export function normalizeCue(value: Partial<CueSettings> | undefined, fallback: CueSettings): CueSettings {
-  return { sound: normalizeSoundRef(value?.sound, fallback.sound), volume: clampVolume(value?.volume, fallback.volume) }
+  const sound = normalizeSoundRef(value?.sound, fallback.sound)
+  const rawSounds = Array.isArray(value?.sounds) ? value.sounds.slice(0, 8) : []
+  const sounds = rawSounds
+    .map(candidate => normalizeSoundRef(candidate, sound))
+    .filter((candidate, index, values) => values.findIndex(value => soundRefKey(value) === soundRefKey(candidate)) === index)
+  const normalizedSounds = sounds.length > 0 ? sounds : [sound]
+  const primary = normalizedSounds[0] ?? sound
+  const override = value?.hapticOverride === 'off'
+    ? 'off'
+    : value?.hapticOverride && typeof value.hapticOverride === 'object'
+      ? {
+          pattern: value.hapticOverride.pattern === 'double' || value.hapticOverride.pattern === 'triple' ? value.hapticOverride.pattern : 'single' as const,
+          strength: value.hapticOverride.strength === 'gentle' || value.hapticOverride.strength === 'strong' ? value.hapticOverride.strength : 'balanced' as const,
+        }
+      : undefined
+  return {
+    sound: primary,
+    ...(value?.soundEnabled === false ? { soundEnabled: false } : {}),
+    ...(sounds.length > 1 ? { sounds: normalizedSounds, soundMode: value?.soundMode === 'random' ? 'random' as const : 'sequence' as const } : {}),
+    volume: clampVolume(value?.volume, fallback.volume),
+    ...(override ? { hapticOverride: override } : {}),
+  }
+}
+
+/** Resolves selected repeating cues and explicit one-off cues within a Cycle. */
+export function trackEventOffsetsSeconds(track: Pick<PatternTrack, 'selectedOffsetsMinutes' | 'selectedOffsetsSeconds' | 'repeatEnabled' | 'afterStartSeconds' | 'beforeEndSeconds'>, mainDurationSeconds: number): number[] {
+  const main = clampCueDurationSeconds(mainDurationSeconds, 60)
+  const offsets = track.repeatEnabled === false ? [] : trackSelectedOffsetsSeconds(track)
+  if (typeof track.afterStartSeconds === 'number') offsets.push(whole(track.afterStartSeconds, -1))
+  if (typeof track.beforeEndSeconds === 'number') offsets.push(main - whole(track.beforeEndSeconds, -1))
+  return [...new Set(offsets.filter(offset => offset > 0 && offset < main))].sort((left, right) => left - right)
+}
+
+export function soundRefKey(sound: SoundRef): string {
+  return sound.kind === 'builtin' ? `builtin:${sound.id}` : `${sound.kind}:${sound.uri}`
+}
+
+/** All configured selections, with the legacy primary selection retained first. */
+export function cueSounds(cue: Pick<CueSettings, 'sound' | 'sounds'>): SoundRef[] {
+  const source = Array.isArray(cue.sounds) && cue.sounds.length > 0 ? cue.sounds : [cue.sound]
+  const unique: SoundRef[] = []
+  source.forEach(sound => { if (!unique.some(value => soundRefKey(value) === soundRefKey(sound))) unique.push(sound) })
+  return unique.length ? unique : [cue.sound]
 }
 
 export function normalizeSoundRef(value: unknown, fallback: SoundRef): SoundRef {
@@ -317,7 +357,10 @@ export function normalizeTrack(track: Partial<PatternTrack>, mainMinutes: number
     label: normalizeLabel(track.label, fallbackLabel),
     color: normalizeSubBellColor(track.color, fallbackColorIndex),
     showOnWatchFace: track.showOnWatchFace !== false,
-    enabled: selectedOffsetsSeconds.length > 0 && track.enabled !== false,
+    enabled: (selectedOffsetsSeconds.length > 0 || (typeof track.afterStartSeconds === 'number' && track.afterStartSeconds > 0) || (typeof track.beforeEndSeconds === 'number' && track.beforeEndSeconds > 0)) && track.enabled !== false,
+    ...(track.repeatEnabled === false ? { repeatEnabled: false } : {}),
+    ...(typeof track.afterStartSeconds === 'number' && Number.isFinite(track.afterStartSeconds) ? { afterStartSeconds: whole(track.afterStartSeconds, 0) } : {}),
+    ...(typeof track.beforeEndSeconds === 'number' && Number.isFinite(track.beforeEndSeconds) ? { beforeEndSeconds: whole(track.beforeEndSeconds, 0) } : {}),
     ...timing,
     ...normalizeCue(track, defaultCue('clear-bell')),
   }
@@ -391,6 +434,7 @@ export function normalizeWeeklyWindow(value: Partial<WeeklyAvailabilityWindow>, 
     startMinutes: clamp(whole(value.startMinutes, defaults.startMinutes), 0, 1_439),
     endMinutes: clamp(whole(value.endMinutes, defaults.endMinutes), 0, 1_439),
     days: clamp(whole(value.days, defaults.days), 0, 0b1111111),
+    behavior: value.behavior === 'mute' ? 'mute' : 'active',
   }
 }
 
@@ -428,6 +472,7 @@ export function normalizeAvailabilityPolicy(value: Partial<AvailabilityPolicy> |
       overrideIds.add(id)
       return id === override.id ? override : { ...override, id }
     })
+  weeklyWindows.sort((left, right) => (left.behavior === 'mute' ? 1 : 0) - (right.behavior === 'mute' ? 1 : 0) || left.startMinutes - right.startMinutes || left.endMinutes - right.endMinutes || left.id.localeCompare(right.id))
   return { enabled: value?.enabled === true, weeklyWindows, overrides }
 }
 
@@ -449,6 +494,7 @@ export function normalizePreset(value: Partial<ProgramPreset>): ProgramPreset | 
     name: [...value.name.trim()].slice(0, 80).join(''),
     createdAt: typeof value.createdAt === 'number' && Number.isFinite(value.createdAt) ? value.createdAt : Date.now(),
     program,
+    showInRunningSelector: value.showInRunningSelector !== false,
   }
 }
 
@@ -456,8 +502,8 @@ export function parseTimerProgram(value: unknown): TimerProgram | null {
   try {
     const parsed = typeof value === 'string' ? JSON.parse(value) as unknown : value
     if (!parsed || typeof parsed !== 'object') return null
-    const candidate = parsed as Partial<TimerProgram> & { schemaVersion?: unknown; mode?: unknown }
-    if (candidate.schemaVersion !== TIMER_V2_SCHEMA_VERSION) return null
+    const candidate = parsed as { schemaVersion?: unknown; mode?: unknown } & Record<string, unknown>
+    if (candidate.schemaVersion !== 2 && candidate.schemaVersion !== TIMER_V2_SCHEMA_VERSION) return null
     if (candidate.mode === 'pattern') return normalizePatternProgram(candidate as Partial<PatternProgram>)
     if (candidate.mode === 'sequence') return normalizeSequenceProgram(candidate as Partial<SequenceProgram>)
     return null
@@ -495,7 +541,7 @@ export function migrateLegacyConfig(legacy: Partial<TimerConfig>): TimerV2State 
   }
   const defaults = defaultAppTimerSettings()
   return {
-    schemaVersion: TIMER_V2_SCHEMA_VERSION,
+    schemaVersion: 2,
     workingPrograms: { pattern, sequence: defaultSequenceProgram(), selectedMode: 'pattern' },
     settings: {
       masterVolume: clampVolume(legacy.volume, defaults.masterVolume),

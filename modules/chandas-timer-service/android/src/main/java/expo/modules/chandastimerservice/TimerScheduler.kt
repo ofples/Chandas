@@ -26,6 +26,11 @@ object TimerScheduler {
   ): Boolean {
     if (!canScheduleExactAlarms(context)) return false
     if (!isValidConfig(config)) return false
+    // Validate before cancelling the currently authoritative alarm. A running
+    // configuration switch must leave the old timer intact when the incoming
+    // program cannot be scheduled (for example, after a capability change).
+    val previous = TimerStateStore.load(context)
+    val previousControls = previous?.let { TimerStateStore.getControlState(context) }
     ChandasCueService.stop(context)
     TimerSoundPlayer.stopAll()
     TimerHaptics.stop(context)
@@ -46,9 +51,23 @@ object TimerScheduler {
     FocusModeController.reconcile(context, config)
     val scheduled = scheduleNext(context)
     if (!scheduled) {
-      TimerStateStore.clear(context)
-      FocusModeController.deactivate(context)
-      TimerNotifications.cancelRunning(context)
+      if (previous != null && previousControls != null && isValidConfig(previous)) {
+        TimerStateStore.save(context, previous)
+        TimerStateStore.restoreControls(
+          context,
+          previousControls.alarmOnceArmed,
+          previousControls.mutedUntil,
+          previousControls.mutedIterationEndId,
+          previousControls.mutedIterationEndAt,
+          previousControls.mutedIterationsRemaining.coerceAtLeast(1),
+        )
+        FocusModeController.reconcile(context, previous)
+        scheduleNext(context, previous)
+      } else {
+        TimerStateStore.clear(context)
+        FocusModeController.deactivate(context)
+        TimerNotifications.cancelRunning(context)
+      }
     }
     return scheduled
   }
@@ -188,6 +207,10 @@ object TimerScheduler {
     // If the current window is active but closes before the next cue, search
     // from that skipped cue. Searching from now would return now and spin.
     val resumesAt = if (waitsForAvailability) ActiveHours.nextStart(active, if (activeNow) initialTriggerAt else now) else 0L
+    if (waitsForAvailability && resumesAt <= now) {
+      stop(context)
+      return false
+    }
     if (v2Event?.completesRun != true && active.timerV2EndsAt > 0L && resumesAt >= active.timerV2EndsAt) {
       // Weekly/calendar availability gates sound, never the terminal clock.
       // Replace a skipped intermediate cue with the exact final event.
@@ -324,7 +347,6 @@ object TimerScheduler {
     val temporarilyMuted = TimerStateStore.consumeMuteForEvent(context, type, now)
     val muted = config.volume <= 0f || temporarilyMuted
 
-    TimerNotifications.postEvent(context, config, type)
     if (muted) {
       scheduleNext(context, config)
       onFinished()
@@ -381,7 +403,6 @@ object TimerScheduler {
     }
     val temporarilyMuted = TimerStateStore.consumeMuteForEvent(context, TimerEventType.V2, now, event.logicalId)
     val muted = config.volume <= 0f || temporarilyMuted
-    TimerNotifications.postEvent(context, config, TimerEventType.V2)
     if (muted) {
       if (event.completesRun) completeSession(context) else scheduleNext(context, config)
       emitV2Event(event, suppressed = true, reason = if (config.volume <= 0f) "master-muted" else "user-mute")
@@ -395,18 +416,36 @@ object TimerScheduler {
       launchAlarmOrFallback(context, config, TimerEventType.V2, onFinished)
       return
     }
-    TimerHaptics.cue(context, config.haptics, primary = event.boundary != TimerV2Boundary.PATTERN_OFFSET)
+    playV2Haptics(context, config, event)
     if (event.completesRun) completeSession(context) else scheduleNext(context, config)
     emitV2Event(event, suppressed = false, reason = "none")
+    if (!event.winner.soundEnabled) {
+      onFinished()
+      return
+    }
+    val soundId = selectedCueSound(context, event)
     playCue(
       context,
       config,
       TimerEventType.V2,
-      event.winner.soundId,
-      resourceForV2Sound(event.winner.soundId),
+      soundId,
+      resourceForV2Sound(soundId),
       (config.volume * event.winner.volume).coerceIn(0f, 1f),
       onFinished,
     )
+  }
+
+  private fun selectedCueSound(context: Context, event: TimerV2Event): String {
+    val winner = event.winner
+    val choices = winner.soundIds.ifEmpty { listOf(winner.soundId) }
+    val index = TimerStateStore.nextCueSoundIndex(context, winner.cueId, choices.size, winner.soundMode)
+    return choices[index.coerceIn(0, choices.lastIndex)]
+  }
+
+  private fun playV2Haptics(context: Context, config: TimerConfig, event: TimerV2Event) {
+    if (!config.haptics.enabled || event.winner.hapticsOff) return
+    val inherited = if (event.boundary == TimerV2Boundary.PATTERN_OFFSET) config.haptics.subBell else config.haptics.main
+    TimerHaptics.preview(context, event.winner.hapticOverride ?: inherited)
   }
 
   private fun playCue(

@@ -51,6 +51,13 @@ export type SoundRef =
 export interface CueSettings {
   sound: SoundRef
   volume: number
+  /** False retains the selected sound for later, but delivers this cue through vibration only. */
+  soundEnabled?: boolean
+  /** Additive v2.1 list; legacy sound remains the first/fallback selection. */
+  sounds?: SoundRef[]
+  soundMode?: 'single' | 'sequence' | 'random'
+  /** Undefined inherits the appropriate global profile. */
+  hapticOverride?: 'off' | { pattern: HapticPattern; strength: HapticStrength }
 }
 
 export interface RunPolicy {
@@ -72,6 +79,12 @@ export interface PatternTrack extends CueSettings {
   cadenceMinutes: number
   /** Exact repeat interval; absent legacy values use cadenceMinutes. */
   cadenceSeconds?: number
+  /** A track may be one-off only while retaining its cadence settings. */
+  repeatEnabled?: boolean
+  /** Explicit interior cue, independent of selected repeating occurrences. */
+  afterStartSeconds?: number
+  /** Explicit interior cue counted backward from the main boundary. */
+  beforeEndSeconds?: number
   selectedOffsetsMinutes: number[]
   /** Exact cue positions; absent legacy values use selectedOffsetsMinutes. */
   selectedOffsetsSeconds?: number[]
@@ -92,7 +105,7 @@ export type SubBellColorId =
 export type TimerAlignment = { kind: 'elapsed' } | { kind: 'local-clock'; offsetMinutes: number }
 
 export interface PatternProgram {
-  schemaVersion: 2
+  schemaVersion: 3
   mode: 'pattern'
   label: string
   /** False while the duration-derived default label should follow duration changes. */
@@ -119,7 +132,7 @@ export interface SequenceStep extends CueSettings {
 }
 
 export interface SequenceProgram {
-  schemaVersion: 2
+  schemaVersion: 3
   mode: 'sequence'
   steps: SequenceStep[]
   /** Aligns the complete repeating round, rather than any individual step. */
@@ -136,6 +149,8 @@ export interface ProgramPreset {
   name: string
   createdAt: number
   program: TimerProgram
+  /** Library metadata, deliberately outside the immutable saved program. */
+  showInRunningSelector?: boolean
 }
 
 export interface WorkingProgramState {
@@ -151,6 +166,8 @@ export interface WeeklyAvailabilityWindow {
   startMinutes: number
   endMinutes: number
   days: number
+  /** Missing legacy values are active. Quiet subtracts from active windows. */
+  behavior?: 'active' | 'mute'
 }
 
 /**
