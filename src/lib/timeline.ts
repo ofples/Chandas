@@ -83,8 +83,7 @@ export function nextPatternEvent(program: PatternProgram, anchor: number, now = 
           sound: track.sound,
           volume: track.volume,
           soundEnabled: track.soundEnabled, sounds: track.sounds, soundMode: track.soundMode, hapticOverride: track.hapticOverride,
-          cadenceMinutes: track.cadenceMinutes,
-          cadenceSeconds: track.repeatEnabled === false ? undefined : trackCadenceSeconds(track),
+          ...(track.repeatEnabled === false ? {} : { cadenceMinutes: track.cadenceMinutes, cadenceSeconds: trackCadenceSeconds(track) }),
           trackOrder,
         })
         candidatesByTime.set(at, candidates)

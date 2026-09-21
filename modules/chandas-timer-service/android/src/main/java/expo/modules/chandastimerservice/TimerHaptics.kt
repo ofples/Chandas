@@ -20,8 +20,10 @@ object TimerHaptics {
     vibrate(context, settings.alarm, repeat = true, alarmUsage = true)
   }
 
-  fun preview(context: Context, profile: HapticProfileConfig): Boolean =
-    vibrate(context, profile, repeat = false, alarmUsage = false)
+  fun preview(context: Context, profile: HapticProfileConfig): Boolean {
+    stop(context)
+    return vibrate(context, profile, repeat = false, alarmUsage = true)
+  }
 
   fun stop(context: Context) {
     vibrator(context)?.let { runCatching { it.cancel() } }

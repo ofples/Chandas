@@ -22,6 +22,7 @@ import {
   defaultSequenceProgram,
   normalizeLabel,
   normalizePatternProgram,
+  normalizePresetSettings,
   normalizeSequenceProgram,
   durationMinutesProjection,
   patternDurationSeconds,
@@ -58,8 +59,10 @@ export function hasUnsavedProgramChanges(state: TimerV2State): boolean {
   const baseline = source
     ? state.presets.find(preset => preset.id === source.id)?.program
     : current.mode === 'pattern' ? defaultPatternProgram() : defaultSequenceProgram()
+  const sourcePreset = source ? state.presets.find(preset => preset.id === source.id) : undefined
   if (!baseline || source?.deleted || baseline.mode !== current.mode) return true
-  return JSON.stringify(comparableProgram(current)) !== JSON.stringify(comparableProgram(baseline))
+  if (JSON.stringify(comparableProgram(current)) !== JSON.stringify(comparableProgram(baseline))) return true
+  return Boolean(sourcePreset?.settings && JSON.stringify(normalizePresetSettings(state.settings)) !== JSON.stringify(sourcePreset.settings))
 }
 
 function withWorkingProgram(state: TimerV2State, mode: TimerMode, program: TimerProgram): TimerV2State {
@@ -195,7 +198,7 @@ export function setTrackOffsetsSeconds(state: TimerV2State, trackId: string, off
   return updatePattern(state, program => ({
     ...program,
     tracks: program.tracks.map(track => track.id === trackId
-      ? { ...track, ...patternTrackTiming(trackCadenceSeconds(track), offsets), enabled: offsets.length > 0 }
+      ? { ...track, ...patternTrackTiming(trackCadenceSeconds(track), offsets), enabled: offsets.length > 0 || typeof track.afterStartSeconds === 'number' || typeof track.beforeEndSeconds === 'number' }
       : track),
   }))
 }
@@ -308,7 +311,7 @@ export function saveProgramPreset(state: TimerV2State, name: string, now = Date.
   if (!trimmed) return state
   const program = selectedProgram(state)
   const snapshot = program.mode === 'pattern' ? normalizePatternProgram(program) : normalizeSequenceProgram(program)
-  const preset: ProgramPreset = { id: createProgramId(), name: trimmed, createdAt: now, program: snapshot, showInRunningSelector: true }
+  const preset: ProgramPreset = { id: createProgramId(), name: trimmed, createdAt: now, program: snapshot, settings: normalizePresetSettings(state.settings), showInRunningSelector: true }
   return {
     ...state,
     presets: [preset, ...state.presets],
@@ -322,6 +325,7 @@ export function loadProgramPreset(state: TimerV2State, presetId: string): TimerV
   const program = preset.program.mode === 'pattern' ? normalizePatternProgram(preset.program) : normalizeSequenceProgram(preset.program)
   return {
     ...state,
+    settings: preset.settings ? normalizePresetSettings(preset.settings) ?? state.settings : state.settings,
     workingPrograms: {
       ...state.workingPrograms,
       selectedMode: program.mode,

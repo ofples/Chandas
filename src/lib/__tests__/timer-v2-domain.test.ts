@@ -650,6 +650,27 @@ describe('timer v2 validation and presets', () => {
     expect(hasUnsavedProgramChanges(edited)).toBe(true)
   })
 
+  it('saves and restores schedule and advanced settings with a configuration', () => {
+    const initial = defaultTimerV2State()
+    const configured = {
+      ...initial,
+      settings: {
+        ...initial.settings,
+        advancedModeEnabled: true,
+        secondPrecisionEnabled: true,
+        liveCountdownEnabled: true,
+        availability: { ...initial.settings.availability, enabled: true, weeklyWindows: [{ ...initial.settings.availability.weeklyWindows[0], behavior: 'mute' as const }] },
+      },
+    }
+    const saved = saveProgramPreset(configured, 'Scheduled', 456)
+    expect(saved.presets[0].settings).toEqual(configured.settings)
+    const changed = { ...saved, settings: { ...saved.settings, liveCountdownEnabled: false, availability: { ...saved.settings.availability, enabled: false } } }
+    expect(hasUnsavedProgramChanges(changed)).toBe(true)
+    const loaded = loadProgramPreset(changed, saved.presets[0].id)
+    expect(loaded.settings).toEqual(configured.settings)
+    expect(hasUnsavedProgramChanges(loaded)).toBe(false)
+  })
+
   it('detects unsaved default working-copy changes without treating generated IDs as edits', () => {
     const initial = defaultTimerV2State()
     expect(hasUnsavedProgramChanges(initial)).toBe(false)

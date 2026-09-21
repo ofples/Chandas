@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { successHaptic } from '../../lib/haptics'
 import Animated, { FadeIn, FadeInDown, FadeOut, LinearTransition, useReducedMotion } from 'react-native-reanimated'
-import type { ProgramPreset, TimerMode, TimerProgram, TimerV2State } from '../../types'
+import type { AppTimerSettings, ProgramPreset, TimerMode, TimerProgram, TimerV2State } from '../../types'
 import { addStarterProgramPresets, deleteProgramPreset, hasUnsavedProgramChanges, loadProgramPreset, saveProgramPreset, updatePattern } from '../../lib/programActions'
 import { soundTitle } from '../../lib/soundLibrary'
 import { useTheme } from '../../theme/ThemeContext'
@@ -11,13 +11,15 @@ import { GentleNotice, type AppNotice } from './experience-feedback'
 import { formatDuration } from './run-length-config'
 import { SegmentedControl } from './SegmentedControl'
 import { SheetTextButton } from './SheetTextButton'
-import { subBellColorValue } from '../../lib/subBellColors'
 import { tapHaptic } from '../../lib/haptics'
+import { hapticProfileSummary } from '../../lib/haptic-profiles'
 import { SwipeToDeleteRow } from './swipe-to-delete-row'
 import { Toggle } from '../Toggle'
-import { formatCompactDurationSeconds, patternDurationSeconds, sequenceStepDurationSeconds, trackCadenceSeconds, trackSelectedOffsetsSeconds } from '../../lib/timerV2'
+import { formatCompactDurationSeconds, patternDurationSeconds, sequenceStepDurationSeconds, trackCadenceSeconds, trackEventOffsetsSeconds } from '../../lib/timerV2'
 import { configurationTransferFilename, parseConfigurationTransfer, serializeConfiguration, type ConfigurationTransferError, type ConfigurationTransferResult } from '../../lib/configuration-transfer'
 import { copyConfigurationText, pickConfigurationText, readConfigurationTextFromClipboard, saveConfigurationFile } from '../../lib/configuration-transfer-io'
+import { PatternTimelinePreview } from './PatternTimelinePreview'
+import { DoubleTapDeleteButton } from './DoubleTapDeleteButton'
 
 const FILTERS = [{ value: 'all', label: 'All' }, { value: 'pattern', label: 'Cycle' }, { value: 'sequence', label: 'Sequence' }] as const
 
@@ -231,11 +233,11 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedba
       {selected ? <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 130)} style={styles.inspector}>
         <View style={styles.copy}><PresetVisual program={selected.program} /><Text style={[styles.date, { color: tokens.textMuted }]}>Saved {new Date(selected.createdAt).toLocaleString()}</Text><PresetDetails preset={selected} /><Text style={[styles.helper, { color: tokens.text }]}>Loads as a new working copy.</Text></View>
         <View style={styles.visibilityRow}><View style={styles.copy}><Text style={[styles.presetTitle, { color: tokens.text }]}>Show while running</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>Lets you switch to this saved configuration from the timer.</Text></View><Toggle value={selected.showInRunningSelector !== false} onChange={showInRunningSelector => onChange({ ...state, presets: state.presets.map(preset => preset.id === selected.id ? { ...preset, showInRunningSelector } : preset) })} accessibilityLabel={`Show ${selected.name} while timer is running`} /></View>
-        <View style={styles.exportActions}><SheetTextButton disabled={Boolean(transferAction)} label={transferAction === 'copy' ? 'Exporting…' : 'Export'} accessibilityLabel="Copy configuration" onPress={() => void copy(selected)} /></View>
+        <View style={styles.exportActions}><DoubleTapDeleteButton label="Delete configuration" accessibilityLabel={`Delete ${selected.name}`} onDelete={() => remove(selected)} /><SheetTextButton disabled={Boolean(transferAction)} label={transferAction === 'copy' ? 'Exporting…' : 'Export'} accessibilityLabel="Copy configuration" onPress={() => void copy(selected)} /></View>
       </Animated.View> : null}
       {!selected ? <View style={styles.list}>
         {presets.length === 0 ? <GentleNotice title={state.presets.length === 0 ? 'No saved configurations yet' : `No ${filter === 'pattern' ? 'Cycle' : 'Sequence'} configurations`} message={state.presets.length === 0 ? 'Name the current setup above to save it.' : 'Try All or save the current setup.'} /> : presets.map(preset => {
-          const loaded = state.workingPrograms.sourcePreset?.id === preset.id && !state.workingPrograms.sourcePreset.deleted
+          const loaded = state.workingPrograms.sourcePreset?.id === preset.id && !state.workingPrograms.sourcePreset.deleted && !hasUnsavedProgramChanges(state)
           return <Animated.View key={preset.id} entering={FadeInDown.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 120)} layout={reducedMotion ? undefined : LinearTransition.duration(160)}>
             <SwipeToDeleteRow accessibilityLabel={`Delete ${preset.name}`} onDelete={() => remove(preset)}>
             <Pressable style={[styles.preset, { borderColor: tokens.border, backgroundColor: tokens.surfaceHi }]} onPress={() => { tapHaptic(); setSelectedId(preset.id) }} accessibilityRole="button" accessibilityLabel={`Open ${preset.name}`}>
@@ -258,10 +260,10 @@ function PresetVisual({ program }: { program: TimerProgram }) {
   if (program.mode === 'pattern') {
     const durationSeconds = patternDurationSeconds(program)
     const tracks = program.subBellsEnabled ? program.tracks.filter(track => track.enabled) : []
-    const cues = tracks.reduce((count, track) => count + trackSelectedOffsetsSeconds(track).length, 0)
+    const cues = tracks.reduce((count, track) => count + trackEventOffsetsSeconds(track, durationSeconds).length, 0)
     return <View style={styles.visual} accessibilityLabel={`${formatCompactDurationSeconds(durationSeconds)} cycle with ${cues} sub-bell cues`}>
       <View style={styles.visualMeta}><Text style={[styles.visualKind, { color: tokens.text }]}>Cycle · {formatCompactDurationSeconds(durationSeconds)}</Text><Text style={[styles.visualCount, { color: tokens.textMuted }]}>{cues} cue{cues === 1 ? '' : 's'}</Text></View>
-      <View style={styles.visualTrack}><View style={[styles.visualLine, { backgroundColor: tokens.border }]} /><View style={[styles.visualBoundary, { left: 0, backgroundColor: tokens.accent }]} /><View style={[styles.visualBoundary, { right: 0, backgroundColor: tokens.accent }]} />{tracks.flatMap((track, trackIndex) => trackSelectedOffsetsSeconds(track).map(offset => <View key={`${track.id}:${offset}`} style={[styles.visualCue, { left: `${offset / durationSeconds * 100}%`, backgroundColor: subBellColorValue(track.color, trackIndex) }]} />))}</View>
+      <PatternTimelinePreview tracks={tracks} mainDurationSeconds={durationSeconds} />
     </View>
   }
   const total = Math.max(1, program.steps.reduce((sum, step) => sum + sequenceStepDurationSeconds(step), 0))
@@ -279,14 +281,36 @@ function PresetDetails({ preset }: { preset: ProgramPreset }) {
     : program.runPolicy.kind === 'cycles'
       ? `${program.runPolicy.cycleCount} ${program.mode === 'sequence' ? (program.runPolicy.cycleCount === 1 ? 'round' : 'rounds') : (program.runPolicy.cycleCount === 1 ? 'main cycle' : 'main cycles')}`
       : formatDuration(program.runPolicy.durationSeconds)
-  if (program.mode === 'sequence') return <View style={[styles.details, { borderColor: tokens.border }]}><Text style={[styles.detailLine, { color: tokens.text }]}>Run · {run}</Text>{program.steps.map((step, index) => <Text key={step.id} style={[styles.detailLine, { color: tokens.text }]}>{index + 1}. {step.label} · {formatCompactDurationSeconds(sequenceStepDurationSeconds(step))} · {soundTitle(step.sound)} · {Math.round(step.volume * 100)}%</Text>)}</View>
+  if (program.mode === 'sequence') return <View style={[styles.details, { borderColor: tokens.border }]}><Text style={[styles.detailLine, { color: tokens.text }]}>Run · {run}</Text>{program.steps.map((step, index) => <Text key={step.id} style={[styles.detailLine, { color: tokens.text }]}>{index + 1}. {step.label} · {formatCompactDurationSeconds(sequenceStepDurationSeconds(step))} · {soundTitle(step.sound)} · {Math.round(step.volume * 100)}%</Text>)}{preset.settings ? <PresetSettingsDetails settings={preset.settings} /> : <Text style={[styles.detailLine, { color: tokens.text }]}>Settings · Keeps current timer settings</Text>}</View>
   return <View style={[styles.details, { borderColor: tokens.border }]}>
     <Text style={[styles.detailLine, { color: tokens.text }]}>Run · {run}</Text>
     <Text style={[styles.detailLine, { color: tokens.text }]}>Main · {formatCompactDurationSeconds(patternDurationSeconds(program))} · {soundTitle(program.mainCue.sound)} · {Math.round(program.mainCue.volume * 100)}%</Text>
     <Text style={[styles.detailLine, { color: tokens.text }]}>Timing · {program.alignment.kind === 'elapsed' ? 'starts when timer starts' : `aligned to :${String(program.alignment.offsetMinutes).padStart(2, '0')} local time`}</Text>
     {!program.subBellsEnabled ? <Text style={[styles.detailLine, { color: tokens.text }]}>Sub-bells off · settings preserved</Text> : null}
-    {program.tracks.map((track, index) => <Text key={track.id} style={[styles.detailLine, { color: tokens.text }]}>{index + 1}. {track.enabled ? `${formatCompactDurationSeconds(trackCadenceSeconds(track))} · ${trackSelectedOffsetsSeconds(track).map(formatCompactDurationSeconds).join(', ') || 'no cues'}` : 'Off'} · {soundTitle(track.sound)} · {Math.round(track.volume * 100)}%</Text>)}
+    {program.tracks.map((track, index) => <Text key={track.id} style={[styles.detailLine, { color: tokens.text }]}>{index + 1}. {track.enabled ? `${track.repeatEnabled === false ? 'No repeat' : `Every ${formatCompactDurationSeconds(trackCadenceSeconds(track))}`} · ${trackEventOffsetsSeconds(track, patternDurationSeconds(program)).map(formatCompactDurationSeconds).join(', ') || 'no cues'}` : 'Off'} · {soundTitle(track.sound)} · {Math.round(track.volume * 100)}%</Text>)}
+    {preset.settings ? <PresetSettingsDetails settings={preset.settings} /> : <Text style={[styles.detailLine, { color: tokens.text }]}>Settings · Keeps current timer settings</Text>}
   </View>
+}
+
+function PresetSettingsDetails({ settings }: { settings: AppTimerSettings }) {
+  const { tokens } = useTheme()
+  const activeRanges = settings.availability.weeklyWindows.filter(window => window.enabled && window.days !== 0 && window.behavior !== 'mute').length
+  const quietRanges = settings.availability.weeklyWindows.filter(window => window.enabled && window.days !== 0 && window.behavior === 'mute').length
+  const schedule = !settings.availability.enabled
+    ? 'Off'
+    : `${activeRanges} active ${activeRanges === 1 ? 'range' : 'ranges'}${quietRanges ? ` · ${quietRanges} quiet ${quietRanges === 1 ? 'range' : 'ranges'}` : ''}`
+  const optional = [
+    settings.secondPrecisionEnabled ? 'seconds' : null,
+    settings.liveCountdownEnabled ? 'live countdown' : null,
+    settings.muteDuringCallsEnabled ? 'mute during calls' : null,
+    settings.focusAutomationEnabled ? 'Focus' : null,
+  ].filter((value): value is string => Boolean(value))
+  return <>
+    <Text style={[styles.detailLine, { color: tokens.text }]}>Schedule · {schedule}</Text>
+    <Text style={[styles.detailLine, { color: tokens.text }]}>Sound · {Math.round(settings.masterVolume * 100)}% master · alarm {soundTitle(settings.alarmSound)} at {Math.round(settings.alarmVolume * 100)}% for {formatCompactDurationSeconds(settings.alarmDurationSeconds)}</Text>
+    <Text style={[styles.detailLine, { color: tokens.text }]}>Haptics · {settings.haptics.enabled ? `main ${hapticProfileSummary(settings.haptics.main)} · sub-bell ${hapticProfileSummary(settings.haptics.subBell)} · alarm ${hapticProfileSummary(settings.haptics.alarm)}` : 'Off'}</Text>
+    <Text style={[styles.detailLine, { color: tokens.text }]}>Options · {settings.advancedModeEnabled ? 'advanced controls' : 'simple controls'} · notifications {settings.notificationsEnabled ? 'on' : 'off'}{optional.length ? ` · ${optional.join(' · ')}` : ''}</Text>
+  </>
 }
 
 const styles = StyleSheet.create({
@@ -309,10 +333,10 @@ const styles = StyleSheet.create({
   inspector: { gap: 12 },
   visibilityRow: { minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: 12, borderTopWidth: 1, borderBottomWidth: 1, borderColor: 'transparent', paddingVertical: 7 },
   starterRow: { minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderRadius: 13, padding: 12 },
-  exportActions: { flexDirection: 'row', alignItems: 'center' },
+  exportActions: { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14 },
   details: { borderTopWidth: 1, borderBottomWidth: 1, paddingVertical: 9, gap: 5 },
   detailLine: { fontSize: 11, lineHeight: 16 },
-  visual: { gap: 7, paddingVertical: 4 }, visualMeta: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }, visualKind: { fontSize: 12, fontWeight: '600' }, visualCount: { fontSize: 11 }, visualTrack: { height: 18, position: 'relative' }, visualLine: { position: 'absolute', left: 0, right: 0, top: 8, height: 2 }, visualBoundary: { position: 'absolute', top: 3, width: 2, height: 12, borderRadius: 1 }, visualCue: { position: 'absolute', top: 5, width: 8, height: 8, marginLeft: -4, borderRadius: 4 }, sequenceTrack: { height: 8, borderRadius: 4, overflow: 'hidden', flexDirection: 'row', gap: 2 }, sequenceSegment: { minWidth: 3 },
+  visual: { gap: 2, paddingVertical: 4 }, visualMeta: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }, visualKind: { fontSize: 12, fontWeight: '600' }, visualCount: { fontSize: 11 }, sequenceTrack: { height: 8, borderRadius: 4, overflow: 'hidden', flexDirection: 'row', gap: 2 }, sequenceSegment: { minWidth: 3 },
   chevron: { fontSize: 24, lineHeight: 26, fontWeight: '300' },
 })
 

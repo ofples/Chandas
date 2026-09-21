@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { StatusBar } from 'expo-status-bar'
 import * as Updates from 'expo-updates'
-import { AppState as NativeAppState, Linking, PermissionsAndroid, Platform, View } from 'react-native'
+import { Alert, AppState as NativeAppState, Linking, PermissionsAndroid, Platform, View } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { useFonts, JetBrainsMono_300Light, JetBrainsMono_400Regular } from '@expo-google-fonts/jetbrains-mono'
@@ -13,7 +13,7 @@ import { clearTimerV2Session, loadTimerV2Session, loadTimerV2StateResult, saveTi
 import { defaultTimerV2State, normalizeAvailabilityPolicy, parseTimerProgram, replaceWorkingProgram, selectedProgram } from './src/lib/timerV2'
 import { defaultTimerHapticsSettings, normalizeTimerHapticsSettings } from './src/lib/haptic-profiles'
 import { setAppHapticsEnabled, successHaptic, tapHaptic } from './src/lib/haptics'
-import { loadProgramPreset, patchCompletionCue, patchPatternTrack, patchSequenceStep, updatePattern, updateSequence } from './src/lib/programActions'
+import { hasUnsavedProgramChanges, loadProgramPreset, patchCompletionCue, patchPatternTrack, patchSequenceStep, updatePattern, updateSequence } from './src/lib/programActions'
 import { TimerV2ConfigScreen } from './src/screens/TimerV2ConfigScreen'
 import { TimerV2RunningScreen } from './src/screens/TimerV2RunningScreen'
 import { AlarmRingingScreen } from './src/screens/AlarmRingingScreen'
@@ -110,7 +110,7 @@ function Root() {
   const stopNeedsAttention = useRef(false)
   const restoreAttempt = useRef<PendingRestore | null>(null)
   const program = timerState ? selectedProgram(timerState) : null
-  const timer = useTimerV2(program ?? FALLBACK_PROGRAM, timerState?.settings ?? FALLBACK_SETTINGS)
+  const timer = useTimerV2(program ?? FALLBACK_PROGRAM, timerState?.settings ?? FALLBACK_SETTINGS, timerState?.workingPrograms.sourcePreset)
 
   const showNotice = useCallback((next: Omit<AppNotice, 'id'>) => {
     noticeSequence.current += 1
@@ -233,8 +233,11 @@ function Root() {
         const native = ChandasTimerService.getState()
         const nativeProgram = native.active ? parseTimerProgram(native.timerV2Program) : null
         if (exactTimingAvailable && native.active && nativeProgram && native.timerV2Anchor && native.timerV2Anchor > 0) {
+          const restoredSource = session?.sourcePreset && JSON.stringify(session.program) === JSON.stringify(nativeProgram) ? session.sourcePreset : undefined
+          const replaced = replaceWorkingProgram(stored, nativeProgram)
           reconciled = {
-            ...replaceWorkingProgram(stored, nativeProgram),
+            ...replaced,
+            workingPrograms: { ...replaced.workingPrograms, sourcePreset: restoredSource },
             settings: settingsFromNative(stored.settings, native),
           }
           const nativeSession: TimerV2Session = {
@@ -247,6 +250,8 @@ function Root() {
               ? { mutedUntil: native.mutedUntil ?? 0, iteration: { endsAtLogicalId: native.mutedIterationEndId, endsAt: native.mutedIterationEndAt, iterations: Math.max(1, native.mutedIterationsRemaining ?? 1) } }
               : { mutedUntil: native.mutedUntil ?? 0 },
             alarmBehavior: native.alarmModeEnabled ? 'locked' : native.alarmOnceArmed ? 'once' : 'off',
+            sourcePreset: restoredSource,
+            settings: reconciled.settings,
           }
           pending = { session: nativeSession, attachNative: true }
           await Promise.all([saveTimerV2State(reconciled), saveTimerV2Session(nativeSession)])
@@ -257,7 +262,8 @@ function Root() {
       } else if (session) {
         // Without the Android service (web/testing), the persisted running
         // session is the runtime authority just as native state is on Android.
-        reconciled = replaceWorkingProgram(stored, session.program)
+        const restored = replaceWorkingProgram(stored, session.program)
+        reconciled = { ...restored, settings: session.settings ?? restored.settings, workingPrograms: { ...restored.workingPrograms, sourcePreset: session.sourcePreset } }
         pending = { session, attachNative: false }
         await saveTimerV2State(reconciled)
       }
@@ -544,12 +550,22 @@ function Root() {
     if (!timerState || !program || realigningRef.current) return false
     const preset = timerState.presets.find(value => value.id === presetId && value.showInRunningSelector !== false)
     if (!preset) return false
-    if (timerState.workingPrograms.sourcePreset?.id === preset.id) return true
+    if (timerState.workingPrograms.sourcePreset?.id === preset.id && !hasUnsavedProgramChanges(timerState)) return true
+    if (hasUnsavedProgramChanges(timerState)) {
+      const proceed = await new Promise<boolean>(resolve => {
+        if (Platform.OS === 'web') { resolve(globalThis.confirm?.('Switch configurations and discard the unsaved changes to the current setup?') ?? false); return }
+        Alert.alert('Discard unsaved changes?', 'Switching configurations will replace the changes in the current setup.', [
+          { text: 'Keep editing', style: 'cancel', onPress: () => resolve(false) },
+          { text: 'Discard and switch', style: 'destructive', onPress: () => resolve(true) },
+        ], { cancelable: true, onDismiss: () => resolve(false) })
+      })
+      if (!proceed) return false
+    }
     realigningRef.current = true
     const generation = ++reanchorAttemptGeneration.current
     setRealigning(true)
     try {
-      const started = await timer.reanchor(preset.program, preset.program.alignment.kind === 'local-clock')
+      const started = await timer.reanchor(preset.program, preset.program.alignment.kind === 'local-clock', preset.settings ?? timerState.settings, { id: preset.id, name: preset.name, createdAt: preset.createdAt })
       if (generation !== reanchorAttemptGeneration.current) return false
       if (!started) {
         showNotice({ title: timer.isAlarmRinging ? 'Dismiss the alarm first' : 'Configuration stayed unchanged', message: timer.isAlarmRinging ? 'The ringing alarm must be dismissed before changing configuration.' : 'The timer kept its existing schedule. You can try again.', tone: 'attention' })
@@ -601,7 +617,7 @@ function Root() {
           accessibilityElementsHidden={timer.isAlarmRinging}
         >
           <Reanimated.View key={appState} style={{ flex: 1 }} entering={FadeIn.duration(reducedMotion ? 80 : 220)} exiting={FadeOut.duration(reducedMotion ? 70 : 150)}>
-            {appState === 'config' ? <TimerV2ConfigScreen state={timerState} onChange={changeTimerState} onStart={start} starting={starting} focusState={focusState} onFocusAutomationChange={setFocusAutomation} onOpenFocusSettings={openNotificationPolicySettings} onOpenFocusRuleSettings={openFocusRuleSettings} androidAccess={androidAccess} onOpenExactAlarmSettings={openExactAlarmSettings} onOpenFullScreenIntentSettings={openFullScreenIntentSettings} onRequestCallMuteAccess={() => void requestCallMuteAccess()} onRequestNotificationAccess={() => void requestNotificationAccess()} onFeedback={showNotice} /> : <TimerV2RunningScreen program={program} configurationName={timerState.workingPrograms.sourcePreset?.name} mainCountdown={timer.mainCountdown} nextCueCountdown={timer.nextCueCountdown} nextCueLabel={timer.nextCueLabel} progress={timer.progress} position={timer.position} eventPulse={timer.eventPulse} activeHoursPaused={timer.activeHoursPaused} activeHoursResumeAt={timer.activeHoursResumeAt} runEndsAt={timer.runEndsAt} runRemainingMs={timer.runRemainingMs} runProgress={timer.runProgress} mute={timer.mute} alarmBehavior={timer.alarmBehavior} realigning={realigning} onStop={stop} onRestartUnsynced={() => reanchor(false)} onSnapToClock={offset => reanchor(true, offset)} onPressAlarm={pressAlarm} onMuteForIterations={timer.muteForIterations} onMuteForSeconds={timer.muteForSeconds} onClearMute={timer.clearMute} secondPrecision={timerState.settings.secondPrecisionEnabled} masterVolume={timerState.settings.masterVolume} onMasterVolumeChange={masterVolume => changeTimerState({ ...timerState, settings: { ...timerState.settings, masterVolume } })} onCueVolumeChange={changeCueVolume} showAdvancedControls={timerState.settings.advancedModeEnabled} onShowAdvancedControls={() => changeTimerState({ ...timerState, settings: { ...timerState.settings, advancedModeEnabled: true } })} focusEnabled={timerState.settings.focusAutomationEnabled} focusActive={focusState.actual === 'active' && !timer.activeHoursPaused} focusPolicyAccess={focusState.policyAccess} focusReason={focusState.reason} onToggleFocus={focusState.reason === 'paused-by-android' ? resumeFocusAutomation : () => setFocusAutomation(!timerState.settings.focusAutomationEnabled)} onOpenFocusSettings={focusState.reason === 'rule-disabled' ? openFocusRuleSettings : openNotificationPolicySettings} configurations={timerState.presets.filter(preset => preset.showInRunningSelector !== false)} activeConfigurationId={timerState.workingPrograms.sourcePreset?.id} onSelectConfiguration={switchRunningConfiguration} />}
+            {appState === 'config' ? <TimerV2ConfigScreen state={timerState} onChange={changeTimerState} onStart={start} starting={starting} focusState={focusState} onFocusAutomationChange={setFocusAutomation} onOpenFocusSettings={openNotificationPolicySettings} onOpenFocusRuleSettings={openFocusRuleSettings} androidAccess={androidAccess} onOpenExactAlarmSettings={openExactAlarmSettings} onOpenFullScreenIntentSettings={openFullScreenIntentSettings} onRequestCallMuteAccess={() => void requestCallMuteAccess()} onRequestNotificationAccess={() => void requestNotificationAccess()} onFeedback={showNotice} /> : <TimerV2RunningScreen program={program} configurationName={timerState.workingPrograms.sourcePreset?.name} mainCountdown={timer.mainCountdown} nextCueCountdown={timer.nextCueCountdown} nextCueLabel={timer.nextCueLabel} progress={timer.progress} position={timer.position} eventPulse={timer.eventPulse} activeHoursPaused={timer.activeHoursPaused} activeHoursResumeAt={timer.activeHoursResumeAt} nextAudibleAt={timer.nextAudibleAt} nextAudibleLabel={timer.nextAudibleLabel} runEndsAt={timer.runEndsAt} runRemainingMs={timer.runRemainingMs} runProgress={timer.runProgress} mute={timer.mute} alarmBehavior={timer.alarmBehavior} realigning={realigning} onStop={stop} onRestartUnsynced={() => reanchor(false)} onSnapToClock={offset => reanchor(true, offset)} onPressAlarm={pressAlarm} onMuteForIterations={timer.muteForIterations} onMuteForSeconds={timer.muteForSeconds} onClearMute={timer.clearMute} secondPrecision={timerState.settings.secondPrecisionEnabled} masterVolume={timerState.settings.masterVolume} onMasterVolumeChange={masterVolume => changeTimerState({ ...timerState, settings: { ...timerState.settings, masterVolume } })} onCueVolumeChange={changeCueVolume} showAdvancedControls={timerState.settings.advancedModeEnabled} onShowAdvancedControls={() => changeTimerState({ ...timerState, settings: { ...timerState.settings, advancedModeEnabled: true } })} focusEnabled={timerState.settings.focusAutomationEnabled} focusActive={focusState.actual === 'active' && !timer.activeHoursPaused} focusPolicyAccess={focusState.policyAccess} focusReason={focusState.reason} onToggleFocus={focusState.reason === 'paused-by-android' ? resumeFocusAutomation : () => setFocusAutomation(!timerState.settings.focusAutomationEnabled)} onOpenFocusSettings={focusState.reason === 'rule-disabled' ? openFocusRuleSettings : openNotificationPolicySettings} configurations={timerState.presets.filter(preset => preset.showInRunningSelector !== false)} activeConfigurationId={hasUnsavedProgramChanges(timerState) ? undefined : timerState.workingPrograms.sourcePreset?.id} onSelectConfiguration={switchRunningConfiguration} />}
           </Reanimated.View>
         </View>
         {timer.isAlarmRinging && <AlarmRingingScreen onDismiss={timer.dismissAlarm} />}

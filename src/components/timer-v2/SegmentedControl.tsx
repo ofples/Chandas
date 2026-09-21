@@ -8,12 +8,13 @@ interface Segment<T extends string> {
   label: string
 }
 
-export function SegmentedControl<T extends string>({ items, value, onChange, accessibilityLabel, style }: {
+export function SegmentedControl<T extends string>({ items, value, onChange, accessibilityLabel, style, feedback = true }: {
   items: readonly Segment<T>[]
   value: T
   onChange: (value: T) => void
   accessibilityLabel: string
   style?: StyleProp<ViewStyle>
+  feedback?: boolean
 }) {
   const { tokens } = useTheme()
   const reducedMotion = useReducedMotion()
@@ -22,7 +23,7 @@ export function SegmentedControl<T extends string>({ items, value, onChange, acc
       const selected = item.value === value
       return <Pressable
         key={item.value}
-        onPress={() => { if (!selected) selectionHaptic(); onChange(item.value) }}
+        onPress={() => { if (!selected && feedback) selectionHaptic(); onChange(item.value) }}
         accessibilityRole="tab"
         accessibilityState={{ selected }}
         style={({ pressed }) => [styles.segment, selected && { backgroundColor: tokens.accent }, { opacity: pressed ? 0.78 : 1, transform: [{ scale: pressed && !reducedMotion ? 0.985 : 1 }] }]}

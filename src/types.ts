@@ -149,6 +149,8 @@ export interface ProgramPreset {
   name: string
   createdAt: number
   program: TimerProgram
+  /** Timer preferences captured with this program, including its schedule and advanced controls. */
+  settings?: AppTimerSettings
   /** Library metadata, deliberately outside the immutable saved program. */
   showInRunningSelector?: boolean
 }

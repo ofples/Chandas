@@ -25,6 +25,7 @@ interface Props {
   scroll?: boolean
   footer?: ReactNode
   minHeight?: number
+  compactTop?: boolean
 }
 
 interface SheetHeaderAction {
@@ -36,7 +37,7 @@ interface SheetHeaderAction {
 }
 
 /** Shared, keyboard-safe sheet used by every Timer v2 secondary flow. */
-export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClose, onBack, leadingAction, trailingAction, help, presentationKey, pinnedContent, children, scroll = true, footer, minHeight }: Props) {
+export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClose, onBack, leadingAction, trailingAction, help, presentationKey, pinnedContent, children, scroll = true, footer, minHeight, compactTop = false }: Props) {
   const { tokens } = useTheme()
   const insets = useSafeAreaInsets()
   const keyboardVisible = useKeyboardVisible(visible)
@@ -48,11 +49,11 @@ export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClo
     setSheetVisible?.(sheetId, visible)
     return () => setSheetVisible?.(sheetId, false)
   }, [setSheetVisible, sheetId, visible])
-  const presentation = { title, accessibilityTitle, eyebrow, onClose, onBack, leadingAction, trailingAction, help, presentationKey, pinnedContent, children, scroll, footer, minHeight }
+  const presentation = { title, accessibilityTitle, eyebrow, onClose, onBack, leadingAction, trailingAction, help, presentationKey, pinnedContent, children, scroll, footer, minHeight, compactTop }
   const lastVisiblePresentation = useRef(presentation)
   useEffect(() => {
     if (visible) lastVisiblePresentation.current = presentation
-  }, [visible, title, accessibilityTitle, eyebrow, onClose, onBack, leadingAction, trailingAction, help, presentationKey, pinnedContent, children, scroll, footer, minHeight])
+  }, [visible, title, accessibilityTitle, eyebrow, onClose, onBack, leadingAction, trailingAction, help, presentationKey, pinnedContent, children, scroll, footer, minHeight, compactTop])
   const presented = visible ? presentation : lastVisiblePresentation.current
   const scrollResetKey = presented.presentationKey === undefined ? visible : `${visible ? 'open' : 'closed'}:${presented.presentationKey}`
   const body = presented.scroll
@@ -70,7 +71,7 @@ export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClo
             accessible={false}
             accessibilityViewIsModal
           >
-            <View style={styles.actions}>
+            <View style={[styles.actions, presented.compactTop && styles.compactActions]}>
               {presented.leadingAction
                 ? <SheetTextButton {...presented.leadingAction} />
                 : <View style={styles.actionSpacer} />}
@@ -105,6 +106,7 @@ const styles = StyleSheet.create({
   backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.58)' },
   sheet: { width: '100%', maxWidth: 680, maxHeight: '92%', minHeight: 220, alignSelf: 'center', borderWidth: 1.5, borderBottomWidth: 0, borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 20, paddingTop: 16, gap: 16 },
   actions: { minHeight: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  compactActions: { marginBottom: -10 },
   trailingActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   actionSpacer: { width: 44 },
   header: { minHeight: 40, justifyContent: 'center', paddingBottom: 4 },

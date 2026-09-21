@@ -28,6 +28,10 @@ code that assumes an unavailable native capability.
 
 ## Local development and verification
 
+Android debug builds use `com.yukti.chandas.dev` and the label **Chandas Dev** through the checked-in development-identity plugin. Release builds retain `com.yukti.chandas` and **Chandas**, allowing both to coexist with independent data. Regenerate Android with `npx expo prebuild --platform android --no-install` after changing this configuration.
+
+For local artifacts, run `gradlew.bat :app:assembleDebug :app:assembleRelease` in the generated `android` directory. Debug requires Metro; release embeds the JavaScript bundle. The generated local release configuration currently uses the debug signing key: these APKs are standalone test builds, not Google Play signed releases. EAS production signing and remote versionCode remain the store delivery path. Known failing acceptance tests must remain disclosed when building an unaccepted version for testing.
+
 The current Windows development machine can run Android emulators and local native builds. After confirming that the Android SDK, JDK, and an emulator or connected device are available, use `npm run android` (equivalent to `npx expo run:android`) to generate the ignored Android project, compile a development build, install it, and start Metro. For later JavaScript-only edits, `npm start` reconnects the installed development client without recompiling native code. Rebuild after changing native code, native dependencies, permissions, or config plugins.
 
 Local `expo prebuild`, targeted Gradle compile and unit-test tasks, Android Studio builds, `npx expo export`, and emulator or physical-device checks are permitted when useful. A local Android release variant can help catch release-only failures, but an unsigned local build is not a Play Store artifact. Do not treat an emulator as proof of background timing, haptics, audio routing, or notification presentation on a physical phone. The generated `android/` directory is ignored; source changes belong in `app.json`, the config plugin, or the checked-in native module. iOS compilation requires macOS and Xcode.

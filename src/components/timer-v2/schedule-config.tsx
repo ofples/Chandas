@@ -9,6 +9,7 @@ import { AddRowButton } from './AddRowButton'
 import { selectionHaptic, tapHaptic } from '../../lib/haptics'
 import { SwipeToDeleteRow } from './swipe-to-delete-row'
 import { ClockTimeInput, formatClockTime } from './ClockTimeInput'
+import { DoubleTapDeleteButton } from './DoubleTapDeleteButton'
 
 interface Props {
   value: AvailabilityPolicy
@@ -64,6 +65,7 @@ export function ScheduleConfig({ value, onChange, showHeading = true, showEnable
             <View style={styles.days}>{DAYS.map(day => { const selected = (window.days & day.bit) !== 0; return <Pressable key={day.name} onPress={() => { selectionHaptic(); patchWindow(window.id, { days: selected ? window.days & ~day.bit : window.days | day.bit }) }} accessibilityRole="button" accessibilityLabel={day.name} accessibilityState={{ selected }} style={[styles.day, { borderColor: selected ? tokens.accent : tokens.border, backgroundColor: selected ? tokens.accentGlow : 'transparent' }]}><Text style={[styles.dayText, { color: selected ? tokens.accent : tokens.textMuted }]}>{day.short}</Text></Pressable> })}</View>
             {window.startMinutes === window.endMinutes ? <Text style={[styles.helper, { color: tokens.textMuted }]}>Same start and end means all day on these days.</Text> : null}
             {window.days === 0 ? <Text accessibilityRole="alert" style={[styles.helper, { color: tokens.warm }]}>Choose at least one day, or switch this range off.</Text> : null}
+            <View style={styles.editorActions}><DoubleTapDeleteButton label="Delete time range" accessibilityLabel={`Delete ${windowSummary(window)}`} onDelete={() => removeWindow(window)} /></View>
           </Animated.View> : null}
         </Animated.View></SwipeToDeleteRow>
       })}
@@ -106,5 +108,6 @@ const styles = StyleSheet.create({
   windowList: { gap: 0 }, window: { paddingVertical: 10, gap: 12, borderBottomWidth: StyleSheet.hairlineWidth }, windowHead: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 12 }, editor: { gap: 12 },
   range: { flexDirection: 'row', alignItems: 'flex-end', gap: 9 }, timeField: { flex: 1, gap: 5 }, timeLabel: { fontSize: 14, lineHeight: 20, fontWeight: '700' }, to: { fontSize: 12, paddingBottom: 14 }, kindRow: { flexDirection: 'row', gap: 8 }, kind: { minHeight: 36, paddingHorizontal: 14, borderWidth: 1.5, borderRadius: 18, justifyContent: 'center' }, kindText: { fontSize: 12, fontWeight: '700' },
   days: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 }, day: { width: 40, height: 40, borderWidth: 1.5, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }, dayText: { fontSize: 10, fontWeight: '700' },
+  editorActions: { minHeight: 42, flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center' },
   empty: { paddingVertical: 9, gap: 4 },
 })

@@ -1,6 +1,14 @@
 # Chandas: reliability, interaction, and everyday usefulness review
 
-Date: 2026-09-21. Source reviewed: `5eefc6edbe6961b1b473b8dce5858712d34d1437` plus local documentation reconciliation. This is a source review, not a claim of device verification. No application features were changed for this report.
+Date: 2026-09-21. Source reviewed: `5eefc6edbe6961b1b473b8dce5858712d34d1437` plus local documentation reconciliation. This was the planning review; the implementation status below records the later completed source work and local verification.
+
+## Implementation status — final reconciliation
+
+The accepted interaction and reliability work from this review is implemented in the current working tree. This includes consistent time and duration entry, haptic and sound audition, effective cue visualization, Active/Quiet schedules with an inclusive closing bell, running configuration switching, compact status, multi-sound cues, complete saved configuration snapshots, explicit quiet/completion presentation, and the shared Sequence/sound drag interaction. The four `Next` ideas in section 6 are also implemented: setup previews real upcoming events, quiet states distinguish schedule resume from the next audible cue, starter configurations remain optional, and cue sound can be disabled independently for tactile routines. At the user's direction, no additional starter configurations are being added. `Later` and `Defer` ideas remain proposals.
+
+The final hardening pass additionally makes preview cancellation authoritative across async asset preparation, switches the full preset settings snapshot in one native Start transaction, preserves source/settings/sound-order state across restore, rejects replacement while an alarm is ringing, clears Cycle-only alarm state for Sequence, gates late JS delivery at both scheduled and delivered time, preserves exact seconds in the duration editor, and restores drag order when Android cancels a gesture.
+
+Local evidence: Expo dependency compatibility passes; TypeScript passes; 124/124 JavaScript tests pass; 48/48 Android timer-service tests pass; development and release APKs assemble successfully. Physical-device perception and interaction rows in the verification checklist remain manual acceptance work.
 
 The implementation specification is [Timer v2, section 26](timer-v2-spec-and-log.md#26-september-2026-interaction-and-reliability-batch). That section distinguishes requested outcomes from recommended design details and optional future work. Earlier log entries remain historical evidence.
 
@@ -130,6 +138,8 @@ These are proposals, not additions to the implementation commitment.
 | Later | Favorites or routine groups | Organize a growing library into Morning, Work, Evening | Start with the requested visibility toggle; only add grouping/search when the library needs it |
 | Later | A local recent-session log | Helps answer “Did I finish that routine?” without scores or pressure | Opt-in retention, local by default, no streaks; distinguish completed from interrupted sessions |
 | Defer | Calendar-driven routines, per-preset schedules, automatic config switching | Useful for a structured day | Conflicts, permission ownership, timezone travel and surprise starts warrant a separate design |
+
+Implementation follow-up: the four `Next` rows have since landed. The setup screen shows three engine-derived events with local times and schedule suppression, plus the next audible event when it lies beyond that short list. Running quiet and mute states show the next audible cue separately from the schedule-resume or mute-end time. Vibration inheritance, per-cue Off/Custom, and vibration-only output are supported while master volume zero retains its meaning as a full mute. Starter examples are optional; the existing set is retained without further expansion by user choice.
 
 The most useful near-term combination is saved routines + reliable clock alignment + quiet periods + a trustworthy next-event preview. This supports ordering a day while preserving the timer's restrained character.
 

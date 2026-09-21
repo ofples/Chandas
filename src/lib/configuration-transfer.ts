@@ -1,5 +1,5 @@
-import type { ProgramPreset, SoundRef, TimerProgram } from '../types'
-import { createProgramId, normalizePreset } from './timerV2'
+import type { ProgramPreset, SoundRef } from '../types'
+import { createProgramId, cueSounds, normalizePreset } from './timerV2'
 
 export const CONFIGURATION_TRANSFER_FORMAT = 'chandas.configuration'
 export const CONFIGURATION_TRANSFER_VERSION = 1
@@ -9,7 +9,7 @@ interface ConfigurationTransferEnvelope {
   format: typeof CONFIGURATION_TRANSFER_FORMAT
   version: typeof CONFIGURATION_TRANSFER_VERSION
   exportedAt: string
-  configuration: Pick<ProgramPreset, 'name' | 'createdAt' | 'program'>
+  configuration: Pick<ProgramPreset, 'name' | 'createdAt' | 'showInRunningSelector' | 'program' | 'settings'>
 }
 
 export type ConfigurationTransferError = 'empty' | 'too-large' | 'invalid' | 'unsupported-version'
@@ -28,7 +28,9 @@ export function serializeConfiguration(preset: ProgramPreset, now = Date.now()):
     configuration: {
       name: normalized.name,
       createdAt: normalized.createdAt,
+      showInRunningSelector: normalized.showInRunningSelector,
       program: normalized.program,
+      settings: normalized.settings,
     },
   }
   return JSON.stringify(envelope, null, 2)
@@ -55,7 +57,7 @@ export function parseConfigurationTransfer(text: string, existingNames: string[]
       name: availableImportedName(normalized.name, existingNames),
       createdAt: now,
     }
-    return { ok: true, preset, hasDeviceSpecificSounds: programHasDeviceSpecificSounds(preset.program) }
+    return { ok: true, preset, hasDeviceSpecificSounds: configurationHasDeviceSpecificSounds(preset) }
   } catch {
     return { ok: false, error: 'invalid' }
   }
@@ -82,9 +84,11 @@ function availableImportedName(name: string, existingNames: string[]): string {
   return `${[...name].slice(0, 67).join('')} (imported)`
 }
 
-function programHasDeviceSpecificSounds(program: TimerProgram): boolean {
-  const sounds: SoundRef[] = program.mode === 'pattern'
-    ? [program.mainCue.sound, ...(program.completionCue ? [program.completionCue.sound] : []), ...program.tracks.map(track => track.sound)]
-    : [...program.steps.map(step => step.sound), ...(program.completionCue ? [program.completionCue.sound] : [])]
+function configurationHasDeviceSpecificSounds(preset: ProgramPreset): boolean {
+  const program = preset.program
+  const cues = program.mode === 'pattern'
+    ? [program.mainCue, ...(program.completionCue ? [program.completionCue] : []), ...program.tracks]
+    : [...program.steps, ...(program.completionCue ? [program.completionCue] : [])]
+  const sounds: SoundRef[] = [...cues.flatMap(cueSounds), ...(preset.settings ? [preset.settings.alarmSound] : [])]
   return sounds.some(sound => sound.kind !== 'builtin')
 }

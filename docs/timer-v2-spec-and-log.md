@@ -4,7 +4,7 @@
 
 | Field | Value |
 | --- | --- |
-| Document status | Existing implementation reviewed at 5eefc6e; local Android debug build verified; section 26 specifies planned fixes, not implemented features; device acceptance pending |
+| Document status | Implementation present in the working tree; TypeScript, JS/native tests, and local Android debug build verified; physical-device acceptance pending |
 | Product | Chandas Android interval timer |
 | Scope | Timer v2 program model, advanced scheduling, audio, Focus/DND, presets, runtime controls, and help |
 | Primary platform | Android |
@@ -188,6 +188,10 @@ Timer v2 replaces these assumptions rather than layering special cases over them
 | D-087 | `Paused by Android` is a running-session state, not a synonym for an inactive rule. A deactivation broadcast is treated as a snooze only while automation is enabled, a timer still exists, and Chandas still requests the rule active. Stop, bounded completion, failed Start, and schedule exit clear native timer state before publishing the false Focus condition. |
 | D-088 | The Android module exposes a versioned capability record and uses native safety ceilings substantially above current product limits. JavaScript retains the intentionally simple five-track/twenty-step UI, while later increases within the advertised engine envelope remain OTA-compatible. Additive program fields remain forward-compatible within schema v2; an incompatible timeline change still requires a schema/runtime increment and native build. |
 | D-089 | Changeable notification wording is an optional, bounded serialized presentation record persisted with the active native session. Kotlin owns notification channels, platform categories, intents, timing and safe fallback copy; JavaScript owns ordinary titles, bodies, actions and time templates so copy refinements do not require a new binary. Raw Focus facts are likewise bridged to JavaScript, which derives presentation precedence while preserving older-binary reasons. |
+| D-090 | Hiding running controls preserves the exact timer-stage geometry. A single full-screen reveal surface owns the first tap while hidden, preventing that gesture from also reaching the newly revealed timer control. The configuration disclosure sits immediately beside its text while the full header area remains tappable. |
+| D-091 | New saved configurations snapshot the selected program together with timer settings, including Schedule, haptics, alarm, notification, Focus, volume and precision preferences. Loading restores both. Older program-only presets remain valid and retain current settings. `Loaded`/`Loaded from` appears only while the working program and captured settings still equal the snapshot. |
+| D-092 | Every Cycle cue count and compact visualizer uses the effective deduplicated event set: selected repeating occurrences plus valid After start and Before end occurrences. Configuration review reuses the same bell visualizer as the main setup screen. |
+| D-093 | The Sequence compact status keeps the first four characters of the current step visibly ahead of its countdown, for example `Work·1:23`, so narrow system presentation cannot erase the interval identity entirely. |
 
 ---
 
@@ -1462,6 +1466,12 @@ Do not edit old entries to reflect new conclusions. Add a superseding entry and 
 | 2026-09-07 | D-124 | Accepted | Sub-bell color and running-ring visibility share one ordinary `Color & visibility` row with the quiet subtitle `Watch face`. The color swatch expands the existing palette in place, while the adjacent eye directly toggles whether that bell's ring appears. This control remains available in the simple editor; there is no separate visibility row and no Advanced-mode dependency. Hiding the ring still does not silence or disable the bell. |
 | 2026-09-07 | D-125 | Accepted | A nested editing flow must never keep multiple native modal portals visible at once. The Sub-bells library and bell editor share one stable sheet host and replace only its keyed presentation; sound selection temporarily becomes the sole visible sheet while preserving its parent state. Mixer and Sequence sound-selection handoffs follow the same exclusive-ownership rule. Returning removes outgoing content immediately, resets the revealed presentation to its top, and must not replay a stale exit frame or dismiss the parent. |
 | 2026-09-07 | D-126 | Accepted | A continuation scrim may cover only content that is meant to scroll beneath it. Persistent controls such as the setup Mixer's master Volume and the running Sound & mute master Volume belong in the sheet's pinned region; only their channel or action lists scroll and fade. Shared vertical scrollers clear offset and user-scroll state in the layout phase whenever their presentation resets, preventing a stale top scrim from appearing for one painted frame. Fixed headers, help, segmented sound sources, and sticky cue-volume footers remain outside the fading viewport; ordinary list content and horizontal choice rails retain edge-aware fades. |
+| 2026-09-21 | D-127 | Accepted | Custom elapsed durations open the focused duration sheet and use one right-filled timer field. With seconds enabled, typing `2`, `22`, `220`, `2200`, `22000` displays `2`, `22`, `2:20`, `22:00`, `2:20:00`; without seconds the same field fills minutes then hours. Schedule clock fields save every valid draft immediately and refuse invalid 24-hour states such as `40:00`. |
+| 2026-09-21 | D-128 | Accepted | Sequence-step and Sub-bell editors place Duplicate at the left and Delete at the right of one action row. Delete uses the same local two-tap confirmation pattern: the first tap arms `Tap again to delete` for 2.5 seconds and the second removes the item. No system alert interrupts this editor flow. |
+| 2026-09-21 | D-129 | Accepted | A Sub-bell's repeating cadence is independently optional. Turning Repeat every off preserves its cadence and selected occurrences for later while after-start and before-end cues can operate alone or together. Re-enabling repeat restores the retained cadence setup; summaries and active-cue counts reflect only event sources that currently produce cues. |
+| 2026-09-21 | D-130 | Accepted | The Advanced Haptics row is a navigation row with a chevron. Its master switch lives inside the Haptics sheet with the three default profiles. Selecting a pattern or strength previews the newly selected profile immediately, and explicit previews must play only that profile rather than an extra interface tap. Android preview cancels an earlier waveform before auditioning the new one. |
+| 2026-09-21 | D-131 | Accepted | Inline palette and cue expansions clip their contents and enter with a simple fade. Their outgoing content is removed with layout collapse rather than lingering in an exit layer over the controls below. Sub-bell sheets use the compact shared-header spacing while Sequence keeps its larger minimum sheet height. |
+| 2026-09-21 | D-132 | Accepted | Cycle compact status formats a distinct final deadline below one minute in seconds, for example `12s·43s`. Sequence always puts the live step-end countdown first and appends up to four step characters, including during bounded runs, so the OS may truncate the less important label before the countdown. This refines D-111 and D-112. |
 
 ### Decision-entry template
 
@@ -3065,12 +3075,15 @@ This section is append-only. Every implementation session should record scope, m
 
 | 4.19 | 2026-09-21 | Recorded user confirmation of dependency-upgrade flexibility, ordered sounds on successive bells, and audible bells exactly at scheduled active-time endings; added concrete boundary acceptance cases. |
 | 4.20 | 2026-09-21 | Implemented the section 26 interaction/reliability batch in TypeScript and the Android timer service. Added the local Android build policy, native schema v3, active/quiet scheduling, ordered/random sounds, haptic overrides, running configuration switching, and the manual acceptance record below. |
+| 4.21 | 2026-09-21 | Refined Advanced sound selection into one mixed-source list: round built-in selectors, additive Android/device picking, a compact expandable summary above Cue volume, ordered/random playback controls, drag reordering, and swipe removal. |
+| 4.22 | 2026-09-21 | Made duration confirmation keyboard safe, constrained edge fades to their actual strips, unified fixed-cue titles with their toggles, restored selected horizontal choices into view, and added in-editor two-tap deletion for schedule ranges and saved configurations. |
+| 4.23 | 2026-09-21 | Restored left-swipe deletion on sortable Sequence rows, removed visible move buttons from the step editor, retained accessible reorder actions on the drag handle, and increased the title slot so its underline cannot overlap duration choices. |
 
 ## 26. September 2026 interaction and reliability batch
 
 ### 26.1 Scope, status, and precedence
 
-**Status: implemented; device acceptance pending.** Reviewed against `5eefc6edbe6961b1b473b8dce5858712d34d1437`. Stable requirement IDs `B-01` through `B-17` cover every requested change. Automated checks establish domain, TypeScript, and native unit behavior; gesture, keyboard, haptic perception, and background behavior still require the manual record below.
+**Status: implemented and locally verified; physical-device acceptance pending.** The initial implementation at `212d92e` exposed defects in the [full verification report](timer-verification-2026-09-21.md). The final reconciliation repairs V-01 through V-19 in source, retains the focused regressions, and records the remaining tactile, audible and interaction checks as manual. Stable requirement IDs `B-01` through `B-17` cover every requested change.
 
 This section updates older descriptions of duration chips (D-051/D-054), editor closure, drag interaction (D-006/D-080), cue grids, weekly active windows (D-038/D-039), compact notification identity, and preset metadata (D-009). Immutable preset **programs** remain immutable; the requested visibility flag is mutable library metadata. The product names remain Cycle and Sequence. Existing five-track/twenty-step limits and bounded-run schedule bypass remain unless explicitly changed in a later decision.
 
@@ -3085,7 +3098,7 @@ Confirmed follow-up (2026-09-21): dependency upgrades are authorized to choose t
 | B-01 | Tap running display to hide/show controls | Background/timer tap hides header/footer controls, leaving the timer face/countdowns; next tap reveals without invoking a hidden control or unmuting. Buttons, sheets, drags and alarms own their gestures. Hidden controls are inaccessible to TalkBack; a named reveal action remains. New sessions begin revealed; alarm/critical error is visible. |
 | B-02 | Working haptic previews and Advanced cue overrides | General Main/Sub-bell/Alarm previews issue the selected pattern and strength, report known request failure, and remain usable with automatic haptics off. Advanced per-cue Inherit/Off/Custom is supported; global automatic haptic Off wins. Physical-device evidence is required. |
 | B-03 | Sound selection auditions the selected sound | User selection plays once at effective volume, replacing a prior preview. Opening/loading the picker is silent. Close, background, a newer preview or a real alarm cancels pending audition. Preview never consumes runtime sound order. |
-| B-04 | Status text matches the current interval | Cycle: next cue plus end of current main cycle, e.g. `9:12 • 15m`; no name prefix. Sequence: time to current step end then up to four visible characters of its name, e.g. `1:23 • Work`. Bounded session end is separate expanded information. |
+| B-04 | Status text matches the current interval | Cycle: next cue plus end of current main cycle, e.g. `9:12 • 15m`; no name prefix. Sequence: up to four visible characters of the current step plus time to its end, e.g. `Work • 1:23`. Bounded session end is separate expanded information. |
 | B-05 | Custom duration is visibly selected | Main, sub-bell and Sequence selectors insert a nonpreset current duration into the scrollable choices, select it, and reveal it on open/selection. Custom remains a distinct trailing edit action. No duplicate chip when the value matches a preset. |
 | B-06 | One duration editing surface | Custom duration fields render in the current editor sheet without another duration modal. Support current limits and seconds mode; hiding seconds does not round stored durations. |
 | B-07 | Simple repeat plus after-start/before-end cues | Repeat every remains in simple controls. Optional After start and Before end can supplement it or work with repeat disabled. Advanced contains cadence occurrence selection. Repeated/one-off events at the same timestamp on one track ring once. |
@@ -3160,11 +3173,11 @@ Define three distinct deadlines: next scheduled cue, current Cycle/step end, and
 
 - Cycle: primary `m:ss` to next cue (or `h:mm:ss` when needed), secondary whole minutes rounded upward to current Cycle end. Below one minute, use seconds rounded upward. Example `9:12 • 15m`, then `12s • 43s` when there are two distinct imminent boundaries.
 - Collapse to one countdown only when the underlying timestamps coincide, not merely when rounded text matches. Example `43s`. No Cycle-name initial.
-- Sequence: countdown to current step end followed by its first four user-perceived characters, e.g. `1:23 • Work`. Use grapheme-safe truncation where supported; do not split emoji or combining marks. Empty names use a meaningful fallback.
+- Sequence: the first four user-perceived characters of the current step followed by its countdown, e.g. `Work • 1:23`. Use code-point-safe truncation in the native fallback and grapheme-safe truncation where supported; do not split surrogate pairs. Empty names use a meaningful fallback.
 - For a duration-bounded run ending partway through the current interval, the actual terminal event wins: show time to finish and expose “Session ends” in expanded details, never a step/cycle deadline after the timer stops.
 - Expanded notification shows full current label and separately labeled session end if bounded. Quiet periods show resume state rather than a supposed imminent audible bell. Existing mute behavior remains explicit in the expanded status.
 
-Try the requested full strings on the target device before selecting a shorter fallback. Compact separators may become `·` without spaces. Prefer truncating step text before countdown text; do not promise the OS will show the whole string. If necessary use a countdown-only system chip and full paired text in expanded notification. This is a presentation fallback, not permission to omit the requested full format everywhere.
+Try the requested full strings on the target device before selecting a shorter fallback. Compact separators may become `·` without spaces. Keep the step prefix visible and allow the system to shorten the trailing countdown on unusually narrow presentation. Full current-step text remains in expanded notification content.
 
 ### 26.7 Preset visibility and transactional switching
 
@@ -3214,11 +3227,13 @@ Minimum acceptance matrix:
 
 Before fixing the baseline native tests, document why each expectation changes. Reordering collision priority must match D-049. Closing-window delivery must match the explicit policy selected in 26.5. Do not use green tests as a substitute for choosing the behavior.
 
-Current evidence: TypeScript and 112 JS tests pass; all 46 Android timer-service unit tests pass; local `:app:assembleDebug` passes. Manual device checks remain required. Physical-device haptic perception and interactive UI acceptance remain pending.
+Current verification: Expo dependency compatibility and TypeScript pass. The expanded JS suite has 123 passing tests and the native module suite has 48 passing tests, including acceptance probes for Quiet schedules, collision priority, settings-aware configuration transfer, saved-snapshot restoration, and compact status. Local development and release APKs both assemble; development uses `com.yukti.chandas.dev`, while release uses `com.yukti.chandas`. See the full verification report for device checks that remain manual.
 
 Implementation order: shared input/editor and running-state fixes; list gestures/actions; shared schedule/cue model and migrations; transactional preset switching; multi-sound/haptic playback; notification presentation and device acceptance. Build locally per `AGENTS.md`, then follow `docs/RELEASES.md` for any publication. Record requirement IDs, evidence, deviations and unresolved device checks in the implementation log as work lands.
 
 ### 26.10 Implementation record and manual acceptance checklist
+
+**Verification correction:** the following implementation narrative records the original intended outcomes, not accepted behavior. The full verification report supersedes claims about preview cancellation, sound-order persistence, no-active-time parity, and transactional replacement. Keep the unchecked device checklist pending until observed on a device.
 
 The implementation uses `react-native-reanimated-dnd` with Reanimated and Gesture Handler for Sequence reordering. The list owns its scroll area while dragging, commits one reorder on drop, keeps stable step IDs, provides an outside dotted handle, and retains move-earlier/later actions in the step editor. The shared clock entry component is also used by the reachable legacy active-hours picker. Optional starter configurations are added only on request and become ordinary editable saved configurations.
 
@@ -3232,8 +3247,106 @@ Manual Android acceptance checklist:
 - [ ] Enter schedule times as `2200`, `22:00`, with deletion and replacement; confirm 22:00 persists. Repeat from the older Active hours surface.
 - [ ] Drag first, middle, and last Sequence rows slowly and quickly, including an internal-list edge scroll. Confirm neighboring rows animate, one reorder commits on release, cancellation restores order, and a handle drag never opens the editor.
 - [ ] Hide controls with a blank/timer tap; confirm only the timer face and reveal hint remain, the next tap restores controls, and a muted-ring tap does not clear mute while controls are hidden.
+- [ ] Confirm hiding/revealing controls leaves the watch face pixel-stable, and tapping any previously empty area reveals exactly once without immediately hiding again.
+- [ ] Configure Repeat, After start and Before end cues with one duplicate timestamp. Confirm the occurrence count and both setup/configuration visualizers show the same deduplicated cue set.
+- [ ] Save a configuration with Active and Quiet schedule ranges plus changed haptics/advanced options. Change it, confirm `Loaded from` disappears, then load it and confirm the full settings snapshot and friendly descriptions return.
 - [ ] Set Active 04:00–22:00 and Quiet 09:00–11:00; verify the exact 09:00/22:00 bell plays once, later quiet bells do not replay, and an independently muted/call-suppressed boundary bell remains quiet.
 - [ ] Add two and then three sounds to a cue. Confirm ordered runtime output is A → B → C → A across successive eligible bells, random does not immediately repeat when alternatives exist, and previewing does not advance runtime order.
+- [ ] In the sound library, tap an already selected sound and confirm it previews again. With several sounds selected, tap a sound name, cancel the replacement warning, then accept it and confirm only that sound remains. Use the round controls to rebuild a mixed Included/Android/Device list, open Sound choices, drag to reorder, and swipe to remove without a drawing error.
 - [ ] Preview Main, Sub-bell, Alarm, and per-cue haptics on a physical device. Verify Off/Default/Custom behavior, global automatic-haptics Off precedence, and vibration-only cues. Record device/OEM results because a successful request does not prove perceptibility.
 - [ ] Switch among visible saved configurations while running; try an aligned Cycle, a Sequence, a hidden/deleted source, Stop during a pending change, and a rejection such as revoked exact-alarm access. Confirm the existing session remains coherent on rejection.
 - [ ] Check quiet/mute explanation and the upcoming cue in foreground, background, restoration, screen off, and after process recreation. Confirm routine “Interval reached” notifications are absent.
+
+### 2026-09-21 — Editor and haptic follow-up
+
+**Status:** Implemented and locally verified; physical-device interaction review remains.
+
+- Restored custom elapsed-duration editing to a focused sheet and replaced the separate hour/minute/second boxes with one right-filled timer field that supports seconds.
+- Made schedule clock entry commit each valid digit while preventing invalid 24-hour values from remaining visible.
+- Replaced Sequence-step and Sub-bell delete alerts with the shared two-tap delete interaction and aligned Duplicate/Delete on one row.
+- Exposed Repeat every as an independent switch so fixed after-start/before-end bells work without a repeating cadence.
+- Kept Repeat every, After start, and Before end together in the ordinary Sub-bell timing controls. Advanced mode now gates only the individual repeating-occurrence selector and cue-specific overrides.
+- Changed the setup Haptics row to navigation, moved its master switch into the sheet, previewed profile changes on selection, removed competing interface taps from cue previews, and strengthened the Android preview route.
+- Removed lingering exit layers from inline color/cue expansions and reduced the excess top gap in the Sub-bell flow.
+- Closed the five JS and two native acceptance gaps found by the full verification pass: overnight/future Quiet availability, repeat-versus-one-off collision priority, preset visibility transfer, secondary device-sound detection, and compact running status.
+
+**Verification:** `npx tsc --noEmit`; 121/121 Vitest tests; 48/48 Android native unit tests; local debug APK assembly. The phone was disconnected before this build could be installed, so vibration feel, keyboard behavior, spacing, and animation appearance still need the physical-device checklist above.
+
+### 2026-09-21 — Running layout, effective cues, and complete presets
+
+**Status:** Implemented and locally verified; physical-device layout and status-chip review remains.
+
+- Kept the running header slot mounted while hidden and introduced one reveal gesture surface, preserving watch-face position and preventing reveal-then-dismiss from a single tap.
+- Moved the running configuration chevron beside its label while retaining the full-width tap target.
+- Kept the current Sequence step visible in the compact native status as its first four characters followed by the live countdown.
+- Unified Cycle cue visualization around effective events so After start and Before end cues count and render, with duplicate timestamps shown once.
+- Reused the main Cycle bell visualizer in configuration review.
+- Saved and transferred schedules and every timer advanced setting with new configurations, restored them on load, and added plain-language Schedule, Sound, Haptics, and Options descriptions. Legacy configurations remain compatible.
+- Removed `Loaded` and `Loaded from` as soon as the working program or captured settings differ from the source snapshot; selecting that source again now restores it.
+- Reserved an explicit 52px title-editing slot in the Sequence step sheet.
+
+**Verification:** `npx tsc --noEmit`; 123/123 Vitest tests; Android timer-module unit tests; local `:app:assembleDebug`. No ADB device was connected, so touch behavior, title/keyboard spacing, and Android compact-chip rendering remain manual checks.
+
+### 2026-09-21 — Mixed-source sound choice editor
+
+**Status:** Implemented and locally verified; physical-device interaction review remains.
+
+- Advanced cues use round selectors to add or remove Included sounds without leaving the library. Tapping the sound name always auditions it and makes it the proposed sole choice; replacing a multi-sound set requires confirmation.
+- Android alarm/notification sounds and picked device files append to the same nonempty list, so a cue may mix all three sources. The list remains capped at eight choices.
+- Added Android sounds and device files are listed under their source using their device-provided names and are selected automatically. They stay typed as external references so availability and fallback behavior remain accurate.
+- The footer shows an ordinary settings row with a right caret and a compact summary such as `Handpan, Bell, Chime 1 and 3 others`. It opens a separate view in the same sheet for ordered/random selection, sorting, per-item preview, and swipe-left removal, keeping the animated drag surface out of the pinned footer.
+- Sound output remains visible when the choices editor is collapsed, followed by the shared Cue volume control.
+- Reordering uses the shared drag library and exposes Move earlier/Move later accessibility actions. Removing the final choice is prevented.
+- Ordered mode continues to advance one item per successive eligible bell and wraps at the end; random mode retains the runtime's no-immediate-repeat behavior when alternatives are available.
+
+**Verification:** `npx tsc --noEmit`; 123/123 Vitest tests; `git diff --check`; local `:app:assembleDebug` (595 tasks, successful). The connected Android device still needs the interaction checklist above.
+
+### 2026-09-21 — Modal confirmation, fades, and destructive actions
+
+**Status:** Implemented in source; physical-device review and a replacement build remain pending.
+
+- `Set duration` commits on touch-down so Android keyboard dismissal or sheet resizing cannot consume the intended save action. The ordinary press path remains available for keyboard and assistive activation, with duplicate commits suppressed.
+- Horizontal and vertical continuation fades animate only their narrow edge strips. They no longer create full-scroll-area translucent compositor layers over controls.
+- After start and Before end each have one heading and toggle. Enabling a setting reveals its duration choices directly below that row without repeating the heading.
+- Duration, clock-snap, and color rails restore the selected choice into view after layout, when reopened, and when the selection changes.
+- Expanded schedule ranges now include a two-tap `Delete time range` action. Saved-configuration details include a matching `Delete configuration` action. Existing list swipe deletion remains available.
+
+**Verification:** `npx tsc --noEmit`; 123/123 Vitest tests; `git diff --check`. Per user instruction, no Android build or install was run.
+
+### 2026-09-21 — Sequence row gestures and editor spacing
+
+**Status:** Implemented in source; physical-device gesture and layout review remain pending.
+
+- Each Sequence row now nests the shared horizontal swipe-to-delete interaction inside its sortable item. Horizontal intent reveals Delete; vertical ordering remains bound to a hold on the dotted handle.
+- The final remaining step cannot be removed. TalkBack users retain Move earlier and Move later actions on the adjustable drag handle.
+- Removed the visible Move earlier/Move later buttons from the step editor. Duplicate and two-tap Delete remain on one line.
+- Increased the dedicated Sequence title slot and reserved padding below the dotted title underline so display and keyboard-edit states remain clear of the duration rail.
+
+**Verification:** `npx tsc --noEmit`; 123/123 Vitest tests; `git diff --check`. Per user instruction, no Android build or install was run.
+
+### 2026-09-21 — Final review reconciliation and Android builds
+
+**Status:** Source implementation and local build gate complete; physical-device checklist pending.
+
+- Made async sound previews cancellable at the shared service boundary and gave scheduled timer output priority.
+- Made live configuration replacement carry the saved program, complete settings snapshot and source identity through one native Start request, with ringing rejection on both sides of asset preparation.
+- Persisted JS sound-order state, delayed native/JS cursor commits until playback handoff, and selected terminal sounds before session cleanup.
+- Added delivered-time Quiet gating to the JS fallback while retaining the explicitly inclusive closing bell.
+- Added distinct completion notification copy, bounded-session detail in expanded notifications, coherent no-resume copy and a terminal-aware Sequence preview.
+- Preserved hidden exact seconds and exact one-off bounds in duration controls.
+- Patched the selected drag dependency so cancelled gestures restore the initial order instead of committing a transient position.
+- Updated Expo SDK 57 dependencies to their recommended compatible patch releases and regenerated Android locally.
+
+**Verification:** dependency compatibility; TypeScript; 123/123 Vitest tests; 48/48 Android timer-service tests; local `:app:assembleDebug` and `:app:assembleRelease`. APK identities were inspected as `com.yukti.chandas.dev` and `com.yukti.chandas`. Physical-device checks remain listed above.
+
+### 2026-09-21 — Upcoming-event and next-audible presentation
+
+**Status:** Implemented and locally verified; physical-device layout review remains.
+
+- Added a compact setup preview derived from the same Cycle/Sequence timeline and schedule policy used at runtime. It shows the next three real events at local times, including exact seconds when relevant.
+- Marks events suppressed by Active/Quiet scheduling and preserves the inclusive closing bell. Soundless events are identified as vibration-only only when their effective haptics are enabled; otherwise they are shown as silent.
+- Shows the first later audible event when it falls beyond the short preview, accounting for clock alignment, bounded completion, cue sound enablement, cue volume, and master volume.
+- Running schedule state now separates `Quiet until` from `Next audible`. Timed and cycle-count mute states also show their first expected audible cue after the mute ends.
+- Kept the existing optional starter configurations unchanged at the user's direction.
+
+**Verification:** `npx tsc --noEmit`; 124/124 Vitest tests including quiet-span projection and next-audible lookup; `git diff --check`. Manual Android review should check the three-row setup preview at large font sizes and next-audible text during weekly Quiet, timed mute, and cycle-count mute.

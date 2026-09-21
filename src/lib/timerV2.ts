@@ -20,7 +20,7 @@ import type {
 } from '../types'
 import { defaultSubBellColor, normalizeSubBellColor } from './subBellColors'
 import { canonicalClockOffset } from './clockAlignment'
-import { defaultTimerHapticsSettings } from './haptic-profiles'
+import { defaultTimerHapticsSettings, normalizeTimerHapticsSettings } from './haptic-profiles'
 
 export const TIMER_V2_SCHEMA_VERSION = 3 as const
 export const MAX_PATTERN_TRACKS = 5
@@ -293,6 +293,26 @@ export function normalizeCue(value: Partial<CueSettings> | undefined, fallback: 
   }
 }
 
+/** Normalizes the portable settings snapshot stored with a saved configuration. */
+export function normalizePresetSettings(value: Partial<AppTimerSettings> | undefined): AppTimerSettings | undefined {
+  if (!value) return undefined
+  const defaults = defaultAppTimerSettings()
+  return {
+    masterVolume: typeof value.masterVolume === 'number' && Number.isFinite(value.masterVolume) ? Math.max(0, Math.min(1, value.masterVolume)) : defaults.masterVolume,
+    advancedModeEnabled: value.advancedModeEnabled === true,
+    secondPrecisionEnabled: value.secondPrecisionEnabled === true,
+    alarmSound: normalizeSoundRef(value.alarmSound, defaults.alarmSound),
+    alarmVolume: typeof value.alarmVolume === 'number' && Number.isFinite(value.alarmVolume) ? Math.max(0, Math.min(1, value.alarmVolume)) : defaults.alarmVolume,
+    haptics: normalizeTimerHapticsSettings(value.haptics),
+    notificationsEnabled: value.notificationsEnabled !== false,
+    liveCountdownEnabled: value.liveCountdownEnabled === true,
+    muteDuringCallsEnabled: value.muteDuringCallsEnabled !== false,
+    availability: normalizeAvailabilityPolicy(value.availability),
+    focusAutomationEnabled: value.focusAutomationEnabled === true,
+    alarmDurationSeconds: typeof value.alarmDurationSeconds === 'number' ? Math.max(5, Math.min(3_600, Math.round(value.alarmDurationSeconds))) : defaults.alarmDurationSeconds,
+  }
+}
+
 /** Resolves selected repeating cues and explicit one-off cues within a Cycle. */
 export function trackEventOffsetsSeconds(track: Pick<PatternTrack, 'selectedOffsetsMinutes' | 'selectedOffsetsSeconds' | 'repeatEnabled' | 'afterStartSeconds' | 'beforeEndSeconds'>, mainDurationSeconds: number): number[] {
   const main = clampCueDurationSeconds(mainDurationSeconds, 60)
@@ -494,6 +514,7 @@ export function normalizePreset(value: Partial<ProgramPreset>): ProgramPreset | 
     name: [...value.name.trim()].slice(0, 80).join(''),
     createdAt: typeof value.createdAt === 'number' && Number.isFinite(value.createdAt) ? value.createdAt : Date.now(),
     program,
+    settings: normalizePresetSettings(value.settings),
     showInRunningSelector: value.showInRunningSelector !== false,
   }
 }

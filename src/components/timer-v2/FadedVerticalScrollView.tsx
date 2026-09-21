@@ -61,12 +61,14 @@ export function FadedVerticalScrollView({ children, fadeColor, resetKey, style, 
     >
       {children}
     </ScrollView>
-    {showTop ? <Animated.View pointerEvents="none" entering={enter} exiting={exit} style={StyleSheet.absoluteFill}><ScrollEdgeFade color={fadeColor} side="top" size={20} /></Animated.View> : null}
-    {showBottom ? <Animated.View pointerEvents="none" entering={enter} exiting={exit} style={StyleSheet.absoluteFill}><ScrollEdgeFade color={fadeColor} side="bottom" size={20} /></Animated.View> : null}
+    {showTop ? <Animated.View pointerEvents="none" entering={enter} exiting={exit} style={styles.topFade}><ScrollEdgeFade color={fadeColor} side="top" size={20} /></Animated.View> : null}
+    {showBottom ? <Animated.View pointerEvents="none" entering={enter} exiting={exit} style={styles.bottomFade}><ScrollEdgeFade color={fadeColor} side="bottom" size={20} /></Animated.View> : null}
   </View>
 }
 
 const styles = StyleSheet.create({
   wrap: { flexShrink: 1, minHeight: 0, position: 'relative' },
   scroll: { flexShrink: 1, minHeight: 0 },
+  topFade: { position: 'absolute', top: 0, left: 0, right: 0, height: 20 },
+  bottomFade: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 20 },
 })

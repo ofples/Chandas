@@ -228,6 +228,7 @@ const native = Platform.OS === 'android'
 
 export const isNativeServiceAvailable = native !== null
 let fallbackPreview: AudioPlayer | null = null
+let soundPreviewGeneration = 0
 const nativeResourceSounds = new Set<BuiltInSoundId>(['alarm-tone', 'temple-gong', 'clear-bell'])
 const soundCacheRequests = new Map<BuiltInSoundId, { revision: string; promise: Promise<boolean> }>()
 
@@ -269,6 +270,7 @@ async function cacheBuiltInSound(id: BuiltInSoundId): Promise<boolean> {
 
 AppState.addEventListener('change', state => {
   if (state === 'active') return
+  soundPreviewGeneration += 1
   native?.stopSoundPreview()
   fallbackPreview?.remove()
   fallbackPreview = null
@@ -283,6 +285,10 @@ export const ChandasTimerService = {
     }
   },
   start(config: NativeTimerConfig) {
+    soundPreviewGeneration += 1
+    native?.stopSoundPreview()
+    fallbackPreview?.remove()
+    fallbackPreview = null
     return native?.start(config) ?? false
   },
   update(config: Partial<NativeTimerConfig>) {
@@ -375,13 +381,20 @@ export const ChandasTimerService = {
     return native?.pickAudioDocument() ?? null
   },
   async previewSound(sound: SoundRef, volume: number, fallbackSoundId: BuiltInSoundId = 'clear-bell'): Promise<boolean> {
+    const request = ++soundPreviewGeneration
+    native?.stopSoundPreview()
+    fallbackPreview?.remove()
+    fallbackPreview = null
     const soundId = sound.kind === 'builtin' ? sound.id : sound.uri
     if (native) {
       if (sound.kind === 'builtin') await cacheBuiltInSound(sound.id)
-      return native.previewSound(soundId, fallbackSoundId, volume)
+      if (request !== soundPreviewGeneration || AppState.currentState !== 'active') return false
+      const started = await native.previewSound(soundId, fallbackSoundId, volume)
+      if (request === soundPreviewGeneration && AppState.currentState === 'active') return started
+      native.stopSoundPreview()
+      return false
     }
-    fallbackPreview?.remove()
-    fallbackPreview = null
+    if (request !== soundPreviewGeneration || AppState.currentState !== 'active') return false
     const source = sourceForSound(sound)
     if (!source) return false
     const player = createAudioPlayer(source)
@@ -398,6 +411,7 @@ export const ChandasTimerService = {
     }
   },
   stopSoundPreview() {
+    soundPreviewGeneration += 1
     native?.stopSoundPreview()
     fallbackPreview?.remove()
     fallbackPreview = null

@@ -102,8 +102,6 @@ export function scheduleRangeCountForDay(value: AvailabilityPolicy, day: number)
   }).length
 }
 
-const DAY_MS = 86_400_000
-
 function minuteOfDay(timestamp: number): number {
   const date = new Date(timestamp)
   return date.getHours() * 60 + date.getMinutes()
@@ -197,7 +195,9 @@ export function nextActiveHoursStart(settings: AvailabilitySettings, timestamp =
   }
   for (const window of policy.weeklyWindows) {
     if (!policy.enabled || !window.enabled || (window.days & 0b1111111) === 0) continue
-    for (let dayOffset = 0; dayOffset <= 8; dayOffset += 1) {
+    // Include yesterday so the real end of an overnight window which carried
+    // into today can become the next availability boundary.
+    for (let dayOffset = -1; dayOffset <= 8; dayOffset += 1) {
       const start = weeklyBoundary(window, timestamp, dayOffset, 'start')
       if (start > timestamp && isDayEnabled(window, new Date(start).getDay())) candidates.add(start)
       const end = weeklyBoundary(window, timestamp, dayOffset, 'end')
@@ -213,15 +213,22 @@ export function nextActiveHoursStart(settings: AvailabilitySettings, timestamp =
 export function hasAvailableTime(settings: AvailabilitySettings, timestamp = Date.now()): boolean {
   const policy = policyFor(settings)
   if (!policy.enabled) return true
-  const start = new Date(timestamp)
-  start.setSeconds(0, 0)
-  for (let dayOffset = 0; dayOffset <= 8; dayOffset += 1) {
-    const candidate = start.getTime() + dayOffset * DAY_MS
-    if (isWithinActiveHours(policy, candidate)) return true
-    const next = nextActiveHoursStart(policy, candidate)
-    if (next > 0) return true
-  }
-  return policy.overrides.some(override => override.behavior === 'active' && override.endAt > timestamp)
+  return isWithinActiveHours(policy, timestamp) || nextActiveHoursStart(policy, timestamp) > 0
+}
+
+/**
+ * Final delivery gate for delayed JS callbacks. Both the scheduled instant and
+ * the actual delivery instant must be active, except for the inclusive closing
+ * boundary promised by the schedule UI. Very late callbacks are discarded.
+ */
+export function isCueDeliveryAllowedByActiveHours(settings: AvailabilitySettings, cueAt: number, deliveredAt: number): boolean {
+  if (!Number.isFinite(cueAt) || !Number.isFinite(deliveredAt)) return false
+  const delay = deliveredAt - cueAt
+  if (delay < 0 || delay > 5_000) return false
+  const policy = policyFor(settings)
+  if (matchingOverride(policy.overrides, cueAt, 'mute')) return false
+  const closingBoundary = !isWithinActiveHours(policy, cueAt) && isWithinActiveHours(policy, cueAt - 1)
+  return closingBoundary || (isWithinActiveHours(policy, cueAt) && isWithinActiveHours(policy, deliveredAt))
 }
 
 export function windowsOverlap(left: WeeklyAvailabilityWindow, right: WeeklyAvailabilityWindow): boolean {

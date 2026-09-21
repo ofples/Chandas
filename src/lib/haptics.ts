@@ -6,6 +6,7 @@ import { ChandasTimerService, isNativeServiceAvailable } from '../native/Chandas
 
 let appHapticsEnabled = true
 let repeatingAlarmTimer: ReturnType<typeof setInterval> | null = null
+let previewGeneration = 0
 
 /** Whether this device exposes a haptic route that Expo can actually use. */
 export function hapticFeedbackAvailable(): boolean {
@@ -55,10 +56,11 @@ export function cueHapticProfile(profile: HapticProfile): void {
 /** Explicit previews remain available while the global switch is off. */
 export async function previewHapticProfile(profile: HapticProfile): Promise<boolean> {
   if (!hapticFeedbackAvailable()) return false
+  const generation = ++previewGeneration
   if (isNativeServiceAvailable && ChandasTimerService.getCapabilities()?.supportsHapticProfiles === true) {
     if (await ChandasTimerService.previewHaptic(profile)) return true
   }
-  return playExpoProfile(profile)
+  return playExpoProfile(profile, () => generation === previewGeneration)
 }
 
 export function startRepeatingAlarmHaptic(settings: TimerHapticsSettings): void {
@@ -74,7 +76,7 @@ export function stopRepeatingAlarmHaptic(): void {
   repeatingAlarmTimer = null
 }
 
-async function playExpoProfile(profile: HapticProfile): Promise<boolean> {
+async function playExpoProfile(profile: HapticProfile, active: () => boolean = () => true): Promise<boolean> {
   const style = profile.strength === 'gentle'
     ? Haptics.ImpactFeedbackStyle.Light
     : profile.strength === 'balanced'
@@ -82,6 +84,7 @@ async function playExpoProfile(profile: HapticProfile): Promise<boolean> {
       : Haptics.ImpactFeedbackStyle.Heavy
   const count = profile.pattern === 'single' ? 1 : profile.pattern === 'double' ? 2 : 3
   for (let index = 0; index < count; index += 1) {
+    if (!active()) return true
     try { await Haptics.impactAsync(style) } catch { return false }
     if (index < count - 1) await delay(105)
   }

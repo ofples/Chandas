@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { selectionHaptic } from '../../lib/haptics'
-import Animated, { FadeInDown, FadeOut, LinearTransition, useReducedMotion } from 'react-native-reanimated'
+import Animated, { FadeIn, LinearTransition, useReducedMotion } from 'react-native-reanimated'
 import type { SubBellColorId } from '../../types'
 import { SUB_BELL_COLORS } from '../../lib/subBellColors'
 import { useTheme } from '../../theme/ThemeContext'
@@ -30,8 +30,8 @@ export function ColorSelector({ value, onChange, label = 'Color', detail, traili
       </Pressable>
       {trailing}
     </View>
-    {expanded ? <Animated.View entering={FadeInDown.duration(reducedMotion ? 70 : 150)} exiting={FadeOut.duration(reducedMotion ? 60 : 100)}>
-      <FadedHorizontalScrollView fadeColor={tokens.surface} contentContainerStyle={styles.rail} accessibilityRole="radiogroup" accessibilityLabel={accessibilityLabel}>
+    {expanded ? <Animated.View entering={FadeIn.duration(reducedMotion ? 70 : 130)}>
+      <FadedHorizontalScrollView fadeColor={tokens.surface} selectedIndex={SUB_BELL_COLORS.findIndex(option => option.id === value)} itemCount={SUB_BELL_COLORS.length} selectionKey={`${expanded}:${value}`} contentContainerStyle={styles.rail} accessibilityRole="radiogroup" accessibilityLabel={accessibilityLabel}>
       {SUB_BELL_COLORS.map(option => {
         const selected = value === option.id
         return <Pressable key={option.id} onPress={() => { onChange(option.id); selectionHaptic() }} accessibilityRole="radio" accessibilityLabel={option.label} accessibilityState={{ selected }} style={({ pressed }) => [styles.choice, { borderColor: selected ? option.value : 'transparent', opacity: pressed ? 0.72 : 1, transform: [{ scale: pressed && !reducedMotion ? 0.92 : 1 }] }]}>
@@ -45,7 +45,7 @@ export function ColorSelector({ value, onChange, label = 'Color', detail, traili
 }
 
 const styles = StyleSheet.create({
-  block: { gap: 9 },
+  block: { gap: 9, overflow: 'hidden' },
   summary: { minHeight: 46, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   summaryButton: { flex: 1, minWidth: 0, minHeight: 46, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   copy: { flex: 1, minWidth: 0, gap: 3 },

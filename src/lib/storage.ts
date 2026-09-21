@@ -97,6 +97,10 @@ export interface TimerV2Session {
   program: TimerProgram
   mute: RuntimeMuteState
   alarmBehavior: AlarmBehavior
+  /** Preserves the saved configuration label across a process restart. */
+  sourcePreset?: { id: string; name: string; createdAt: number; deleted?: boolean }
+  soundState?: { sequence: Record<string, number>; randomPrevious: Record<string, number> }
+  settings?: AppTimerSettings
 }
 
 export async function saveSession(s: TimerSession): Promise<void> {
@@ -152,8 +156,23 @@ export async function loadTimerV2Session(): Promise<TimerV2Session | null> {
           : undefined,
       },
       alarmBehavior: value.alarmBehavior === 'once' || value.alarmBehavior === 'locked' ? value.alarmBehavior : 'off',
+      sourcePreset: value.sourcePreset && typeof value.sourcePreset.id === 'string' && typeof value.sourcePreset.name === 'string'
+        ? { id: value.sourcePreset.id, name: [...value.sourcePreset.name].slice(0, 80).join(''), createdAt: typeof value.sourcePreset.createdAt === 'number' ? value.sourcePreset.createdAt : Date.now(), deleted: value.sourcePreset.deleted === true }
+        : undefined,
+      soundState: value.soundState && typeof value.soundState === 'object'
+        ? {
+            sequence: sanitizeSoundState(value.soundState.sequence),
+            randomPrevious: sanitizeSoundState(value.soundState.randomPrevious),
+          }
+        : undefined,
+      settings: normalizeSettings(value.settings ?? null) ?? undefined,
     }
   } catch { return null }
+}
+
+function sanitizeSoundState(value: unknown): Record<string, number> {
+  if (!value || typeof value !== 'object') return {}
+  return Object.fromEntries(Object.entries(value).filter(([key, index]) => key.length <= 120 && typeof index === 'number' && Number.isInteger(index) && index >= 0))
 }
 
 export async function clearTimerV2Session(): Promise<void> {

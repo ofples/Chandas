@@ -26,11 +26,16 @@ object TimerScheduler {
   ): Boolean {
     if (!canScheduleExactAlarms(context)) return false
     if (!isValidConfig(config)) return false
+    // A ringing alarm is authoritative until the user dismisses it. Reject a
+    // replacement inside this synchronized transaction so an alarm beginning
+    // during JS asset preparation cannot be stopped by a late Start call.
+    if (TimerStateStore.isRinging(context)) return false
     // Validate before cancelling the currently authoritative alarm. A running
     // configuration switch must leave the old timer intact when the incoming
     // program cannot be scheduled (for example, after a capability change).
     val previous = TimerStateStore.load(context)
     val previousControls = previous?.let { TimerStateStore.getControlState(context) }
+    val previousGeneration = TimerStateStore.currentSessionGeneration(context)
     ChandasCueService.stop(context)
     TimerSoundPlayer.stopAll()
     TimerHaptics.stop(context)
@@ -61,6 +66,7 @@ object TimerScheduler {
           previousControls.mutedIterationEndAt,
           previousControls.mutedIterationsRemaining.coerceAtLeast(1),
         )
+        TimerStateStore.restoreSessionGeneration(context, previousGeneration)
         FocusModeController.reconcile(context, previous)
         scheduleNext(context, previous)
       } else {
@@ -417,29 +423,33 @@ object TimerScheduler {
       return
     }
     playV2Haptics(context, config, event)
+    val selectedSound = if (event.winner.soundEnabled) selectedCueSound(context, event) else null
     if (event.completesRun) completeSession(context) else scheduleNext(context, config)
     emitV2Event(event, suppressed = false, reason = "none")
-    if (!event.winner.soundEnabled) {
+    if (selectedSound == null) {
       onFinished()
       return
     }
-    val soundId = selectedCueSound(context, event)
-    playCue(
+    val accepted = playCue(
       context,
       config,
       TimerEventType.V2,
-      soundId,
-      resourceForV2Sound(soundId),
+      selectedSound.soundId,
+      resourceForV2Sound(selectedSound.soundId),
       (config.volume * event.winner.volume).coerceIn(0f, 1f),
       onFinished,
+      event.completesRun,
     )
+    if (accepted && !event.completesRun) TimerStateStore.commitCueSoundIndex(context, event.winner.cueId, selectedSound.index)
   }
 
-  private fun selectedCueSound(context: Context, event: TimerV2Event): String {
+  private data class SelectedCueSound(val soundId: String, val index: Int)
+
+  private fun selectedCueSound(context: Context, event: TimerV2Event): SelectedCueSound {
     val winner = event.winner
     val choices = winner.soundIds.ifEmpty { listOf(winner.soundId) }
-    val index = TimerStateStore.nextCueSoundIndex(context, winner.cueId, choices.size, winner.soundMode)
-    return choices[index.coerceIn(0, choices.lastIndex)]
+    val index = TimerStateStore.peekCueSoundIndex(context, winner.cueId, choices.size, winner.soundMode).coerceIn(0, choices.lastIndex)
+    return SelectedCueSound(choices[index], index)
   }
 
   private fun playV2Haptics(context: Context, config: TimerConfig, event: TimerV2Event) {
@@ -456,7 +466,8 @@ object TimerScheduler {
     fallbackResId: Int,
     volume: Float,
     onReceiverFinished: () -> Unit,
-  ) {
+    completion: Boolean = false,
+  ): Boolean {
     val handedOff = ChandasCueService.play(
       context,
       soundId,
@@ -464,9 +475,11 @@ object TimerScheduler {
       volume,
       type,
       config.notificationPresentation,
+      completion,
     )
     if (handedOff) onReceiverFinished()
     else TimerSoundPlayer.play(context, soundId, fallbackResId, volume, onReceiverFinished)
+    return true
   }
 
   private fun launchAlarmOrFallback(

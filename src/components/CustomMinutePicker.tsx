@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useTheme } from '../theme/ThemeContext'
 import { BottomSheet } from './timer-v2/BottomSheet'
+import { formatDurationDraft, parseDurationDigits } from '../lib/time-inputs'
 
 interface Props {
   title: string
@@ -18,53 +19,60 @@ interface Props {
 }
 
 /** Elapsed-duration editor. Deliberately not a clock picker: durations may exceed 24 hours. */
-export function CustomMinutePicker({ title, initial, initialSeconds, secondPrecision = false, min = 1, max = 59, minSeconds = 1, maxSeconds = max * 60, onConfirm, onConfirmSeconds, onClose }: Props) {
+export function CustomMinutePicker({ title, initial, initialSeconds, secondPrecision = false, min = 1, max = 59, minSeconds = min * 60, maxSeconds = max * 60, onConfirm, onConfirmSeconds, onClose }: Props) {
   const { tokens } = useTheme()
   const exact = initialSeconds ?? initial * 60
-  const [hours, setHours] = useState(String(Math.floor(exact / 3_600)))
-  const [minutes, setMinutes] = useState(String(Math.floor(exact % 3_600 / 60)))
-  const [seconds, setSeconds] = useState(String(exact % 60))
+  const [digits, setDigits] = useState(durationDigits(exact, secondPrecision))
+  const [error, setError] = useState<string | null>(null)
+  const confirmingRef = useRef(false)
 
   const handleConfirm = () => {
-    const parsedHours = Number.parseInt(hours, 10)
-    const parsedMinutes = Number.parseInt(minutes, 10)
-    const parsedSeconds = Number.parseInt(seconds, 10)
-    const totalSeconds = (Number.isFinite(parsedHours) ? parsedHours : 0) * 3_600
-      + (Number.isFinite(parsedMinutes) ? parsedMinutes : 0) * 60
-      + (secondPrecision && Number.isFinite(parsedSeconds) ? parsedSeconds : 0)
+    if (confirmingRef.current) return
+    const parsedSeconds = parseDurationDigits(digits, secondPrecision)
+    const totalSeconds = parsedSeconds === null ? null : parsedSeconds + (!secondPrecision && onConfirmSeconds ? exact % 60 : 0)
+    if (totalSeconds === null || totalSeconds < minSeconds || totalSeconds > maxSeconds) {
+      setError(`Choose a duration between ${formatDuration(minSeconds)} and ${formatDuration(maxSeconds)}.`)
+      return
+    }
+    confirmingRef.current = true
     if (secondPrecision && onConfirmSeconds) {
-      onConfirmSeconds(Math.max(minSeconds, Math.min(maxSeconds, totalSeconds || exact)))
+      onConfirmSeconds(totalSeconds)
       return
     }
     const totalMinutes = Math.floor(totalSeconds / 60)
-    onConfirm(Math.max(min, Math.min(max, totalMinutes || initial)))
+    onConfirm(Math.max(min, Math.min(max, totalMinutes)))
   }
 
-  return <BottomSheet visible title={title} help={`Enter the elapsed time in ${secondPrecision ? 'hours, minutes, and seconds' : 'hours and minutes'}. This is a duration, not a time of day.`} onClose={onClose} scroll={false}>
-    <View style={styles.fields}>
-      <DurationField label="Hours" value={hours} onChange={setHours} maxLength={3} />
-      <Text style={[styles.colon, { color: tokens.textMuted }]}>:</Text>
-      <DurationField label="Minutes" value={minutes} onChange={value => setMinutes(value ? String(Math.min(59, Number(value))) : '')} maxLength={2} />
-      {secondPrecision ? <><Text style={[styles.colon, { color: tokens.textMuted }]}>:</Text><DurationField label="Seconds" value={seconds} onChange={value => setSeconds(value ? String(Math.min(59, Number(value))) : '')} maxLength={2} /></> : null}
+  return <BottomSheet visible title={title} help={`Type the duration from right to left${secondPrecision ? ': seconds, then minutes, then hours' : ': minutes, then hours'}.`} onClose={onClose} scroll={false}>
+    <View style={styles.fieldWrap}>
+      <TextInput autoFocus value={formatDurationDraft(digits, secondPrecision)} onChangeText={text => { setError(null); setDigits(text.replace(/\D/g, '').replace(/^0+(?=\d)/, '').slice(0, 7)) }} keyboardType="number-pad" selectTextOnFocus maxLength={9} returnKeyType="done" onSubmitEditing={handleConfirm} style={[styles.input, { backgroundColor: tokens.surfaceHi, borderColor: error ? tokens.warm : tokens.border, color: tokens.text }]} accessibilityLabel={secondPrecision ? 'Duration in hours minutes and seconds' : 'Duration in hours and minutes'} />
+      <Text style={[styles.label, { color: tokens.textMuted }]}>{secondPrecision ? 'HOURS : MINUTES : SECONDS' : 'HOURS : MINUTES'}</Text>
     </View>
-    <Pressable onPress={handleConfirm} accessibilityRole="button" accessibilityLabel={`Set ${title}`} style={({ pressed }) => [styles.confirm, { backgroundColor: tokens.accent, opacity: pressed ? 0.76 : 1 }]}><Text style={styles.confirmLabel}>Set duration</Text></Pressable>
+    {error ? <Text accessibilityRole="alert" style={[styles.error, { color: tokens.warm }]}>{error}</Text> : null}
+    <Pressable onPressIn={handleConfirm} onPress={handleConfirm} accessibilityRole="button" accessibilityLabel={`Set ${title}`} style={({ pressed }) => [styles.confirm, { backgroundColor: tokens.accent, opacity: pressed ? 0.76 : 1 }]}><Text style={styles.confirmLabel}>Set duration</Text></Pressable>
   </BottomSheet>
 }
 
-function DurationField({ label, value, onChange, maxLength }: { label: string; value: string; onChange: (value: string) => void; maxLength: number }) {
-  const { tokens } = useTheme()
-  return <View style={styles.fieldWrap}>
-    <TextInput autoFocus={label === 'Hours'} value={value} onChangeText={text => onChange(text.replace(/\D/g, '').slice(0, maxLength))} keyboardType="number-pad" selectTextOnFocus maxLength={maxLength} style={[styles.input, { backgroundColor: tokens.surfaceHi, borderColor: tokens.border, color: tokens.text }]} accessibilityLabel={label} />
-    <Text style={[styles.label, { color: tokens.textMuted }]}>{label.toUpperCase()}</Text>
-  </View>
+function durationDigits(seconds: number, secondPrecision: boolean): string {
+  const hours = Math.floor(seconds / 3_600)
+  const minutes = Math.floor(seconds % 3_600 / 60)
+  const remainder = Math.floor(seconds % 60)
+  if (secondPrecision) return `${hours || ''}${hours ? String(minutes).padStart(2, '0') : minutes || ''}${hours || minutes ? String(remainder).padStart(2, '0') : remainder || 0}`
+  return `${hours || ''}${hours ? String(minutes).padStart(2, '0') : minutes || 0}`
+}
+
+function formatDuration(seconds: number): string {
+  const hours = Math.floor(seconds / 3_600)
+  const minutes = Math.floor(seconds % 3_600 / 60)
+  const remainder = seconds % 60
+  return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}` : `${minutes}:${String(remainder).padStart(2, '0')}`
 }
 
 const styles = StyleSheet.create({
-  fields: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'center', gap: 9, paddingVertical: 4 },
-  fieldWrap: { alignItems: 'center', gap: 6 },
-  input: { width: 86, minHeight: 52, borderWidth: 1.5, borderRadius: 12, fontFamily: 'JetBrainsMono-Regular', fontSize: 24, paddingHorizontal: 8, textAlign: 'center', fontVariant: ['tabular-nums'] },
+  fieldWrap: { alignItems: 'center', gap: 7, paddingVertical: 4 },
+  input: { width: '100%', minHeight: 66, borderWidth: 1.5, borderRadius: 14, fontFamily: 'JetBrainsMono-Regular', fontSize: 30, paddingHorizontal: 14, textAlign: 'center', fontVariant: ['tabular-nums'] },
   label: { fontSize: 9, fontWeight: '700', letterSpacing: 1 },
-  colon: { fontFamily: 'JetBrainsMono-Regular', fontSize: 24, paddingTop: 10 },
+  error: { fontSize: 12, lineHeight: 17, textAlign: 'center' },
   confirm: { minHeight: 48, borderRadius: 99, alignItems: 'center', justifyContent: 'center' },
   confirmLabel: { color: '#fff', fontSize: 14, fontWeight: '700' },
 })

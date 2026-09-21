@@ -115,8 +115,8 @@ object TimerStateStore {
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().commit()
   }
 
-  /** Advances only after a cue passes every delivery gate. Scoped to its run. */
-  fun nextCueSoundIndex(context: Context, cueId: String, size: Int, mode: String): Int {
+  /** Chooses without advancing; callers commit only after playback is accepted. */
+  fun peekCueSoundIndex(context: Context, cueId: String, size: Int, mode: String): Int {
     if (size <= 1) return 0
     val generation = ensureSessionGeneration(context)
     val key = "$CUE_SOUND_CURSOR_PREFIX$generation:$cueId"
@@ -128,8 +128,13 @@ object TimerStateStore {
       if (candidate == previous) candidate = (candidate + 1 + kotlin.random.Random.nextInt(size - 1)) % size
       candidate
     } else Math.floorMod(previous + 1, size)
-    prefs.edit().putInt(key, next).commit()
     return next
+  }
+
+  fun commitCueSoundIndex(context: Context, cueId: String, index: Int) {
+    val generation = ensureSessionGeneration(context)
+    val key = "$CUE_SOUND_CURSOR_PREFIX$generation:$cueId"
+    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putInt(key, index).commit()
   }
 
   fun beginSession(context: Context): String {
@@ -143,6 +148,15 @@ object TimerStateStore {
   fun ensureSessionGeneration(context: Context): String {
     val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     return prefs.getString(SESSION_GENERATION, null) ?: beginSession(context)
+  }
+
+  fun currentSessionGeneration(context: Context): String? =
+    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(SESSION_GENERATION, null)
+
+  fun restoreSessionGeneration(context: Context, generation: String?) {
+    val edit = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+    if (generation == null) edit.remove(SESSION_GENERATION) else edit.putString(SESSION_GENERATION, generation)
+    edit.commit()
   }
 
   fun setRinging(context: Context, ringing: Boolean) {

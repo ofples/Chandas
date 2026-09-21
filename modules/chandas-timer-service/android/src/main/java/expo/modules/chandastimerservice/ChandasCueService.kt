@@ -20,6 +20,7 @@ class ChandasCueService : Service() {
     private const val EXTRA_VOLUME = "volume"
     private const val EXTRA_EVENT_TYPE = "eventType"
     private const val EXTRA_PRESENTATION = "notificationPresentation"
+    private const val EXTRA_COMPLETION = "completion"
 
     fun play(
       context: Context,
@@ -28,6 +29,7 @@ class ChandasCueService : Service() {
       volume: Float,
       type: TimerEventType,
       notificationPresentation: String?,
+      completion: Boolean = false,
     ): Boolean = runCatching {
       ContextCompat.startForegroundService(
         context,
@@ -38,6 +40,7 @@ class ChandasCueService : Service() {
           putExtra(EXTRA_VOLUME, volume)
           putExtra(EXTRA_EVENT_TYPE, type.value)
           putExtra(EXTRA_PRESENTATION, notificationPresentation)
+          putExtra(EXTRA_COMPLETION, completion)
         },
       )
       true
@@ -78,6 +81,7 @@ class ChandasCueService : Service() {
       intent.getStringExtra(EXTRA_PRESENTATION),
       type,
       playbackOngoing = true,
+      completion = intent.getBooleanExtra(EXTRA_COMPLETION, false),
     )
     val promoted = runCatching {
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

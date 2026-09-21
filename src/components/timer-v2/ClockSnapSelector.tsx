@@ -11,10 +11,11 @@ export function ClockSnapSelector({ cycleDurationSeconds, value, onChange, compa
   const [customOpen, setCustomOpen] = useState(false)
   const presets = clockSnapPresets(cycleDurationSeconds)
   const isPreset = value !== null && presets.includes(value)
+  const selectedIndex = value === null ? undefined : presets.indexOf(value)
   const maxOffset = clockMinutePhaseCount(cycleDurationSeconds) - 1
   return <View style={styles.row}>
     <View style={styles.scrollSlot}>
-      <FadedHorizontalScrollView fadeColor={fadeColor ?? tokens.surface} contentContainerStyle={styles.presets} style={styles.scroller}>
+      <FadedHorizontalScrollView fadeColor={fadeColor ?? tokens.surface} selectedIndex={selectedIndex !== undefined && selectedIndex >= 0 ? selectedIndex : undefined} itemCount={presets.length} selectionKey={value} contentContainerStyle={styles.presets} style={styles.scroller}>
         {presets.map(offset => <Chip key={offset} label={clockOffsetLabel(offset)} compact={compact} active={value === offset} disabled={disabled} onPress={() => onChange(offset)} />)}
       </FadedHorizontalScrollView>
     </View>

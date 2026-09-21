@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
-import Animated, { FadeInDown, FadeOut, LinearTransition, useReducedMotion } from 'react-native-reanimated'
+import Animated, { FadeIn, LinearTransition, useReducedMotion } from 'react-native-reanimated'
 import type { HapticProfile, TimerHapticsSettings } from '../../types'
 import { HAPTIC_PATTERNS, HAPTIC_STRENGTHS, hapticProfileSummary } from '../../lib/haptic-profiles'
 import { previewHapticProfile, tapHaptic } from '../../lib/haptics'
@@ -8,6 +8,7 @@ import { useTheme } from '../../theme/ThemeContext'
 import { BottomSheet } from './BottomSheet'
 import { SegmentedControl } from './SegmentedControl'
 import { GentleNotice } from './experience-feedback'
+import { Toggle } from '../Toggle'
 
 type ProfileKey = 'main' | 'subBell' | 'alarm'
 
@@ -26,11 +27,14 @@ const ROWS: readonly { key: ProfileKey; title: string; detail: string }[] = [
 
 export function HapticsSheet({ visible, value, onChange, onClose }: Props) {
   const { tokens } = useTheme()
+  const reducedMotion = useReducedMotion()
   const [expanded, setExpanded] = useState<ProfileKey | null>(null)
   const [previewFailed, setPreviewFailed] = useState(false)
 
   const patchProfile = (key: ProfileKey, patch: Partial<HapticProfile>) => {
-    onChange({ ...value, [key]: { ...value[key], ...patch } })
+    const profile = { ...value[key], ...patch }
+    onChange({ ...value, [key]: profile })
+    void preview(profile)
   }
 
   const preview = async (profile: HapticProfile) => {
@@ -40,6 +44,11 @@ export function HapticsSheet({ visible, value, onChange, onClose }: Props) {
 
   return <BottomSheet visible={visible} title="Haptics" help="Choose a vibration pattern and strength for each kind of cue. Turning Haptics off also silences taps and interface feedback." onClose={onClose}>
     <View style={styles.list}>
+      <View style={styles.masterRow}>
+        <View style={styles.rowCopy}><Text style={[styles.title, { color: tokens.text }]}>Use haptics</Text><Text style={[styles.summary, { color: tokens.textMuted }]}>Vibration for timer cues, alarms, and app feedback</Text></View>
+        <Toggle value={value.enabled} onChange={enabled => onChange({ ...value, enabled })} accessibilityLabel="Use haptics" />
+      </View>
+      <View style={[styles.divider, { backgroundColor: tokens.border }]} />
       {ROWS.map((row, index) => {
         const profile = value[row.key]
         const open = expanded === row.key
@@ -58,11 +67,11 @@ export function HapticsSheet({ visible, value, onChange, onClose }: Props) {
             </Pressable>
             <PreviewButton onPress={() => void preview(profile)} label={`Preview ${row.title} haptic`} />
           </View>
-          {open ? <Animated.View entering={FadeInDown.duration(160)} exiting={FadeOut.duration(100)} style={styles.editor}>
-            <Text style={[styles.controlLabel, { color: tokens.text }]}>Pattern</Text>
-            <SegmentedControl items={HAPTIC_PATTERNS} value={profile.pattern} onChange={pattern => patchProfile(row.key, { pattern })} accessibilityLabel={`${row.title} haptic pattern`} />
+          {open ? <Animated.View entering={FadeIn.duration(reducedMotion ? 70 : 130)} style={styles.editor}>
+            <Text style={[styles.controlLabel, { color: tokens.text }]}>Pattern · tap to preview</Text>
+            <SegmentedControl items={HAPTIC_PATTERNS} value={profile.pattern} onChange={pattern => patchProfile(row.key, { pattern })} accessibilityLabel={`${row.title} haptic pattern`} feedback={false} />
             <Text style={[styles.controlLabel, { color: tokens.text }]}>Strength</Text>
-            <SegmentedControl items={HAPTIC_STRENGTHS} value={profile.strength} onChange={strength => patchProfile(row.key, { strength })} accessibilityLabel={`${row.title} haptic strength`} />
+            <SegmentedControl items={HAPTIC_STRENGTHS} value={profile.strength} onChange={strength => patchProfile(row.key, { strength })} accessibilityLabel={`${row.title} haptic strength`} feedback={false} />
             {row.key === 'alarm' ? <Text style={[styles.note, { color: tokens.textMuted }]}>The selected group repeats with a calm pause until the alarm is dismissed. Preview plays it once.</Text> : null}
           </Animated.View> : null}
         </Animated.View>
@@ -86,6 +95,7 @@ function PreviewButton({ onPress, label }: { onPress: () => void; label: string 
 
 const styles = StyleSheet.create({
   list: { gap: 0 },
+  masterRow: { minHeight: 66, flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 },
   divider: { height: 1 },
   row: { minHeight: 66, flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 },
   rowCopy: { flex: 1, minWidth: 0, minHeight: 50, justifyContent: 'center', gap: 3 },

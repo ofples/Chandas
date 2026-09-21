@@ -1,29 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
 import { useTheme } from '../../theme/ThemeContext'
+import { formatClockDraft, formatClockTime, parseClockDraft } from '../../lib/time-inputs'
 
-export function formatClockTime(minutes: number): string {
-  const value = ((Math.round(minutes) % 1_440) + 1_440) % 1_440
-  return `${String(Math.floor(value / 60)).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`
-}
-
-/** Right-filled clock entry: 2, 22, 2:20, 22:00. */
-export function formatClockDraft(value: string): string {
-  const digits = value.replace(/\D/g, '').slice(0, 4)
-  if (digits.length <= 2) return digits
-  return digits.length === 3 ? `${digits[0]}:${digits.slice(1)}` : `${digits.slice(0, 2)}:${digits.slice(2)}`
-}
-
-export function parseClockDraft(value: string): number | null {
-  const digits = value.replace(/\D/g, '')
-  if (digits.length === 0 || digits.length > 4) return null
-  // One/two digits are a right-filled minute draft, matching the live entry
-  // sequence while avoiding surprising conversion to an hour.
-  if (digits.length <= 2) return Number(digits) <= 59 ? Number(digits) : null
-  const hours = Number(digits.slice(0, -2))
-  const minutes = Number(digits.slice(-2))
-  return hours <= 23 && minutes <= 59 ? hours * 60 + minutes : null
-}
+export { formatClockDraft, formatClockTime, parseClockDraft } from '../../lib/time-inputs'
 
 interface Props {
   value: number
@@ -46,10 +26,24 @@ export function ClockTimeInput({ value, onChange, accessibilityLabel, autoFocus,
     if (parsed === null) { setDraft(formatClockTime(lastValid.current)); setError('Enter a valid 24-hour time.') }
     else { setError(null); lastValid.current = parsed; onChange(parsed); setDraft(formatClockTime(parsed)) }
   }
+  const changeDraft = (text: string) => {
+    const next = formatClockDraft(text)
+    const parsed = parseClockDraft(next)
+    if (next.replace(/\D/g, '').length >= 3 && parsed === null) {
+      setError('Enter a valid 24-hour time.')
+      return
+    }
+    setError(null)
+    setDraft(next)
+    if (parsed !== null) {
+      lastValid.current = parsed
+      onChange(parsed)
+    }
+  }
   return <View style={styles.wrap}><TextInput
     value={focused ? draft : formatClockTime(value)}
     onFocus={() => { setError(null); setFocused(true); setDraft(formatClockDraft(formatClockTime(value))) }}
-    onChangeText={text => { setError(null); setDraft(formatClockDraft(text)) }}
+    onChangeText={changeDraft}
     onBlur={commit}
     onSubmitEditing={commit}
     selectTextOnFocus

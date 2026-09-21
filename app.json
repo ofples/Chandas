@@ -59,6 +59,7 @@
         }
       ],
       "./modules/chandas-timer-service/app.plugin.js",
+      "./plugins/with-development-identity.js",
       "expo-asset",
       [
         "expo-splash-screen",
@@ -70,7 +71,8 @@
             "backgroundColor": "#0b0c10"
           }
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "owner": "ofples",
     "runtimeVersion": {

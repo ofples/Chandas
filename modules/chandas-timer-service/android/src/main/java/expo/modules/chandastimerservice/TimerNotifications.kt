@@ -133,10 +133,11 @@ object TimerNotifications {
       Intent(context, TimerEventReceiver::class.java).setAction(TimerEventReceiver.ACTION_STOP),
       PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
+    val expandedContent = if (config.timerV2EndsAt > now && event?.completesRun != true) "$content\n${copy.sessionEnds(formatTime(config.timerV2EndsAt))}" else content
     val builder = NotificationCompat.Builder(context, RUNNING_CHANNEL)
         .setContentTitle(title)
         .setContentText(content)
-        .setStyle(NotificationCompat.BigTextStyle().setBigContentTitle(title).bigText(content))
+        .setStyle(NotificationCompat.BigTextStyle().setBigContentTitle(title).bigText(expandedContent))
         .setSmallIcon(smallIcon())
         .setOngoing(true)
         .setOnlyAlertOnce(true)
@@ -182,6 +183,7 @@ object TimerNotifications {
     notificationPresentation: String?,
     type: TimerEventType,
     playbackOngoing: Boolean = false,
+    completion: Boolean = false,
   ): Notification {
     val copy = TimerNotificationCopy.from(notificationPresentation)
     val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
@@ -193,10 +195,11 @@ object TimerNotifications {
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
       )
     }
-    val title = if (type == TimerEventType.MAIN) copy.mainEventTitle else if (type == TimerEventType.V2) copy.cueEventTitle else copy.bellEventTitle
+    val title = if (completion) copy.completionEventTitle else if (type == TimerEventType.MAIN) copy.mainEventTitle else if (type == TimerEventType.V2) copy.cueEventTitle else copy.bellEventTitle
+    val body = if (completion) copy.completionEventBody else copy.eventBody
     val builder = NotificationCompat.Builder(context, EVENT_CHANNEL)
       .setContentTitle(title)
-      .setContentText(copy.eventBody)
+      .setContentText(body)
       .setSmallIcon(smallIcon())
       .setContentIntent(contentIntent)
       .setPriority(NotificationCompat.PRIORITY_DEFAULT)
@@ -235,13 +238,13 @@ internal object TimerCountdownText {
     val hasFinalPair = !currentIsFinal && finalAt > currentAt && finalAt > now
     val current = formatCurrent(currentRemaining, compactMinutes = hasFinalPair)
     if (!hasFinalPair) return current
-    return "$current·${ceilUnits(finalAt - now, MINUTE_MS)}m"
+    return "$current·${formatFinal(finalAt - now)}"
   }
 
   /** Bounded runs prioritize both deadlines; continuous runs use interval identity. */
   fun forProgram(identity: String, sequence: Boolean = false, currentAt: Long, finalAt: Long, currentIsFinal: Boolean, now: Long): String? =
-    if (finalAt > 0L) compact(currentAt, finalAt, currentIsFinal, now)
-    else if (sequence) sequenceCompactStatus(identity, currentAt, now)
+    if (sequence) sequenceCompactStatus(identity, currentAt, now)
+    else if (finalAt > 0L) compact(currentAt, finalAt, currentIsFinal, now)
     else formatStatusCountdown(currentAt - now)
 
   /**
@@ -259,11 +262,11 @@ internal object TimerCountdownText {
     return if (prefix.isEmpty()) countdown else "$prefix·$countdown"
   }
 
-  /** Put the countdown first so the essential live value survives chip truncation. */
+  /** Keep the current step visible; Android may shorten the trailing countdown on narrow chips. */
   private fun sequenceCompactStatus(identity: String, currentAt: Long, now: Long): String? {
     val countdown = formatStatusCountdown(currentAt - now)
     if (countdown.isBlank() || identity.isBlank()) return countdown.take(MAX_STATUS_CHIP_CHARACTERS)
-    return "$countdown·${identity.take(4)}".take(MAX_STATUS_CHIP_CHARACTERS)
+    return "$countdown·${identity.takeCodePoints(4)}"
   }
 
   private fun formatCurrent(remainingMs: Long, compactMinutes: Boolean): String {
@@ -288,6 +291,11 @@ internal object TimerCountdownText {
       return "${totalSeconds / 60L}:${(totalSeconds % 60L).twoDigits()}"
     }
     return "${ceilUnits(remainingMs, MINUTE_MS)}m"
+  }
+
+  private fun formatFinal(remainingMs: Long): String {
+    val seconds = ceilUnits(remainingMs, SECOND_MS)
+    return if (seconds < 60L) "${seconds}s" else "${ceilUnits(remainingMs, MINUTE_MS)}m"
   }
 
   private fun ceilUnits(value: Long, unit: Long): Long = ((value - 1L) / unit) + 1L

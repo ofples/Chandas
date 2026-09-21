@@ -1,14 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import type { ProgramPreset } from '../../types'
 import { configurationTransferFilename, MAX_CONFIGURATION_TRANSFER_CHARACTERS, parseConfigurationTransfer, serializeConfiguration } from '../configuration-transfer'
-import { defaultPatternProgram, patternDurationSeconds, trackCadenceSeconds } from '../timerV2'
+import { defaultPatternProgram, defaultAppTimerSettings, patternDurationSeconds, trackCadenceSeconds } from '../timerV2'
 
 function preset(): ProgramPreset {
   const program = defaultPatternProgram()
   program.mainDurationSeconds = 95
   program.mainMinutes = 2
   program.tracks[0] = { ...program.tracks[0], cadenceMinutes: 1, cadenceSeconds: 15, selectedOffsetsMinutes: [], selectedOffsetsSeconds: [15, 30, 45, 60, 75, 90], showOnWatchFace: false, enabled: true }
-  return { id: 'local-only', name: 'Physio / morning', createdAt: 123, program }
+  const settings = defaultAppTimerSettings()
+  settings.advancedModeEnabled = true
+  settings.availability.enabled = true
+  return { id: 'local-only', name: 'Physio / morning', createdAt: 123, program, settings }
 }
 
 describe('configuration transfer', () => {
@@ -22,6 +25,8 @@ describe('configuration transfer', () => {
     expect(imported.preset.name).toBe('Physio / morning')
     expect(patternDurationSeconds(imported.preset.program.mode === 'pattern' ? imported.preset.program : defaultPatternProgram())).toBe(95)
     expect(imported.preset.program.mode).toBe('pattern')
+    expect(imported.preset.settings?.advancedModeEnabled).toBe(true)
+    expect(imported.preset.settings?.availability.enabled).toBe(true)
     if (imported.preset.program.mode === 'pattern') {
       expect(trackCadenceSeconds(imported.preset.program.tracks[0])).toBe(15)
       expect(imported.preset.program.tracks[0].showOnWatchFace).toBe(false)
@@ -31,6 +36,14 @@ describe('configuration transfer', () => {
   it('gives duplicate imported names a clear suffix', () => {
     const imported = parseConfigurationTransfer(serializeConfiguration(preset()), ['physio / MORNING'], 789)
     expect(imported.ok && imported.preset.name).toBe('Physio / morning (2)')
+  })
+
+  it('reports a device-specific alarm sound stored in configuration settings', () => {
+    const value = preset()
+    if (!value.settings) throw new Error('settings fixture missing')
+    value.settings.alarmSound = { kind: 'document', uri: 'content://alarm', title: 'My alarm' }
+    const imported = parseConfigurationTransfer(serializeConfiguration(value))
+    expect(imported.ok && imported.hasDeviceSpecificSounds).toBe(true)
   })
 
   it('rejects empty, oversized, malformed, and future-version payloads', () => {
