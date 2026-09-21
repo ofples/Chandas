@@ -1,0 +1,396 @@
+package expo.modules.chandastimerservice
+
+import android.app.AlarmManager
+import android.app.AutomaticZenRule
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
+import android.service.notification.Condition
+import android.service.notification.ZenPolicy
+
+/** Owns only the Chandas automatic rule. Querying never changes Android state. */
+object FocusModeController {
+  private const val PREFS = "chandas-focus-mode"
+  private const val RULE_ID = "ruleId"
+  private const val AUTOMATION_ENABLED = "automationEnabled"
+  private const val REQUESTED_ACTIVE = "requestedActive"
+  private const val PAUSED_BY_ANDROID = "pausedByAndroid"
+  private const val RULE_WAS_REMOVED = "ruleWasRemoved"
+  private const val FOCUS_END_REQUEST = 8401
+
+  fun conditionId(context: Context): Uri = Uri.Builder()
+    .scheme(Condition.SCHEME)
+    .authority(context.packageName)
+    .appendPath("focus-session")
+    .build()
+
+  fun matchesCondition(context: Context, value: Uri): Boolean = value == conditionId(context)
+
+  fun hasPolicyAccess(context: Context): Boolean {
+    val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    return manager.isNotificationPolicyAccessGranted
+  }
+
+  fun openPolicySettings(context: Context) {
+    runCatching {
+      context.startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS).apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      })
+    }
+  }
+
+  /**
+   * Opens the narrowest Android surface available for the rule Chandas owns.
+   * Android 15 can make automatic rules fully user-managed; in that mode the
+   * platform explicitly asks apps to defer enable/disable and policy editing to
+   * this settings surface. Older releases fall back to the system DND screen.
+   */
+  fun openOwnedRuleSettings(context: Context) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+      val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+      val id = storedRuleId(context)
+      val userManaged = runCatching { manager.areAutomaticZenRulesUserManaged() }.getOrDefault(false)
+      if (id != null && userManaged) {
+        val opened = runCatching {
+          context.startActivity(Intent(Settings.ACTION_AUTOMATIC_ZEN_RULE_SETTINGS).apply {
+            putExtra(Settings.EXTRA_AUTOMATIC_ZEN_RULE_ID, id)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+          })
+          true
+        }.getOrDefault(false)
+        if (opened) return
+      }
+    }
+
+    val openedDnd = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      runCatching {
+        context.startActivity(Intent(Settings.ACTION_ZEN_MODE_PRIORITY_SETTINGS).apply {
+          addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        })
+        true
+      }.getOrDefault(false)
+    } else false
+    if (!openedDnd) openPolicySettings(context)
+  }
+
+  /** Read-only foreground/startup refresh. */
+  fun query(context: Context): NativeFocusState = queryInternal(context).also(FocusStateRegistry::notify)
+
+  /** Applies a real timer, active-hours, or preference transition. */
+  fun reconcile(context: Context, config: TimerConfig? = TimerStateStore.load(context), forceApply: Boolean = false) {
+    if (config != null) setAutomationEnabled(context, config.focusModeEnabled)
+    val desired = config != null && automationEnabled(context) && ActiveHours.isActive(config)
+    val previous = requestedActive(context)
+
+    cancelActiveHoursEnd(context)
+    if (desired) config?.let { ActiveHours.currentWindowEnd(it)?.let { end -> scheduleActiveHoursEnd(context, end) } }
+
+    if (desired != previous) {
+      setRequestedActive(context, desired)
+      if (!desired) {
+        setPausedByAndroid(context, false)
+        publishCondition(context, false, createIfMissing = false)
+      } else {
+        // A genuine false -> true transition is the point at which Android's
+        // one-cycle manual snooze may be cleared and requested again.
+        setPausedByAndroid(context, false)
+        publishCondition(context, true, createIfMissing = true)
+      }
+    } else if (desired && forceApply && !pausedByAndroid(context)) {
+      // Policy-access grant is a real external transition. Re-assert only our
+      // condition; routine reads/updates never take this path.
+      publishCondition(context, true, createIfMissing = true)
+    } else if (desired && !pausedByAndroid(context) && hasPolicyAccess(context) && storedRuleId(context) == null && !ruleWasRemoved(context)) {
+      // The timer may have begun before DND access existed. Once access is
+      // available, create the first owned rule without requiring a restart.
+      publishCondition(context, true, createIfMissing = true)
+    }
+    query(context)
+  }
+
+  fun deactivate(context: Context) {
+    val wasRequested = requestedActive(context)
+    setRequestedActive(context, false)
+    setPausedByAndroid(context, false)
+    cancelActiveHoursEnd(context)
+    if (wasRequested) publishCondition(context, false, createIfMissing = false)
+    query(context)
+  }
+
+  fun setAutomationFromApp(context: Context, enabled: Boolean) {
+    if (enabled) {
+      // Clear a stale ID before treating this explicit user action as consent
+      // to create a replacement rule.
+      val id = storedRuleId(context)
+      if (id != null && hasPolicyAccess(context)) {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (runCatching { manager.getAutomaticZenRule(id) }.getOrNull() == null) clearStoredRule(context)
+      }
+      setRuleWasRemoved(context, false)
+      setPausedByAndroid(context, false)
+      enableOwnedRule(context)
+    }
+    setAutomationEnabled(context, enabled)
+    TimerStateStore.load(context)?.let { TimerStateStore.save(context, it.copy(focusModeEnabled = enabled)) }
+    reconcile(context)
+  }
+
+  fun handleRuleStatus(context: Context, ruleId: String?, status: Int) {
+    val ownedId = storedRuleId(context) ?: return
+    if (ruleId != null && ruleId != ownedId) return
+    when (status) {
+      NotificationManager.AUTOMATIC_RULE_STATUS_ACTIVATED -> {
+        setPausedByAndroid(context, false)
+        setAutomationEnabled(context, true)
+        TimerStateStore.load(context)?.let { TimerStateStore.save(context, it.copy(focusModeEnabled = true)) }
+      }
+      NotificationManager.AUTOMATIC_RULE_STATUS_DEACTIVATED -> {
+        // Android 15 defines this status as a user snooze, but some devices can
+        // deliver it after our own false condition. Once Chandas has stopped or
+        // left an active window, that late broadcast must not manufacture a
+        // persistent "Paused by Android" state.
+        setPausedByAndroid(
+          context,
+          shouldTreatDeactivationAsPause(
+            requestedActive = requestedActive(context),
+            automationEnabled = automationEnabled(context),
+            timerRunning = TimerStateStore.load(context) != null,
+          ),
+        )
+      }
+      NotificationManager.AUTOMATIC_RULE_STATUS_DISABLED -> disableAutomationFromAndroid(context)
+      NotificationManager.AUTOMATIC_RULE_STATUS_REMOVED -> {
+        clearStoredRule(context)
+        setRuleWasRemoved(context, true)
+        disableAutomationFromAndroid(context)
+      }
+      NotificationManager.AUTOMATIC_RULE_STATUS_ENABLED -> {
+        setAutomationEnabled(context, true)
+        TimerStateStore.load(context)?.let { TimerStateStore.save(context, it.copy(focusModeEnabled = true)) }
+        reconcile(context)
+        return
+      }
+    }
+    query(context)
+  }
+
+  fun isActive(context: Context): Boolean = queryInternal(context).actual == "active"
+
+  internal fun currentCondition(context: Context): Condition = condition(context, requestedActive(context))
+
+  private fun queryInternal(context: Context): NativeFocusState {
+    val access = hasPolicyAccess(context)
+    var automation = automationEnabled(context)
+    val config = TimerStateStore.load(context)
+    val timerRunning = config != null
+    var requested = requestedActive(context)
+    var paused = pausedByAndroid(context)
+    var removed = ruleWasRemoved(context)
+    val withinActiveHours = config?.let(ActiveHours::isActive) == true
+    if (!access) return NativeFocusState(
+      policyAccess = false,
+      automationEnabled = automation,
+      ruleExists = false,
+      ruleEnabled = false,
+      actual = "unknown",
+      reason = if (automation) "access-required" else "off",
+      timerRunning = timerRunning,
+      requestedActive = requested,
+      pausedByAndroid = paused,
+      ruleWasRemoved = removed,
+      withinActiveHours = withinActiveHours,
+    )
+
+    val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    val id = storedRuleId(context)
+    val rule = id?.let { runCatching { manager.getAutomaticZenRule(it) }.getOrNull() }
+    if (id != null && rule == null) {
+      clearStoredRule(context)
+      setRuleWasRemoved(context, true)
+      disableAutomationFromAndroid(context)
+      automation = false
+    } else if (rule != null && !rule.isEnabled && automation) {
+      // Status broadcasts are not guaranteed to reach a process that was not
+      // alive. Foreground querying repairs the app-side preference without
+      // changing Android's rule or publishing a condition.
+      disableAutomationFromAndroid(context)
+      automation = false
+    }
+    // A missing/disabled rule can repair persisted state above. Report the
+    // repaired facts rather than the snapshot captured before that repair.
+    requested = requestedActive(context)
+    paused = pausedByAndroid(context)
+    removed = ruleWasRemoved(context)
+    val exists = rule != null
+    val enabled = rule?.isEnabled == true
+    val actual = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM && id != null && enabled) {
+      when (runCatching { manager.getAutomaticZenRuleState(id) }.getOrNull()) {
+        Condition.STATE_TRUE -> "active"
+        Condition.STATE_FALSE -> "inactive"
+        else -> "unknown"
+      }
+    } else if (!enabled) {
+      "inactive"
+    } else {
+      // Older releases do not expose the actual state of an owned rule.
+      "unknown"
+    }
+
+    val reason = when {
+      removed -> "rule-disabled"
+      exists && !enabled -> "rule-disabled"
+      !automation -> "off"
+      !timerRunning -> "timer-stopped"
+      paused && requested -> "paused-by-android"
+      actual == "active" -> "active"
+      !withinActiveHours -> "outside-active-hours"
+      !exists -> "unknown"
+      else -> "unknown"
+    }
+    return NativeFocusState(
+      policyAccess = access,
+      automationEnabled = automation,
+      ruleExists = exists,
+      ruleEnabled = enabled,
+      actual = actual,
+      reason = reason,
+      timerRunning = timerRunning,
+      requestedActive = requested,
+      pausedByAndroid = paused,
+      ruleWasRemoved = removed,
+      withinActiveHours = withinActiveHours,
+    )
+  }
+
+  /** Pure policy seam kept independently testable from Android framework state. */
+  internal fun shouldTreatDeactivationAsPause(
+    requestedActive: Boolean,
+    automationEnabled: Boolean,
+    timerRunning: Boolean,
+  ): Boolean = requestedActive && automationEnabled && timerRunning
+
+  private fun disableAutomationFromAndroid(context: Context) {
+    setAutomationEnabled(context, false)
+    setRequestedActive(context, false)
+    TimerStateStore.load(context)?.let { TimerStateStore.save(context, it.copy(focusModeEnabled = false)) }
+  }
+
+  private fun publishCondition(context: Context, active: Boolean, createIfMissing: Boolean) {
+    if (!hasPolicyAccess(context)) return
+    val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    val ruleId = if (createIfMissing) ensureRule(context, manager) else existingRuleId(context, manager)
+    ruleId ?: return
+    val next = condition(context, active)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      runCatching { manager.setAutomaticZenRuleState(ruleId, next) }
+    } else {
+      FocusConditionProviderService.publish(context, next)
+    }
+  }
+
+  private fun ensureRule(context: Context, manager: NotificationManager): String? {
+    existingRuleId(context, manager)?.let { return it }
+    if (ruleWasRemoved(context)) return null
+    val owner = ComponentName(context, FocusConditionProviderService::class.java)
+    return runCatching { manager.addAutomaticZenRule(buildRule(context, owner)) }.getOrNull()?.also { id ->
+      context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(RULE_ID, id).apply()
+    }
+  }
+
+  private fun existingRuleId(context: Context, manager: NotificationManager): String? {
+    val id = storedRuleId(context) ?: return null
+    if (runCatching { manager.getAutomaticZenRule(id) }.getOrNull() != null) return id
+    clearStoredRule(context)
+    return null
+  }
+
+  /** Re-enable only our rule after an explicit in-app On action; preserve all user-edited policy fields. */
+  private fun enableOwnedRule(context: Context) {
+    if (!hasPolicyAccess(context)) return
+    val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    val id = storedRuleId(context) ?: return
+    val rule = runCatching { manager.getAutomaticZenRule(id) }.getOrNull() ?: return
+    if (rule.isEnabled) return
+    rule.isEnabled = true
+    runCatching { manager.updateAutomaticZenRule(id, rule) }
+  }
+
+  @Suppress("DEPRECATION")
+  private fun buildRule(context: Context, owner: ComponentName): AutomaticZenRule {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+      return AutomaticZenRule.Builder("Chandas Focus", conditionId(context))
+        .setOwner(owner)
+        .setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_PRIORITY)
+        .setZenPolicy(focusPolicy())
+        .setType(AutomaticZenRule.TYPE_OTHER)
+        .setEnabled(true)
+        .build()
+    }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      return AutomaticZenRule(
+        "Chandas Focus",
+        owner,
+        null,
+        conditionId(context),
+        focusPolicy(),
+        NotificationManager.INTERRUPTION_FILTER_PRIORITY,
+        true,
+      )
+    }
+    return AutomaticZenRule(
+      "Chandas Focus",
+      owner,
+      conditionId(context),
+      NotificationManager.INTERRUPTION_FILTER_PRIORITY,
+      true,
+    )
+  }
+
+  private fun focusPolicy(): ZenPolicy = ZenPolicy.Builder().allowAlarms(true).build()
+
+  private fun condition(context: Context, active: Boolean): Condition = Condition(
+    conditionId(context),
+    "Chandas Focus",
+    if (active) Condition.STATE_TRUE else Condition.STATE_FALSE,
+  )
+
+  private fun scheduleActiveHoursEnd(context: Context, triggerAt: Long) {
+    if (!TimerScheduler.canScheduleExactAlarms(context)) return
+    val operation = PendingIntent.getBroadcast(
+      context,
+      FOCUS_END_REQUEST,
+      Intent(context, TimerEventReceiver::class.java).setAction(TimerEventReceiver.ACTION_FOCUS_END),
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+    val manager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+    runCatching { manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, operation) }
+  }
+
+  private fun cancelActiveHoursEnd(context: Context) {
+    val operation = PendingIntent.getBroadcast(
+      context,
+      FOCUS_END_REQUEST,
+      Intent(context, TimerEventReceiver::class.java).setAction(TimerEventReceiver.ACTION_FOCUS_END),
+      PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE,
+    ) ?: return
+    val manager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+    manager.cancel(operation)
+    operation.cancel()
+  }
+
+  private fun storedRuleId(context: Context): String? = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(RULE_ID, null)
+  private fun clearStoredRule(context: Context) { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(RULE_ID).apply() }
+  private fun automationEnabled(context: Context): Boolean = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(AUTOMATION_ENABLED, false)
+  private fun setAutomationEnabled(context: Context, value: Boolean) { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(AUTOMATION_ENABLED, value).apply() }
+  private fun requestedActive(context: Context): Boolean = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(REQUESTED_ACTIVE, false)
+  private fun setRequestedActive(context: Context, value: Boolean) { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(REQUESTED_ACTIVE, value).apply() }
+  private fun pausedByAndroid(context: Context): Boolean = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(PAUSED_BY_ANDROID, false)
+  private fun setPausedByAndroid(context: Context, value: Boolean) { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(PAUSED_BY_ANDROID, value).apply() }
+  private fun ruleWasRemoved(context: Context): Boolean = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(RULE_WAS_REMOVED, false)
+  private fun setRuleWasRemoved(context: Context, value: Boolean) { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(RULE_WAS_REMOVED, value).apply() }
+}

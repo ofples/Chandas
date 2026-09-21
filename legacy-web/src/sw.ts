@@ -20,7 +20,7 @@ registerRoute(
   })
 )
 
-const TAG = 'slottimer'
+const TAG = 'chandas'
 
 // Timer state owned by the SW.
 // IMPORTANT: this is module-level and is lost whenever the SW is terminated
@@ -39,7 +39,7 @@ function showCountdown(renotify: boolean): Promise<void> {
   const now      = Date.now()
   const nextMain = nextTick(now, timerMainMs, timerPhase)
   const time     = new Date(nextMain).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-  return self.registration.showNotification('SlotTimer', {
+  return self.registration.showNotification('Chandas', {
     tag:      TAG,
     body:     `Next gong at ${time}`,
     icon:     '/icon-192.png',

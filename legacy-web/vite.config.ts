@@ -18,8 +18,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icon-192.png', 'icon-512.png', 'sounds/*.mp3'],
       manifest: {
-        name: 'SlotTimer',
-        short_name: 'SlotTimer',
+        name: 'Chandas',
+        short_name: 'Chandas',
         description: 'Configurable interval timer with clock-snap',
         theme_color: '#0b0c10',
         background_color: '#0b0c10',

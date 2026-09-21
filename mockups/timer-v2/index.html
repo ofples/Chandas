@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>Chandas Timer v2 — Flow Mockup</title>
+  <link rel="stylesheet" href="styles.css?v=4" />
+</head>
+<body>
+  <header class="prototype-header">
+    <div>
+      <p class="eyebrow">Timer v2 · flow mockup</p>
+      <h1>Chandas</h1>
+    </div>
+    <p class="prototype-note">Static product prototype · no timer, storage, audio, DND, or row-reorder behavior</p>
+  </header>
+
+  <main class="prototype-layout">
+    <nav class="flow-nav" aria-label="Mockup screens">
+      <p class="nav-label">Configure</p>
+      <button class="flow-link active" data-screen-target="pattern-config"><span>01</span> Pattern</button>
+      <button class="flow-link" data-screen-target="track-editor"><span>02</span> Trigger grid</button>
+      <button class="flow-link" data-screen-target="preset-library"><span>03</span> Presets</button>
+      <button class="flow-link" data-screen-target="sequence-editor"><span>04</span> Sequence</button>
+      <button class="flow-link" data-screen-target="mixer"><span>05</span> Mixer</button>
+      <button class="flow-link" data-screen-target="sound-library"><span>06</span> Sounds</button>
+      <p class="nav-label">Run</p>
+      <button class="flow-link" data-screen-target="running-pattern"><span>07</span> Pattern running</button>
+      <button class="flow-link" data-screen-target="running-sequence"><span>08</span> Sequence running</button>
+      <button class="flow-link" data-screen-target="focus-status"><span>09</span> Focus states</button>
+      <button class="flow-link" data-screen-target="help"><span>10</span> Help</button>
+    </nav>
+
+    <section class="device-stage" aria-label="Phone mockup">
+      <div class="ambient-orbit" aria-hidden="true"></div>
+      <div class="phone-shell">
+        <div class="speaker" aria-hidden="true"></div>
+        <div class="phone-screen">
+          <section class="mock-screen active" data-screen="pattern-config" aria-label="Pattern configuration">
+            <div class="screen-scroll has-bottom-action">
+              <header class="app-bar">
+                <div>
+                  <p class="micro-label">Working program</p>
+                  <h2>Morning practice</h2>
+                </div>
+                <button class="icon-button" aria-label="Change theme">☼</button>
+              </header>
+
+              <div class="inline-actions">
+                <button class="text-action" data-go="preset-library">Load</button>
+                <span class="hairline"></span>
+                <button class="text-action" data-open-dialog="save-dialog">Save as</button>
+              </div>
+
+              <div class="mode-switch" role="group" aria-label="Timer mode">
+                <button class="active">Pattern</button>
+                <button data-go="sequence-editor">Sequence</button>
+              </div>
+
+              <section class="config-block">
+                <div class="section-heading">
+                  <div>
+                    <p class="micro-label">Main interval</p>
+                    <p class="large-value">30 <span>min</span></p>
+                  </div>
+                  <button class="round-action" aria-label="Edit main interval">⌁</button>
+                </div>
+                <div class="quick-picks" role="group" aria-label="Quick main interval choices">
+                  <button>10m</button><button>15m</button><button class="active">30m</button><button>Custom</button>
+                </div>
+                <div class="cue-line">
+                  <span class="sound-glyph gong">◉</span>
+                  <div><strong>Temple gong</strong><small>85% · every main boundary</small></div>
+                  <button class="preview-button" aria-label="Preview Temple gong">▶</button>
+                </div>
+              </section>
+
+              <section class="config-block">
+                <div class="section-title-row">
+                  <div><p class="micro-label">Sub-bells</p><p class="section-summary">3 tracks · 7 selected cues</p></div>
+                  <button class="text-action" data-go="track-editor">Edit</button>
+                </div>
+
+                <button class="track-summary" data-go="track-editor">
+                  <span class="drag-dots" aria-hidden="true">⠿</span>
+                  <span class="track-cadence winner">5m</span>
+                  <span class="track-copy"><strong>Soft bowl</strong><small>Priority 1 · 5, 10, 25 min</small></span>
+                  <span class="chevron">›</span>
+                </button>
+                <button class="track-summary" data-go="track-editor">
+                  <span class="drag-dots" aria-hidden="true">⠿</span>
+                  <span class="track-cadence">2m</span>
+                  <span class="track-copy"><strong>Clear bell</strong><small>Priority 2 · 2, 10, 28 min</small></span>
+                  <span class="chevron">›</span>
+                </button>
+                <button class="track-summary muted-row" data-go="track-editor">
+                  <span class="drag-dots" aria-hidden="true">⠿</span>
+                  <span class="track-cadence">10m</span>
+                  <span class="track-copy"><strong>Wood block</strong><small>Off · priority 3 preserved</small></span>
+                  <span class="chevron">›</span>
+                </button>
+              </section>
+
+              <section class="config-block compact">
+                <button class="setting-row" data-go="mixer">
+                  <span>Mix</span><span class="setting-value">Master 80% <b>›</b></span>
+                </button>
+                <div class="inline-setting"><span>Snap to clock</span><label class="mini-toggle"><input type="checkbox" checked /><span></span></label></div>
+                <div class="quick-picks compact-picks" role="group" aria-label="Quick clock snap choices">
+                  <button class="active">:00</button><button>:10</button><button>:15</button><button>Custom</button>
+                </div>
+                <button class="setting-row">
+                  <span>Active hours</span><span class="setting-value">08:00–22:00 <b>›</b></span>
+                </button>
+                <button class="setting-row" data-go="focus-status">
+                  <span>Chandas Focus</span><span class="status-dot active-dot"></span><span class="setting-value">Ready <b>›</b></span>
+                </button>
+              </section>
+            </div>
+            <div class="bottom-action">
+              <button class="primary-button" data-go="running-pattern">Start</button>
+            </div>
+          </section>
+
+          <section class="mock-screen" data-screen="track-editor" aria-label="Pattern trigger grid">
+            <div class="screen-scroll">
+              <header class="route-bar">
+                <button class="back-button" data-go="pattern-config" aria-label="Back">‹</button>
+                <div><p class="micro-label">Pattern track</p><h2>Every 2 minutes</h2></div>
+                <label class="mini-toggle"><input type="checkbox" checked /><span></span></label>
+              </header>
+
+              <div class="timeline-ruler" aria-label="Pattern timeline">
+                <span>0</span><i></i><span>10</span><i></i><span>20</span><i></i><span>30</span>
+              </div>
+
+              <section class="editor-section">
+                <p class="micro-label">Cadence</p>
+                <div class="choice-row">
+                  <button>1m</button><button class="active">2m</button><button>5m</button><button>Custom</button>
+                </div>
+              </section>
+
+              <section class="editor-section">
+                <div class="section-title-row">
+                  <div><p class="micro-label">Trigger points</p><p class="section-summary" id="triggerSummary">3 of 14 selected</p></div>
+                  <div class="tiny-actions"><button data-grid-action="clear">Clear</button><button data-grid-action="select-all">Select all</button></div>
+                </div>
+                <p class="helper-copy">Tap or drag to paint. Soft bowl is above this track, so it sounds at minute 10.</p>
+                <div class="trigger-grid" role="grid" aria-label="Trigger offset selections">
+                  <button class="selected" aria-label="2 minutes selected">02</button>
+                  <button>04</button><button>06</button><button>08</button>
+                  <button class="selected overlap-loser" aria-label="10 minutes selected, priority 1 track wins">10<span>P1</span></button>
+                  <button>12</button><button>14</button><button>16</button><button>18</button><button>20</button>
+                  <button>22</button><button>24</button><button>26</button>
+                  <button class="selected" aria-label="28 minutes selected">28</button>
+                </div>
+                <div class="overlap-key"><i></i><span>Outlined selection is superseded by a higher track</span></div>
+              </section>
+
+              <section class="editor-section">
+                <button class="setting-row" data-go="sound-library"><span>Sound</span><span class="setting-value">Clear bell <b>›</b></span></button>
+                <div class="slider-row"><span>Volume</span><input type="range" min="0" max="100" value="62" /><output>62%</output></div>
+              </section>
+
+              <section class="editor-section track-stack">
+                <p class="micro-label">Overlap priority · higher track wins</p>
+                <div class="mini-track"><span class="drag-dots">⠿</span><b>1 · 5m</b><span>Soft bowl</span><em>Wins ×1</em></div>
+                <div class="mini-track current-track"><span class="drag-dots">⠿</span><b>2 · 2m</b><span>Clear bell</span><em>Editing</em></div>
+                <div class="mini-track"><span class="drag-dots">⠿</span><b>3 · 10m</b><span>Wood block</span><em>Off</em></div>
+              </section>
+            </div>
+          </section>
+
+          <section class="mock-screen" data-screen="preset-library" aria-label="Saved configurations">
+            <div class="screen-scroll">
+              <header class="route-bar">
+                <button class="back-button" data-go="pattern-config" aria-label="Back">‹</button>
+                <div><p class="micro-label">Immutable snapshots</p><h2>Saved configurations</h2></div>
+                <button class="icon-button" data-open-dialog="save-dialog" aria-label="Save current configuration">＋</button>
+              </header>
+
+              <div class="filter-row"><button class="active">All</button><button>Pattern</button><button>Sequence</button></div>
+
+              <p class="library-section-label">Pattern</p>
+              <article class="preset-row selected-preset">
+                <button class="preset-main" data-go="pattern-config">
+                  <span class="preset-mark">P</span>
+                  <span><strong>Morning practice</strong><small>30m main · 3 tracks · saved today, 08:42</small></span>
+                </button>
+                <button class="overflow-button" aria-label="Preset actions">•••</button>
+              </article>
+              <article class="preset-row">
+                <button class="preset-main" data-go="pattern-config">
+                  <span class="preset-mark">P</span>
+                  <span><strong>Morning practice</strong><small>25m main · 2 tracks · Aug 28, 07:16</small></span>
+                </button>
+                <button class="overflow-button" aria-label="Preset actions">•••</button>
+              </article>
+              <article class="preset-row">
+                <button class="preset-main" data-go="pattern-config">
+                  <span class="preset-mark">P</span>
+                  <span><strong>Quiet studio</strong><small>60m main · 1 track · Aug 19, 18:03</small></span>
+                </button>
+                <button class="overflow-button" aria-label="Preset actions">•••</button>
+              </article>
+
+              <p class="library-section-label">Sequence</p>
+              <article class="preset-row">
+                <button class="preset-main" data-go="sequence-editor">
+                  <span class="preset-mark sequence-mark">S</span>
+                  <span><strong>Work cycle</strong><small>5 / 25 / 2 · 32m total · Aug 31, 14:20</small></span>
+                </button>
+                <button class="overflow-button" aria-label="Preset actions">•••</button>
+              </article>
+              <article class="preset-row">
+                <button class="preset-main" data-go="sequence-editor">
+                  <span class="preset-mark sequence-mark">S</span>
+                  <span><strong>Mobility set</strong><small>6 steps · 24m total · Aug 12, 06:55</small></span>
+                </button>
+                <button class="overflow-button" aria-label="Preset actions">•••</button>
+              </article>
+              <p class="library-note">Loading makes an editable working copy. Saved configurations never change.</p>
+            </div>
+          </section>
+
+          <section class="mock-screen" data-screen="sequence-editor" aria-label="Sequence editor">
+            <div class="screen-scroll has-bottom-action">
+              <header class="app-bar">
+                <div><p class="micro-label">Working sequence</p><h2>Work cycle</h2></div>
+                <button class="icon-button" aria-label="Help">?</button>
+              </header>
+              <div class="inline-actions"><button class="text-action" data-go="preset-library">Load</button><span class="hairline"></span><button class="text-action" data-open-dialog="save-dialog">Save as</button></div>
+              <div class="mode-switch"><button data-go="pattern-config">Pattern</button><button class="active">Sequence</button></div>
+
+              <div class="sequence-total"><p class="micro-label">Cycle</p><strong>32:00</strong><span>3 steps · repeats</span></div>
+
+              <section class="sequence-list" aria-label="Sequence steps">
+                <article class="sequence-row">
+                  <button class="drag-handle" aria-label="Drag step 1">⠿</button>
+                  <span class="step-number">01</span>
+                  <div class="step-copy"><strong>Prepare</strong><small>5 min · Bright chime · 60%</small></div>
+                </article>
+                <div class="sequence-rail"></div>
+                <article class="sequence-row lifted">
+                  <button class="drag-handle" aria-label="Drag step 2">⠿</button>
+                  <span class="step-number">02</span>
+                  <div class="step-copy"><strong>Deep work</strong><small>25 min · Temple gong · 85%</small></div>
+                </article>
+                <div class="step-quick-editor">
+                  <span>Duration</span>
+                  <div class="quick-picks" role="group" aria-label="Quick Deep work duration choices">
+                    <button>5m</button><button>15m</button><button class="active">25m</button><button>Custom</button>
+                  </div>
+                </div>
+                <div class="sequence-rail"></div>
+                <article class="sequence-row">
+                  <button class="drag-handle" aria-label="Drag step 3">⠿</button>
+                  <span class="step-number">03</span>
+                  <div class="step-copy"><strong>Reset</strong><small>2 min · Soft bowl · 55%</small></div>
+                </article>
+              </section>
+              <button class="add-row">＋ Add step</button>
+
+              <section class="config-block compact">
+                <button class="setting-row" data-go="mixer"><span>Mix</span><span class="setting-value">Master 80% <b>›</b></span></button>
+                <button class="setting-row"><span>Active hours</span><span class="setting-value">08:00–22:00 <b>›</b></span></button>
+                <button class="setting-row" data-go="focus-status"><span>Chandas Focus</span><span class="status-dot active-dot"></span><span class="setting-value">Ready <b>›</b></span></button>
+              </section>
+            </div>
+            <div class="bottom-action"><button class="primary-button" data-go="running-sequence">Start with Prepare</button></div>
+          </section>
+
+          <section class="mock-screen sheet-screen" data-screen="mixer" aria-label="Mixer">
+            <div class="underlay underlay-running" aria-hidden="true">
+              <div class="ghost-ring"></div><p>18:42</p>
+            </div>
+            <div class="sheet-backdrop"></div>
+            <div class="bottom-sheet tall-sheet">
+              <div class="sheet-handle"></div>
+              <header class="sheet-header"><div><p class="micro-label">Program audio</p><h2>Mixer</h2></div><button class="close-button" data-back>×</button></header>
+              <div class="master-channel">
+                <div class="channel-title"><span class="channel-icon">◐</span><div><strong>Master</strong><small>Scales every Chandas cue</small></div><output>80%</output></div>
+                <input type="range" min="0" max="100" value="80" />
+              </div>
+              <p class="library-section-label">Pattern channels</p>
+              <div class="channel-row"><button class="preview-button">▶</button><div><strong>Main</strong><small>Temple gong</small></div><input type="range" value="85" /><output>85</output></div>
+              <div class="channel-row"><button class="preview-button">▶</button><div><strong>Every 2m</strong><small>Clear bell</small></div><input type="range" value="62" /><output>62</output></div>
+              <div class="channel-row"><button class="preview-button">▶</button><div><strong>Every 5m</strong><small>Soft bowl</small></div><input type="range" value="70" /><output>70</output></div>
+              <div class="channel-row disabled-channel"><button class="preview-button">▶</button><div><strong>Every 10m</strong><small>Wood block · track off</small></div><input type="range" value="50" /><output>50</output></div>
+              <div class="timed-mute">
+                <div class="section-title-row"><div><p class="micro-label">Timed mute</p><p class="section-summary">Off · volume settings preserved</p></div></div>
+                <div class="quick-picks mute-picks" role="group" aria-label="Mute duration choices">
+                  <button>1 cycle</button><button>2 cycles</button><button>3 cycles</button><button>Minutes…</button>
+                </div>
+                <p>The final main or cycle gong still sounds, then mute clears.</p>
+              </div>
+              <div class="system-volume-note"><span>Phone Alarm volume</span><strong>System controlled</strong><small>Chandas never changes it.</small></div>
+            </div>
+          </section>
+
+          <section class="mock-screen sheet-screen" data-screen="sound-library" aria-label="Sound library">
+            <div class="underlay editor-underlay" aria-hidden="true"></div>
+            <div class="sheet-backdrop"></div>
+            <div class="bottom-sheet tall-sheet">
+              <div class="sheet-handle"></div>
+              <header class="sheet-header"><div><p class="micro-label">Every 2 minutes</p><h2>Choose sound</h2></div><button class="close-button" data-back>×</button></header>
+              <div class="filter-row sound-filters"><button class="active">Built in</button><button>Android</button><button>Device</button></div>
+              <div class="sound-list">
+                <button class="sound-row selected-sound"><span class="sound-orb low"></span><span><strong>Temple gong</strong><small>Low · sustained</small></span><i>✓</i><b>▶</b></button>
+                <button class="sound-row"><span class="sound-orb clear"></span><span><strong>Clear bell</strong><small>Neutral · defined</small></span><i></i><b>▶</b></button>
+                <button class="sound-row"><span class="sound-orb soft"></span><span><strong>Soft bowl</strong><small>Gentle · rounded</small></span><i></i><b>▶</b></button>
+                <button class="sound-row"><span class="sound-orb wood"></span><span><strong>Wood block</strong><small>Short · dry</small></span><i></i><b>▶</b></button>
+                <button class="sound-row"><span class="sound-orb bright"></span><span><strong>Bright chime</strong><small>High · distinct</small></span><i></i><b>▶</b></button>
+              </div>
+              <div class="source-actions">
+                <button><span>⌁</span><div><strong>Choose Android sound</strong><small>Alarms and notification tones</small></div><b>›</b></button>
+                <button><span>＋</span><div><strong>Choose audio file</strong><small>Persisted access from this device</small></div><b>›</b></button>
+              </div>
+            </div>
+          </section>
+
+          <section class="mock-screen running-screen" data-screen="running-pattern" aria-label="Running Pattern timer">
+            <header class="running-header">
+              <span class="running-mode">Morning practice · Pattern</span>
+              <button class="icon-button" data-go="help" aria-label="Help">?</button>
+            </header>
+            <div class="timer-stage">
+              <div class="timer-ring">
+                <svg viewBox="0 0 300 300" aria-hidden="true">
+                  <circle class="ring-track" cx="150" cy="150" r="129"></circle><circle class="ring-progress" cx="150" cy="150" r="129"></circle>
+                  <circle class="sub-ring-track" cx="150" cy="150" r="108"></circle><circle class="sub-ring-progress sub-ring-five" cx="150" cy="150" r="108"></circle>
+                  <circle class="sub-ring-track faint" cx="150" cy="150" r="89"></circle><circle class="sub-ring-progress sub-ring-two" cx="150" cy="150" r="89"></circle>
+                </svg>
+                <div class="timer-copy"><span>Main gong</span><strong>18:42</strong><small>Next sub · Soft bowl in 00:42</small></div>
+              </div>
+            </div>
+            <div class="running-controls">
+              <div class="control-row">
+                <button class="control-button" data-tooltip="Restart this Pattern from now">↻</button>
+                <button class="control-button" data-tooltip="Snap to the local clock">◷</button>
+                <button class="control-button alarm-button" id="alarmButton" data-tooltip="Single tap: next main. Double tap: every main."><span>⏰</span><i id="alarmBadge"></i></button>
+                <button class="control-button focus-control active-control" data-go="focus-status" data-tooltip="Chandas Focus is active">⌗</button>
+                <span class="control-spacer"></span>
+                <button class="control-button" data-go="mixer" data-tooltip="Master volume, timed mute, and Mixer">◖</button>
+              </div>
+              <p class="alarm-instruction" id="alarmInstruction">Tap alarm for next main · double tap to lock</p>
+              <button class="secondary-button" data-go="pattern-config">Stop</button>
+            </div>
+          </section>
+
+          <section class="mock-screen running-screen" data-screen="running-sequence" aria-label="Running Sequence timer">
+            <header class="running-header"><span class="running-mode">Work cycle · Sequence</span><button class="icon-button" data-go="help">?</button></header>
+            <div class="timer-stage">
+              <div class="timer-ring sequence-ring">
+                <svg viewBox="0 0 300 300" aria-hidden="true"><circle class="ring-track" cx="150" cy="150" r="129"></circle><circle class="ring-progress" cx="150" cy="150" r="129"></circle></svg>
+                <div class="timer-copy"><em>Deep work</em><strong>18:42</strong><span>Step 2 of 3</span><small>Next · Reset, 2 min</small></div>
+              </div>
+              <div class="sequence-progress"><i class="done"></i><i class="active"></i><i></i><span>Cycle 4 · 32 min</span></div>
+            </div>
+            <div class="running-controls">
+              <div class="control-row">
+                <button class="control-button" data-tooltip="Restart the sequence from Prepare">↻</button>
+                <button class="control-button focus-control active-control" data-go="focus-status" data-tooltip="Chandas Focus is active">⌗</button>
+                <span class="control-spacer"></span>
+                <button class="control-button" data-go="mixer" data-tooltip="Master volume, timed mute, and Mixer">◖</button>
+              </div>
+              <p class="alarm-instruction">Mute 1×, 2×, 3×, or by minutes · final cycle gong still sounds</p>
+              <button class="secondary-button" data-go="sequence-editor">Stop</button>
+            </div>
+          </section>
+
+          <section class="mock-screen" data-screen="focus-status" aria-label="Chandas Focus states">
+            <div class="screen-scroll">
+              <header class="route-bar"><button class="back-button" data-back>‹</button><div><p class="micro-label">Android DND</p><h2>Chandas Focus</h2></div><label class="mini-toggle"><input type="checkbox" checked /><span></span></label></header>
+              <div class="focus-hero"><div class="focus-symbol">⌗</div><p class="focus-state"><i></i> Active</p><strong>Quiet until 22:00</strong><span>Alarms remain allowed. Other exceptions stay under Android's control.</span></div>
+
+              <section class="focus-state-list">
+                <p class="micro-label">State language</p>
+                <button class="focus-state-row selected"><i class="green"></i><span><strong>Active</strong><small>Chandas's rule is active now</small></span><b>Current</b></button>
+                <button class="focus-state-row"><i class="violet"></i><span><strong>Ready</strong><small>Waiting for Start or active hours</small></span><b></b></button>
+                <button class="focus-state-row"><i class="amber"></i><span><strong>Paused in Android</strong><small>Manual snooze; Chandas will not fight it</small></span><b></b></button>
+                <button class="focus-state-row"><i class="grey"></i><span><strong>Rule disabled</strong><small>Automation is switched off</small></span><b></b></button>
+                <button class="focus-state-row"><i class="red"></i><span><strong>DND access required</strong><small>Timer continues without Focus control</small></span><b></b></button>
+              </section>
+
+              <div class="focus-actions"><button class="primary-button small-primary">Edit in Android</button><button class="secondary-button">DND access settings</button></div>
+              <p class="library-note">Chandas reports only its own Focus rule. Other DND modes are not shown here.</p>
+            </div>
+          </section>
+
+          <section class="mock-screen sheet-screen" data-screen="help" aria-label="Timer help">
+            <div class="underlay underlay-running" aria-hidden="true"><div class="ghost-ring"></div><p>18:42</p></div>
+            <div class="sheet-backdrop"></div>
+            <div class="bottom-sheet help-sheet">
+              <div class="sheet-handle"></div>
+              <header class="sheet-header"><div><p class="micro-label">Running screen</p><h2>Timer controls</h2></div><button class="close-button" data-back>×</button></header>
+              <div class="help-list">
+                <article><span>↻</span><div><strong>Restart</strong><p>Begin a fresh Pattern or restart Sequence step 1.</p></div></article>
+                <article><span>◷</span><div><strong>Snap</strong><p>Align a Pattern to local wall-clock time.</p></div></article>
+                <article><span>⏰</span><div><strong>Alarm</strong><p>Single tap arms the next main boundary. Double tap locks every main. Tap an active alarm state to turn it off.</p></div></article>
+                <article><span>⌗</span><div><strong>Chandas Focus</strong><p>Shows Android's actual state for the Chandas-owned DND rule.</p></div></article>
+                <article><span>◖</span><div><strong>Sound & mute</strong><p>Open Master volume, cue levels, and 1×, 2×, 3×, or minute mute. The ending main or cycle gong still sounds.</p></div></article>
+                <article><span>≋</span><div><strong>Overlapping bells</strong><p>The higher sub-bell track wins. Drag tracks in Pattern setup to change their overlap priority.</p></div></article>
+                <article><span>☾</span><div><strong>Active hours</strong><p>Output follows current local time. Programs continue silently outside the window; no missed bells replay.</p></div></article>
+              </div>
+              <p class="help-footer">Long-press any running control for its short tooltip.</p>
+            </div>
+          </section>
+
+          <div class="tooltip" id="controlTooltip" role="status"></div>
+
+          <dialog id="save-dialog" class="save-dialog">
+            <form method="dialog">
+              <button class="dialog-close" value="cancel" aria-label="Close">×</button>
+              <p class="micro-label">Immutable snapshot</p>
+              <h2>Save configuration</h2>
+              <label>Preset name<input value="Morning practice" maxlength="80" /></label>
+              <div class="save-summary"><span>Pattern</span><strong>30m · 3 tracks</strong><small>Sounds and cue volumes included</small></div>
+              <p>Saving creates a new preset. The loaded preset is never changed.</p>
+              <button class="primary-button" value="default">Save as new</button>
+            </form>
+          </dialog>
+        </div>
+      </div>
+    </section>
+
+    <aside class="flow-notes" aria-live="polite">
+      <p class="eyebrow">Flow note</p>
+      <h2 id="noteTitle">Pattern configuration</h2>
+      <p id="noteBody">The base screen stays compact. Advanced structure appears as summaries; editing moves into focused surfaces.</p>
+      <dl id="noteDetails">
+        <div><dt>Primary action</dt><dd>Start</dd></div>
+        <div><dt>Hidden depth</dt><dd>Tracks, Mixer, presets</dd></div>
+        <div><dt>Decision</dt><dd>D-002, D-003</dd></div>
+      </dl>
+      <p class="keyboard-hint">Use ← and → to move through screens.</p>
+    </aside>
+  </main>
+
+  <script src="mockup.js?v=4"></script>
+</body>
+</html>

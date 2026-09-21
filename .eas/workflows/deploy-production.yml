@@ -1,0 +1,54 @@
+name: Prepare Android production release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+jobs:
+  validate:
+    name: Verify release
+    environment: production
+    steps:
+      - uses: eas/checkout
+      - uses: eas/install_node_modules
+      - name: Check Expo dependencies
+        run: npx expo install --check
+      - name: Type-check
+        run: npx tsc --noEmit
+      - name: Test
+        run: npm test
+
+  fingerprint:
+    name: Fingerprint Android runtime
+    needs: [validate]
+    type: fingerprint
+    environment: production
+
+  find_compatible_build:
+    name: Find compatible production build
+    needs: [fingerprint]
+    type: get-build
+    params:
+      platform: android
+      profile: production
+      fingerprint_hash: ${{ needs.fingerprint.outputs.android_fingerprint_hash }}
+      wait_for_in_progress: true
+
+  build_android:
+    name: Build Android store bundle
+    needs: [find_compatible_build]
+    if: ${{ !needs.find_compatible_build.outputs.build_id }}
+    type: build
+    params:
+      platform: android
+      profile: production
+
+  publish_android_update:
+    name: Publish compatible Android update
+    needs: [find_compatible_build]
+    if: ${{ needs.find_compatible_build.outputs.build_id }}
+    type: update
+    environment: production
+    params:
+      channel: production
+      platform: android

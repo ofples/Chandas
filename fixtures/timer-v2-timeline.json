@@ -1,0 +1,36 @@
+{
+  "patternCollision": {
+    "anchor": 0,
+    "now": 540000,
+    "program": {
+      "schemaVersion": 2,
+      "mode": "pattern",
+      "mainMinutes": 30,
+      "mainCue": { "sound": { "kind": "builtin", "id": "temple-gong" }, "volume": 0.8 },
+      "tracks": [
+        { "id": "higher", "enabled": true, "cadenceMinutes": 5, "selectedOffsetsMinutes": [5, 10, 25], "sound": { "kind": "builtin", "id": "soft-bowl" }, "volume": 0.6 },
+        { "id": "lower", "enabled": true, "cadenceMinutes": 2, "selectedOffsetsMinutes": [2, 10, 28], "sound": { "kind": "builtin", "id": "clear-bell" }, "volume": 0.7 }
+      ],
+      "alignment": { "kind": "elapsed" }
+    },
+    "expected": { "at": 600000, "logicalId": "pattern:0:0:offset:10", "winnerCueId": "higher", "boundary": "pattern-offset", "collision": true }
+  },
+  "sequence": {
+    "anchor": 0,
+    "program": {
+      "schemaVersion": 2,
+      "mode": "sequence",
+      "steps": [
+        { "id": "prepare", "label": "Prepare", "durationMinutes": 5, "sound": { "kind": "builtin", "id": "bright-chime" }, "volume": 0.6 },
+        { "id": "work", "label": "Deep work", "durationMinutes": 25, "sound": { "kind": "builtin", "id": "temple-gong" }, "volume": 0.85 },
+        { "id": "reset", "label": "Reset", "durationMinutes": 2, "sound": { "kind": "builtin", "id": "soft-bowl" }, "volume": 0.55 }
+      ]
+    },
+    "queries": [
+      { "now": 0, "at": 300000, "logicalId": "sequence:0:0:step:0", "winnerCueId": "prepare", "boundary": "sequence-step" },
+      { "now": 300000, "at": 1800000, "logicalId": "sequence:0:0:step:1", "winnerCueId": "work", "boundary": "sequence-step" },
+      { "now": 1800000, "at": 1920000, "logicalId": "sequence:0:0:step:2", "winnerCueId": "reset", "boundary": "sequence-cycle" },
+      { "now": 1920000, "at": 2220000, "logicalId": "sequence:0:1:step:0", "winnerCueId": "prepare", "boundary": "sequence-step" }
+    ]
+  }
+}

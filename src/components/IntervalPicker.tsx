@@ -1,16 +1,20 @@
 import { useState } from 'react'
+import { StyleSheet, Text, View } from 'react-native'
+import { useTheme } from '../theme/ThemeContext'
+import { Chip } from './Chip'
+import { Toggle } from './Toggle'
 import { CustomMinutePicker } from './CustomMinutePicker'
 
 interface Props {
   label: string
-  value: number          // current value in minutes
+  value: number
   presets: number[]
   onChange: (v: number) => void
-  disabledAbove?: number // chips with value >= this are disabled
+  disabledAbove?: number
   pickerTitle?: string
   pickerMin?: number
   pickerMax?: number
-  toggle?: boolean       // if provided, shows a toggle switch next to the label
+  toggle?: boolean
   onToggle?: (v: boolean) => void
 }
 
@@ -26,53 +30,39 @@ export function IntervalPicker({
   toggle,
   onToggle,
 }: Props) {
+  const { tokens } = useTheme()
   const [showPicker, setShowPicker] = useState(false)
   const isCustom = !presets.includes(value)
   const hasToggle = toggle !== undefined
 
   const chips = (
-    <div className="chips">
-      {presets.map(p => {
-        const disabled = disabledAbove !== undefined && p >= disabledAbove
-        return (
-          <button
-            key={p}
-            className={`chip${value === p && !isCustom ? ' active' : ''}`}
-            disabled={disabled}
-            onClick={() => onChange(p)}
-          >
-            {p}
-          </button>
-        )
-      })}
-      <button
-        className={`chip${isCustom ? ' active' : ''}`}
-        onClick={() => setShowPicker(true)}
-      >
-        {isCustom ? `${value}` : '…'}
-      </button>
-    </div>
+    <View style={styles.chips}>
+      {presets.map(p => (
+        <Chip
+          key={p}
+          label={String(p)}
+          active={value === p && !isCustom}
+          disabled={disabledAbove !== undefined && p >= disabledAbove}
+          onPress={() => onChange(p)}
+        />
+      ))}
+      <Chip label={isCustom ? String(value) : '…'} active={isCustom} onPress={() => setShowPicker(true)} />
+    </View>
   )
 
   return (
-    <div className="config-section">
+    <View style={styles.section}>
       {hasToggle ? (
         <>
-          <div className="toggle-row">
-            <span className="section-label">{label}</span>
-            <label className="toggle">
-              <input type="checkbox" checked={toggle} onChange={e => onToggle?.(e.target.checked)} />
-              <span className="toggle-track" />
-              <span className="toggle-thumb" />
-            </label>
-          </div>
-          <div className={`snap-offset${toggle ? ' open' : ''}`}>
-            <div className="snap-offset-inner">{chips}</div>
-          </div>
+          <View style={styles.toggleRow}>
+            <Text style={[styles.label, { color: tokens.textMuted }]}>{label}</Text>
+            <Toggle value={!!toggle} onChange={v => onToggle?.(v)} accessibilityLabel={label} />
+          </View>
+          {toggle && <View style={styles.offsetInner}>{chips}</View>}
         </>
       ) : (
         <>
-          <span className="section-label">{label}</span>
+          <Text style={[styles.label, { color: tokens.textMuted }]}>{label}</Text>
           {chips}
         </>
       )}
@@ -87,6 +77,31 @@ export function IntervalPicker({
           onClose={() => setShowPicker(false)}
         />
       )}
-    </div>
+    </View>
   )
 }
+
+const styles = StyleSheet.create({
+  section: {
+    gap: 12,
+  },
+  label: {
+    fontSize: 11,
+    fontWeight: '500',
+    letterSpacing: 1.3,
+    textTransform: 'uppercase',
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  chips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  offsetInner: {
+    paddingTop: 12,
+  },
+})
