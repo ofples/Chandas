@@ -3359,3 +3359,5 @@ Manual Android acceptance checklist:
 - Removed the separate Sound output switch. Cue volume is the single sound-output control.
 - Legacy cues saved with Sound output disabled migrate to 0% cue volume so their quiet state remains visible and can be changed again.
 - Kept native parsing support for the older optional field so existing installed binaries and historical serialized sessions remain readable.
+- Removed the drag library's white default scroll background from the Sound choices list.
+- Replaced the shared swipe row's responder with a gesture-handler pan so horizontal deletion can coexist with sortable rows. A single protected sound now explains that another choice is required before removal.

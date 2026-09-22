@@ -241,13 +241,13 @@ function SoundChoicesEditor({ choices, mode, previewing, onModeChange, onMove, o
   return <View style={styles.choiceEditor}>
     {choices.length > 1 ? <SegmentedControl items={[{ value: 'sequence', label: 'In order' }, { value: 'random', label: 'Random' }]} value={mode} onChange={onModeChange} accessibilityLabel="Sound choice order" /> : null}
       <View style={[styles.choiceList, { height: Math.min(430, Math.max(60, choices.length * 60)) }]}>
-        <Sortable data={rows} itemHeight={54} useFlatList={false} style={styles.choiceScroller} contentContainerStyle={styles.choiceListContent} renderItem={props => {
+        <Sortable data={rows} itemHeight={54} useFlatList={false} style={[styles.choiceScroller, { backgroundColor: tokens.surface }]} contentContainerStyle={[styles.choiceListContent, { backgroundColor: tokens.surface }]} renderItem={props => {
           const sound = choices.find(choice => soundRefKey(choice) === props.item.id)
           if (!sound) return null
           return <SortableSoundChoiceRow {...props} sound={sound} itemCount={choices.length} canDelete={choices.length > 1} playing={previewing === soundPreviewKey(sound)} onMove={onMove} onRemove={onRemove} onPreview={onPreview} />
         }} />
       </View>
-      <Text style={[styles.choiceHint, { color: tokens.textMuted }]}>Hold the dotted handle to reorder. Swipe left to delete.</Text>
+      <Text style={[styles.choiceHint, { color: tokens.textMuted }]}>{choices.length > 1 ? 'Hold the dotted handle to reorder. Swipe left to delete.' : 'Add another sound to enable ordering and removal.'}</Text>
   </View>
 }
 

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { PanResponder, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Pressable, StyleSheet, Text, View } from 'react-native'
+import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import Animated, { FadeOut, LinearTransition, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from 'react-native-reanimated'
+import { scheduleOnRN } from 'react-native-worklets'
 import { useTheme } from '../../theme/ThemeContext'
 import { selectionHaptic } from '../../lib/haptics'
 
@@ -22,16 +24,17 @@ export function SwipeToDeleteRow({ children, onDelete, accessibilityLabel, disab
   const reducedMotion = useReducedMotion()
   const translateX = useSharedValue(0)
   const opacity = useSharedValue(1)
+  const openValue = useSharedValue(false)
+  const gestureStart = useSharedValue(0)
   const rowId = useRef(Symbol('swipe-row'))
   const openRef = useRef(false)
-  const gestureStartedOpenRef = useRef(false)
-  const gestureStartRef = useRef(0)
   const widthRef = useRef(320)
   const [open, setOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
   const settle = (open: boolean) => {
     openRef.current = open
+    openValue.value = open
     setOpen(open)
     if (open) {
       if (activeRow && activeRow.id !== rowId.current) activeRow.close()
@@ -47,24 +50,26 @@ export function SwipeToDeleteRow({ children, onDelete, accessibilityLabel, disab
   useEffect(() => {
     if (disabled && openRef.current) settle(false)
   }, [disabled])
-  const panResponder = useMemo(() => PanResponder.create({
-    onMoveShouldSetPanResponder: (_event, gesture) => !disabled && Math.abs(gesture.dx) > 9 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.25,
-    onPanResponderGrant: () => {
-      gestureStartedOpenRef.current = openRef.current
-      gestureStartRef.current = openRef.current ? -REVEAL_WIDTH : 0
-    },
-    onPanResponderMove: (_event, gesture) => {
-      translateX.value = Math.max(-REVEAL_WIDTH, Math.min(0, gestureStartRef.current + gesture.dx))
-    },
-    onPanResponderRelease: (_event, gesture) => {
-      if (gestureStartedOpenRef.current) {
-        settle(!(gesture.dx > 12 || gesture.vx > 0.15 || translateX.value > -REVEAL_WIDTH * 0.85))
-        return
-      }
-      settle(gesture.vx < -0.35 || translateX.value < -REVEAL_WIDTH * 0.48)
-    },
-    onPanResponderTerminate: () => settle(openRef.current),
-  }), [disabled, reducedMotion])
+  const panGesture = useMemo(() => Gesture.Pan()
+    .enabled(!disabled)
+    .activeOffsetX([-9, 9])
+    .failOffsetY([-12, 12])
+    .onStart(() => {
+      gestureStart.value = openValue.value ? -REVEAL_WIDTH : 0
+    })
+    .onUpdate(event => {
+      translateX.value = Math.max(-REVEAL_WIDTH, Math.min(0, gestureStart.value + event.translationX))
+    })
+    .onEnd(event => {
+      const startedOpen = gestureStart.value < 0
+      const shouldOpen = startedOpen
+        ? !(event.translationX > 12 || event.velocityX > 150 || translateX.value > -REVEAL_WIDTH * 0.85)
+        : event.velocityX < -350 || translateX.value < -REVEAL_WIDTH * 0.48
+      scheduleOnRN(settle, shouldOpen)
+    })
+    .onFinalize((_event, success) => {
+      if (!success) translateX.value = withTiming(openValue.value ? -REVEAL_WIDTH : 0, { duration: reducedMotion ? 70 : 170 })
+    }), [disabled, reducedMotion])
 
   const rowStyle = useAnimatedStyle(() => ({ opacity: opacity.value, transform: [{ translateX: translateX.value }] }))
   const remove = () => {
@@ -88,12 +93,14 @@ export function SwipeToDeleteRow({ children, onDelete, accessibilityLabel, disab
         <Text style={[styles.deleteText, { color: tokens.warm }]}>Delete</Text>
       </Pressable>
     </View>
-    <Animated.View style={[{ backgroundColor: tokens.surface }, rowStyle]} onTouchStart={() => {
-      if (activeRow && activeRow.id !== rowId.current) activeRow.close()
-    }} {...panResponder.panHandlers}>
-      {children}
-      {open ? <Pressable style={StyleSheet.absoluteFill} onPressIn={() => settle(false)} accessibilityRole="button" accessibilityLabel="Close delete action" /> : null}
-    </Animated.View>
+    <GestureDetector gesture={panGesture}>
+      <Animated.View style={[{ backgroundColor: tokens.surface }, rowStyle]} onTouchStart={() => {
+        if (activeRow && activeRow.id !== rowId.current) activeRow.close()
+      }}>
+        {children}
+        {open ? <Pressable style={StyleSheet.absoluteFill} onPressIn={() => settle(false)} accessibilityRole="button" accessibilityLabel="Close delete action" /> : null}
+      </Animated.View>
+    </GestureDetector>
   </Animated.View>
 }
 
