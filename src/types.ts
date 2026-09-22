@@ -51,8 +51,6 @@ export type SoundRef =
 export interface CueSettings {
   sound: SoundRef
   volume: number
-  /** False retains the selected sound for later, but delivers this cue through vibration only. */
-  soundEnabled?: boolean
   /** Additive v2.1 list; legacy sound remains the first/fallback selection. */
   sounds?: SoundRef[]
   soundMode?: 'single' | 'sequence' | 'random'

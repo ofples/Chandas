@@ -269,6 +269,7 @@ export function defaultTimerV2State(): TimerV2State {
 }
 
 export function normalizeCue(value: Partial<CueSettings> | undefined, fallback: CueSettings): CueSettings {
+  const legacyValue = value as (Partial<CueSettings> & { soundEnabled?: boolean }) | undefined
   const sound = normalizeSoundRef(value?.sound, fallback.sound)
   const rawSounds = Array.isArray(value?.sounds) ? value.sounds.slice(0, 8) : []
   const sounds = rawSounds
@@ -286,9 +287,10 @@ export function normalizeCue(value: Partial<CueSettings> | undefined, fallback: 
       : undefined
   return {
     sound: primary,
-    ...(value?.soundEnabled === false ? { soundEnabled: false } : {}),
     ...(sounds.length > 1 ? { sounds: normalizedSounds, soundMode: value?.soundMode === 'random' ? 'random' as const : 'sequence' as const } : {}),
-    volume: clampVolume(value?.volume, fallback.volume),
+    // Earlier builds exposed a separate sound switch. Preserve its quiet state
+    // as visible, editable volume instead of retaining an inaccessible mute.
+    volume: legacyValue?.soundEnabled === false ? 0 : clampVolume(value?.volume, fallback.volume),
     ...(override ? { hapticOverride: override } : {}),
   }
 }

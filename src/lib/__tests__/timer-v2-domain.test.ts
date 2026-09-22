@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { PatternProgram, SequenceProgram } from '../../types'
 import { chooseProgramMode, deleteProgramPreset, hasUnsavedProgramChanges, loadProgramPreset, patchSequenceStep, saveProgramPreset, setPatternSubBellsEnabled, setTrackCadence, setTrackCadenceSeconds, setTrackOffsets, setTrackOffsetsSeconds, updatePatternMainDurationSeconds, updatePatternMainMinutes } from '../programActions'
 import { alarmBehaviorAfterGesture, gateProgramAudio, isFreshScheduledEvent, iterationMuteFor, muteAfterScheduleChange, shouldSurfaceTimerSignal, timestampMuteForSeconds } from '../runtimeV2'
-import { defaultTimerV2State, migrateLegacyConfig, normalizeAvailabilityPolicy, normalizePatternProgram, normalizeSequenceProgram, normalizeSoundRef, parseTimerProgram, patternDurationSeconds, sequenceStepDurationSeconds, trackCadenceSeconds, trackSelectedOffsetsSeconds, validOffsets, validOffsetsForCadenceSeconds } from '../timerV2'
+import { defaultTimerV2State, migrateLegacyConfig, normalizeAvailabilityPolicy, normalizeCue, normalizePatternProgram, normalizeSequenceProgram, normalizeSoundRef, parseTimerProgram, patternDurationSeconds, sequenceStepDurationSeconds, trackCadenceSeconds, trackSelectedOffsetsSeconds, validOffsets, validOffsetsForCadenceSeconds } from '../timerV2'
 import { boundedRunProgress, cueSegmentProgress, nextPatternEvent, nextProgramEvent, nextSequenceEvent, runEndAt, timelinePosition } from '../timeline'
 import { effectiveAvailabilityForProgram, hasAvailableTime, isCueAllowedByActiveHours, isWithinActiveHours, nextActiveHoursStart, scheduleBoundaryMinutesForDay, scheduleRangeCountForDay, scheduleRenderedBoundaryMinutesForDay, scheduleSegmentsForDay, windowsOverlap } from '../activeHours'
 import { edgeAutoScrollStep, previewIndexForItem, previewOffsetForItem, reorderGestureIntent } from '../reorder-preview'
@@ -44,6 +44,13 @@ function sequence(): SequenceProgram {
 }
 
 describe('timer v2 timeline contracts', () => {
+  it('migrates the removed sound switch to an editable zero cue volume', () => {
+    const fallback = pattern().mainCue
+    const normalized = normalizeCue({ ...fallback, soundEnabled: false } as typeof fallback & { soundEnabled: boolean }, fallback)
+    expect(normalized.volume).toBe(0)
+    expect(normalized).not.toHaveProperty('soundEnabled')
+  })
+
   it('reports stable overall progress for a bounded run', () => {
     expect(boundedRunProgress(1_000, 11_000, 1_000)).toBe(0)
     expect(boundedRunProgress(1_000, 11_000, 6_000)).toBe(0.5)

@@ -6,7 +6,6 @@ export interface TimelineCueCandidate {
   kind: 'pattern-main' | 'pattern-track' | 'sequence-step' | 'run-complete'
   sound: SoundRef
   volume: number
-  soundEnabled?: boolean
   sounds?: SoundRef[]
   soundMode?: CueSettings['soundMode']
   hapticOverride?: CueSettings['hapticOverride']
@@ -69,7 +68,7 @@ export function nextPatternEvent(program: PatternProgram, anchor: number, now = 
     const candidatesByTime = new Map<number, TimelineCueCandidate[]>()
     const mainAt = cycleStart + duration
     candidatesByTime.set(mainAt, [{
-      cueId: 'main', kind: 'pattern-main', sound: program.mainCue.sound, volume: program.mainCue.volume, soundEnabled: program.mainCue.soundEnabled, sounds: program.mainCue.sounds, soundMode: program.mainCue.soundMode, hapticOverride: program.mainCue.hapticOverride,
+      cueId: 'main', kind: 'pattern-main', sound: program.mainCue.sound, volume: program.mainCue.volume, sounds: program.mainCue.sounds, soundMode: program.mainCue.soundMode, hapticOverride: program.mainCue.hapticOverride,
     }])
     if (program.subBellsEnabled !== false) program.tracks.forEach((track, trackOrder) => {
       if (!track.enabled) return
@@ -82,7 +81,7 @@ export function nextPatternEvent(program: PatternProgram, anchor: number, now = 
           kind: 'pattern-track',
           sound: track.sound,
           volume: track.volume,
-          soundEnabled: track.soundEnabled, sounds: track.sounds, soundMode: track.soundMode, hapticOverride: track.hapticOverride,
+          sounds: track.sounds, soundMode: track.soundMode, hapticOverride: track.hapticOverride,
           ...(track.repeatEnabled === false ? {} : { cadenceMinutes: track.cadenceMinutes, cadenceSeconds: trackCadenceSeconds(track) }),
           trackOrder,
         })
@@ -121,7 +120,7 @@ export function nextSequenceEvent(program: SequenceProgram, anchor: number, now 
     if (stepIndex >= 0) {
       const step = program.steps[stepIndex]
       const at = cycleStart + offsets[stepIndex]
-      const winner: TimelineCueCandidate = { cueId: step.id, kind: 'sequence-step', sound: step.sound, volume: step.volume, soundEnabled: step.soundEnabled, sounds: step.sounds, soundMode: step.soundMode, hapticOverride: step.hapticOverride }
+      const winner: TimelineCueCandidate = { cueId: step.id, kind: 'sequence-step', sound: step.sound, volume: step.volume, sounds: step.sounds, soundMode: step.soundMode, hapticOverride: step.hapticOverride }
       return {
         at,
         logicalId: logicalId('sequence', anchor, cycleIndex, `step:${stepIndex}`),
@@ -161,7 +160,7 @@ export function boundedRunProgress(startedAt: number, terminalAt: number | null,
 
 function completionCandidate(program: TimerProgram): TimelineCueCandidate {
   const cue = program.completionCue ?? (program.mode === 'pattern' ? program.mainCue : program.steps.at(-1)!)
-  return { cueId: 'completion', kind: 'run-complete', sound: cue.sound, volume: cue.volume, soundEnabled: cue.soundEnabled, sounds: cue.sounds, soundMode: cue.soundMode, hapticOverride: cue.hapticOverride }
+  return { cueId: 'completion', kind: 'run-complete', sound: cue.sound, volume: cue.volume, sounds: cue.sounds, soundMode: cue.soundMode, hapticOverride: cue.hapticOverride }
 }
 
 /** Returns null once a bounded run has reached or passed its terminal instant. */

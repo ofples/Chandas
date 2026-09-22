@@ -3350,3 +3350,12 @@ Manual Android acceptance checklist:
 - Kept the existing optional starter configurations unchanged at the user's direction.
 
 **Verification:** `npx tsc --noEmit`; 124/124 Vitest tests including quiet-span projection and next-audible lookup; `git diff --check`. Manual Android review should check the three-row setup preview at large font sizes and next-audible text during weekly Quiet, timed mute, and cycle-count mute.
+
+### 2026-09-22 — Sound choices crash and redundant output switch
+
+**Status:** Implemented for production OTA.
+
+- Fixed the selected Sound choices view passing an incomplete vertical-list contract to `react-native-reanimated-dnd`. The list now provides its fixed row height, preventing the library's immediate render exception when the section opens.
+- Removed the separate Sound output switch. Cue volume is the single sound-output control.
+- Legacy cues saved with Sound output disabled migrate to 0% cue volume so their quiet state remains visible and can be changed again.
+- Kept native parsing support for the older optional field so existing installed binaries and historical serialized sessions remain readable.

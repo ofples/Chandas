@@ -95,7 +95,7 @@ function displayFor(program: TimerProgram, settings: AppTimerSettings, mute: Run
   const muteEndsAt = Math.max(mute.mutedUntil, mute.iteration?.endsAt ?? 0)
   const runtimeMuted = mute.mutedUntil > now || Boolean(mute.iteration)
   const nextAudible = settings.masterVolume > 0 && (!active || runtimeMuted)
-    ? nextAudibleProgramEvent(program, availability, anchor, Math.max(now, muteEndsAt > now ? muteEndsAt - 1 : now), startedAt, terminalAt, event => event.winner.soundEnabled !== false && event.winner.volume > 0)
+    ? nextAudibleProgramEvent(program, availability, anchor, Math.max(now, muteEndsAt > now ? muteEndsAt - 1 : now), startedAt, terminalAt, event => event.winner.volume > 0)
     : null
   const audibleFields = { nextAudibleAt: nextAudible?.at ?? 0, nextAudibleLabel: nextAudible ? programEventLabel(program, nextAudible) : '' }
   if (!active) {
@@ -342,7 +342,6 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings, so
       if (event.winner.hapticOverride) cueHapticProfile(event.winner.hapticOverride)
       else timerCueHaptic(event.boundary, activeSettings.haptics)
     }
-    if (event.winner.soundEnabled === false) return event.completesRun
     const sounds = event.winner.sounds?.length ? event.winner.sounds : [event.winner.sound]
     let sound = sounds[0]
     let selectedIndex: number | null = null

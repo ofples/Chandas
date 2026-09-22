@@ -13,7 +13,6 @@ import { useSoundAvailability } from '../../hooks/use-sound-availability'
 import { GentleNotice, type AppNotice } from './experience-feedback'
 import { SegmentedControl } from './SegmentedControl'
 import { SheetSectionTitle } from './SheetSectionTitle'
-import { Toggle } from '../Toggle'
 import { Sortable, SortableItem, type SortableRenderItemProps } from 'react-native-reanimated-dnd'
 import { SwipeToDeleteRow } from './swipe-to-delete-row'
 
@@ -166,7 +165,6 @@ export function SoundPickerSheet({ visible, title, cue, masterVolume, advanced =
     </Pressable> : <View style={styles.selected}>
       <Text numberOfLines={1} style={[styles.optionTitle, styles.selectedTitle, { color: selectedAvailable ? tokens.text : tokens.accent }]}>{soundTitle(cue.sound)}{selectedAvailable ? '' : ' · unavailable'}</Text>
     </View>}
-    {advanced ? <View style={styles.outputRow}><View style={styles.optionCopy}><Text style={[styles.optionTitle, { color: tokens.text }]}>Sound output</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{cue.soundEnabled === false ? 'Vibration only' : 'Sound and vibration'}</Text></View><Toggle value={cue.soundEnabled !== false} onChange={soundEnabled => onChange({ soundEnabled })} accessibilityLabel="Play sound for this cue" /></View> : null}
     <View style={styles.volumeHeader}><SheetSectionTitle>Cue volume</SheetSectionTitle><Text style={[styles.value, { color: tokens.text }]}>{Math.round(cue.volume * 100)}%</Text></View>
     <View style={styles.volumeRow}><Slider style={styles.slider} minimumValue={0} maximumValue={1} step={0.05} value={cue.volume} onSlidingStart={stopPreview} onValueChange={volume => onChange({ volume })} minimumTrackTintColor={tokens.accent} maximumTrackTintColor={tokens.surfaceHi} thumbTintColor={tokens.accent} accessibilityLabel={`${title} volume`} accessibilityValue={{ min: 0, max: 100, now: Math.round(cue.volume * 100), text: `${Math.round(cue.volume * 100)} percent` }} /><Pressable onPress={() => void preview(cue.sound)} style={[styles.preview, { borderColor: tokens.border }]} accessibilityRole="button" accessibilityLabel={`${previewing === selectedKey ? 'Stop' : 'Preview'} selected sound`}><Text style={[styles.previewText, { color: tokens.accent }]}>{previewing === selectedKey ? '■' : '▶'}</Text></Pressable></View>
   </View>
@@ -243,7 +241,7 @@ function SoundChoicesEditor({ choices, mode, previewing, onModeChange, onMove, o
   return <View style={styles.choiceEditor}>
     {choices.length > 1 ? <SegmentedControl items={[{ value: 'sequence', label: 'In order' }, { value: 'random', label: 'Random' }]} value={mode} onChange={onModeChange} accessibilityLabel="Sound choice order" /> : null}
       <View style={[styles.choiceList, { height: Math.min(430, Math.max(60, choices.length * 60)) }]}>
-        <Sortable data={rows} estimatedItemHeight={54} useFlatList={false} style={styles.choiceScroller} contentContainerStyle={styles.choiceListContent} renderItem={props => {
+        <Sortable data={rows} itemHeight={54} useFlatList={false} style={styles.choiceScroller} contentContainerStyle={styles.choiceListContent} renderItem={props => {
           const sound = choices.find(choice => soundRefKey(choice) === props.item.id)
           if (!sound) return null
           return <SortableSoundChoiceRow {...props} sound={sound} itemCount={choices.length} canDelete={choices.length > 1} playing={previewing === soundPreviewKey(sound)} onMove={onMove} onRemove={onRemove} onPreview={onPreview} />
@@ -314,6 +312,5 @@ const styles = StyleSheet.create({
   checkbox: { width: 22, height: 22, borderWidth: 1.5, borderRadius: 11, alignItems: 'center', justifyContent: 'center' }, checkboxMark: { color: '#fff', fontSize: 13, lineHeight: 16, fontWeight: '900' },
   settingsRow: { minHeight: 58, paddingVertical: 7, flexDirection: 'row', alignItems: 'center', gap: 10 }, disclosure: { width: 24, textAlign: 'center', fontSize: 22, lineHeight: 25, fontWeight: '500' },
   choiceEditor: { gap: 12 }, choiceList: { overflow: 'hidden' }, choiceScroller: { flex: 1 }, choiceListContent: { paddingHorizontal: 0 }, choiceSortableItem: { width: '100%' },
-  outputRow: { minHeight: 42, flexDirection: 'row', alignItems: 'center', gap: 10 },
   choiceRow: { minHeight: 54, flexDirection: 'row', alignItems: 'center', gap: 8, borderBottomWidth: StyleSheet.hairlineWidth, backgroundColor: 'transparent' }, choiceHandle: { alignSelf: 'stretch', justifyContent: 'center' }, choiceHandlePressable: { width: 30, minHeight: 52, alignItems: 'center', justifyContent: 'center' }, choiceHandleGlyph: { fontSize: 19, lineHeight: 22, letterSpacing: -3 }, choicePosition: { width: 19, alignItems: 'center' }, choicePositionText: { fontFamily: 'JetBrainsMono-Regular', fontSize: 11 }, choicePreview: { width: 34, height: 34, borderWidth: 1, borderRadius: 17, alignItems: 'center', justifyContent: 'center' }, choiceHint: { fontSize: 10, lineHeight: 14 },
 })

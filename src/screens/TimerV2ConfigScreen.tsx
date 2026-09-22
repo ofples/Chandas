@@ -366,13 +366,13 @@ function UpcomingEventsPreview({ program, settings, now }: { program: TimerProgr
   const terminalAt = runEndAt(program, anchor, now)
   const events = upcomingProgramEvents(program, availability, anchor, now, now, terminalAt, 3)
   const nextAudible = settings.masterVolume > 0
-    ? nextAudibleProgramEvent(program, availability, anchor, now, now, terminalAt, event => event.winner.soundEnabled !== false && event.winner.volume > 0)
+    ? nextAudibleProgramEvent(program, availability, anchor, now, now, terminalAt, event => event.winner.volume > 0)
     : null
   const nextAudibleAlreadyShown = nextAudible ? events.some(item => item.event.logicalId === nextAudible.logicalId) : false
   return <View style={styles.upcomingSection} accessibilityLabel="Upcoming timer events">
     <View style={styles.upcomingHeading}><Text style={[styles.eyebrow, { color: tokens.textMuted }]}>NEXT</Text><Text style={[styles.upcomingContext, { color: tokens.textMuted }]}>{program.alignment.kind === 'local-clock' ? 'If started now · clock aligned' : 'If started now'}</Text></View>
     {events.map(({ event, scheduleAllows }) => {
-      const soundOff = event.winner.soundEnabled === false || event.winner.volume <= 0
+      const soundOff = event.winner.volume <= 0
       const hapticOn = settings.haptics.enabled && event.winner.hapticOverride !== 'off'
       return <View key={event.logicalId} style={styles.upcomingRow}>
       <Text style={[styles.upcomingTime, { color: scheduleAllows ? tokens.text : tokens.textMuted }]}>{formatEventLocalTime(event.at)}</Text>
