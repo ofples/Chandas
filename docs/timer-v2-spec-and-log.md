@@ -3361,3 +3361,12 @@ Manual Android acceptance checklist:
 - Kept native parsing support for the older optional field so existing installed binaries and historical serialized sessions remain readable.
 - Removed the drag library's white default scroll background from the Sound choices list.
 - Replaced the shared swipe row's responder with a gesture-handler pan so horizontal deletion can coexist with sortable rows. A single protected sound now explains that another choice is required before removal.
+
+### 2026-09-26 — Floating timer overlay specification
+
+**Status:** Product direction approved and specified; implementation pending.
+
+- Defined an optional Android always-on-top countdown that rests as the compact status pill and expands into the shared circular Chandas watchface.
+- The expanded overlay uses floating Reset, clock alignment, Alarm, Sound/mute and guarded Stop controls; Chandas Focus is omitted.
+- The implementation must extract and reuse the running screen's actual React watchface and button primitives, host them in a service-owned React Native overlay surface, and keep the persisted native timer session authoritative.
+- Permission, lifecycle, process recreation, position persistence, foreground-service integration, accessibility, failure containment and store-release requirements are specified in [the canonical floating timer overlay specification](floating-timer-overlay-spec-2026-09-26.md).
