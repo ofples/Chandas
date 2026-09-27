@@ -51,6 +51,10 @@ data class TimerConfig(
   val timerV2StartedAt: Long = 0L,
   /** Fixed terminal epoch. Zero means continuous. */
   val timerV2EndsAt: Long = 0L,
+  /** Frozen display time while paused; zero means the clock is advancing. */
+  val timerV2PausedAt: Long = 0L,
+  /** Resume follows frozen elapsed time until this cycle boundary, then realigns. */
+  val timerV2ClockRejoinAt: Long = 0L,
 )
 
 enum class TimerEventType(val value: String) {

@@ -320,7 +320,7 @@ internal object FloatingTimerOverlay {
     val safeRight = (bounds?.width() ?: screen.widthPixels) - (insets?.right ?: 0)
     val safeBottom = (bounds?.height() ?: screen.heightPixels) - (insets?.bottom ?: 0)
     val width = dp(context, if (expanded) 344 else 132).coerceAtMost((safeRight - safeLeft).coerceAtLeast(1))
-    val height = dp(context, if (expanded) 418 else 48).coerceAtMost((safeBottom - safeTop).coerceAtLeast(1))
+    val height = dp(context, if (expanded) 470 else 48).coerceAtMost((safeBottom - safeTop).coerceAtLeast(1))
     val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     val shape = shape(context)
     val edge = prefs.getString("$shape.edge", "right")
@@ -354,7 +354,7 @@ internal object FloatingTimerOverlay {
         if (!expandedWindow()) return true
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
           val cx = width / 2f
-          val cy = dp(context, 114).toFloat()
+          val cy = dp(context, 176).toFloat()
           val radius = dp(context, 110).toFloat()
           val dx = event.x - cx
           val dy = event.y - cy

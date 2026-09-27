@@ -83,6 +83,8 @@ export interface PatternTrack extends CueSettings {
   afterStartSeconds?: number
   /** Explicit interior cue counted backward from the main boundary. */
   beforeEndSeconds?: number
+  /** Advanced cadence: deterministic random gaps between interior cues. */
+  randomRepeat?: { minSeconds: number; maxSeconds: number }
   selectedOffsetsMinutes: number[]
   /** Exact cue positions; absent legacy values use selectedOffsetsMinutes. */
   selectedOffsetsSeconds?: number[]
@@ -123,6 +125,8 @@ export interface PatternProgram {
 
 export interface SequenceStep extends CueSettings {
   id: string
+  /** Ring a dismissible alarm at this step's end instead of a one-shot cue. */
+  alarmEnabled?: boolean
   durationMinutes: number
   /** Exact duration used by second-precision runtimes; absent legacy values use durationMinutes. */
   durationSeconds?: number

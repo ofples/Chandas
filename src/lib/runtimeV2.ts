@@ -108,7 +108,7 @@ export function gateProgramAudio(options: {
     ? { mutedUntil: 0, iteration: mute.iteration }
     : mute
   const isMain = event.boundary === 'pattern-main'
-  const continuousAlarmRequested = isMain && !event.completesRun && alarmBehavior !== 'off'
+  const continuousAlarmRequested = !event.completesRun && ((isMain && alarmBehavior !== 'off') || (event.winner.kind === 'sequence-step' && event.winner.alarmEnabled === true))
   const consumesOnce = isMain && !event.completesRun && alarmBehavior === 'once'
   const consumedAlarmBehavior: AlarmBehavior = event.completesRun ? 'off' : consumesOnce ? 'off' : alarmBehavior
 

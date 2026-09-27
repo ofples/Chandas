@@ -24,6 +24,7 @@ object TimerNotifications {
 
   /** Shared compact status contract for promoted notifications and the overlay pill. */
   fun compactStatus(config: TimerConfig, now: Long = System.currentTimeMillis()): String? {
+    if (config.timerV2PausedAt > 0L) return "Paused"
     val program = config.timerV2Program
     val event = program?.let { TimerV2Timeline.next(it, config.timerV2Anchor, now, config.timerV2StartedAt, config.timerV2EndsAt) }
     if (program != null && event == null) return null
@@ -127,10 +128,11 @@ object TimerNotifications {
     now: Long = System.currentTimeMillis(),
     includeCompactStatus: Boolean = false,
   ): Notification {
+    val effectiveNow = config.timerV2PausedAt.takeIf { it > 0L } ?: now
     val copy = TimerNotificationCopy.from(config.notificationPresentation)
     val program = config.timerV2Program
-    val event = program?.let { TimerV2Timeline.next(it, config.timerV2Anchor, now, config.timerV2StartedAt, config.timerV2EndsAt) }
-    val notificationContext = program?.let { TimerV2Timeline.notificationContext(it, config.timerV2Anchor, now) }
+    val event = program?.let { TimerV2Timeline.next(it, config.timerV2Anchor, effectiveNow, config.timerV2StartedAt, config.timerV2EndsAt) }
+    val notificationContext = program?.let { TimerV2Timeline.notificationContext(it, config.timerV2Anchor, effectiveNow) }
     val completedProgram = config.timerV2Program != null && event == null
     val next = event?.at ?: if (completedProgram) 0L else TimerMath.nextTick(now, config.mainMs, config.phase)
     val activeNow = ActiveHours.isActive(config, now)
@@ -145,6 +147,7 @@ object TimerNotifications {
       else -> 0L
     }
     val content = when {
+      config.timerV2PausedAt > 0L -> "Paused · ${event?.let { TimerCountdownText.forProgram("", false, it.at, 0L, false, effectiveNow) } ?: "--:--"} to next cue"
       completedProgram -> copy.sessionEnds(formatTime(config.timerV2EndsAt.takeIf { it > 0L } ?: now))
       event?.completesRun == true -> copy.sessionEnds(formatTime(next))
       endsBeforeResume -> copy.sessionEnds(formatTime(config.timerV2EndsAt))
@@ -167,7 +170,7 @@ object TimerNotifications {
       Intent(context, TimerEventReceiver::class.java).setAction(TimerEventReceiver.ACTION_STOP),
       PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
-    val expandedContent = if (config.timerV2EndsAt > now && event?.completesRun != true) "$content\n${copy.sessionEnds(formatTime(config.timerV2EndsAt))}" else content
+    val expandedContent = if (config.timerV2PausedAt == 0L && config.timerV2EndsAt > now && event?.completesRun != true) "$content\n${copy.sessionEnds(formatTime(config.timerV2EndsAt))}" else content
     val builder = NotificationCompat.Builder(context, RUNNING_CHANNEL)
         .setContentTitle(title)
         .setContentText(content)
@@ -181,7 +184,7 @@ object TimerNotifications {
         .setCategory(NotificationCompat.CATEGORY_STOPWATCH)
         .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
         .setPriority(NotificationCompat.PRIORITY_LOW)
-    if (config.liveCountdownEnabled && countdownAt > now) {
+    if (config.liveCountdownEnabled && config.timerV2PausedAt == 0L && countdownAt > now) {
       val compactCountdown = compactStatus(config, now)
       builder
         .setWhen(countdownAt)
@@ -305,7 +308,7 @@ internal object TimerCountdownText {
     return if (hours > 0L) {
       "$hours:${minutes.twoDigits()}:${seconds.twoDigits()}"
     } else if (compactMinutes) {
-      "$minutes:${seconds.twoDigits()}"
+      "${minutes.twoDigits()}:${seconds.twoDigits()}"
     } else {
       "${minutes.twoDigits()}:${seconds.twoDigits()}"
     }
@@ -322,7 +325,7 @@ internal object TimerCountdownText {
 
   private fun formatFinal(remainingMs: Long): String {
     val seconds = ceilUnits(remainingMs, SECOND_MS)
-    return if (seconds < 60L) "${seconds}s" else "${ceilUnits(remainingMs, MINUTE_MS)}m"
+    return if (seconds < 60L) "${seconds}s" else "${seconds / 60L}m"
   }
 
   private fun ceilUnits(value: Long, unit: Long): Long = ((value - 1L) / unit) + 1L

@@ -9,6 +9,43 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TimerV2TimelineTest {
+  @Test fun randomTrackTimingMatchesJavaScriptAndSurvivesRepeatedQueries() {
+    val root = JSONObject(fixtures.getJSONObject("patternCollision").getJSONObject("program").toString())
+    root.put("mainMinutes", 5)
+    val track = JSONObject(root.getJSONArray("tracks").getJSONObject(0).toString())
+      .put("id", "random-track")
+      .put("selectedOffsetsMinutes", org.json.JSONArray())
+      .put("repeatEnabled", false)
+      .put("randomRepeat", JSONObject().put("minSeconds", 10).put("maxSeconds", 60))
+    root.put("tracks", org.json.JSONArray().put(track))
+    val program = root.toString()
+    assertTrue(TimerV2Timeline.isValid(program))
+    assertEquals(48_000L, TimerV2Timeline.next(program, 1_000L, 1_000L)?.at)
+    assertEquals(48_000L, TimerV2Timeline.next(program, 1_000L, 1_000L)?.at)
+  }
+
+  @Test fun cueAcceptsMoreThanEightDistinctSounds() {
+    val root = JSONObject(fixtures.getJSONObject("patternCollision").getJSONObject("program").toString())
+    val sounds = org.json.JSONArray()
+    listOf("temple-gong", "clear-bell", "bloom", "boxing-bell", "bubble", "champagne", "cymbal", "handpan", "heartbeat", "ice").forEach { id ->
+      sounds.put(JSONObject().put("kind", "builtin").put("id", id))
+    }
+    root.getJSONObject("mainCue").put("sounds", sounds).put("soundMode", "sequence")
+    assertTrue(TimerV2Timeline.isValid(root.toString()))
+  }
+
+  @Test fun sequenceSkipKeepsBoundedRoundDeadlinesConsistent() {
+    val root = JSONObject(fixtures.getJSONObject("sequence").getJSONObject("program").toString())
+    val steps = root.getJSONArray("steps")
+    root.put("steps", org.json.JSONArray().put(steps.getJSONObject(0).put("durationMinutes", 1)).put(steps.getJSONObject(1).put("durationMinutes", 1)))
+    root.put("runPolicy", JSONObject().put("kind", "cycles").put("cycleCount", 2).put("durationSeconds", 120))
+    val program = root.toString()
+    assertEquals(241_000L, TimerV2Timeline.runEndAt(program, 1_000L, 1_000L))
+    assertEquals(TimerV2SkipTarget(-29_000L, -29_000L, 211_000L, false), TimerV2Timeline.skipSequenceTarget(program, 1_000L, 91_000L, 1_000L, 241_000L, 1))
+    assertEquals(null, TimerV2Timeline.skipSequenceTarget(program, 1_000L, 1_000L, 1_000L, 241_000L, -1))
+    assertEquals(TimerV2SkipTarget(71_000L, 71_000L, 311_000L, false), TimerV2Timeline.skipSequenceTarget(program, 1_000L, 131_000L, 1_000L, 241_000L, -1))
+    assertEquals(true, TimerV2Timeline.skipSequenceTarget(program, 1_000L, 211_000L, 1_000L, 241_000L, 1)?.completesRun)
+  }
   private val fixtures: JSONObject by lazy {
     val stream = requireNotNull(javaClass.getResourceAsStream("/timer-v2-timeline.json"))
     JSONObject(stream.use { String(it.readBytes(), StandardCharsets.UTF_8) })
@@ -97,6 +134,15 @@ class TimerV2TimelineTest {
     assertTrue(TimerV2Timeline.isValid(sequence.toString()))
     assertEquals(21_000L, requireNotNull(TimerV2Timeline.next(sequence.toString(), 1_000L, 1_000L)).at)
     assertEquals(31_000L, requireNotNull(TimerV2Timeline.next(sequence.toString(), 1_000L, 21_000L)).at)
+  }
+
+  @Test fun oneSecondDurationsRemainValidAndScheduleAtOneSecond() {
+    val pattern = JSONObject(fixtures.getJSONObject("patternCollision").getJSONObject("program").toString())
+      .put("mainMinutes", 1)
+      .put("mainDurationSeconds", 1)
+      .put("tracks", org.json.JSONArray())
+    assertTrue(TimerV2Timeline.isValid(pattern.toString()))
+    assertEquals(2_000L, requireNotNull(TimerV2Timeline.next(pattern.toString(), 1_000L, 1_000L)).at)
   }
 
   @Test fun exactSecondSubBellCadenceDrivesOffsetsAndCollisionPriority() {

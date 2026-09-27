@@ -7,7 +7,7 @@ import type { TimerProgram } from '../../../types'
 import type { TimelinePosition } from '../../../lib/timeline'
 import { cueSegmentProgress } from '../../../lib/timeline'
 import { subBellColorValue } from '../../../lib/subBellColors'
-import { patternDurationSeconds, trackSelectedOffsetsSeconds } from '../../../lib/timerV2'
+import { patternDurationSeconds, trackEventOffsetsSeconds } from '../../../lib/timerV2'
 import { useTheme } from '../../../theme/ThemeContext'
 
 export interface TimerWatchfaceModel {
@@ -81,15 +81,15 @@ export function TimerWatchfaceRings({ size, progress, position, program, muted, 
     if (program.mode === 'sequence') return [{ progress: position?.stepProgress ?? progress, stroke: tokens.accent, background: tokens.surfaceHi, backgroundOpacity: 1 }]
     const mainSeconds = patternDurationSeconds(program)
     const elapsedSeconds = Math.max(0, Math.min(mainSeconds, progress * mainSeconds))
-    const activeTracks = (program.subBellsEnabled ? program.tracks : []).filter(track => track.enabled && track.showOnWatchFace !== false && trackSelectedOffsetsSeconds(track).length > 0)
+    const activeTracks = (program.subBellsEnabled ? program.tracks : []).filter(track => track.enabled && track.showOnWatchFace !== false && trackEventOffsetsSeconds(track, mainSeconds, position?.cycleIndex ?? 0, position?.anchor ?? 0).length > 0)
     return [
       { progress, stroke: tokens.accent, background: tokens.surfaceHi, backgroundOpacity: 1 },
       ...activeTracks.map((track, index) => {
         const stroke = subBellColorValue(track.color, index, theme === 'eink')
-        return { progress: cueSegmentProgress(trackSelectedOffsetsSeconds(track), mainSeconds, elapsedSeconds), stroke, background: stroke, backgroundOpacity: 0.17 }
+        return { progress: cueSegmentProgress(trackEventOffsetsSeconds(track, mainSeconds, position?.cycleIndex ?? 0, position?.anchor ?? 0), mainSeconds, elapsedSeconds), stroke, background: stroke, backgroundOpacity: 0.17 }
       }),
     ]
-  }, [position?.stepProgress, program, progress, theme, tokens.accent, tokens.surfaceHi])
+  }, [position?.stepProgress, position?.cycleIndex, position?.anchor, program, progress, theme, tokens.accent, tokens.surfaceHi])
   return <View style={StyleSheet.absoluteFill}>
     {theme !== 'eink' ? <RNAnimated.View style={[styles.flash, { width: size, height: size, borderRadius: size / 2, backgroundColor: tokens.accent, opacity: flash, pointerEvents: 'none' }]} /> : null}
     <Svg width={size} height={size} viewBox="0 0 200 200" style={styles.svg}>

@@ -36,13 +36,17 @@ internal object FloatingTimerActions {
     if (current == null || TimerStateStore.isRinging(context)) return result(context, false, "inactive")
     val accepted = when (action) {
       "restart" -> reanchor(context, current, align = false)
+      "pause" -> TimerScheduler.setPaused(context, true)
+      "resume" -> TimerScheduler.setPaused(context, false)
+      "next-step" -> TimerScheduler.skipSequence(context, 1)
+      "previous-step" -> TimerScheduler.skipSequence(context, -1)
       "toggle-clock" -> reanchor(context, current, align = !TimerV2Timeline.isLocalClock(current.timerV2Program ?: ""))
       "alarm", "alarm-single" -> alarm(context, current, false)
       "alarm-double" -> alarm(context, current, true)
       "mute" -> { TimerScheduler.muteForIterations(context, 1); true }
       "clear-mute" -> { TimerScheduler.clearMute(context); true }
       "stop" -> { TimerScheduler.stop(context); TimerStateStore.load(context) == null }
-      else -> false
+      else -> if (action.startsWith("toggle-step-alarm:")) toggleStepAlarm(context, current, action.removePrefix("toggle-step-alarm:")) else false
     }
     FloatingTimerOverlay.reconcile(context)
     FloatingTimerOverlay.emitSnapshot(context)
@@ -82,6 +86,18 @@ internal object FloatingTimerActions {
     return saved.alarmModeEnabled == (next == "locked") && TimerStateStore.getControlState(context).alarmOnceArmed == (next == "once")
   }
 
+  private fun toggleStepAlarm(context: Context, config: TimerConfig, stepId: String): Boolean {
+    val serialized = config.timerV2Program ?: return false
+    val root = runCatching { JSONObject(serialized) }.getOrNull() ?: return false
+    if (root.optString("mode") != "sequence") return false
+    val steps = root.optJSONArray("steps") ?: return false
+    val step = (0 until steps.length()).mapNotNull { steps.optJSONObject(it) }.firstOrNull { it.optString("id") == stepId } ?: return false
+    step.put("alarmEnabled", !step.optBoolean("alarmEnabled", false))
+    val updated = root.toString().takeIf { it.length <= NativeTimerContract.MAX_PROGRAM_CHARACTERS && TimerV2Timeline.isValid(it) } ?: return false
+    TimerScheduler.update(context, config.copy(timerV2Program = updated))
+    return TimerStateStore.load(context)?.timerV2Program == updated
+  }
+
   private fun reanchor(context: Context, config: TimerConfig, align: Boolean): Boolean {
     val serialized = config.timerV2Program ?: return false
     val root = runCatching { JSONObject(serialized) }.getOrNull() ?: return false
@@ -107,6 +123,8 @@ internal object FloatingTimerActions {
       timerV2Anchor = anchor,
       timerV2StartedAt = now,
       timerV2EndsAt = endsAt,
+      timerV2PausedAt = 0L,
+      timerV2ClockRejoinAt = 0L,
     )
     val preserved = controls.copy(mutedIterationsRemaining = 0, mutedIterationEndId = null, mutedIterationEndAt = 0L)
     return TimerScheduler.start(context, replacement, preserved)

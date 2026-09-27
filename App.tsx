@@ -2,7 +2,7 @@ import { useAppReducedMotion } from './src/theme/ThemeContext'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { StatusBar } from 'expo-status-bar'
 import * as Updates from 'expo-updates'
-import { Alert, AppState as NativeAppState, Linking, PermissionsAndroid, Platform, View } from 'react-native'
+import { AppState as NativeAppState, Linking, PermissionsAndroid, Platform, View } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { useFonts, JetBrainsMono_300Light, JetBrainsMono_400Regular } from '@expo-google-fonts/jetbrains-mono'
@@ -22,6 +22,7 @@ import { ChandasTimerService, isNativeServiceAvailable, type NativeFocusState } 
 import { AppLoadingScreen, type AppNotice } from './src/components/timer-v2/experience-feedback'
 import { FeedbackLayerProvider, RootFeedbackOverlay } from './src/components/timer-v2/feedback-layer'
 import { AppErrorBoundary } from './src/components/timer-v2/app-error-boundary'
+import { ConfirmationProvider, useConfirmation } from './src/components/timer-v2/ConfirmationDialog'
 import { clockOffsetLabel } from './src/lib/clockAlignment'
 
 const FALLBACK_PROGRAM = {
@@ -81,6 +82,7 @@ function settingsFromNative(current: AppTimerSettings, native: ReturnType<typeof
 
 function Root() {
   const { tokens, theme } = useTheme()
+  const confirm = useConfirmation()
   const reducedMotion = useAppReducedMotion()
   const updateState = Updates.useUpdates()
   const [timerState, setTimerState] = useState<TimerV2State | null>(null)
@@ -268,6 +270,7 @@ function Root() {
             anchor: native.timerV2Anchor,
             startedAt: native.timerV2StartedAt ?? native.timerV2Anchor,
             ...(native.timerV2EndsAt && native.timerV2EndsAt > 0 ? { endsAt: native.timerV2EndsAt } : {}),
+            ...(native.timerV2PausedAt && native.timerV2PausedAt > 0 ? { pausedAt: native.timerV2PausedAt } : {}),
             program: nativeProgram,
             mute: native.mutedIterationEndId && native.mutedIterationEndAt
               ? { mutedUntil: native.mutedUntil ?? 0, iteration: { endsAtLogicalId: native.mutedIterationEndId, endsAt: native.mutedIterationEndAt, iterations: Math.max(1, native.mutedIterationsRemaining ?? 1) } }
@@ -575,13 +578,7 @@ function Root() {
     if (!preset) return false
     if (timerState.workingPrograms.sourcePreset?.id === preset.id && !hasUnsavedProgramChanges(timerState)) return true
     if (hasUnsavedProgramChanges(timerState)) {
-      const proceed = await new Promise<boolean>(resolve => {
-        if (Platform.OS === 'web') { resolve(globalThis.confirm?.('Switch configurations and discard the unsaved changes to the current setup?') ?? false); return }
-        Alert.alert('Discard unsaved changes?', 'Switching configurations will replace the changes in the current setup.', [
-          { text: 'Keep editing', style: 'cancel', onPress: () => resolve(false) },
-          { text: 'Discard and switch', style: 'destructive', onPress: () => resolve(true) },
-        ], { cancelable: true, onDismiss: () => resolve(false) })
-      })
+      const proceed = await confirm({ title: 'Discard unsaved changes?', message: 'Switching configurations will replace the changes in the current setup.', cancelLabel: 'Keep editing', confirmLabel: 'Discard and switch', destructive: true })
       if (!proceed) return false
     }
     realigningRef.current = true
@@ -628,6 +625,13 @@ function Root() {
     }
   }
 
+  const toggleCurrentStepAlarm = () => {
+    if (!timerState || program?.mode !== 'sequence' || !timer.position) return
+    const step = program.steps[timer.position.currentStepIndex ?? 0]
+    if (!step) return
+    changeTimerState(patchSequenceStep(timerState, step.id, { alarmEnabled: step.alarmEnabled === true ? undefined : true }))
+  }
+
   if (!ready || !timerState || !program) return <AppLoadingScreen backgroundColor={tokens.bg} accentColor={tokens.accent} textColor={tokens.text} />
 
   return (
@@ -640,7 +644,7 @@ function Root() {
           accessibilityElementsHidden={timer.isAlarmRinging}
         >
           <Reanimated.View key={appState} style={{ flex: 1 }} entering={reducedMotion ? undefined : FadeIn.duration(220)} exiting={reducedMotion ? undefined : FadeOut.duration(150)}>
-            {appState === 'config' ? <TimerV2ConfigScreen state={timerState} onChange={changeTimerState} onStart={start} starting={starting} focusState={focusState} onFocusAutomationChange={setFocusAutomation} onOpenFocusSettings={openNotificationPolicySettings} onOpenFocusRuleSettings={openFocusRuleSettings} androidAccess={androidAccess} onOpenExactAlarmSettings={openExactAlarmSettings} onOpenFullScreenIntentSettings={openFullScreenIntentSettings} onRequestCallMuteAccess={() => void requestCallMuteAccess()} onRequestNotificationAccess={() => void requestNotificationAccess()} onFeedback={showNotice} /> : <TimerV2RunningScreen program={program} configurationName={timerState.workingPrograms.sourcePreset?.name} mainCountdown={timer.mainCountdown} nextCueCountdown={timer.nextCueCountdown} nextCueLabel={timer.nextCueLabel} progress={timer.progress} position={timer.position} eventPulse={timer.eventPulse} activeHoursPaused={timer.activeHoursPaused} activeHoursResumeAt={timer.activeHoursResumeAt} nextAudibleAt={timer.nextAudibleAt} nextAudibleLabel={timer.nextAudibleLabel} runEndsAt={timer.runEndsAt} runRemainingMs={timer.runRemainingMs} runProgress={timer.runProgress} mute={timer.mute} alarmBehavior={timer.alarmBehavior} realigning={realigning} onStop={stop} onRestartUnsynced={() => reanchor(false)} onSnapToClock={offset => reanchor(true, offset)} onPressAlarm={pressAlarm} onMuteForIterations={timer.muteForIterations} onMuteForSeconds={timer.muteForSeconds} onClearMute={timer.clearMute} secondPrecision={timerState.settings.secondPrecisionEnabled} masterVolume={timerState.settings.masterVolume} onMasterVolumeChange={masterVolume => changeTimerState({ ...timerState, settings: { ...timerState.settings, masterVolume } })} onCueVolumeChange={changeCueVolume} showAdvancedControls={timerState.settings.advancedModeEnabled} onShowAdvancedControls={() => changeTimerState({ ...timerState, settings: { ...timerState.settings, advancedModeEnabled: true } })} focusEnabled={timerState.settings.focusAutomationEnabled} focusActive={focusState.actual === 'active' && !timer.activeHoursPaused} focusPolicyAccess={focusState.policyAccess} focusReason={focusState.reason} onToggleFocus={focusState.reason === 'paused-by-android' ? resumeFocusAutomation : () => setFocusAutomation(!timerState.settings.focusAutomationEnabled)} onOpenFocusSettings={focusState.reason === 'rule-disabled' ? openFocusRuleSettings : openNotificationPolicySettings} configurations={timerState.presets.filter(preset => preset.showInRunningSelector !== false)} activeConfigurationId={hasUnsavedProgramChanges(timerState) ? undefined : timerState.workingPrograms.sourcePreset?.id} onSelectConfiguration={switchRunningConfiguration} externalPanel={floatingTimerPanel} onExternalPanelConsumed={() => setFloatingTimerPanel(null)} />}
+            {appState === 'config' ? <TimerV2ConfigScreen state={timerState} onChange={changeTimerState} onStart={start} starting={starting} focusState={focusState} onFocusAutomationChange={setFocusAutomation} onOpenFocusSettings={openNotificationPolicySettings} onOpenFocusRuleSettings={openFocusRuleSettings} androidAccess={androidAccess} onOpenExactAlarmSettings={openExactAlarmSettings} onOpenFullScreenIntentSettings={openFullScreenIntentSettings} onRequestCallMuteAccess={() => void requestCallMuteAccess()} onRequestNotificationAccess={() => void requestNotificationAccess()} onFeedback={showNotice} /> : <TimerV2RunningScreen program={program} configurationName={timerState.workingPrograms.sourcePreset?.name} mainCountdown={timer.mainCountdown} nextCueCountdown={timer.nextCueCountdown} nextCueLabel={timer.nextCueLabel} progress={timer.progress} position={timer.position} eventPulse={timer.eventPulse} activeHoursPaused={timer.activeHoursPaused} activeHoursResumeAt={timer.activeHoursResumeAt} nextAudibleAt={timer.nextAudibleAt} nextAudibleLabel={timer.nextAudibleLabel} runEndsAt={timer.runEndsAt} runRemainingMs={timer.runRemainingMs} runProgress={timer.runProgress} mute={timer.mute} alarmBehavior={timer.alarmBehavior} realigning={realigning} isPaused={timer.isPaused} onSetPaused={timer.setPaused} onSkipStep={timer.skipSequenceStep} onStop={stop} onRestartUnsynced={() => reanchor(false)} onSnapToClock={offset => reanchor(true, offset)} onPressAlarm={pressAlarm} onToggleCurrentStepAlarm={toggleCurrentStepAlarm} onMuteForIterations={timer.muteForIterations} onMuteForSeconds={timer.muteForSeconds} onClearMute={timer.clearMute} secondPrecision={!isNativeServiceAvailable || ChandasTimerService.getCapabilities()?.supportsSecondPrecision === true} masterVolume={timerState.settings.masterVolume} onMasterVolumeChange={masterVolume => changeTimerState({ ...timerState, settings: { ...timerState.settings, masterVolume } })} onCueVolumeChange={changeCueVolume} showAdvancedControls={timerState.settings.advancedModeEnabled} onShowAdvancedControls={() => changeTimerState({ ...timerState, settings: { ...timerState.settings, advancedModeEnabled: true } })} focusEnabled={timerState.settings.focusAutomationEnabled} focusActive={focusState.actual === 'active' && !timer.activeHoursPaused} focusPolicyAccess={focusState.policyAccess} focusReason={focusState.reason} onToggleFocus={focusState.reason === 'paused-by-android' ? resumeFocusAutomation : () => setFocusAutomation(!timerState.settings.focusAutomationEnabled)} onOpenFocusSettings={focusState.reason === 'rule-disabled' ? openFocusRuleSettings : openNotificationPolicySettings} configurations={timerState.presets.filter(preset => preset.showInRunningSelector !== false)} activeConfigurationId={hasUnsavedProgramChanges(timerState) ? undefined : timerState.workingPrograms.sourcePreset?.id} onSelectConfiguration={switchRunningConfiguration} externalPanel={floatingTimerPanel} onExternalPanelConsumed={() => setFloatingTimerPanel(null)} />}
           </Reanimated.View>
         </View>
         {timer.isAlarmRinging && <AlarmRingingScreen onDismiss={timer.dismissAlarm} />}
@@ -652,5 +656,5 @@ function Root() {
 
 export default function App() {
   const [fontsLoaded] = useFonts({ 'JetBrainsMono-Light': JetBrainsMono_300Light, 'JetBrainsMono-Regular': JetBrainsMono_400Regular })
-  return <GestureHandlerRootView style={{ flex: 1 }}><SafeAreaProvider><AppErrorBoundary>{fontsLoaded ? <ThemeProvider><Root /></ThemeProvider> : <AppLoadingScreen backgroundColor="#0b0c10" accentColor="#7c6ff7" textColor="#e8e8f0" message="Preparing Chandas…" />}</AppErrorBoundary></SafeAreaProvider></GestureHandlerRootView>
+  return <GestureHandlerRootView style={{ flex: 1 }}><SafeAreaProvider><AppErrorBoundary>{fontsLoaded ? <ThemeProvider><ConfirmationProvider><Root /></ConfirmationProvider></ThemeProvider> : <AppLoadingScreen backgroundColor="#0b0c10" accentColor="#7c6ff7" textColor="#e8e8f0" message="Preparing Chandas…" />}</AppErrorBoundary></SafeAreaProvider></GestureHandlerRootView>
 }

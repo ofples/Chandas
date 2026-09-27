@@ -1,6 +1,6 @@
 import { useAppReducedMotion } from '../theme/ThemeContext'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import Slider from '@react-native-community/slider'
 import Reanimated, { FadeIn, FadeInDown, FadeOut, LinearTransition, interpolate, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -8,6 +8,7 @@ import type { AppTimerSettings, CueSettings, HapticProfile, PatternTrack, SoundR
 import type { NativeFocusState } from '../native/ChandasTimerService'
 import { Toggle } from '../components/Toggle'
 import { BottomSheet } from '../components/timer-v2/BottomSheet'
+import { useConfirmation, type Confirm } from '../components/timer-v2/ConfirmationDialog'
 import { AddRowButton } from '../components/timer-v2/AddRowButton'
 import { ClockSnapSelector } from '../components/timer-v2/ClockSnapSelector'
 import { DurationSelector } from '../components/timer-v2/DurationSelector'
@@ -55,6 +56,10 @@ const MAIN_PRESETS = [5, 10, 15, 30, 45, 60] as const
 const STEP_PRESETS = [1, 2, 3, 5, 10, 15, 20, 25, 30, 45, 60] as const
 const CADENCE_PRESETS = [1, 2, 3, 5, 10, 15, 20, 30] as const
 const MODE_CHOICES = [{ value: 'pattern', label: 'Cycle' }, { value: 'sequence', label: 'Sequence' }] as const
+
+function supportsSecondPrecision(): boolean {
+  return !isNativeServiceAvailable || ChandasTimerService.getCapabilities()?.supportsSecondPrecision === true
+}
 const ADVANCED_PULL_DISTANCE = 112
 const ADVANCED_REVEAL_THRESHOLD = 0.82
 
@@ -109,7 +114,6 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
   const nativeCapabilities = ChandasTimerService.getCapabilities()
   const alarmSoundSupported = !isNativeServiceAvailable || nativeCapabilities?.supportsAlarmSound === true
   const hapticsSupported = hapticFeedbackAvailable() && (!isNativeServiceAvailable || nativeCapabilities?.supportsHapticProfiles === true)
-  const secondPrecisionSupported = !isNativeServiceAvailable || nativeCapabilities?.supportsSecondPrecision === true
   const subBellSecondPrecisionSupported = !isNativeServiceAvailable || nativeCapabilities?.supportsSubBellSecondPrecision === true
   const programClockAlignmentSupported = !isNativeServiceAvailable || nativeCapabilities?.supportsProgramClockAlignment === true
 
@@ -273,8 +277,6 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
           <ColorSelector label="Appearance" detail="Choose a calm color and canvas." value={accentColor} onChange={setAccentColor} accessibilityLabel="Primary interface color" trailing={<Pressable hitSlop={8} onPress={() => { if (!themeLongPressRef.current) { const next = theme === 'dark' ? 'light' : 'dark'; tapHaptic(); toggleTheme(); onFeedback({ title: `Appearance: ${next === 'light' ? 'Light' : 'Dark'} mode`, tone: 'success' }) } }} onLongPress={() => { themeLongPressRef.current = true; useEinkTheme(); onFeedback({ title: 'Appearance: E-ink mode', tone: 'success' }) }} onPressOut={() => setTimeout(() => { themeLongPressRef.current = false }, 0)} delayLongPress={550} style={({ pressed }) => [styles.roundIcon, { borderColor: tokens.border, backgroundColor: pressed ? tokens.accentGlow : 'transparent', opacity: pressed ? 0.72 : 1 }]} accessibilityRole="button" accessibilityLabel={`Use ${theme === 'dark' ? 'light' : 'dark'} appearance`} accessibilityHint="Long press for e-ink mode"><LightbulbIcon color={tokens.accent} /></Pressable>} />
           <InlineHelp visible={inlineHelpVisible}>Tap the color dot to reveal the palette. The lightbulb switches between light and dark appearance.</InlineHelp>
 
-          {secondPrecisionSupported ? <View style={styles.settingRow}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Second precision</Text><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>{settings.secondPrecisionEnabled ? 'Seconds are available in custom durations.' : 'Keep duration setup minute-first.'}</Text></View><Toggle value={settings.secondPrecisionEnabled} onChange={secondPrecisionEnabled => changeSettings({ secondPrecisionEnabled })} accessibilityLabel="Second precision" /></View> : null}
-          {secondPrecisionSupported ? <InlineHelp visible={inlineHelpVisible}>Turn this on when an interval needs to be set more precisely than whole minutes.</InlineHelp> : null}
 
           {hapticsSupported ? <ActionRow title="Haptics" detail={settings.haptics.enabled ? 'Patterns for timer cues and alarm.' : 'Off · patterns preserved'} onPress={() => setHapticsOpen(true)} accessibilityLabel="Configure haptics" /> : null}
           {hapticsSupported ? <InlineHelp visible={inlineHelpVisible}>Choose how main gongs, sub-bells, and alarms feel, or turn vibration off completely.</InlineHelp> : null}
@@ -299,7 +301,7 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
         </Pressable>
       </View>
 
-      <SubBellFlowSheet visible={subBellsOpen && !soundPickerVisible} state={state} trackId={trackId} secondPrecision={settings.secondPrecisionEnabled && subBellSecondPrecisionSupported} onChange={onChange} onEditTrack={setTrackId} onEditCue={() => { if (trackId) setCueTarget({ kind: 'track', id: trackId }) }} onAdd={addTrack} onBack={() => setTrackId(null)} onClose={() => { setTrackId(null); setSubBellsOpen(false) }} onFeedback={onFeedback} />
+      <SubBellFlowSheet visible={subBellsOpen && !soundPickerVisible} state={state} trackId={trackId} secondPrecision={subBellSecondPrecisionSupported} onChange={onChange} onEditTrack={setTrackId} onEditCue={() => { if (trackId) setCueTarget({ kind: 'track', id: trackId }) }} onAdd={addTrack} onBack={() => setTrackId(null)} onClose={() => { setTrackId(null); setSubBellsOpen(false) }} onFeedback={onFeedback} />
       <MixerSheet visible={mixerOpen && !soundPickerVisible} state={state} onChange={onChange} onEditCue={setCueTarget} onClose={() => setMixerOpen(false)} onFeedback={onFeedback} />
       {cue ? <SoundPickerSheet visible={soundPickerVisible} title={cueTitle} cue={cue} masterVolume={settings.masterVolume} advanced={settings.advancedModeEnabled} onChange={patchCue} onBack={trackId || cueTarget?.kind === 'step' || mixerOpen ? () => setCueTarget(null) : undefined} onClose={() => setCueTarget(null)} onFeedback={onFeedback} /> : null}
       <BottomSheet visible={scheduleOpen} title="Schedule" help="Add one or more weekly time ranges. A continuous timer stays quiet outside them and resumes automatically when the next active range begins." onClose={() => setScheduleOpen(false)}><ScheduleConfig showHeading={false} showEnabledControl={false} value={settings.availability} onChange={availability => changeSettings({ availability })} /></BottomSheet>
@@ -375,10 +377,10 @@ function androidAccessSummary(access: Props['androidAccess']): string {
 function ProgramRunLength({ state, mode, onChange, showHelp }: { state: TimerV2State; mode: 'pattern' | 'sequence'; onChange: (state: TimerV2State) => void; showHelp: boolean }) {
   if (mode === 'pattern') {
     const program = state.workingPrograms.pattern
-    return <View style={styles.section}><RunLengthConfig mode="pattern" value={program.runPolicy} cycleDurationSeconds={patternDurationSeconds(program)} secondPrecision={state.settings.secondPrecisionEnabled} onChange={runPolicy => onChange(updatePattern(state, value => ({ ...value, runPolicy })))} /><InlineHelp visible={showHelp}>Choose Continuous for an open-ended timer, Cycles for a set number of main intervals, or Duration for an exact total time.</InlineHelp></View>
+    return <View style={styles.section}><RunLengthConfig mode="pattern" value={program.runPolicy} cycleDurationSeconds={patternDurationSeconds(program)} secondPrecision={supportsSecondPrecision()} onChange={runPolicy => onChange(updatePattern(state, value => ({ ...value, runPolicy })))} /><InlineHelp visible={showHelp}>Choose Continuous for an open-ended timer, Cycles for a set number of main intervals, or Duration for an exact total time.</InlineHelp></View>
   }
   const program = state.workingPrograms.sequence
-  return <View style={styles.section}><RunLengthConfig mode="sequence" value={program.runPolicy} cycleDurationSeconds={program.steps.reduce((sum, step) => sum + sequenceStepDurationSeconds(step), 0)} secondPrecision={state.settings.secondPrecisionEnabled} onChange={runPolicy => onChange({ ...state, workingPrograms: { ...state.workingPrograms, sequence: { ...program, runPolicy } } })} /><InlineHelp visible={showHelp}>Choose Continuous to repeat until stopped, Cycles for a set number of full rounds, or Duration for an exact total time.</InlineHelp></View>
+  return <View style={styles.section}><RunLengthConfig mode="sequence" value={program.runPolicy} cycleDurationSeconds={program.steps.reduce((sum, step) => sum + sequenceStepDurationSeconds(step), 0)} secondPrecision={supportsSecondPrecision()} onChange={runPolicy => onChange({ ...state, workingPrograms: { ...state.workingPrograms, sequence: { ...program, runPolicy } } })} /><InlineHelp visible={showHelp}>Choose Continuous to repeat until stopped, Cycles for a set number of full rounds, or Duration for an exact total time.</InlineHelp></View>
 }
 
 function UpcomingEventsPreview({ program, settings, now }: { program: TimerProgram; settings: AppTimerSettings; now: number }) {
@@ -440,6 +442,7 @@ function CompletionCueControls({ state, onChange, onEditCue, onFeedback }: { sta
 function PatternEditor({ state, onChange, enhancedClockAlignmentSupported, onOpenSubBells, showHelp, onToggleHelp }: { state: TimerV2State; onChange: (state: TimerV2State) => void; enhancedClockAlignmentSupported: boolean; onOpenSubBells: () => void; showHelp: boolean; onToggleHelp: () => void }) {
   const reducedMotion = useAppReducedMotion()
   const { tokens } = useTheme()
+  const confirm = useConfirmation()
   const program = state.workingPrograms.pattern
   const snapOffset = program.alignment.kind === 'local-clock' ? program.alignment.offsetMinutes : 0
   const activeTracks = program.tracks.filter(track => track.enabled)
@@ -451,14 +454,14 @@ function PatternEditor({ state, onChange, enhancedClockAlignmentSupported, onOpe
       ? updatePattern(next, value => ({ ...value, alignment: { kind: 'elapsed' } }))
       : next
     onChange(compatible)
-  })
+  }, confirm)
   return <>
     <View style={styles.section}>
       <View style={styles.titleWithHelp}><EditableTitle value={program.label} onCommit={label => onChange(updatePattern(state, value => ({ ...value, label, labelIsCustom: true })))} accessibilityLabel="cycle name" />{!showHelp ? <HelpToggleButton active={false} onPress={onToggleHelp} /> : null}</View>
       <InlineHelp visible={showHelp}>The timer counts down, sounds the gong, then starts the next cycle. Tap the name to rename it.</InlineHelp>
       <Text style={[styles.rowTitle, { color: tokens.text }]}>Main interval</Text>
       <InlineHelp visible={showHelp}>Choose how much time passes between main gongs.</InlineHelp>
-      <DurationSelector value={program.mainMinutes} valueSeconds={durationSeconds} secondPrecision={state.settings.secondPrecisionEnabled} presets={MAIN_PRESETS} fadeColor={tokens.bg} onChange={minutes => changeMainMinutes(state, minutes, onChange)} onChangeSeconds={changeDurationSeconds} />
+      <DurationSelector value={program.mainMinutes} valueSeconds={durationSeconds} secondPrecision={supportsSecondPrecision()} presets={MAIN_PRESETS} fadeColor={tokens.bg} onChange={minutes => changeMainMinutes(state, minutes, onChange, confirm)} onChangeSeconds={changeDurationSeconds} />
       <ProgramRunLength state={state} mode="pattern" onChange={onChange} showHelp={showHelp} />
       <View style={styles.settingRow}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Align to clock</Text><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>{clockAlignmentAvailable ? 'Keep intervals on a wall-clock rhythm.' : 'Available in the next app build.'}</Text></View><Toggle disabled={!clockAlignmentAvailable} value={clockAlignmentAvailable && program.alignment.kind === 'local-clock'} onChange={enabled => onChange(updatePattern(state, value => ({ ...value, alignment: enabled ? { kind: 'local-clock', offsetMinutes: 0 } : { kind: 'elapsed' } })))} accessibilityLabel="Align pattern to clock" /></View>
       <InlineHelp visible={showHelp}>Turn this on when you want each cycle to land on familiar clock marks instead of simply starting from now.</InlineHelp>
@@ -486,7 +489,7 @@ function SequenceEditor({ state, onChange, clockAlignmentSupported, soundPickerV
   return <View style={styles.section}>
     <View style={styles.titleWithHelp}><View style={styles.flex}><Text style={[styles.eyebrow, { color: tokens.textMuted }]}>SEQUENCE</Text><Text style={[styles.sectionValue, { color: tokens.text }]}>{formatClockDuration(totalSeconds)}</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{program.steps.length} step{program.steps.length === 1 ? '' : 's'} · repeats</Text></View>{!showHelp ? <HelpToggleButton active={false} onPress={onToggleHelp} /> : null}</View>
     <InlineHelp visible={showHelp}>Steps play in order and then repeat. Tap a step to edit it; hold its dotted handle to change the order.</InlineHelp>
-    <View style={[styles.sortableList, { height: Math.min(360, Math.max(76, program.steps.length * 76)) }]}><Sortable data={rows} enableDynamicHeights estimatedItemHeight={76} useFlatList={false} style={[styles.sortableScroller, { backgroundColor: tokens.bg }]} contentContainerStyle={styles.sortableContent} renderItem={props => <SortableSequenceStepRow {...props} state={state} onEdit={() => setEditingStepId(props.item.id)} onMove={moveStep} onDelete={() => onChange(removeSequenceStep(state, props.item.id))} onReorderingChange={onReorderingChange} />} /></View>
+    <View style={[styles.sortableList, { height: Math.min(360, Math.max(76, program.steps.length * 76)) }]}><Sortable data={rows} enableDynamicHeights estimatedItemHeight={76} useFlatList={false} style={[styles.sortableScroller, { backgroundColor: tokens.bg }]} contentContainerStyle={styles.sortableContent} renderItem={props => <SortableSequenceStepRow key={props.item.id} {...props} state={state} onEdit={() => setEditingStepId(props.item.id)} onMove={moveStep} onDelete={() => onChange(removeSequenceStep(state, props.item.id))} onReorderingChange={onReorderingChange} />} /></View>
     {program.steps.length < 20 ? <AddRowButton onPress={onAdd} title="+ Add step" /> : null}
     <ProgramRunLength state={state} mode="sequence" onChange={onChange} showHelp={showHelp} />
     {clockAlignmentSupported ? <>
@@ -532,7 +535,7 @@ function PatternTrackRow({ state, track, index, onChange, onEdit }: { state: Tim
   const occurrenceCount = validOffsetsForCadenceSeconds(patternDurationSeconds(state.workingPrograms.pattern), trackCadenceSeconds(track)).length
   const fixedCount = Number(typeof track.afterStartSeconds === 'number') + Number(typeof track.beforeEndSeconds === 'number')
   const eventCount = trackEventOffsetsSeconds(track, patternDurationSeconds(state.workingPrograms.pattern)).length
-  const repeatSummary = repeatEnabled ? `Every ${formatCompactDurationSeconds(trackCadenceSeconds(track))}` : 'No repeat'
+  const repeatSummary = `${repeatEnabled ? `Every ${formatCompactDurationSeconds(trackCadenceSeconds(track))}` : 'No fixed repeat'}${track.randomRepeat ? ` · random ${formatCompactDurationSeconds(track.randomRepeat.minSeconds)}–${formatCompactDurationSeconds(track.randomRepeat.maxSeconds)}` : ''}`
   const fixedSummary = fixedCount ? ` · ${fixedCount} fixed` : ''
   return <Reanimated.View entering={reducedMotion ? undefined : FadeInDown.duration(190)} exiting={reducedMotion ? undefined : FadeOut.duration(130)} layout={reducedMotion ? undefined : LinearTransition.duration(160)}>
     <View style={[styles.trackSummary, index > 0 && { borderTopColor: tokens.border, borderTopWidth: theme === 'eink' ? 1 : StyleSheet.hairlineWidth }, { opacity: theme === 'eink' || track.enabled ? 1 : 0.5 }]}>
@@ -584,7 +587,8 @@ function SequenceStepEditorSheet({ visible, state, stepId, onChange, onEditCue, 
   const close = () => { ChandasTimerService.stopSoundPreview(); setPreviewError(null); onClose() }
   return <BottomSheet visible={visible} minHeight={560} eyebrow={`Step ${index + 1} of ${program.steps.length}`} title={<View style={styles.sequenceTitleSlot}><EditableTitle value={step.label} onCommit={label => onChange(patchSequenceStep(state, step.id, { label }))} accessibilityLabel={`Step ${index + 1} name`} large /></View>} accessibilityTitle={step.label} help="Set how long this step lasts, how loudly it plays, and which sound marks its boundary. Tap the title to rename it." onClose={close}>
     {previewError ? <GentleNotice title="Preview stayed quiet" message={previewError} tone="attention" /> : null}
-    <DurationSelector value={step.durationMinutes} valueSeconds={sequenceStepDurationSeconds(step)} secondPrecision={state.settings.secondPrecisionEnabled} presets={STEP_PRESETS} fadeColor={tokens.surface} onChange={durationMinutes => onChange(patchSequenceStep(state, step.id, { durationMinutes }))} onChangeSeconds={durationSeconds => onChange(patchSequenceStep(state, step.id, { durationSeconds }))} />
+    <DurationSelector value={step.durationMinutes} valueSeconds={sequenceStepDurationSeconds(step)} secondPrecision={supportsSecondPrecision()} presets={STEP_PRESETS} fadeColor={tokens.surface} onChange={durationMinutes => onChange(patchSequenceStep(state, step.id, { durationMinutes }))} onChangeSeconds={durationSeconds => onChange(patchSequenceStep(state, step.id, { durationSeconds }))} />
+    <View style={styles.settingRow}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Alarm at step end</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>Keep ringing until dismissed.</Text></View><Toggle value={step.alarmEnabled === true} onChange={alarmEnabled => onChange(patchSequenceStep(state, step.id, { alarmEnabled: alarmEnabled ? true : undefined }))} accessibilityLabel={`Alarm at end of ${step.label}`} /></View>
     <VolumeControl label="Volume" value={step.volume} onChange={volume => onChange(patchSequenceStep(state, step.id, { volume }))} onPreview={() => void preview()} />
     <CueRow title="Sound" detail={soundTitle(step.sound)} sound={step.sound} onPress={() => { ChandasTimerService.stopSoundPreview(); onEditCue() }} />
     {state.settings.advancedModeEnabled ? <CueHaptics cue={step} inherited={state.settings.haptics.main} onChange={hapticOverride => onChange(patchSequenceStep(state, step.id, { hapticOverride }))} /> : null}
@@ -618,6 +622,7 @@ function TrackEditorContent({ state, trackId, secondPrecision, onChange, onEditC
   return <View style={styles.trackEditorContent}>
     <View style={styles.markerRow}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Repeat every</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{repeatEnabled ? formatCompactDurationSeconds(cadenceSeconds) : 'No repeating cue'}</Text></View><Toggle value={repeatEnabled} onChange={enabled => onChange(patchPatternTrack(state, track.id, { repeatEnabled: enabled ? true : false, ...(enabled ? { enabled: true } : {}) }))} accessibilityLabel="Repeat this sub-bell" /></View>
     {repeatEnabled ? <DurationSelector value={track.cadenceMinutes} valueSeconds={cadenceSeconds} secondPrecision={secondPrecision} presets={CADENCE_PRESETS} min={1} max={240} onChange={minutes => onChange(setTrackCadence(state, track.id, minutes))} onChangeSeconds={seconds => onChange(setTrackCadenceSeconds(state, track.id, seconds))} /> : null}
+    {state.settings.advancedModeEnabled ? <View style={styles.markerBlock}><View style={styles.markerRow}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Random repeat</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{track.randomRepeat ? `Every ${formatCompactDurationSeconds(track.randomRepeat.minSeconds)}–${formatCompactDurationSeconds(track.randomRepeat.maxSeconds)}` : 'No random cues'}</Text></View><Toggle value={!!track.randomRepeat} onChange={enabled => onChange(patchPatternTrack(state, track.id, { randomRepeat: enabled ? { minSeconds: 10, maxSeconds: 60 } : undefined, ...(enabled ? { enabled: true } : {}) }))} accessibilityLabel="Repeat this sub-bell at random intervals" /></View>{track.randomRepeat ? <><Text style={[styles.helper, { color: tokens.textMuted }]}>Shortest gap</Text><DurationSelector value={Math.ceil(track.randomRepeat.minSeconds / 60)} valueSeconds={track.randomRepeat.minSeconds} secondPrecision presets={CADENCE_PRESETS} minSeconds={5} maxSeconds={track.randomRepeat.maxSeconds} onChange={minutes => onChange(patchPatternTrack(state, track.id, { randomRepeat: { minSeconds: Math.min(track.randomRepeat!.maxSeconds, minutes * 60), maxSeconds: track.randomRepeat!.maxSeconds } }))} onChangeSeconds={minSeconds => onChange(patchPatternTrack(state, track.id, { randomRepeat: { minSeconds, maxSeconds: track.randomRepeat!.maxSeconds } }))} /><Text style={[styles.helper, { color: tokens.textMuted }]}>Longest gap</Text><DurationSelector value={Math.ceil(track.randomRepeat.maxSeconds / 60)} valueSeconds={track.randomRepeat.maxSeconds} secondPrecision presets={CADENCE_PRESETS} minSeconds={track.randomRepeat.minSeconds} maxSeconds={Math.max(track.randomRepeat.minSeconds, mainDuration - 1)} onChange={minutes => onChange(patchPatternTrack(state, track.id, { randomRepeat: { minSeconds: track.randomRepeat!.minSeconds, maxSeconds: Math.max(track.randomRepeat!.minSeconds, minutes * 60) } }))} onChangeSeconds={maxSeconds => onChange(patchPatternTrack(state, track.id, { randomRepeat: { minSeconds: track.randomRepeat!.minSeconds, maxSeconds } }))} /></> : null}</View> : null}
     <View style={styles.markerBlock}><View style={styles.markerRow}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>After start</Text><Text style={[styles.helper, { color: afterStartInactive ? tokens.warm : tokens.textMuted }]}>{track.afterStartSeconds ? `${formatCompactDurationSeconds(track.afterStartSeconds)}${afterStartInactive ? ' · inactive until shortened' : ''}` : 'No extra cue'}</Text></View><Toggle value={typeof track.afterStartSeconds === 'number'} onChange={enabled => onChange(patchPatternTrack(state, track.id, { afterStartSeconds: enabled ? defaultMarker : undefined, ...(enabled ? { enabled: true } : {}) }))} accessibilityLabel="Cue after the main interval starts" /></View>
       {typeof track.afterStartSeconds === 'number' ? <DurationSelector value={Math.ceil(track.afterStartSeconds / 60)} valueSeconds={track.afterStartSeconds} secondPrecision={secondPrecision} presets={CADENCE_PRESETS} min={1} max={Math.max(1, Math.ceil((mainDuration - 1) / 60))} minSeconds={1} maxSeconds={mainDuration - 1} fadeColor={tokens.surface} onChange={minutes => onChange(patchPatternTrack(state, track.id, { afterStartSeconds: minutes * 60 }))} onChangeSeconds={afterStartSeconds => onChange(patchPatternTrack(state, track.id, { afterStartSeconds }))} /> : null}</View>
     <View style={styles.markerBlock}><View style={styles.markerRow}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Before end</Text><Text style={[styles.helper, { color: beforeEndInactive ? tokens.warm : tokens.textMuted }]}>{track.beforeEndSeconds ? `${formatCompactDurationSeconds(track.beforeEndSeconds)}${beforeEndInactive ? ' · inactive until shortened' : ''}` : 'No extra cue'}</Text></View><Toggle value={typeof track.beforeEndSeconds === 'number'} onChange={enabled => onChange(patchPatternTrack(state, track.id, { beforeEndSeconds: enabled ? defaultMarker : undefined, ...(enabled ? { enabled: true } : {}) }))} accessibilityLabel="Cue before the main interval ends" /></View>
@@ -713,17 +718,17 @@ function cueForTarget(state: TimerV2State, target: CueTarget): CueSettings | nul
   return state.workingPrograms[target.mode].completionCue
 }
 
-function changeMainMinutes(state: TimerV2State, minutes: number, onChange: (state: TimerV2State) => void) {
-  changeMainDurationSeconds(state, minutes * 60, onChange)
+function changeMainMinutes(state: TimerV2State, minutes: number, onChange: (state: TimerV2State) => void, confirm: Confirm) {
+  changeMainDurationSeconds(state, minutes * 60, onChange, confirm)
 }
 
-function changeMainDurationSeconds(state: TimerV2State, seconds: number, onChange: (state: TimerV2State) => void) {
+function changeMainDurationSeconds(state: TimerV2State, seconds: number, onChange: (state: TimerV2State) => void, confirm: Confirm) {
   const nextState = updatePatternMainDurationSeconds(state, seconds)
   const nextByTrack = new Map(nextState.workingPrograms.pattern.tracks.map(track => [track.id, new Set(trackSelectedOffsetsSeconds(track))]))
   const removed = state.workingPrograms.pattern.tracks.reduce((count, track) => count + trackSelectedOffsetsSeconds(track).filter(offset => !nextByTrack.get(track.id)?.has(offset)).length, 0)
   const apply = () => onChange(nextState)
-  if (removed === 0 || Platform.OS === 'web') apply()
-  else Alert.alert('Shorten main interval?', `${removed} selected cue${removed === 1 ? '' : 's'} outside the new interval will be removed.`, [{ text: 'Cancel', style: 'cancel' }, { text: 'Continue', onPress: apply }])
+  if (removed === 0) apply()
+  else void confirm({ title: 'Shorten main interval?', message: `${removed} selected cue${removed === 1 ? '' : 's'} outside the new interval will be removed.`, confirmLabel: 'Continue', destructive: true }).then(accepted => { if (accepted) apply() })
 }
 
 /** A title until tapped, then a focused field; avoids presenting a duplicate form row. */

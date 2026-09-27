@@ -4,6 +4,7 @@ import { patternDurationSeconds, sequenceStepDurationSeconds, trackCadenceSecond
 export interface TimelineCueCandidate {
   cueId: string
   kind: 'pattern-main' | 'pattern-track' | 'sequence-step' | 'run-complete'
+  alarmEnabled?: boolean
   sound: SoundRef
   volume: number
   sounds?: SoundRef[]
@@ -27,6 +28,7 @@ export interface ScheduledProgramEvent {
 
 export interface TimelinePosition {
   mode: TimerMode
+  anchor: number
   cycleIndex: number
   cycleProgress: number
   currentStepIndex?: number
@@ -72,7 +74,7 @@ export function nextPatternEvent(program: PatternProgram, anchor: number, now = 
     }])
     if (program.subBellsEnabled !== false) program.tracks.forEach((track, trackOrder) => {
       if (!track.enabled) return
-      trackEventOffsetsSeconds(track, duration / 1_000).forEach(offsetSeconds => {
+      trackEventOffsetsSeconds(track, duration / 1_000, cycleIndex, anchor).forEach(offsetSeconds => {
         const at = cycleStart + offsetSeconds * 1_000
         if (at >= mainAt) return
         const candidates = candidatesByTime.get(at) ?? []
@@ -120,7 +122,7 @@ export function nextSequenceEvent(program: SequenceProgram, anchor: number, now 
     if (stepIndex >= 0) {
       const step = program.steps[stepIndex]
       const at = cycleStart + offsets[stepIndex]
-      const winner: TimelineCueCandidate = { cueId: step.id, kind: 'sequence-step', sound: step.sound, volume: step.volume, sounds: step.sounds, soundMode: step.soundMode, hapticOverride: step.hapticOverride }
+      const winner: TimelineCueCandidate = { cueId: step.id, kind: 'sequence-step', alarmEnabled: step.alarmEnabled === true, sound: step.sound, volume: step.volume, sounds: step.sounds, soundMode: step.soundMode, hapticOverride: step.hapticOverride }
       return {
         at,
         logicalId: logicalId('sequence', anchor, cycleIndex, `step:${stepIndex}`),
@@ -193,7 +195,7 @@ export function timelinePosition(program: TimerProgram, anchor: number, now = Da
     const duration = patternDurationSeconds(program) * 1_000
     const cycleIndex = cycleIndexAt(now, anchor, duration)
     const cycleStart = anchor + cycleIndex * duration
-    return { mode: 'pattern', cycleIndex, cycleProgress: Math.max(0, Math.min(1, (now - cycleStart) / duration)), nextEvent }
+    return { mode: 'pattern', anchor, cycleIndex, cycleProgress: Math.max(0, Math.min(1, (now - cycleStart) / duration)), nextEvent }
   }
   const offsets = program.steps.reduce<number[]>((values, step) => [...values, (values.at(-1) ?? 0) + sequenceStepDurationSeconds(step) * 1_000], [])
   const total = offsets.at(-1)!
@@ -205,10 +207,41 @@ export function timelinePosition(program: TimerProgram, anchor: number, now = Da
   const stepDuration = offsets[currentStepIndex] - previous
   return {
     mode: 'sequence',
+    anchor,
     cycleIndex,
     cycleProgress: Math.max(0, Math.min(1, elapsed / total)),
     currentStepIndex,
     stepProgress: Math.max(0, Math.min(1, (elapsed - previous) / stepDuration)),
     nextEvent,
+  }
+}
+
+export interface SequenceSkipTarget {
+  anchor: number
+  startedAt: number
+  terminalAt: number | null
+  completesRun: boolean
+}
+
+/** Silently places an adjacent step at its beginning while preserving round count. */
+export function sequenceSkipTarget(program: SequenceProgram, anchor: number, now: number, startedAt: number, terminalAt: number | null, direction: 'next' | 'previous'): SequenceSkipTarget | null {
+  if (program.steps.length < 2) return null
+  const position = timelinePosition(program, anchor, now, startedAt, terminalAt)
+  const index = position.currentStepIndex ?? 0
+  if (direction === 'previous' && index === 0 && position.cycleIndex === 0 && terminalAt !== null) return null
+  if (direction === 'next' && index === program.steps.length - 1 && terminalAt !== null && position.nextEvent?.completesRun) {
+    return { anchor, startedAt, terminalAt, completesRun: true }
+  }
+  const target = (index + (direction === 'next' ? 1 : -1) + program.steps.length) % program.steps.length
+  const targetCycle = direction === 'next' && target === 0 ? position.cycleIndex + 1 : direction === 'previous' && index === 0 && position.cycleIndex > 0 ? position.cycleIndex - 1 : position.cycleIndex
+  const before = program.steps.slice(0, target).reduce((sum, step) => sum + sequenceStepDurationSeconds(step) * 1_000, 0)
+  const nextAnchor = now - targetCycle * programCycleDurationMs(program) - before
+  const delta = nextAnchor - anchor
+  const cycleBounded = program.runPolicy.kind === 'cycles'
+  return {
+    anchor: nextAnchor,
+    startedAt: cycleBounded ? startedAt + delta : startedAt,
+    terminalAt: cycleBounded && terminalAt !== null ? terminalAt + delta : terminalAt,
+    completesRun: false,
   }
 }

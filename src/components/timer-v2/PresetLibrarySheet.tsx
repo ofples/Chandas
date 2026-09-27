@@ -1,6 +1,6 @@
 import { useAppReducedMotion } from '../../theme/ThemeContext'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { successHaptic } from '../../lib/haptics'
 import Animated, { FadeIn, FadeInDown, FadeOut, LinearTransition } from 'react-native-reanimated'
 import type { AppTimerSettings, ProgramPreset, TimerMode, TimerProgram, TimerV2State } from '../../types'
@@ -21,6 +21,7 @@ import { configurationTransferFilename, parseConfigurationTransfer, serializeCon
 import { copyConfigurationText, pickConfigurationText, readConfigurationTextFromClipboard, saveConfigurationFile } from '../../lib/configuration-transfer-io'
 import { PatternTimelinePreview } from './PatternTimelinePreview'
 import { DoubleTapDeleteButton } from './DoubleTapDeleteButton'
+import { useConfirmation } from './ConfirmationDialog'
 
 const FILTERS = [{ value: 'all', label: 'All' }, { value: 'pattern', label: 'Cycle' }, { value: 'sequence', label: 'Sequence' }] as const
 
@@ -34,6 +35,7 @@ interface Props {
 
 export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedback }: Props) {
   const { tokens } = useTheme()
+  const confirm = useConfirmation()
   const reducedMotion = useAppReducedMotion()
   const [name, setName] = useState('')
   const [filter, setFilter] = useState<'all' | TimerMode>('all')
@@ -73,20 +75,13 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedba
     setSelectedId(current => current === preset.id ? null : current)
     onFeedback({ title: 'Configuration removed', message: 'Your current working copy was not changed.', tone: 'info' })
   }
-  const confirmWorkingCopyReplacement = (sourceState: TimerV2State, apply: () => void) => {
+  const confirmWorkingCopyReplacement = async (sourceState: TimerV2State, apply: () => void) => {
     if (!hasUnsavedProgramChanges(sourceState)) {
       apply()
       return
     }
     const message = 'Your current changes have not been saved as a configuration. Load this one anyway?'
-    if (Platform.OS === 'web') {
-      if (globalThis.confirm?.(message)) apply()
-      return
-    }
-    Alert.alert('Discard unsaved changes?', message, [
-      { text: 'Keep editing', style: 'cancel' },
-      { text: 'Load', style: 'destructive', onPress: apply },
-    ])
+    if (await confirm({ title: 'Discard unsaved changes?', message, cancelLabel: 'Keep editing', confirmLabel: 'Load', destructive: true })) apply()
   }
   const load = (preset: ProgramPreset) => {
     const apply = () => {
@@ -95,7 +90,7 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedba
       onClose()
       onFeedback({ title: 'Configuration loaded', message: `“${preset.name}” is ready to adjust.`, tone: 'success' })
     }
-    confirmWorkingCopyReplacement(state, apply)
+    void confirmWorkingCopyReplacement(state, apply)
   }
 
   const applyImportedConfiguration = (result: Extract<ConfigurationTransferResult, { ok: true }>, source: 'clipboard' | 'file') => {
@@ -301,7 +296,6 @@ function PresetSettingsDetails({ settings }: { settings: AppTimerSettings }) {
     ? 'Off'
     : `${activeRanges} active ${activeRanges === 1 ? 'range' : 'ranges'}${quietRanges ? ` · ${quietRanges} quiet ${quietRanges === 1 ? 'range' : 'ranges'}` : ''}`
   const optional = [
-    settings.secondPrecisionEnabled ? 'seconds' : null,
     settings.liveCountdownEnabled ? 'live countdown' : null,
     settings.muteDuringCallsEnabled ? 'mute during calls' : null,
     settings.focusAutomationEnabled ? 'Focus' : null,

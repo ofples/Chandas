@@ -54,6 +54,8 @@ class TimerConfigRecord : Record {
   @Field var timerV2Anchor: Long? = null
   @Field var timerV2StartedAt: Long? = null
   @Field var timerV2EndsAt: Long? = null
+  @Field var timerV2PausedAt: Long? = null
+  @Field var timerV2ClockRejoinAt: Long? = null
   @Field var alarmOnceArmed: Boolean? = null
   @Field var mutedUntil: Long? = null
   @Field var mutedIterationEndId: String? = null
@@ -144,6 +146,10 @@ class ChandasTimerServiceModule : Module() {
         "supportsProgramClockAlignment" to true,
         "supportsProgramSchema3" to true,
         "supportsFloatingOverlay" to (Build.VERSION.SDK_INT >= 26),
+        "supportsRandomRepeat" to true,
+        "supportsStepAlarms" to true,
+        "supportsTransportControls" to true,
+        "supportsUnlimitedSounds" to true,
       )
     }
 
@@ -296,6 +302,8 @@ class ChandasTimerServiceModule : Module() {
           "timerV2Anchor" to config.timerV2Anchor,
           "timerV2StartedAt" to config.timerV2StartedAt,
           "timerV2EndsAt" to config.timerV2EndsAt,
+          "timerV2PausedAt" to config.timerV2PausedAt,
+          "timerV2ClockRejoinAt" to config.timerV2ClockRejoinAt,
           "alarmOnceArmed" to controls.alarmOnceArmed,
           "mutedUntil" to controls.mutedUntil,
           "mutedIterationsRemaining" to controls.mutedIterationsRemaining,
@@ -607,6 +615,8 @@ class ChandasTimerServiceModule : Module() {
       timerV2Anchor = record.timerV2Anchor ?: previous?.timerV2Anchor ?: 0L,
       timerV2StartedAt = record.timerV2StartedAt ?: previous?.timerV2StartedAt ?: record.timerV2Anchor ?: 0L,
       timerV2EndsAt = record.timerV2EndsAt ?: previous?.timerV2EndsAt ?: 0L,
+      timerV2PausedAt = record.timerV2PausedAt ?: previous?.timerV2PausedAt ?: 0L,
+      timerV2ClockRejoinAt = record.timerV2ClockRejoinAt ?: previous?.timerV2ClockRejoinAt ?: 0L,
     )
   }
 

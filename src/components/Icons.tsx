@@ -1,6 +1,15 @@
 // Icons ported 1:1 from legacy-web (inline SVG) using react-native-svg.
 import Svg, { Circle, Line, Path } from 'react-native-svg'
 
+export function TimerTransportIcon({ kind, color }: { kind: 'pause' | 'play' | 'previous' | 'next'; color: string }) {
+  return <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+    {kind === 'pause' ? <><Path d="M6 4h4v16H6z" fill={color} /><Path d="M14 4h4v16h-4z" fill={color} /></> :
+      kind === 'play' ? <Path d="M7 4v16l13-8L7 4z" fill={color} /> :
+      kind === 'previous' ? <><Path d="M8 12 20 4v16L8 12z" fill={color} /><Path d="M4 4v16" stroke={color} strokeWidth={2.5} strokeLinecap="round" /></> :
+      <><Path d="m16 12-12-8v16l12-8z" fill={color} /><Path d="M20 4v16" stroke={color} strokeWidth={2.5} strokeLinecap="round" /></>}
+  </Svg>
+}
+
 export function ThemeIcon({ dark, color }: { dark: boolean; color: string }) {
   if (dark) {
     // Sun icon — tap to go light

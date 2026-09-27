@@ -84,7 +84,7 @@ object FocusModeController {
   /** Applies a real timer, active-hours, or preference transition. */
   fun reconcile(context: Context, config: TimerConfig? = TimerStateStore.load(context), forceApply: Boolean = false) {
     if (config != null) setAutomationEnabled(context, config.focusModeEnabled)
-    val desired = config != null && automationEnabled(context) && ActiveHours.isActive(config)
+    val desired = config != null && config.timerV2PausedAt == 0L && automationEnabled(context) && ActiveHours.isActive(config)
     val previous = requestedActive(context)
 
     cancelActiveHoursEnd(context)

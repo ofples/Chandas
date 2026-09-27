@@ -54,6 +54,8 @@ object TimerStateStore {
       .putLong("timerV2Anchor", config.timerV2Anchor)
       .putLong("timerV2StartedAt", config.timerV2StartedAt)
       .putLong("timerV2EndsAt", config.timerV2EndsAt)
+      .putLong("timerV2PausedAt", config.timerV2PausedAt)
+      .putLong("timerV2ClockRejoinAt", config.timerV2ClockRejoinAt)
       .putLong(WALL_CLOCK_SAMPLE, System.currentTimeMillis())
       .putLong(ELAPSED_CLOCK_SAMPLE, SystemClock.elapsedRealtime())
       .commit()
@@ -108,6 +110,8 @@ object TimerStateStore {
       timerV2Anchor = prefs.getLong("timerV2Anchor", 0L),
       timerV2StartedAt = prefs.getLong("timerV2StartedAt", prefs.getLong("timerV2Anchor", 0L)),
       timerV2EndsAt = prefs.getLong("timerV2EndsAt", 0L),
+      timerV2PausedAt = prefs.getLong("timerV2PausedAt", 0L),
+      timerV2ClockRejoinAt = prefs.getLong("timerV2ClockRejoinAt", 0L),
     )
   }
 
@@ -215,7 +219,7 @@ object TimerStateStore {
     return now - (oldWall + elapsed - oldElapsed)
   }
 
-  fun getControlState(context: Context, now: Long = System.currentTimeMillis()): TimerControlState {
+  fun getControlState(context: Context, now: Long = load(context)?.timerV2PausedAt?.takeIf { it > 0L } ?: System.currentTimeMillis()): TimerControlState {
     val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     var mutedUntil = prefs.getLong(MUTED_UNTIL, 0L)
     if (mutedUntil in 1..now) {

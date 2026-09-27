@@ -23,7 +23,7 @@ interface Props {
   fadeColor?: string
 }
 
-export function DurationSelector({ value, valueSeconds, secondPrecision = false, presets, onChange, onChangeSeconds, label, min = 1, max = 240, minSeconds = min * 60, maxSeconds = max * 60, compact = false, fadeColor }: Props) {
+export function DurationSelector({ value, valueSeconds, secondPrecision = false, presets, onChange, onChangeSeconds, label, min = 1, max = 240, minSeconds = secondPrecision ? 1 : min * 60, maxSeconds = max * 60, compact = false, fadeColor }: Props) {
   const { tokens } = useTheme()
   const [customOpen, setCustomOpen] = useState(false)
   const exactSeconds = valueSeconds ?? value * 60

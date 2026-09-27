@@ -14,8 +14,15 @@ class TimerCountdownTextTest {
 
   @Test fun combinesClockCurrentAndCeilingMinuteFinalCountdowns() {
     assertEquals(
-      "1:12·5m",
+      "01:12·4m",
       TimerCountdownText.compact(currentAt = 72_000L, finalAt = 241_000L, currentIsFinal = false, now = 0L),
+    )
+  }
+
+  @Test fun matchesWidgetStyleForNextBellAndCurrentCycleEnd() {
+    assertEquals(
+      "05:32·14m",
+      TimerCountdownText.compact(currentAt = 332_000L, finalAt = 899_000L, currentIsFinal = false, now = 0L),
     )
   }
 

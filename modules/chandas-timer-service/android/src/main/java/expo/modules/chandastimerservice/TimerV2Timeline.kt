@@ -17,6 +17,7 @@ data class TimerV2Event(
 )
 
 data class TimerV2IterationEnd(val logicalId: String, val at: Long)
+data class TimerV2SkipTarget(val anchor: Long, val startedAt: Long, val endsAt: Long, val completesRun: Boolean)
 
 enum class TimerV2Boundary(val value: String) {
   PATTERN_MAIN("pattern-main"),
@@ -29,6 +30,7 @@ enum class TimerV2Boundary(val value: String) {
 data class TimerV2Candidate(
   val cueId: String,
   val kind: String,
+  val alarmEnabled: Boolean = false,
   val soundId: String,
   val volume: Float,
   /** False delivers the cue through haptics only, retaining its selected sound. */
@@ -165,6 +167,36 @@ object TimerV2Timeline {
     cycleDuration(root).takeIf { it > 0L }
   }.getOrNull()
 
+  /** Native mirror of sequenceSkipTarget; the caller commits this as one transaction. */
+  fun skipSequenceTarget(serialized: String, anchor: Long, now: Long, startedAt: Long, endsAt: Long, direction: Int): TimerV2SkipTarget? = runCatching {
+    val root = JSONObject(serialized)
+    if (root.optString("mode") != "sequence") return@runCatching null
+    val steps = root.optJSONArray("steps") ?: return@runCatching null
+    if (steps.length() < 2 || direction == 0) return@runCatching null
+    val offsets = mutableListOf<Long>()
+    var total = 0L
+    for (index in 0 until steps.length()) {
+      val step = steps.optJSONObject(index) ?: return@runCatching null
+      total += if (step.has("durationSeconds")) step.optLong("durationSeconds") * 1_000L else step.optLong("durationMinutes") * 60_000L
+      offsets.add(total)
+    }
+    if (total <= 0L) return@runCatching null
+    val position = Math.floorMod(now - anchor, total)
+    val index = offsets.indexOfFirst { position < it }.takeIf { it >= 0 } ?: return@runCatching null
+    val cycle = Math.floorDiv(now - anchor, total)
+    if (direction < 0 && index == 0 && cycle == 0L && endsAt > 0L) return@runCatching null
+    if (direction > 0 && index == steps.length() - 1 && endsAt > 0L && next(serialized, anchor, now, startedAt, endsAt)?.completesRun == true) {
+      return@runCatching TimerV2SkipTarget(anchor, startedAt, endsAt, true)
+    }
+    val target = Math.floorMod(index + if (direction > 0) 1 else -1, steps.length())
+    val targetCycle = if (direction > 0 && target == 0) cycle + 1L else if (direction < 0 && index == 0 && cycle > 0L) cycle - 1L else cycle
+    val before = if (target == 0) 0L else offsets[target - 1]
+    val nextAnchor = now - targetCycle * total - before
+    val delta = nextAnchor - anchor
+    val cycleBounded = root.optJSONObject("runPolicy")?.optString("kind") == "cycles"
+    TimerV2SkipTarget(nextAnchor, if (cycleBounded) startedAt + delta else startedAt, if (cycleBounded && endsAt > 0L) endsAt + delta else endsAt, false)
+  }.getOrNull()
+
   private fun cycleDuration(root: JSONObject): Long = when (root.optString("mode")) {
     "pattern" -> patternDuration(root)
     "sequence" -> root.optJSONArray("steps")?.let(::sequenceDuration) ?: 0L
@@ -267,6 +299,20 @@ object TimerV2Timeline {
         }
         track.optLong("afterStartSeconds", -1L).takeIf { it > 0L && it * 1_000L < duration }?.let(selected::add)
         track.optLong("beforeEndSeconds", -1L).takeIf { it > 0L && it * 1_000L < duration }?.let { selected.add(duration / 1_000L - it) }
+        track.optJSONObject("randomRepeat")?.let { range ->
+          val minimum = range.optLong("minSeconds", 10L)
+          val maximum = range.optLong("maxSeconds", 60L)
+          var seed = (anchor.toInt() xor cycle.toInt())
+          for (character in track.optString("id")) seed = seed * 31 + character.code
+          var offset = 0L
+          var count = 0
+          while (offset < duration / 1_000L && count < 4_096) {
+            seed = seed * 1_664_525 + 1_013_904_223
+            offset += minimum + ((seed.toLong() and 0xffff_ffffL) % (maximum - minimum + 1L))
+            if (offset * 1_000L < duration) selected.add(offset)
+            count++
+          }
+        }
         val priorityCadence = if (track.optBoolean("repeatEnabled", true)) cadenceSeconds else 0L
         selected.forEach { offsetSeconds ->
           candidates.getOrPut(start + offsetSeconds * 1_000L) { mutableListOf() }.add(Candidate(track.optString("id", "track:$trackIndex"), "pattern-track", false, trackIndex, priorityCadence, track))
@@ -374,6 +420,7 @@ object TimerV2Timeline {
     return TimerV2Candidate(
       cueId = cueId,
       kind = kind,
+      alarmEnabled = kind == "sequence-step" && cue?.optBoolean("alarmEnabled", false) == true,
       soundId = sounds.first(),
       volume = cueVolume(cue),
       soundEnabled = soundEnabled,
@@ -468,6 +515,12 @@ object TimerV2Timeline {
       // rejecting the whole program would make an unrelated edit unstartable.
       if (track.has("afterStartSeconds") && afterStart < 1L) return false
       if (track.has("beforeEndSeconds") && beforeEnd < 1L) return false
+      track.optJSONObject("randomRepeat")?.let { range ->
+        val minimum = range.optLong("minSeconds", -1L)
+        val maximum = range.optLong("maxSeconds", -1L)
+        if (minimum !in 5L..MAX_DURATION_SECONDS || maximum !in minimum..MAX_DURATION_SECONDS) return false
+      }
+      if (track.has("randomRepeat") && track.optJSONObject("randomRepeat") == null) return false
     }
     return validAlignment(root, required = true) && validRunPolicy(root)
   }
@@ -526,7 +579,7 @@ object TimerV2Timeline {
     if (!primaryValid) return false
     if (cue.has("sounds")) {
       val sounds = cue.optJSONArray("sounds") ?: return false
-      if (sounds.length() !in 1..8) return false
+      if (sounds.length() < 1) return false
       val seen = mutableSetOf<String>()
       for (index in 0 until sounds.length()) {
         val value = cueSoundFromRef(sounds.optJSONObject(index)) ?: return false

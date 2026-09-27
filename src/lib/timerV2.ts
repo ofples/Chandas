@@ -271,10 +271,16 @@ export function defaultTimerV2State(): TimerV2State {
 export function normalizeCue(value: Partial<CueSettings> | undefined, fallback: CueSettings): CueSettings {
   const legacyValue = value as (Partial<CueSettings> & { soundEnabled?: boolean }) | undefined
   const sound = normalizeSoundRef(value?.sound, fallback.sound)
-  const rawSounds = Array.isArray(value?.sounds) ? value.sounds.slice(0, 8) : []
+  const rawSounds = Array.isArray(value?.sounds) ? value.sounds : []
+  const seenSounds = new Set<string>()
   const sounds = rawSounds
     .map(candidate => normalizeSoundRef(candidate, sound))
-    .filter((candidate, index, values) => values.findIndex(value => soundRefKey(value) === soundRefKey(candidate)) === index)
+    .filter(candidate => {
+      const key = soundRefKey(candidate)
+      if (seenSounds.has(key)) return false
+      seenSounds.add(key)
+      return true
+    })
   const normalizedSounds = sounds.length > 0 ? sounds : [sound]
   const primary = normalizedSounds[0] ?? sound
   const override = value?.hapticOverride === 'off'
@@ -316,9 +322,25 @@ export function normalizePresetSettings(value: Partial<AppTimerSettings> | undef
 }
 
 /** Resolves selected repeating cues and explicit one-off cues within a Cycle. */
-export function trackEventOffsetsSeconds(track: Pick<PatternTrack, 'selectedOffsetsMinutes' | 'selectedOffsetsSeconds' | 'repeatEnabled' | 'afterStartSeconds' | 'beforeEndSeconds'>, mainDurationSeconds: number): number[] {
+export function randomTrackOffsetsSeconds(trackId: string, range: { minSeconds: number; maxSeconds: number }, mainDurationSeconds: number, cycleIndex = 0, anchor = 0): number[] {
+  const min = Math.max(5, Math.floor(range.minSeconds))
+  const max = Math.max(min, Math.floor(range.maxSeconds))
+  let seed = (Math.floor(anchor) ^ cycleIndex) | 0
+  for (let index = 0; index < trackId.length; index += 1) seed = (Math.imul(seed, 31) + trackId.charCodeAt(index)) | 0
+  const offsets: number[] = []
+  let offset = 0
+  while (offset < mainDurationSeconds && offsets.length < 4_096) {
+    seed = (Math.imul(seed, 1_664_525) + 1_013_904_223) | 0
+    offset += min + ((seed >>> 0) % (max - min + 1))
+    if (offset < mainDurationSeconds) offsets.push(offset)
+  }
+  return offsets
+}
+
+export function trackEventOffsetsSeconds(track: Pick<PatternTrack, 'id' | 'selectedOffsetsMinutes' | 'selectedOffsetsSeconds' | 'repeatEnabled' | 'afterStartSeconds' | 'beforeEndSeconds' | 'randomRepeat'>, mainDurationSeconds: number, cycleIndex = 0, anchor = 0): number[] {
   const main = clampCueDurationSeconds(mainDurationSeconds, 60)
   const offsets = track.repeatEnabled === false ? [] : trackSelectedOffsetsSeconds(track)
+  if (track.randomRepeat) offsets.push(...randomTrackOffsetsSeconds(track.id, track.randomRepeat, main, cycleIndex, anchor))
   if (typeof track.afterStartSeconds === 'number') offsets.push(whole(track.afterStartSeconds, -1))
   if (typeof track.beforeEndSeconds === 'number') offsets.push(main - whole(track.beforeEndSeconds, -1))
   return [...new Set(offsets.filter(offset => offset > 0 && offset < main))].sort((left, right) => left - right)
@@ -379,10 +401,11 @@ export function normalizeTrack(track: Partial<PatternTrack>, mainMinutes: number
     label: normalizeLabel(track.label, fallbackLabel),
     color: normalizeSubBellColor(track.color, fallbackColorIndex),
     showOnWatchFace: track.showOnWatchFace !== false,
-    enabled: (selectedOffsetsSeconds.length > 0 || (typeof track.afterStartSeconds === 'number' && track.afterStartSeconds > 0) || (typeof track.beforeEndSeconds === 'number' && track.beforeEndSeconds > 0)) && track.enabled !== false,
+    enabled: (selectedOffsetsSeconds.length > 0 || (typeof track.afterStartSeconds === 'number' && track.afterStartSeconds > 0) || (typeof track.beforeEndSeconds === 'number' && track.beforeEndSeconds > 0) || !!track.randomRepeat) && track.enabled !== false,
     ...(track.repeatEnabled === false ? { repeatEnabled: false } : {}),
     ...(typeof track.afterStartSeconds === 'number' && Number.isFinite(track.afterStartSeconds) ? { afterStartSeconds: whole(track.afterStartSeconds, 0) } : {}),
     ...(typeof track.beforeEndSeconds === 'number' && Number.isFinite(track.beforeEndSeconds) ? { beforeEndSeconds: whole(track.beforeEndSeconds, 0) } : {}),
+    ...(track.randomRepeat && Number.isFinite(track.randomRepeat.minSeconds) && Number.isFinite(track.randomRepeat.maxSeconds) ? { randomRepeat: { minSeconds: clamp(whole(track.randomRepeat.minSeconds, 10), 5, MAX_CUE_DURATION_SECONDS), maxSeconds: clamp(whole(track.randomRepeat.maxSeconds, 60), clamp(whole(track.randomRepeat.minSeconds, 10), 5, MAX_CUE_DURATION_SECONDS), MAX_CUE_DURATION_SECONDS) } } : {}),
     ...timing,
     ...normalizeCue(track, defaultCue('clear-bell')),
   }
@@ -432,7 +455,7 @@ export function normalizeSequenceProgram(value: Partial<SequenceProgram> | undef
     if (stepIds.has(id)) id = createProgramId()
     stepIds.add(id)
     const durationSeconds = clampCueDurationSeconds(step.durationSeconds, clampDuration(step.durationMinutes, 5) * 60)
-    return { id, durationMinutes: durationMinutesProjection(durationSeconds), ...(typeof step.durationSeconds === 'number' ? { durationSeconds } : {}), label: normalizeLabel(step.label, `Step ${index + 1}`), ...normalizeCue(step, defaultCue('clear-bell')) }
+    return { id, durationMinutes: durationMinutesProjection(durationSeconds), ...(typeof step.durationSeconds === 'number' ? { durationSeconds } : {}), label: normalizeLabel(step.label, `Step ${index + 1}`), ...(step.alarmEnabled === true ? { alarmEnabled: true } : {}), ...normalizeCue(step, defaultCue('clear-bell')) }
   })
   const normalizedSteps = steps.length > 0 ? steps : defaultSequenceProgram().steps
   const cycleDurationSeconds = normalizedSteps.reduce((total, step) => total + sequenceStepDurationSeconds(step), 0)

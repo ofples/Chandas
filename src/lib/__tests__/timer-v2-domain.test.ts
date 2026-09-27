@@ -2,13 +2,22 @@ import { describe, expect, it } from 'vitest'
 import type { PatternProgram, SequenceProgram } from '../../types'
 import { chooseProgramMode, deleteProgramPreset, hasUnsavedProgramChanges, loadProgramPreset, patchSequenceStep, saveProgramPreset, setPatternSubBellsEnabled, setTrackCadence, setTrackCadenceSeconds, setTrackOffsets, setTrackOffsetsSeconds, updatePatternMainDurationSeconds, updatePatternMainMinutes } from '../programActions'
 import { alarmBehaviorAfterGesture, gateProgramAudio, isFreshScheduledEvent, iterationMuteFor, muteAfterScheduleChange, shouldSurfaceTimerSignal, timestampMuteForSeconds } from '../runtimeV2'
-import { defaultTimerV2State, migrateLegacyConfig, normalizeAvailabilityPolicy, normalizeCue, normalizePatternProgram, normalizeSequenceProgram, normalizeSoundRef, parseTimerProgram, patternDurationSeconds, sequenceStepDurationSeconds, trackCadenceSeconds, trackSelectedOffsetsSeconds, validOffsets, validOffsetsForCadenceSeconds } from '../timerV2'
-import { boundedRunProgress, cueSegmentProgress, nextPatternEvent, nextProgramEvent, nextSequenceEvent, runEndAt, timelinePosition } from '../timeline'
+import { defaultTimerV2State, migrateLegacyConfig, normalizeAvailabilityPolicy, normalizeCue, normalizePatternProgram, normalizeSequenceProgram, normalizeSoundRef, parseTimerProgram, patternDurationSeconds, randomTrackOffsetsSeconds, sequenceStepDurationSeconds, trackCadenceSeconds, trackSelectedOffsetsSeconds, validOffsets, validOffsetsForCadenceSeconds } from '../timerV2'
+import { boundedRunProgress, cueSegmentProgress, nextPatternEvent, nextProgramEvent, nextSequenceEvent, runEndAt, sequenceSkipTarget, timelinePosition } from '../timeline'
 import { effectiveAvailabilityForProgram, hasAvailableTime, isCueAllowedByActiveHours, isWithinActiveHours, nextActiveHoursStart, scheduleBoundaryMinutesForDay, scheduleRangeCountForDay, scheduleRenderedBoundaryMinutesForDay, scheduleSegmentsForDay, windowsOverlap } from '../activeHours'
 import { edgeAutoScrollStep, previewIndexForItem, previewOffsetForItem, reorderGestureIntent } from '../reorder-preview'
 import timelineFixtures from '../../../fixtures/timer-v2-timeline.json'
 
 const minute = 60_000
+
+it('keeps more than eight distinct sound choices when loading a cue', () => {
+  const ids = ['temple-gong', 'clear-bell', 'bloom', 'boxing-bell', 'bubble', 'champagne', 'cymbal', 'handpan', 'heartbeat', 'ice'] as const
+  const sounds = ids.map(id => ({ kind: 'builtin' as const, id }))
+  const fallback = { sound: sounds[0], volume: 1 }
+  const normalized = normalizeCue({ ...fallback, sounds: [...sounds, sounds[0]], soundMode: 'sequence' }, fallback)
+  expect(normalized.sounds).toHaveLength(10)
+  expect(normalized.sounds?.map(sound => sound.kind === 'builtin' ? sound.id : sound.uri)).toEqual(ids)
+})
 
 function pattern(): PatternProgram {
   return {
@@ -44,6 +53,41 @@ function sequence(): SequenceProgram {
 }
 
 describe('timer v2 timeline contracts', () => {
+  it('realizes a stable random sub-bell schedule shared with native', () => {
+    const offsets = randomTrackOffsetsSeconds('random-track', { minSeconds: 10, maxSeconds: 60 }, 300, 0, 1_000)
+    expect(offsets.slice(0, 5)).toEqual([47, 80, 132, 152, 184])
+    expect(offsets.every((offset, index) => offset < 300 && (index === 0 ? offset : offset - offsets[index - 1]) >= 10)).toBe(true)
+    expect(randomTrackOffsetsSeconds('random-track', { minSeconds: 10, maxSeconds: 60 }, 300, 0, 1_000)).toEqual(offsets)
+    const program = pattern()
+    program.mainMinutes = 5
+    program.tracks = [{ ...program.tracks[0], id: 'random-track', selectedOffsetsMinutes: [], repeatEnabled: false, randomRepeat: { minSeconds: 10, maxSeconds: 60 } }]
+    expect(nextPatternEvent(program, 1_000, 1_000).at).toBe(48_000)
+  })
+
+  it('preserves a step alarm through normalization and marks its cue', () => {
+    const program = sequence()
+    program.steps[0].alarmEnabled = true
+    const normalized = normalizeSequenceProgram(program)
+    expect(normalized.steps[0].alarmEnabled).toBe(true)
+    expect(nextSequenceEvent(normalized, 1_000, 1_000).winner.alarmEnabled).toBe(true)
+  })
+
+  it('skips across a round without extending a bounded sequence', () => {
+    const program = sequence()
+    program.steps[0].durationMinutes = 1
+    program.steps[1].durationMinutes = 1
+    program.runPolicy = { kind: 'cycles', cycleCount: 2, durationSeconds: 120 }
+    const anchor = 1_000
+    const startedAt = anchor
+    const end = runEndAt(program, anchor, startedAt)
+    expect(end).toBe(241_000)
+    const next = sequenceSkipTarget(program, anchor, 91_000, startedAt, end, 'next')
+    expect(next).toEqual({ anchor: -29_000, startedAt: -29_000, terminalAt: 211_000, completesRun: false })
+    expect(sequenceSkipTarget(program, anchor, 1_000, startedAt, end, 'previous')).toBeNull()
+    const previous = sequenceSkipTarget(program, anchor, 131_000, startedAt, end, 'previous')
+    expect(previous).toEqual({ anchor: 71_000, startedAt: 71_000, terminalAt: 311_000, completesRun: false })
+    expect(sequenceSkipTarget(program, anchor, 211_000, startedAt, end, 'next')?.completesRun).toBe(true)
+  })
   it('migrates the removed sound switch to an editable zero cue volume', () => {
     const fallback = pattern().mainCue
     const normalized = normalizeCue({ ...fallback, soundEnabled: false } as typeof fallback & { soundEnabled: boolean }, fallback)
@@ -655,6 +699,15 @@ describe('timer v2 validation and presets', () => {
     expect(edited.workingPrograms.sequence.steps[0].label).toBe('Changed working copy')
     expect(hasUnsavedProgramChanges(saved)).toBe(false)
     expect(hasUnsavedProgramChanges(edited)).toBe(true)
+  })
+
+  it('accepts one-second cycle and sequence-step durations', () => {
+    const shortPattern = normalizePatternProgram({ ...pattern(), mainMinutes: 1, mainDurationSeconds: 1, tracks: [] })
+    const shortSequence = normalizeSequenceProgram({ ...sequence(), steps: [{ ...sequence().steps[0], durationMinutes: 1, durationSeconds: 1 }] })
+    expect(patternDurationSeconds(shortPattern)).toBe(1)
+    expect(sequenceStepDurationSeconds(shortSequence.steps[0])).toBe(1)
+    expect(nextPatternEvent(shortPattern, 1_000, 1_000).at).toBe(2_000)
+    expect(nextSequenceEvent(shortSequence, 1_000, 1_000).at).toBe(2_000)
   })
 
   it('saves and restores schedule and advanced settings with a configuration', () => {

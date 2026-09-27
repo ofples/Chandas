@@ -100,6 +100,78 @@ object TimerScheduler {
   }
 
   @Synchronized
+  fun setPaused(context: Context, paused: Boolean): Boolean {
+    val current = TimerStateStore.load(context) ?: return false
+    if (current.timerV2Program == null || TimerStateStore.isRinging(context)) return false
+    if ((current.timerV2PausedAt > 0L) == paused) return true
+    val now = System.currentTimeMillis()
+    val controls = TimerStateStore.getControlState(context, current.timerV2PausedAt.takeIf { it > 0L } ?: now)
+    val updated = if (paused) current.copy(timerV2PausedAt = now) else {
+      val delta = (now - current.timerV2PausedAt).coerceAtLeast(0L)
+      current.copy(
+        phase = current.phase + delta,
+        timerV2Anchor = current.timerV2Anchor + delta,
+        timerV2StartedAt = current.timerV2StartedAt + delta,
+        timerV2EndsAt = if (current.timerV2EndsAt > 0L) current.timerV2EndsAt + delta else 0L,
+        timerV2PausedAt = 0L,
+        timerV2ClockRejoinAt = current.timerV2Program?.takeIf(TimerV2Timeline::isLocalClock)?.let { program ->
+          val duration = TimerV2Timeline.cycleDuration(program) ?: 0L
+          if (duration > 0L) current.timerV2Anchor + delta + (Math.floorDiv(now - current.timerV2Anchor - delta, duration) + 1L) * duration else 0L
+        } ?: 0L,
+      )
+    }
+    cancelScheduledEvent(context)
+    TimerStateStore.clearNext(context)
+    TimerStateStore.save(context, updated)
+    if (!paused) {
+      val delta = (now - current.timerV2PausedAt).coerceAtLeast(0L)
+      val iteration = if (controls.mutedIterationEndId != null) updated.timerV2Program?.let {
+        TimerV2Timeline.iterationEnd(it, updated.timerV2Anchor, now, controls.mutedIterationsRemaining)
+      } else null
+      TimerStateStore.restoreControls(
+        context,
+        controls.alarmOnceArmed,
+        if (controls.mutedUntil > current.timerV2PausedAt) controls.mutedUntil + delta else 0L,
+        iteration?.logicalId,
+        iteration?.at ?: 0L,
+        controls.mutedIterationsRemaining,
+      )
+    }
+    FocusModeController.reconcile(context, updated)
+    return scheduleNext(context, updated)
+  }
+
+  @Synchronized
+  fun skipSequence(context: Context, direction: Int): Boolean {
+    val current = TimerStateStore.load(context) ?: return false
+    if (TimerStateStore.isRinging(context)) return false
+    val program = current.timerV2Program ?: return false
+    val now = current.timerV2PausedAt.takeIf { it > 0L } ?: System.currentTimeMillis()
+    val target = TimerV2Timeline.skipSequenceTarget(program, current.timerV2Anchor, now, current.timerV2StartedAt, current.timerV2EndsAt, direction) ?: return false
+    if (target.completesRun) {
+      completeSession(context)
+      return true
+    }
+    val total = TimerV2Timeline.cycleDuration(program) ?: return false
+    val updated = current.copy(
+      phase = target.anchor,
+      timerV2Anchor = target.anchor,
+      timerV2StartedAt = target.startedAt,
+      timerV2EndsAt = target.endsAt,
+      timerV2ClockRejoinAt = if (TimerV2Timeline.isLocalClock(program)) target.anchor + (Math.floorDiv(now - target.anchor, total) + 1L) * total else 0L,
+    )
+    cancelScheduledEvent(context)
+    TimerStateStore.clearNext(context)
+    TimerStateStore.save(context, updated)
+    val controls = TimerStateStore.getControlState(context, now)
+    if (controls.mutedIterationEndId != null) {
+      val iteration = TimerV2Timeline.iterationEnd(program, target.anchor, now, controls.mutedIterationsRemaining)
+      TimerStateStore.restoreControls(context, controls.alarmOnceArmed, controls.mutedUntil, iteration?.logicalId, iteration?.at ?: 0L, controls.mutedIterationsRemaining)
+    }
+    return scheduleNext(context, updated)
+  }
+
+  @Synchronized
   fun toggleAlarmOnce(context: Context) {
     if (TimerStateStore.load(context) != null) TimerStateStore.toggleAlarmOnce(context)
   }
@@ -172,10 +244,12 @@ object TimerScheduler {
       if (delta != 0L) {
         val elapsedProgram = stored.timerV2Program?.let(TimerV2Timeline::isLocalClock) != true
         stored = stored.copy(
-          phase = if (elapsedProgram) stored.phase + delta else stored.phase,
-          timerV2Anchor = if (elapsedProgram) stored.timerV2Anchor + delta else stored.timerV2Anchor,
+          phase = if (elapsedProgram || stored.timerV2PausedAt > 0L) stored.phase + delta else stored.phase,
+          timerV2Anchor = if (elapsedProgram || stored.timerV2PausedAt > 0L) stored.timerV2Anchor + delta else stored.timerV2Anchor,
           timerV2StartedAt = stored.timerV2StartedAt + delta,
           timerV2EndsAt = if (stored.timerV2EndsAt > 0L) stored.timerV2EndsAt + delta else 0L,
+          timerV2PausedAt = if (stored.timerV2PausedAt > 0L) stored.timerV2PausedAt + delta else 0L,
+          timerV2ClockRejoinAt = if (stored.timerV2ClockRejoinAt > 0L) stored.timerV2ClockRejoinAt + delta else 0L,
         )
         TimerStateStore.save(context, stored)
       }
@@ -195,6 +269,11 @@ object TimerScheduler {
   fun scheduleNext(context: Context, config: TimerConfig? = TimerStateStore.load(context)): Boolean {
     val initial = config ?: return false
     if (!isValidConfig(initial)) return false
+    if (initial.timerV2PausedAt > 0L) {
+      TimerNotifications.postRunning(context, initial)
+      TimerStateRegistry.notify(TimerScheduleState(true, initial.timerV2Anchor, 0L, null, canScheduleExactAlarms(context)))
+      return true
+    }
     if (!canScheduleExactAlarms(context)) {
       stopForExactAccess(context)
       return false
@@ -400,8 +479,8 @@ object TimerScheduler {
       return
     }
     val controls = TimerStateStore.getControlState(context, now)
-    val continuousAlarmRequested = isPatternMain && !event.completesRun &&
-      (config.alarmModeEnabled || controls.alarmOnceArmed)
+    val continuousAlarmRequested = !event.completesRun &&
+      ((isPatternMain && (config.alarmModeEnabled || controls.alarmOnceArmed)) || event.winner.alarmEnabled)
     // Phone calls are an external, transient mute gate. They do not consume
     // one-shot alarm or timed/cycle mute state, and no missed cue is replayed.
     if (config.muteDuringCallsEnabled && CallState.isActive(context) && !continuousAlarmRequested) {
@@ -419,7 +498,8 @@ object TimerScheduler {
       return
     }
     val alarmOnce = isPatternMain && !event.completesRun && TimerStateStore.consumeAlarmOnce(context)
-    if (isPatternMain && !event.completesRun && (config.alarmModeEnabled || alarmOnce)) {
+    if (!event.completesRun && (event.winner.alarmEnabled || (isPatternMain && (config.alarmModeEnabled || alarmOnce)))) {
+      FloatingTimerOverlay.onCue(context)
       scheduleNext(context, config)
       emitV2Event(event, suppressed = false, reason = "none")
       launchAlarmOrFallback(context, config, TimerEventType.V2, onFinished)
@@ -545,13 +625,18 @@ object TimerScheduler {
    */
   private fun reconcileLocalClock(context: Context, config: TimerConfig, now: Long): LocalClockResult {
     val program = config.timerV2Program ?: return LocalClockResult(config, false)
+    if (config.timerV2PausedAt > 0L) return LocalClockResult(config, false)
+    if (config.timerV2ClockRejoinAt > now) return LocalClockResult(config, false)
     if (!TimerV2Timeline.isLocalClock(program)) return LocalClockResult(config, false)
     val aligned = TimerV2Timeline.alignedAnchor(program, now) ?: return LocalClockResult(config, false)
     val duration = TimerV2Timeline.cycleDuration(program) ?: return LocalClockResult(config, false)
-    if (Math.floorMod(aligned - config.timerV2Anchor, duration) == 0L) return LocalClockResult(config, false)
+    if (Math.floorMod(aligned - config.timerV2Anchor, duration) == 0L) {
+      if (config.timerV2ClockRejoinAt > 0L) TimerStateStore.save(context, config.copy(timerV2ClockRejoinAt = 0L))
+      return LocalClockResult(config.copy(timerV2ClockRejoinAt = 0L), false)
+    }
 
     val controls = TimerStateStore.getControlState(context, now)
-    val next = config.copy(timerV2Anchor = aligned)
+    val next = config.copy(timerV2Anchor = aligned, timerV2ClockRejoinAt = 0L)
     TimerStateStore.save(context, next)
     if (controls.mutedIterationEndId != null && controls.mutedIterationEndAt > 0L) {
       // Realignment gives cycle boundaries new logical identities. Clear only
@@ -576,7 +661,8 @@ object TimerScheduler {
     if (config.timerV2Anchor !in 1L..(Long.MAX_VALUE - duration)) return false
     if (config.timerV2StartedAt <= 0L) return false
     if (config.timerV2EndsAt > 0L && config.timerV2EndsAt <= config.timerV2StartedAt) return false
-    if (!TimerV2Timeline.hasMatchingRunEnd(program, config.timerV2Anchor, config.timerV2StartedAt, config.timerV2EndsAt)) return false
+    if (!TimerV2Timeline.hasMatchingRunEnd(program, config.timerV2Anchor, config.timerV2StartedAt, config.timerV2EndsAt) &&
+      !(TimerV2Timeline.isLocalClock(program) && config.timerV2EndsAt > config.timerV2StartedAt)) return false
     return true
   }
 
