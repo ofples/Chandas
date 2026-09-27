@@ -3,7 +3,7 @@ import { useColorScheme } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import type { SubBellColorId } from '../types'
 import { normalizeSubBellColor, subBellColorValue } from '../lib/subBellColors'
-import { darkTheme, lightTheme, ThemeName, ThemeTokens, withAccent } from './tokens'
+import { darkTheme, einkTheme, lightTheme, ThemeName, ThemeTokens, withAccent } from './tokens'
 
 const THEME_KEY = 'chandas-theme'
 const ACCENT_KEY = 'chandas-accent-color'
@@ -12,6 +12,7 @@ interface ThemeContextValue {
   theme: ThemeName
   tokens: ThemeTokens
   toggleTheme: () => void
+  useEinkTheme: () => void
   accentColor: SubBellColorId
   setAccentColor: (value: SubBellColorId) => void
 }
@@ -25,7 +26,7 @@ export function ThemeProvider({ children, themeOverride }: { children: ReactNode
 
   useEffect(() => {
     AsyncStorage.multiGet([THEME_KEY, ACCENT_KEY]).then(([[, savedTheme], [, savedAccent]]) => {
-      if (savedTheme === 'dark' || savedTheme === 'light') setTheme(savedTheme)
+      if (savedTheme === 'dark' || savedTheme === 'light' || savedTheme === 'eink') setTheme(savedTheme)
       if (savedAccent) setAccentColorState(normalizeSubBellColor(savedAccent, 0))
     }).catch(() => undefined)
   }, [])
@@ -38,16 +39,26 @@ export function ThemeProvider({ children, themeOverride }: { children: ReactNode
     })
   }
 
+  const useEinkTheme = () => {
+    setTheme('eink')
+    AsyncStorage.setItem(THEME_KEY, 'eink').catch(() => {})
+  }
+
   const setAccentColor = (value: SubBellColorId) => {
     setAccentColorState(value)
     AsyncStorage.setItem(ACCENT_KEY, value).catch(() => undefined)
   }
 
-  const effectiveTheme: ThemeName = themeOverride === 'system' ? (systemScheme === 'light' ? 'light' : 'dark') : themeOverride ?? theme
-  const tokens = useMemo(() => withAccent(effectiveTheme === 'dark' ? darkTheme : lightTheme, subBellColorValue(accentColor, 0)), [accentColor, effectiveTheme])
+  // E-ink is an intentional global reading mode, including in the independent
+  // service-owned widget React surface. It takes precedence over its local
+  // light/dark preference until the normal toggle is tapped again.
+  const effectiveTheme: ThemeName = theme === 'eink' ? 'eink' : themeOverride === 'system' ? (systemScheme === 'light' ? 'light' : 'dark') : themeOverride ?? theme
+  const tokens = useMemo(() => effectiveTheme === 'eink'
+    ? einkTheme
+    : withAccent(effectiveTheme === 'dark' ? darkTheme : lightTheme, subBellColorValue(accentColor, 0)), [accentColor, effectiveTheme])
 
   return (
-    <ThemeContext.Provider value={{ theme: effectiveTheme, tokens, toggleTheme, accentColor, setAccentColor }}>
+    <ThemeContext.Provider value={{ theme: effectiveTheme, tokens, toggleTheme, useEinkTheme, accentColor, setAccentColor }}>
       {children}
     </ThemeContext.Provider>
   )

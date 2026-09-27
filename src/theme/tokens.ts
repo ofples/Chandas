@@ -51,12 +51,30 @@ export const lightTheme: ThemeTokens = {
   border: 'rgba(0,0,0,0.09)',
 }
 
+/** A deliberately quiet monochrome palette for reflective, low-distraction displays. */
+export const einkTheme: ThemeTokens = {
+  bg: '#f1efe4',
+  surface: '#faf8ef',
+  surfaceHi: '#dedbd0',
+  accent: '#171714',
+  accentDim: '#77766e',
+  accentGlow: 'rgba(23, 23, 20, 0.12)',
+  positive: '#171714',
+  positiveGlow: 'rgba(23, 23, 20, 0.08)',
+  warm: '#171714',
+  warmGlow: 'rgba(23, 23, 20, 0.08)',
+  text: '#171714',
+  textMuted: '#69685f',
+  textDisabled: '#aaa89d',
+  border: 'rgba(23,23,20,0.16)',
+}
+
 export const radius = {
   pill: 9999,
   lg: 16,
 }
 
-export type ThemeName = 'dark' | 'light'
+export type ThemeName = 'dark' | 'light' | 'eink'
 
 function rgba(hex: string, alpha: number): string {
   const value = hex.replace('#', '')

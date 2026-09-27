@@ -77,7 +77,7 @@ interface Props {
 }
 
 export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusState, onFocusAutomationChange, onOpenFocusSettings, onOpenFocusRuleSettings, androidAccess, onOpenExactAlarmSettings, onOpenFullScreenIntentSettings, onRequestCallMuteAccess, onRequestNotificationAccess, onFeedback }: Props) {
-  const { tokens, theme, toggleTheme, accentColor, setAccentColor } = useTheme()
+  const { tokens, theme, toggleTheme, useEinkTheme, accentColor, setAccentColor } = useTheme()
   const insets = useSafeAreaInsets()
   const [cueTarget, setCueTarget] = useState<CueTarget | null>(null)
   const [trackId, setTrackId] = useState<string | null>(null)
@@ -98,6 +98,7 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
   const advancedPullThresholdRef = useRef(false)
   const advancedRevealArmedRef = useRef(true)
   const advancedCollapsePendingRef = useRef(false)
+  const themeLongPressRef = useRef(false)
   const advancedRevealProgress = useSharedValue(0)
   const reducedMotion = useReducedMotion()
   const keyboardVisible = useKeyboardVisible()
@@ -268,7 +269,7 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
           <ActionRow title="Configurations" detail={state.workingPrograms.sourcePreset?.deleted ? 'Working copy · source removed' : state.workingPrograms.sourcePreset && !hasUnsavedProgramChanges(state) ? `Loaded from ${state.workingPrograms.sourcePreset.name}` : 'Working copy'} onPress={() => setPresetsOpen(true)} accessibilityLabel="Open saved configurations" />
           <InlineHelp visible={inlineHelpVisible}>Save the current setup for later, or load a saved setup as a new working copy.</InlineHelp>
 
-          <ColorSelector label="Appearance" detail="Choose a calm color and canvas." value={accentColor} onChange={setAccentColor} accessibilityLabel="Primary interface color" trailing={<Pressable hitSlop={8} onPress={() => { tapHaptic(); toggleTheme() }} style={({ pressed }) => [styles.roundIcon, { borderColor: tokens.border, backgroundColor: pressed ? tokens.accentGlow : 'transparent', opacity: pressed ? 0.72 : 1 }]} accessibilityRole="button" accessibilityLabel={`Use ${theme === 'dark' ? 'light' : 'dark'} appearance`}><LightbulbIcon color={tokens.accent} /></Pressable>} />
+          <ColorSelector label="Appearance" detail="Choose a calm color and canvas." value={accentColor} onChange={setAccentColor} accessibilityLabel="Primary interface color" trailing={<Pressable hitSlop={8} onPress={() => { if (!themeLongPressRef.current) { tapHaptic(); toggleTheme() } }} onLongPress={() => { themeLongPressRef.current = true; useEinkTheme() }} onPressOut={() => setTimeout(() => { themeLongPressRef.current = false }, 0)} delayLongPress={550} style={({ pressed }) => [styles.roundIcon, { borderColor: tokens.border, backgroundColor: pressed ? tokens.accentGlow : 'transparent', opacity: pressed ? 0.72 : 1 }]} accessibilityRole="button" accessibilityLabel={`Use ${theme === 'dark' ? 'light' : 'dark'} appearance`} accessibilityHint="Long press for e-ink mode"><LightbulbIcon color={tokens.accent} /></Pressable>} />
           <InlineHelp visible={inlineHelpVisible}>Tap the color dot to reveal the palette. The lightbulb switches between light and dark appearance.</InlineHelp>
 
           {secondPrecisionSupported ? <View style={styles.settingRow}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Second precision</Text><Text numberOfLines={1} style={[styles.helper, { color: tokens.textMuted }]}>{settings.secondPrecisionEnabled ? 'Seconds are available in custom durations.' : 'Keep duration setup minute-first.'}</Text></View><Toggle value={settings.secondPrecisionEnabled} onChange={secondPrecisionEnabled => changeSettings({ secondPrecisionEnabled })} accessibilityLabel="Second precision" /></View> : null}

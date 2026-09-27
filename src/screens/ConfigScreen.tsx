@@ -1,3 +1,4 @@
+import { useRef } from 'react'
 import { Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import Slider from '@react-native-community/slider'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -38,8 +39,9 @@ export function ConfigScreen({
   advancedSettingsExpanded,
   onAdvancedSettingsChange,
 }: Props) {
-  const { tokens, theme, toggleTheme } = useTheme()
+  const { tokens, theme, toggleTheme, useEinkTheme } = useTheme()
   const insets = useSafeAreaInsets()
+  const themeLongPress = useRef(false)
 
   const set = <K extends keyof TimerConfig>(key: K, val: TimerConfig[K]) =>
     onChange({ ...config, [key]: val })
@@ -229,9 +231,13 @@ export function ConfigScreen({
       </View>
 
       <Pressable
-        onPress={toggleTheme}
+        onPress={() => { if (!themeLongPress.current) toggleTheme() }}
+        onLongPress={() => { themeLongPress.current = true; useEinkTheme() }}
+        onPressOut={() => setTimeout(() => { themeLongPress.current = false }, 0)}
+        delayLongPress={550}
         style={[styles.themeBtn, { top: Math.max(insets.top, 16), borderColor: tokens.border }]}
-        accessibilityLabel={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+        accessibilityLabel={theme === 'eink' ? 'Switch to dark mode' : theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+        accessibilityHint="Long press for e-ink mode"
       >
         <ThemeIcon dark={theme === 'dark'} color={tokens.textMuted} />
       </Pressable>
