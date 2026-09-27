@@ -1,6 +1,7 @@
+import { useAppReducedMotion } from '../theme/ThemeContext'
 import { useState } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
-import Animated, { FadeInDown, FadeOut, LinearTransition, useReducedMotion } from 'react-native-reanimated'
+import Animated, { FadeInDown, FadeOut, LinearTransition } from 'react-native-reanimated'
 import { useTheme } from '../theme/ThemeContext'
 import { TimeOfDayPicker } from './TimeOfDayPicker'
 import { Toggle } from './Toggle'
@@ -42,7 +43,7 @@ export function ActiveHoursConfig({
   onDaysChange,
 }: Props) {
   const { tokens } = useTheme()
-  const reducedMotion = useReducedMotion()
+  const reducedMotion = useAppReducedMotion()
   const [editing, setEditing] = useState<'start' | 'end' | null>(null)
 
   return (
@@ -53,7 +54,7 @@ export function ActiveHoursConfig({
       </View>
 
       {enabled && (
-        <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 120)} layout={reducedMotion ? undefined : LinearTransition.duration(150)} style={styles.details}>
+        <Animated.View entering={reducedMotion ? undefined : FadeInDown.duration(180)} exiting={reducedMotion ? undefined : FadeOut.duration(120)} layout={reducedMotion ? undefined : LinearTransition.duration(150)} style={styles.details}>
           <View style={styles.range}>
             <Pressable
             onPress={() => setEditing('start')}
@@ -87,7 +88,7 @@ export function ActiveHoursConfig({
             })}
           </View>
           {startMinutes === endMinutes ? <Text style={[styles.allDay, { color: tokens.textMuted }]}>Same start and end means all day on the selected days.</Text> : null}
-          {days === 0 ? <Animated.Text entering={FadeInDown.duration(reducedMotion ? 80 : 160)} accessibilityRole="alert" style={[styles.warning, { color: tokens.warm }]}>Choose at least one day before starting. Your time range is already saved.</Animated.Text> : null}
+          {days === 0 ? <Animated.Text entering={reducedMotion ? undefined : FadeInDown.duration(160)} accessibilityRole="alert" style={[styles.warning, { color: tokens.warm }]}>Choose at least one day before starting. Your time range is already saved.</Animated.Text> : null}
         </Animated.View>
       )}
 

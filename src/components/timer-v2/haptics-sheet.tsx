@@ -1,6 +1,7 @@
+import { useAppReducedMotion } from '../../theme/ThemeContext'
 import { useState } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
-import Animated, { FadeIn, LinearTransition, useReducedMotion } from 'react-native-reanimated'
+import Animated, { FadeIn, LinearTransition } from 'react-native-reanimated'
 import type { HapticProfile, TimerHapticsSettings } from '../../types'
 import { HAPTIC_PATTERNS, HAPTIC_STRENGTHS, hapticProfileSummary } from '../../lib/haptic-profiles'
 import { previewHapticProfile, tapHaptic } from '../../lib/haptics'
@@ -27,7 +28,7 @@ const ROWS: readonly { key: ProfileKey; title: string; detail: string }[] = [
 
 export function HapticsSheet({ visible, value, onChange, onClose }: Props) {
   const { tokens } = useTheme()
-  const reducedMotion = useReducedMotion()
+  const reducedMotion = useAppReducedMotion()
   const [expanded, setExpanded] = useState<ProfileKey | null>(null)
   const [previewFailed, setPreviewFailed] = useState(false)
 
@@ -67,7 +68,7 @@ export function HapticsSheet({ visible, value, onChange, onClose }: Props) {
             </Pressable>
             <PreviewButton onPress={() => void preview(profile)} label={`Preview ${row.title} haptic`} />
           </View>
-          {open ? <Animated.View entering={FadeIn.duration(reducedMotion ? 70 : 130)} style={styles.editor}>
+          {open ? <Animated.View entering={reducedMotion ? undefined : FadeIn.duration(130)} style={styles.editor}>
             <Text style={[styles.controlLabel, { color: tokens.text }]}>Pattern · tap to preview</Text>
             <SegmentedControl items={HAPTIC_PATTERNS} value={profile.pattern} onChange={pattern => patchProfile(row.key, { pattern })} accessibilityLabel={`${row.title} haptic pattern`} feedback={false} />
             <Text style={[styles.controlLabel, { color: tokens.text }]}>Strength</Text>
@@ -83,7 +84,7 @@ export function HapticsSheet({ visible, value, onChange, onClose }: Props) {
 
 function PreviewButton({ onPress, label }: { onPress: () => void; label: string }) {
   const { tokens } = useTheme()
-  const reducedMotion = useReducedMotion()
+  const reducedMotion = useAppReducedMotion()
   return <Pressable
     hitSlop={7}
     onPress={onPress}

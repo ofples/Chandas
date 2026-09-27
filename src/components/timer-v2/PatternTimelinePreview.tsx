@@ -1,5 +1,5 @@
+import { useAppReducedMotion } from '../../theme/ThemeContext'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
-import { useReducedMotion } from 'react-native-reanimated'
 import type { PatternTrack } from '../../types'
 import { formatCompactDurationSeconds, trackEventOffsetsSeconds } from '../../lib/timerV2'
 import { subBellColorValue } from '../../lib/subBellColors'
@@ -14,14 +14,14 @@ interface Props {
 
 /** Shared cue timeline used by both the editor and saved-configuration review. */
 export function PatternTimelinePreview({ tracks, mainDurationSeconds, onPress }: Props) {
-  const { tokens } = useTheme()
-  const reducedMotion = useReducedMotion()
+  const { tokens, theme } = useTheme()
+  const reducedMotion = useAppReducedMotion()
   const active = tracks.filter(track => track.enabled)
   return <Pressable
     disabled={!onPress}
     onPress={onPress ? () => { tapHaptic(); onPress() } : undefined}
     hitSlop={onPress ? 6 : undefined}
-    style={({ pressed }) => [styles.timeline, { opacity: pressed && onPress ? 0.7 : 1, transform: [{ scale: pressed && onPress && !reducedMotion ? 0.995 : 1 }] }]}
+    style={({ pressed }) => [styles.timeline, { opacity: pressed && onPress && theme !== 'eink' ? 0.7 : 1, transform: [{ scale: pressed && onPress && !reducedMotion ? 0.995 : 1 }] }]}
     accessibilityRole={onPress ? 'button' : undefined}
     accessibilityLabel={onPress ? 'Configure sub-bells from cue timeline' : 'One main interval cue preview'}
     accessibilityHint={onPress ? 'Opens the Sub-bells editor' : undefined}
@@ -30,7 +30,7 @@ export function PatternTimelinePreview({ tracks, mainDurationSeconds, onPress }:
     <View style={[styles.timelineBoundary, { left: 0, backgroundColor: tokens.accent }]} />
     <View style={[styles.timelineBoundary, { right: 0, backgroundColor: tokens.accent }]} />
     {active.flatMap((track, trackIndex) => trackEventOffsetsSeconds(track, mainDurationSeconds).map(offset =>
-      <View key={`${track.id}:${offset}`} style={[styles.timelineCue, { left: `${offset / mainDurationSeconds * 100}%`, top: 8 + trackIndex * 6, backgroundColor: subBellColorValue(track.color, trackIndex) }]} />
+      <View key={`${track.id}:${offset}`} style={[styles.timelineCue, { left: `${offset / mainDurationSeconds * 100}%`, top: 8 + trackIndex * 6, backgroundColor: subBellColorValue(track.color, trackIndex, theme === 'eink') }]} />
     ))}
     <Text style={[styles.timelineStart, { color: tokens.textMuted }]}>0</Text>
     <Text style={[styles.timelineEnd, { color: tokens.textMuted }]}>{formatCompactDurationSeconds(mainDurationSeconds)}</Text>

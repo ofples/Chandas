@@ -1,7 +1,8 @@
+import { useAppReducedMotion } from '../../theme/ThemeContext'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
-import Animated, { FadeOut, LinearTransition, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from 'react-native-reanimated'
+import Animated, { FadeOut, LinearTransition, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated'
 import { scheduleOnRN } from 'react-native-worklets'
 import { useTheme } from '../../theme/ThemeContext'
 import { selectionHaptic } from '../../lib/haptics'
@@ -21,7 +22,7 @@ interface Props {
 /** A scroll-friendly list row that reveals one destructive action with a left swipe. */
 export function SwipeToDeleteRow({ children, onDelete, accessibilityLabel, disabled = false }: Props) {
   const { tokens } = useTheme()
-  const reducedMotion = useReducedMotion()
+  const reducedMotion = useAppReducedMotion()
   const translateX = useSharedValue(0)
   const opacity = useSharedValue(1)
   const openValue = useSharedValue(false)
@@ -42,7 +43,7 @@ export function SwipeToDeleteRow({ children, onDelete, accessibilityLabel, disab
     } else if (activeRow?.id === rowId.current) {
       activeRow = null
     }
-    translateX.value = withTiming(open ? -REVEAL_WIDTH : 0, { duration: reducedMotion ? 70 : 170 })
+    translateX.value = reducedMotion ? (open ? -REVEAL_WIDTH : 0) : withTiming(open ? -REVEAL_WIDTH : 0, { duration: 170 })
   }
   useEffect(() => () => {
     if (activeRow?.id === rowId.current) activeRow = null
@@ -68,7 +69,7 @@ export function SwipeToDeleteRow({ children, onDelete, accessibilityLabel, disab
       scheduleOnRN(settle, shouldOpen)
     })
     .onFinalize((_event, success) => {
-      if (!success) translateX.value = withTiming(openValue.value ? -REVEAL_WIDTH : 0, { duration: reducedMotion ? 70 : 170 })
+      if (!success) translateX.value = reducedMotion ? (openValue.value ? -REVEAL_WIDTH : 0) : withTiming(openValue.value ? -REVEAL_WIDTH : 0, { duration: 170 })
     }), [disabled, reducedMotion])
 
   const rowStyle = useAnimatedStyle(() => ({ opacity: opacity.value, transform: [{ translateX: translateX.value }] }))
@@ -76,15 +77,15 @@ export function SwipeToDeleteRow({ children, onDelete, accessibilityLabel, disab
     if (deleting) return
     setDeleting(true)
     selectionHaptic()
-    opacity.value = withTiming(0, { duration: reducedMotion ? 60 : 140 })
-    translateX.value = withTiming(-widthRef.current, { duration: reducedMotion ? 70 : 180 })
-    setTimeout(onDelete, reducedMotion ? 70 : 170)
+    opacity.value = reducedMotion ? 0 : withTiming(0, { duration: 140 })
+    translateX.value = reducedMotion ? -widthRef.current : withTiming(-widthRef.current, { duration: 180 })
+    setTimeout(onDelete, reducedMotion ? 0 : 170)
   }
 
   if (disabled) return <>{children}</>
   return <Animated.View
     layout={reducedMotion ? undefined : LinearTransition.duration(170)}
-    exiting={FadeOut.duration(reducedMotion ? 60 : 130)}
+    exiting={reducedMotion ? undefined : FadeOut.duration(130)}
     onLayout={event => { widthRef.current = event.nativeEvent.layout.width }}
     style={styles.clip}
   >

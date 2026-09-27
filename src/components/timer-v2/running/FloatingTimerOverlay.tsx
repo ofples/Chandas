@@ -75,7 +75,7 @@ function collapsedText(program: TimerProgram, display: ReturnType<typeof timerV2
 }
 
 function Content() {
-  const { tokens } = useTheme()
+  const { tokens, theme } = useTheme()
   const snapshot = useOverlaySnapshot()
   const [stopArmed, setStopArmed] = useState(false)
   const stopTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -95,7 +95,7 @@ function Content() {
   const sequenceIndex = program.mode === 'sequence' ? display.position?.currentStepIndex ?? 0 : 0
   const nextStep = program.mode === 'sequence' && !display.position?.nextEvent?.completesRun ? program.steps[(sequenceIndex + 1) % program.steps.length] : null
   const runtimeMuted = mute.mutedUntil > snapshot.now || Boolean(mute.iteration)
-  const nextCueColor = program.mode === 'pattern' ? subBellColorValue(program.tracks.find(track => track.id === display.position?.nextEvent?.winner.cueId)?.color, Math.max(0, program.tracks.findIndex(track => track.id === display.position?.nextEvent?.winner.cueId))) : tokens.accent
+  const nextCueColor = program.mode === 'pattern' ? subBellColorValue(program.tracks.find(track => track.id === display.position?.nextEvent?.winner.cueId)?.color, Math.max(0, program.tracks.findIndex(track => track.id === display.position?.nextEvent?.winner.cueId)), theme === 'eink') : tokens.accent
   const model: TimerWatchfaceModel = {
     mainLabel: display.mainCountdown,
     mainCaption: display.activeHoursPaused ? 'Schedule is quiet' : program.mode === 'sequence' ? `step ${sequenceIndex + 1} of ${program.steps.length}` : undefined,
@@ -115,7 +115,7 @@ function Content() {
   }
   const controlProps = { size: 48, filled: true }
   return <View style={styles.expanded}>
-    <View style={[styles.faceShell, { backgroundColor: tokens.bg }]}><TimerWatchface program={program} position={display.position} progress={display.progress} eventPulse={snapshot.cuePulse ?? 0} flashOnMount={snapshot.cueAttention} size={220} model={model} presentation="floating-overlay" onPress={() => action(snapshot.cueAttention ? 'collapse' : 'open-running')} accessibilityLabel={snapshot.cueAttention ? 'Dismiss timer cue' : 'Open running timer'} /></View>
+    <View style={[styles.faceShell, { backgroundColor: tokens.bg }, theme === 'eink' && styles.einkFaceShell]}><TimerWatchface program={program} position={display.position} progress={display.progress} eventPulse={snapshot.cuePulse ?? 0} flashOnMount={snapshot.cueAttention} size={220} model={model} presentation="floating-overlay" onPress={() => action(snapshot.cueAttention ? 'collapse' : 'open-running')} accessibilityLabel={snapshot.cueAttention ? 'Dismiss timer cue' : 'Open running timer'} /></View>
     <View style={styles.resetControl}><TimerControlButton {...controlProps} label="Reset interval" tooltip="Reset interval" disabled={snapshot.preview} onPress={() => action('restart')}><RestartIcon color={tokens.accent} /></TimerControlButton></View>
     <View style={styles.clockControl}><TimerControlButton {...controlProps} label="Clock alignment" tooltip="Toggle clock alignment" disabled={snapshot.preview} active={program.alignment.kind === 'local-clock'} onPress={() => action('toggle-clock')} onLongPress={() => action('open-clock')}><ClockIcon color={tokens.accent} /></TimerControlButton></View>
     {program.mode === 'pattern' ? <View style={styles.alarmControl}><TimerControlButton {...controlProps} label="Alarm" tooltip="Tap for next interval, double tap to lock" disabled={snapshot.preview} active={snapshot.alarmOnceArmed || snapshot.alarmModeEnabled} onPress={alarmPress}><AlarmIcon color={snapshot.alarmOnceArmed || snapshot.alarmModeEnabled ? tokens.accent : tokens.textMuted} /></TimerControlButton></View> : null}
@@ -140,6 +140,7 @@ const styles = StyleSheet.create({
   pillText: { fontFamily: 'JetBrainsMono-Regular', fontSize: 13, fontVariant: ['tabular-nums'], fontWeight: '700' },
   expanded: { flex: 1, alignItems: 'center', justifyContent: 'flex-start', paddingTop: 4 },
   faceShell: { width: 220, height: 220, borderRadius: 110, alignItems: 'center', justifyContent: 'center', elevation: 8, zIndex: 1 },
+  einkFaceShell: { elevation: 0, borderWidth: 1.5, borderColor: '#000000' },
   // Control centers share a 150dp orbit around the 228dp face: a single,
   // readable lower arc rather than five individually placed buttons.
   resetControl: { position: 'absolute', left: 18, top: 165, zIndex: 2 },

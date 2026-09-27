@@ -1,6 +1,6 @@
+import { useAppReducedMotion } from '../theme/ThemeContext'
 import { useEffect, useRef } from 'react'
 import { Animated, Pressable, StyleSheet } from 'react-native'
-import { useReducedMotion } from 'react-native-reanimated'
 import { useTheme } from '../theme/ThemeContext'
 import { selectionHaptic } from '../lib/haptics'
 
@@ -13,8 +13,8 @@ interface Props {
 
 // Pill toggle switch — ported from legacy-web .toggle/.toggle-track/.toggle-thumb.
 export function Toggle({ value, onChange, accessibilityLabel, disabled = false }: Props) {
-  const { tokens } = useTheme()
-  const reducedMotion = useReducedMotion()
+  const { tokens, theme } = useTheme()
+  const reducedMotion = useAppReducedMotion()
   const anim = useRef(new Animated.Value(value ? 1 : 0)).current
 
   useEffect(() => {
@@ -27,11 +27,11 @@ export function Toggle({ value, onChange, accessibilityLabel, disabled = false }
 
   const trackColor = anim.interpolate({
     inputRange: [0, 1],
-    outputRange: [tokens.surfaceHi, tokens.accent],
+    outputRange: [theme === 'eink' ? tokens.bg : tokens.surfaceHi, tokens.accent],
   })
   const thumbColor = anim.interpolate({
     inputRange: [0, 1],
-    outputRange: [tokens.textMuted, '#fff'],
+    outputRange: [theme === 'eink' ? tokens.text : tokens.textMuted, '#fff'],
   })
   const thumbTranslate = anim.interpolate({
     inputRange: [0, 1],
@@ -47,7 +47,7 @@ export function Toggle({ value, onChange, accessibilityLabel, disabled = false }
       accessibilityLabel={accessibilityLabel}
       hitSlop={8}
     >
-      <Animated.View style={[styles.track, { backgroundColor: trackColor, borderColor: value ? tokens.accent : tokens.border, opacity: disabled ? 0.45 : 1 }]}>
+      <Animated.View style={[styles.track, { backgroundColor: trackColor, borderColor: tokens.border, opacity: disabled && theme !== 'eink' ? 0.45 : 1 }]}>
         <Animated.View style={[styles.thumb, { backgroundColor: thumbColor, transform: [{ translateX: thumbTranslate }] }]} />
       </Animated.View>
     </Pressable>

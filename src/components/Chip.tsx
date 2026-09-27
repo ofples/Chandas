@@ -1,5 +1,5 @@
+import { useAppReducedMotion } from '../theme/ThemeContext'
 import { Pressable, StyleSheet, Text } from 'react-native'
-import { useReducedMotion } from 'react-native-reanimated'
 import { useTheme } from '../theme/ThemeContext'
 import { selectionHaptic } from '../lib/haptics'
 
@@ -14,8 +14,8 @@ interface Props {
 
 // Pill chip — ported from legacy-web .chip / .chip.active.
 export function Chip({ label, active, disabled, onPress, compact = false, accessibilityLabel }: Props) {
-  const { tokens } = useTheme()
-  const reducedMotion = useReducedMotion()
+  const { tokens, theme } = useTheme()
+  const reducedMotion = useAppReducedMotion()
   return (
     <Pressable
       onPress={() => { selectionHaptic(); onPress() }}
@@ -28,13 +28,13 @@ export function Chip({ label, active, disabled, onPress, compact = false, access
         compact && styles.compact,
         {
           borderColor: active ? tokens.accent : tokens.border,
-          backgroundColor: active ? tokens.accent : 'transparent',
-          opacity: disabled ? 0.22 : pressed ? 0.85 : 1,
+          backgroundColor: active && !(theme === 'eink' && disabled) ? tokens.accent : theme === 'eink' && disabled ? tokens.surfaceHi : 'transparent',
+          opacity: theme === 'eink' ? 1 : disabled ? 0.22 : pressed ? 0.85 : 1,
           transform: [{ scale: pressed && !disabled && !reducedMotion ? 0.94 : 1 }],
         },
       ]}
     >
-      <Text style={[styles.label, { color: active ? '#fff' : tokens.textMuted }]}>{label}</Text>
+      <Text style={[styles.label, { color: active && !(theme === 'eink' && disabled) ? '#fff' : theme === 'eink' ? tokens.text : tokens.textMuted }]}>{label}</Text>
     </Pressable>
   )
 }

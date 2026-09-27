@@ -1,6 +1,7 @@
+import { useAppReducedMotion } from '../../theme/ThemeContext'
 import { useState } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
-import Animated, { FadeInDown, FadeOut, LinearTransition, useReducedMotion } from 'react-native-reanimated'
+import Animated, { FadeInDown, FadeOut, LinearTransition } from 'react-native-reanimated'
 import type { AvailabilityPolicy, WeeklyAvailabilityWindow } from '../../types'
 import { createProgramId, MAX_WEEKLY_WINDOWS } from '../../lib/timerV2'
 import { useTheme } from '../../theme/ThemeContext'
@@ -29,8 +30,8 @@ const DAYS = [
 ] as const
 
 export function ScheduleConfig({ value, onChange, showHeading = true, showEnabledControl = true }: Props) {
-  const { tokens } = useTheme()
-  const reducedMotion = useReducedMotion()
+  const { tokens, theme } = useTheme()
+  const reducedMotion = useAppReducedMotion()
   const [editingId, setEditingId] = useState<string | null>(null)
   const activeCount = value.weeklyWindows.filter(window => window.enabled && (window.behavior ?? 'active') === 'active' && (window.days & 0b1111111) !== 0).length
   const quietCount = value.weeklyWindows.filter(window => window.enabled && window.behavior === 'mute' && (window.days & 0b1111111) !== 0).length
@@ -53,13 +54,13 @@ export function ScheduleConfig({ value, onChange, showHeading = true, showEnable
 
   return <View style={styles.section}>
     {showEnabledControl ? <View style={styles.toggleRow}><View style={styles.flex}><Text style={[showHeading ? styles.eyebrow : styles.rowTitle, { color: showHeading ? tokens.textMuted : tokens.text }]}>{showHeading ? 'SCHEDULE' : 'Active times'}</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{value.enabled ? `${activeCount} active · ${quietCount} quiet` : 'Available at any time'}</Text></View><Toggle value={value.enabled} onChange={enabled => onChange({ ...value, enabled })} accessibilityLabel="Timer schedule" /></View> : null}
-    {showWindows ? <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 120)} layout={reducedMotion ? undefined : LinearTransition.duration(150)} style={styles.windowList}>
+    {showWindows ? <Animated.View entering={reducedMotion ? undefined : FadeInDown.duration(180)} exiting={reducedMotion ? undefined : FadeOut.duration(120)} layout={reducedMotion ? undefined : LinearTransition.duration(150)} style={styles.windowList}>
       {value.weeklyWindows.length === 0 ? <View style={styles.empty}><Text style={[styles.rowTitle, { color: tokens.text }]}>No active times yet</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>Add a time range to define when the timer may sound.</Text></View> : null}
       {sortedWindows.map((window, index) => {
         const editing = editingId === window.id
-        return <SwipeToDeleteRow key={window.id} accessibilityLabel={`Delete ${windowSummary(window)}`} onDelete={() => removeWindow(window)}><Animated.View layout={reducedMotion ? undefined : LinearTransition.duration(150)} style={[styles.window, { borderBottomColor: tokens.border, backgroundColor: tokens.surface, opacity: window.enabled ? 1 : 0.55 }]}>
+        return <SwipeToDeleteRow key={window.id} accessibilityLabel={`Delete ${windowSummary(window)}`} onDelete={() => removeWindow(window)}><Animated.View layout={reducedMotion ? undefined : LinearTransition.duration(150)} style={[styles.window, { borderBottomColor: tokens.border, backgroundColor: tokens.surface, opacity: theme === 'eink' || window.enabled ? 1 : 0.55 }]}>
           <View style={styles.windowHead}><Pressable onPress={() => { tapHaptic(); setEditingId(editing ? null : window.id) }} style={styles.flex} accessibilityRole="button" accessibilityLabel={`Edit ${windowSummary(window)}`}><Text style={[styles.rowTitle, { color: tokens.text }]}>{window.behavior === 'mute' ? 'Quiet · ' : 'Active · '}{formatRange(window)}</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{daySummary(window.days)}</Text></Pressable><Toggle value={window.enabled} onChange={enabled => patchWindow(window.id, { enabled })} accessibilityLabel={`Enable time range ${index + 1}`} /></View>
-          {editing ? <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 150)} exiting={FadeOut.duration(reducedMotion ? 70 : 100)} style={styles.editor}>
+          {editing ? <Animated.View entering={reducedMotion ? undefined : FadeInDown.duration(150)} exiting={reducedMotion ? undefined : FadeOut.duration(100)} style={styles.editor}>
             <View style={styles.range}><ClockTimeField label="Starts" value={window.startMinutes} onChange={startMinutes => patchWindow(window.id, { startMinutes })} /><Text style={[styles.to, { color: tokens.textMuted }]}>to</Text><ClockTimeField label="Ends" value={window.endMinutes} onChange={endMinutes => patchWindow(window.id, { endMinutes })} /></View>
             <View style={styles.kindRow}><Pressable onPress={() => patchWindow(window.id, { behavior: 'active' })} accessibilityRole="button" accessibilityState={{ selected: (window.behavior ?? 'active') === 'active' }} style={[styles.kind, { borderColor: (window.behavior ?? 'active') === 'active' ? tokens.accent : tokens.border, backgroundColor: (window.behavior ?? 'active') === 'active' ? tokens.accentGlow : 'transparent' }]}><Text style={[styles.kindText, { color: (window.behavior ?? 'active') === 'active' ? tokens.accent : tokens.textMuted }]}>Active</Text></Pressable><Pressable onPress={() => patchWindow(window.id, { behavior: 'mute' })} accessibilityRole="button" accessibilityState={{ selected: window.behavior === 'mute' }} style={[styles.kind, { borderColor: window.behavior === 'mute' ? tokens.warm : tokens.border, backgroundColor: window.behavior === 'mute' ? tokens.warmGlow : 'transparent' }]}><Text style={[styles.kindText, { color: window.behavior === 'mute' ? tokens.warm : tokens.textMuted }]}>Quiet</Text></Pressable></View>
             <View style={styles.days}>{DAYS.map(day => { const selected = (window.days & day.bit) !== 0; return <Pressable key={day.name} onPress={() => { selectionHaptic(); patchWindow(window.id, { days: selected ? window.days & ~day.bit : window.days | day.bit }) }} accessibilityRole="button" accessibilityLabel={day.name} accessibilityState={{ selected }} style={[styles.day, { borderColor: selected ? tokens.accent : tokens.border, backgroundColor: selected ? tokens.accentGlow : 'transparent' }]}><Text style={[styles.dayText, { color: selected ? tokens.accent : tokens.textMuted }]}>{day.short}</Text></Pressable> })}</View>

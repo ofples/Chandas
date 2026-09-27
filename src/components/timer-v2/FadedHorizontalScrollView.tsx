@@ -1,6 +1,7 @@
+import { useAppReducedMotion } from '../../theme/ThemeContext'
 import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { ScrollView, StyleSheet, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent, type ScrollViewProps } from 'react-native'
-import Animated, { FadeIn, FadeOut, useReducedMotion } from 'react-native-reanimated'
+import Animated, { FadeIn, FadeOut } from 'react-native-reanimated'
 import { ScrollEdgeFade } from './ScrollEdgeFade'
 
 interface Props extends Omit<ScrollViewProps, 'horizontal' | 'showsHorizontalScrollIndicator' | 'onScroll'> {
@@ -13,7 +14,7 @@ interface Props extends Omit<ScrollViewProps, 'horizontal' | 'showsHorizontalScr
 
 /** Shared horizontal rail with edge-aware continuation scrims. */
 export function FadedHorizontalScrollView({ children, fadeColor, selectedIndex, itemCount, selectionKey, style, contentContainerStyle, onLayout, onContentSizeChange, ...props }: Props) {
-  const reducedMotion = useReducedMotion()
+  const reducedMotion = useAppReducedMotion()
   const scrollRef = useRef<ScrollView>(null)
   const [viewportWidth, setViewportWidth] = useState(0)
   const [contentWidth, setContentWidth] = useState(0)

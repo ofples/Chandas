@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, ReactNode } from 'react'
 import { useColorScheme } from 'react-native'
+import { ReduceMotion, ReducedMotionConfig, useReducedMotion } from 'react-native-reanimated'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import type { SubBellColorId } from '../types'
 import { normalizeSubBellColor, subBellColorValue } from '../lib/subBellColors'
@@ -59,6 +60,7 @@ export function ThemeProvider({ children, themeOverride }: { children: ReactNode
 
   return (
     <ThemeContext.Provider value={{ theme: effectiveTheme, tokens, toggleTheme, useEinkTheme, accentColor, setAccentColor }}>
+      <ReducedMotionConfig mode={effectiveTheme === 'eink' ? ReduceMotion.Always : ReduceMotion.System} />
       {children}
     </ThemeContext.Provider>
   )
@@ -68,4 +70,10 @@ export function useTheme(): ThemeContextValue {
   const ctx = useContext(ThemeContext)
   if (!ctx) throw new Error('useTheme must be used within ThemeProvider')
   return ctx
+}
+
+/** Combines the device accessibility preference with the e-ink display mode. */
+export function useAppReducedMotion(): boolean {
+  const systemReducedMotion = useReducedMotion()
+  return systemReducedMotion || useTheme().theme === 'eink'
 }

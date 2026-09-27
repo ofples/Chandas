@@ -1,6 +1,8 @@
+import { useAppReducedMotion } from '../../theme/ThemeContext'
+import { useReducedMotion } from 'react-native-reanimated'
 import { useEffect } from 'react'
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native'
-import Animated, { FadeIn, FadeInDown, FadeOut, useReducedMotion } from 'react-native-reanimated'
+import Animated, { FadeIn, FadeInDown, FadeOut } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '../../theme/ThemeContext'
 
@@ -23,9 +25,9 @@ interface FeedbackBannerProps {
 
 /** A calm, non-blocking replacement for recoverable system alerts. */
 export function FeedbackBanner({ notice, onDismiss }: FeedbackBannerProps) {
-  const { tokens } = useTheme()
+  const { tokens, theme } = useTheme()
   const insets = useSafeAreaInsets()
-  const reducedMotion = useReducedMotion()
+  const reducedMotion = useAppReducedMotion()
 
   useEffect(() => {
     if (!notice || notice.persistent) return
@@ -41,9 +43,9 @@ export function FeedbackBanner({ notice, onDismiss }: FeedbackBannerProps) {
     <View style={[styles.bannerLayer, { paddingTop: insets.top + 10, pointerEvents: 'box-none' }]}>
       <Animated.View
         key={notice.id}
-        entering={reducedMotion ? FadeIn.duration(120) : FadeInDown.duration(220)}
-        exiting={FadeOut.duration(reducedMotion ? 80 : 160)}
-        style={[styles.banner, { backgroundColor: tokens.surface, borderColor: tokens.border }]}
+        entering={reducedMotion ? undefined : FadeInDown.duration(220)}
+        exiting={reducedMotion ? undefined : FadeOut.duration(160)}
+        style={[styles.banner, { backgroundColor: tokens.surface, borderColor: tokens.border }, theme === 'eink' && styles.einkBanner]}
         accessibilityRole="alert"
         accessibilityLiveRegion="polite"
       >
@@ -73,13 +75,13 @@ export function FeedbackBanner({ notice, onDismiss }: FeedbackBannerProps) {
 
 export function GentleNotice({ title, message, tone = 'info' }: Pick<AppNotice, 'title' | 'message' | 'tone'>) {
   const { tokens } = useTheme()
-  const reducedMotion = useReducedMotion()
+  const reducedMotion = useAppReducedMotion()
   const marker = tone === 'success' ? '✓' : tone === 'attention' ? '!' : 'i'
   const markerColor = tone === 'success' ? tokens.positive : tone === 'attention' ? tokens.warm : tokens.accent
   return (
     <Animated.View
-      entering={FadeIn.duration(reducedMotion ? 80 : 180)}
-      exiting={FadeOut.duration(reducedMotion ? 80 : 140)}
+      entering={reducedMotion ? undefined : FadeIn.duration(180)}
+      exiting={reducedMotion ? undefined : FadeOut.duration(140)}
       style={[styles.inline, { borderColor: tokens.border, backgroundColor: tokens.surfaceHi }]}
       accessibilityRole="alert"
       accessibilityLiveRegion="polite"
@@ -101,10 +103,12 @@ interface AppLoadingScreenProps {
 }
 
 export function AppLoadingScreen({ backgroundColor, accentColor, textColor, message = 'Restoring your rhythm…' }: AppLoadingScreenProps) {
+  // This loading surface mounts before ThemeProvider, so it can only read the
+  // device accessibility preference here.
   const reducedMotion = useReducedMotion()
   return (
     <View style={[styles.loading, { backgroundColor }]} accessibilityRole="progressbar" accessibilityLabel={message}>
-      <Animated.View entering={FadeIn.duration(reducedMotion ? 80 : 260)} style={styles.loadingContent}>
+      <Animated.View entering={reducedMotion ? undefined : FadeIn.duration(260)} style={styles.loadingContent}>
         <View style={[styles.loadingMark, { borderColor: accentColor }]}>
           <ActivityIndicator color={accentColor} size="small" />
         </View>
@@ -118,6 +122,7 @@ export function AppLoadingScreen({ backgroundColor, accentColor, textColor, mess
 const styles = StyleSheet.create({
   bannerLayer: { position: 'absolute', zIndex: 1000, left: 12, right: 12, top: 0, alignItems: 'center' },
   banner: { width: '100%', maxWidth: 560, minHeight: 64, borderWidth: 1.5, borderRadius: 18, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10, boxShadow: '0 8px 28px rgba(0,0,0,0.22)' },
+  einkBanner: { boxShadow: 'none' },
   marker: { width: 30, height: 30, borderWidth: 1.5, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
   markerText: { fontSize: 13, fontWeight: '900' },
   bannerCopy: { flex: 1, minWidth: 0, gap: 2 },

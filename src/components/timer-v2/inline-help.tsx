@@ -1,6 +1,7 @@
+import { useAppReducedMotion } from '../../theme/ThemeContext'
 import { createContext, type ReactNode, use } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
-import Animated, { FadeInDown, FadeOut, useReducedMotion } from 'react-native-reanimated'
+import Animated, { FadeInDown, FadeOut } from 'react-native-reanimated'
 import { useTheme } from '../../theme/ThemeContext'
 import { tapHaptic } from '../../lib/haptics'
 
@@ -41,12 +42,12 @@ export function HelpToggleButton({ active, onPress }: { active: boolean; onPress
 
 export function InlineHelp({ visible, children }: { visible: boolean; children?: ReactNode }) {
   const { tokens } = useTheme()
-  const reducedMotion = useReducedMotion()
+  const reducedMotion = useAppReducedMotion()
   if (!visible || !children) return null
   return (
     <Animated.View
-      entering={FadeInDown.duration(reducedMotion ? 70 : 150)}
-      exiting={FadeOut.duration(reducedMotion ? 60 : 100)}
+      entering={reducedMotion ? undefined : FadeInDown.duration(150)}
+      exiting={reducedMotion ? undefined : FadeOut.duration(100)}
       style={styles.help}
     >
       <View style={[styles.icon, { borderColor: tokens.accent }]} accessibilityElementsHidden>

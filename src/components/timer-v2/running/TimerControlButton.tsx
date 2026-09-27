@@ -1,7 +1,8 @@
+import { useAppReducedMotion } from '../../../theme/ThemeContext'
 import type { ReactNode } from 'react'
 import { useRef } from 'react'
 import { Pressable, StyleSheet, Text } from 'react-native'
-import Animated, { FadeIn, useReducedMotion } from 'react-native-reanimated'
+import Animated, { FadeIn } from 'react-native-reanimated'
 import { tapHaptic } from '../../../lib/haptics'
 import { useTheme } from '../../../theme/ThemeContext'
 
@@ -20,8 +21,8 @@ interface Props {
 }
 
 export function TimerControlButton({ children, label, tooltip, active = false, disabled = false, badge, size = 40, filled = false, onPress, onLongPress, onTooltip }: Props) {
-  const { tokens } = useTheme()
-  const reducedMotion = useReducedMotion()
+  const { tokens, theme } = useTheme()
+  const reducedMotion = useAppReducedMotion()
   const longPressed = useRef(false)
   const showLongPress = () => {
     longPressed.current = true
@@ -40,10 +41,10 @@ export function TimerControlButton({ children, label, tooltip, active = false, d
     accessibilityLabel={label}
     accessibilityHint={tooltip}
     accessibilityState={{ selected: active, disabled }}
-    style={({ pressed }) => [styles.button, filled && styles.filled, { width: size, height: size, borderRadius: size / 2, borderColor: active ? tokens.accent : tokens.border, backgroundColor: active ? tokens.accentGlow : filled ? tokens.surface : 'transparent', opacity: disabled ? 0.38 : pressed ? 0.72 : 1, transform: [{ scale: pressed && !disabled && !reducedMotion ? 0.92 : 1 }] }]}
+    style={({ pressed }) => [styles.button, filled && theme !== 'eink' && styles.filled, { width: size, height: size, borderRadius: size / 2, borderColor: tokens.border, backgroundColor: active ? tokens.accentGlow : filled ? tokens.surface : 'transparent', opacity: disabled && theme !== 'eink' ? 0.38 : pressed && theme !== 'eink' ? 0.72 : 1, transform: [{ scale: pressed && !disabled && !reducedMotion ? 0.92 : 1 }] }]}
   >
     {children}
-    {badge ? <Animated.View entering={FadeIn.duration(120)} style={[styles.badge, { backgroundColor: tokens.accent }]}><Text style={styles.badgeText}>{badge}</Text></Animated.View> : null}
+    {badge ? <Animated.View entering={reducedMotion ? undefined : FadeIn.duration(120)} style={[styles.badge, { backgroundColor: tokens.accent }]}><Text style={styles.badgeText}>{badge}</Text></Animated.View> : null}
   </Pressable>
 }
 

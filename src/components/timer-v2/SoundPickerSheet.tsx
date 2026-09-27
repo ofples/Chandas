@@ -1,7 +1,8 @@
+import { useAppReducedMotion } from '../../theme/ThemeContext'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import Slider from '@react-native-community/slider'
-import Animated, { FadeIn, FadeOut, useReducedMotion } from 'react-native-reanimated'
+import Animated, { FadeIn, FadeOut } from 'react-native-reanimated'
 import { selectionHaptic } from '../../lib/haptics'
 import type { CueSettings, SoundRef } from '../../types'
 import { BUILT_IN_SOUNDS, soundTitle } from '../../lib/soundLibrary'
@@ -33,7 +34,7 @@ interface Props {
 
 export function SoundPickerSheet({ visible, title, cue, masterVolume, advanced = false, onChange, onClose, onBack, onFeedback }: Props) {
   const { tokens } = useTheme()
-  const reducedMotion = useReducedMotion()
+  const reducedMotion = useAppReducedMotion()
   const [tab, setTab] = useState<SoundTab>('built-in')
   const [previewing, setPreviewing] = useState<string | null>(null)
   const [picking, setPicking] = useState(false)
@@ -176,7 +177,7 @@ export function SoundPickerSheet({ visible, title, cue, masterVolume, advanced =
   return (
     <BottomSheet visible={visible} title={title} help={advanced ? 'Tap a sound name to hear it and keep only that sound. Use the round selectors to combine included, Android and device sounds.' : 'Tap a sound to use it and hear it immediately, then set this cue’s own volume below. Included sounds travel with saved configurations.'} onClose={close} onBack={onBack ? () => { stopPreview(); onBack() } : undefined} pinnedContent={<SegmentedControl items={SOUND_TABS} value={tab} onChange={value => { stopPreview(); setTab(value) }} accessibilityLabel="Sound source" />} footer={volumeFooter}>
       {message ? <GentleNotice title={message.title} message={message.detail} tone="attention" /> : null}
-      <Animated.View key={tab} entering={FadeIn.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 120)}>
+      <Animated.View key={tab} entering={reducedMotion ? undefined : FadeIn.duration(180)} exiting={reducedMotion ? undefined : FadeOut.duration(120)}>
       {tab === 'built-in' ? <View style={styles.list}>{BUILT_IN_SOUNDS.map(sound => {
         const ref: SoundRef = { kind: 'builtin', id: sound.id }
         const selected = advanced ? choices.some(choice => soundRefKey(choice) === soundRefKey(ref)) : cue.sound.kind === 'builtin' && cue.sound.id === sound.id

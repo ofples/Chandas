@@ -1,6 +1,7 @@
+import { useAppReducedMotion } from '../../theme/ThemeContext'
 import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { ScrollView, StyleSheet, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent, type ScrollViewProps } from 'react-native'
-import Animated, { FadeIn, FadeOut, useReducedMotion } from 'react-native-reanimated'
+import Animated, { FadeIn, FadeOut } from 'react-native-reanimated'
 import { ScrollEdgeFade } from './ScrollEdgeFade'
 
 interface Props extends Omit<ScrollViewProps, 'horizontal' | 'showsVerticalScrollIndicator'> {
@@ -11,7 +12,7 @@ interface Props extends Omit<ScrollViewProps, 'horizontal' | 'showsVerticalScrol
 
 /** A vertical scroller that gently marks only the edges with hidden content. */
 export function FadedVerticalScrollView({ children, fadeColor, resetKey, style, contentContainerStyle, onLayout, onContentSizeChange, onScroll, onScrollBeginDrag, ...props }: Props) {
-  const reducedMotion = useReducedMotion()
+  const reducedMotion = useAppReducedMotion()
   const scrollRef = useRef<ScrollView>(null)
   const [viewportHeight, setViewportHeight] = useState(0)
   const [contentHeight, setContentHeight] = useState(0)

@@ -1,6 +1,7 @@
+import { useAppReducedMotion } from '../../theme/ThemeContext'
 import { useEffect, useState } from 'react'
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
-import Animated, { FadeInDown, FadeOut, LinearTransition, useReducedMotion } from 'react-native-reanimated'
+import Animated, { FadeInDown, FadeOut, LinearTransition } from 'react-native-reanimated'
 import type { RunPolicy, TimerMode } from '../../types'
 import { MAX_RUN_CYCLES, MAX_RUN_DURATION_SECONDS } from '../../lib/timerV2'
 import { useTheme } from '../../theme/ThemeContext'
@@ -24,13 +25,13 @@ const choices = [
 
 export function RunLengthConfig({ mode, value, cycleDurationSeconds, secondPrecision = false, onChange }: Props) {
   const { tokens } = useTheme()
-  const reducedMotion = useReducedMotion()
+  const reducedMotion = useAppReducedMotion()
   const summary = runLengthSummary(mode, value, cycleDurationSeconds)
 
   return <View style={styles.section}>
     <Text accessibilityLiveRegion="polite" style={[styles.summary, { color: tokens.textMuted }]}>{summary}</Text>
     <SegmentedControl items={choices} value={value.kind} onChange={kind => onChange({ ...value, kind })} accessibilityLabel="Run length" />
-    {value.kind !== 'continuous' ? <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 170)} exiting={FadeOut.duration(reducedMotion ? 70 : 110)} layout={reducedMotion ? undefined : LinearTransition.duration(150)}>
+    {value.kind !== 'continuous' ? <Animated.View entering={reducedMotion ? undefined : FadeInDown.duration(170)} exiting={reducedMotion ? undefined : FadeOut.duration(110)} layout={reducedMotion ? undefined : LinearTransition.duration(150)}>
       {value.kind === 'cycles'
         ? <View style={styles.cycleRow}><View style={styles.valueRow}><StepButton label={mode === 'sequence' ? 'Decrease rounds' : 'Decrease cycles'} glyph="−" disabled={value.cycleCount <= 1} onPress={() => onChange({ ...value, cycleCount: value.cycleCount - 1 })} /><NumberField label={mode === 'sequence' ? 'Rounds' : 'Cycles'} value={value.cycleCount} max={MAX_RUN_CYCLES} onCommit={cycleCount => onChange({ ...value, cycleCount })} hideLabel /><StepButton label={mode === 'sequence' ? 'Increase rounds' : 'Increase cycles'} glyph="+" disabled={value.cycleCount >= MAX_RUN_CYCLES} onPress={() => onChange({ ...value, cycleCount: value.cycleCount + 1 })} /></View></View>
         : <DurationFields seconds={value.durationSeconds} secondPrecision={secondPrecision} onChange={durationSeconds => onChange({ ...value, durationSeconds })} />}
@@ -69,8 +70,8 @@ function NumberField({ label, value, max, onCommit, hideLabel = false }: { label
 }
 
 function StepButton({ label, glyph, disabled, onPress }: { label: string; glyph: string; disabled: boolean; onPress: () => void }) {
-  const { tokens } = useTheme()
-  return <Pressable disabled={disabled} onPress={() => { tapHaptic(); onPress() }} accessibilityRole="button" accessibilityLabel={label} style={({ pressed }) => [styles.step, { borderColor: tokens.border, opacity: disabled ? 0.35 : pressed ? 0.65 : 1 }]}><Text style={[styles.stepGlyph, { color: tokens.accent }]}>{glyph}</Text></Pressable>
+  const { tokens, theme } = useTheme()
+  return <Pressable disabled={disabled} onPress={() => { tapHaptic(); onPress() }} accessibilityRole="button" accessibilityLabel={label} style={({ pressed }) => [styles.step, { borderColor: tokens.border, backgroundColor: theme === 'eink' && disabled ? tokens.surfaceHi : 'transparent', opacity: theme === 'eink' ? 1 : disabled ? 0.35 : pressed ? 0.65 : 1 }]}><Text style={[styles.stepGlyph, { color: theme === 'eink' && disabled ? tokens.textDisabled : tokens.accent }]}>{glyph}</Text></Pressable>
 }
 
 export function formatDuration(seconds: number): string {

@@ -1,3 +1,4 @@
+import { useAppReducedMotion } from './src/theme/ThemeContext'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { StatusBar } from 'expo-status-bar'
 import * as Updates from 'expo-updates'
@@ -5,7 +6,7 @@ import { Alert, AppState as NativeAppState, Linking, PermissionsAndroid, Platfor
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { useFonts, JetBrainsMono_300Light, JetBrainsMono_400Regular } from '@expo-google-fonts/jetbrains-mono'
-import Reanimated, { FadeIn, FadeOut, useReducedMotion } from 'react-native-reanimated'
+import Reanimated, { FadeIn, FadeOut } from 'react-native-reanimated'
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext'
 import type { AppState, AppTimerSettings, TimerV2State } from './src/types'
 import { useTimerV2 } from './src/hooks/useTimerV2'
@@ -80,7 +81,7 @@ function settingsFromNative(current: AppTimerSettings, native: ReturnType<typeof
 
 function Root() {
   const { tokens, theme } = useTheme()
-  const reducedMotion = useReducedMotion()
+  const reducedMotion = useAppReducedMotion()
   const updateState = Updates.useUpdates()
   const [timerState, setTimerState] = useState<TimerV2State | null>(null)
   const [appState, setAppState] = useState<AppState>('config')
@@ -632,13 +633,13 @@ function Root() {
   return (
     <FeedbackLayerProvider notice={notice} onDismiss={dismissNotice}>
       <View style={{ flex: 1, backgroundColor: tokens.bg }}>
-        <StatusBar style={theme === 'dark' ? 'light' : 'dark'} hidden={appState === 'running'} animated />
+        <StatusBar style={theme === 'dark' ? 'light' : 'dark'} hidden={appState === 'running'} animated={theme !== 'eink'} />
         <View
           style={{ flex: 1, pointerEvents: timer.isAlarmRinging ? 'none' : 'auto' }}
           importantForAccessibility={timer.isAlarmRinging ? 'no-hide-descendants' : 'auto'}
           accessibilityElementsHidden={timer.isAlarmRinging}
         >
-          <Reanimated.View key={appState} style={{ flex: 1 }} entering={FadeIn.duration(reducedMotion ? 80 : 220)} exiting={FadeOut.duration(reducedMotion ? 70 : 150)}>
+          <Reanimated.View key={appState} style={{ flex: 1 }} entering={reducedMotion ? undefined : FadeIn.duration(220)} exiting={reducedMotion ? undefined : FadeOut.duration(150)}>
             {appState === 'config' ? <TimerV2ConfigScreen state={timerState} onChange={changeTimerState} onStart={start} starting={starting} focusState={focusState} onFocusAutomationChange={setFocusAutomation} onOpenFocusSettings={openNotificationPolicySettings} onOpenFocusRuleSettings={openFocusRuleSettings} androidAccess={androidAccess} onOpenExactAlarmSettings={openExactAlarmSettings} onOpenFullScreenIntentSettings={openFullScreenIntentSettings} onRequestCallMuteAccess={() => void requestCallMuteAccess()} onRequestNotificationAccess={() => void requestNotificationAccess()} onFeedback={showNotice} /> : <TimerV2RunningScreen program={program} configurationName={timerState.workingPrograms.sourcePreset?.name} mainCountdown={timer.mainCountdown} nextCueCountdown={timer.nextCueCountdown} nextCueLabel={timer.nextCueLabel} progress={timer.progress} position={timer.position} eventPulse={timer.eventPulse} activeHoursPaused={timer.activeHoursPaused} activeHoursResumeAt={timer.activeHoursResumeAt} nextAudibleAt={timer.nextAudibleAt} nextAudibleLabel={timer.nextAudibleLabel} runEndsAt={timer.runEndsAt} runRemainingMs={timer.runRemainingMs} runProgress={timer.runProgress} mute={timer.mute} alarmBehavior={timer.alarmBehavior} realigning={realigning} onStop={stop} onRestartUnsynced={() => reanchor(false)} onSnapToClock={offset => reanchor(true, offset)} onPressAlarm={pressAlarm} onMuteForIterations={timer.muteForIterations} onMuteForSeconds={timer.muteForSeconds} onClearMute={timer.clearMute} secondPrecision={timerState.settings.secondPrecisionEnabled} masterVolume={timerState.settings.masterVolume} onMasterVolumeChange={masterVolume => changeTimerState({ ...timerState, settings: { ...timerState.settings, masterVolume } })} onCueVolumeChange={changeCueVolume} showAdvancedControls={timerState.settings.advancedModeEnabled} onShowAdvancedControls={() => changeTimerState({ ...timerState, settings: { ...timerState.settings, advancedModeEnabled: true } })} focusEnabled={timerState.settings.focusAutomationEnabled} focusActive={focusState.actual === 'active' && !timer.activeHoursPaused} focusPolicyAccess={focusState.policyAccess} focusReason={focusState.reason} onToggleFocus={focusState.reason === 'paused-by-android' ? resumeFocusAutomation : () => setFocusAutomation(!timerState.settings.focusAutomationEnabled)} onOpenFocusSettings={focusState.reason === 'rule-disabled' ? openFocusRuleSettings : openNotificationPolicySettings} configurations={timerState.presets.filter(preset => preset.showInRunningSelector !== false)} activeConfigurationId={hasUnsavedProgramChanges(timerState) ? undefined : timerState.workingPrograms.sourcePreset?.id} onSelectConfiguration={switchRunningConfiguration} externalPanel={floatingTimerPanel} onExternalPanelConsumed={() => setFloatingTimerPanel(null)} />}
           </Reanimated.View>
         </View>

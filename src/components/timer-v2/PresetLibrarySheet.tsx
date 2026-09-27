@@ -1,7 +1,8 @@
+import { useAppReducedMotion } from '../../theme/ThemeContext'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { successHaptic } from '../../lib/haptics'
-import Animated, { FadeIn, FadeInDown, FadeOut, LinearTransition, useReducedMotion } from 'react-native-reanimated'
+import Animated, { FadeIn, FadeInDown, FadeOut, LinearTransition } from 'react-native-reanimated'
 import type { AppTimerSettings, ProgramPreset, TimerMode, TimerProgram, TimerV2State } from '../../types'
 import { addStarterProgramPresets, deleteProgramPreset, hasUnsavedProgramChanges, loadProgramPreset, saveProgramPreset, updatePattern } from '../../lib/programActions'
 import { soundTitle } from '../../lib/soundLibrary'
@@ -33,7 +34,7 @@ interface Props {
 
 export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedback }: Props) {
   const { tokens } = useTheme()
-  const reducedMotion = useReducedMotion()
+  const reducedMotion = useAppReducedMotion()
   const [name, setName] = useState('')
   const [filter, setFilter] = useState<'all' | TimerMode>('all')
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -230,7 +231,7 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedba
       {!selected && savedName ? <GentleNotice title="Configuration saved" message={`“${savedName}” is ready to load.`} tone="success" /> : null}
       {!selected && state.presets.length === 0 ? <View style={[styles.starterRow, { borderColor: tokens.border }]}><View style={styles.copy}><Text style={[styles.presetTitle, { color: tokens.text }]}>Starter configurations</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>Add editable examples for work, study, a morning sequence, and movement reminders.</Text></View><SheetTextButton label="Add" onPress={() => onChange(addStarterProgramPresets(state))} accessibilityLabel="Add starter configurations" /></View> : null}
       {!selected ? <SegmentedControl items={FILTERS} value={filter} onChange={setFilter} accessibilityLabel="Configuration type" /> : null}
-      {selected ? <Animated.View entering={FadeInDown.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 130)} style={styles.inspector}>
+      {selected ? <Animated.View entering={reducedMotion ? undefined : FadeInDown.duration(180)} exiting={reducedMotion ? undefined : FadeOut.duration(130)} style={styles.inspector}>
         <View style={styles.copy}><PresetVisual program={selected.program} /><Text style={[styles.date, { color: tokens.textMuted }]}>Saved {new Date(selected.createdAt).toLocaleString()}</Text><PresetDetails preset={selected} /><Text style={[styles.helper, { color: tokens.text }]}>Loads as a new working copy.</Text></View>
         <View style={styles.visibilityRow}><View style={styles.copy}><Text style={[styles.presetTitle, { color: tokens.text }]}>Show while running</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>Lets you switch to this saved configuration from the timer.</Text></View><Toggle value={selected.showInRunningSelector !== false} onChange={showInRunningSelector => onChange({ ...state, presets: state.presets.map(preset => preset.id === selected.id ? { ...preset, showInRunningSelector } : preset) })} accessibilityLabel={`Show ${selected.name} while timer is running`} /></View>
         <View style={styles.exportActions}><DoubleTapDeleteButton label="Delete configuration" accessibilityLabel={`Delete ${selected.name}`} onDelete={() => remove(selected)} /><SheetTextButton disabled={Boolean(transferAction)} label={transferAction === 'copy' ? 'Exporting…' : 'Export'} accessibilityLabel="Copy configuration" onPress={() => void copy(selected)} /></View>
@@ -238,7 +239,7 @@ export function PresetLibrarySheet({ visible, state, onChange, onClose, onFeedba
       {!selected ? <View style={styles.list}>
         {presets.length === 0 ? <GentleNotice title={state.presets.length === 0 ? 'No saved configurations yet' : `No ${filter === 'pattern' ? 'Cycle' : 'Sequence'} configurations`} message={state.presets.length === 0 ? 'Name the current setup above to save it.' : 'Try All or save the current setup.'} /> : presets.map(preset => {
           const loaded = state.workingPrograms.sourcePreset?.id === preset.id && !state.workingPrograms.sourcePreset.deleted && !hasUnsavedProgramChanges(state)
-          return <Animated.View key={preset.id} entering={FadeInDown.duration(reducedMotion ? 80 : 180)} exiting={FadeOut.duration(reducedMotion ? 70 : 120)} layout={reducedMotion ? undefined : LinearTransition.duration(160)}>
+          return <Animated.View key={preset.id} entering={reducedMotion ? undefined : FadeInDown.duration(180)} exiting={reducedMotion ? undefined : FadeOut.duration(120)} layout={reducedMotion ? undefined : LinearTransition.duration(160)}>
             <SwipeToDeleteRow accessibilityLabel={`Delete ${preset.name}`} onDelete={() => remove(preset)}>
             <Pressable style={[styles.preset, { borderColor: tokens.border, backgroundColor: tokens.surfaceHi }]} onPress={() => { tapHaptic(); setSelectedId(preset.id) }} accessibilityRole="button" accessibilityLabel={`Open ${preset.name}`}>
               <View style={styles.copy}>

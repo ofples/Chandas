@@ -1,9 +1,10 @@
+import { useAppReducedMotion } from '../../theme/ThemeContext'
 import { useState, type ReactNode } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { selectionHaptic } from '../../lib/haptics'
-import Animated, { FadeIn, LinearTransition, useReducedMotion } from 'react-native-reanimated'
+import Animated, { FadeIn, LinearTransition } from 'react-native-reanimated'
 import type { SubBellColorId } from '../../types'
-import { SUB_BELL_COLORS } from '../../lib/subBellColors'
+import { SUB_BELL_COLORS, subBellColorValue } from '../../lib/subBellColors'
 import { useTheme } from '../../theme/ThemeContext'
 import { FadedHorizontalScrollView } from './FadedHorizontalScrollView'
 
@@ -18,25 +19,28 @@ interface Props {
 
 /** Collapsed color swatch that expands its shared one-line palette in place. */
 export function ColorSelector({ value, onChange, label = 'Color', detail, trailing, accessibilityLabel = 'Color' }: Props) {
-  const { tokens } = useTheme()
-  const reducedMotion = useReducedMotion()
+  const { tokens, theme } = useTheme()
+  const eink = theme === 'eink'
+  const reducedMotion = useAppReducedMotion()
   const [expanded, setExpanded] = useState(false)
   const current = SUB_BELL_COLORS.find(option => option.id === value) ?? SUB_BELL_COLORS[0]
   return <Animated.View layout={reducedMotion ? undefined : LinearTransition.duration(170)} style={styles.block}>
     <View style={styles.summary}>
       <Pressable onPress={() => { setExpanded(open => !open); selectionHaptic() }} style={styles.summaryButton} accessibilityRole="button" accessibilityLabel={`${accessibilityLabel}, ${current.label}`} accessibilityState={{ expanded }}>
         {label ? <View style={styles.copy}><Text style={[styles.label, { color: tokens.text }]}>{label}</Text>{detail ? <Text numberOfLines={1} style={[styles.detail, { color: tokens.textMuted }]}>{detail}</Text> : null}</View> : <View style={styles.copy} />}
-        <View style={[styles.currentChoice, { borderColor: expanded ? current.value : tokens.border }]}><View style={[styles.currentSwatch, { backgroundColor: current.value }]} /></View>
+        <View style={[styles.currentChoice, { borderColor: eink ? tokens.border : expanded ? current.value : tokens.border }]}><View style={[styles.currentSwatch, { backgroundColor: eink ? subBellColorValue(current.id, 0, true) : current.value }]} /></View>
       </Pressable>
       {trailing}
     </View>
-    {expanded ? <Animated.View entering={FadeIn.duration(reducedMotion ? 70 : 130)}>
+    {expanded ? <Animated.View entering={reducedMotion ? undefined : FadeIn.duration(130)}>
       <FadedHorizontalScrollView fadeColor={tokens.surface} selectedIndex={SUB_BELL_COLORS.findIndex(option => option.id === value)} itemCount={SUB_BELL_COLORS.length} selectionKey={`${expanded}:${value}`} contentContainerStyle={styles.rail} accessibilityRole="radiogroup" accessibilityLabel={accessibilityLabel}>
       {SUB_BELL_COLORS.map(option => {
         const selected = value === option.id
-        return <Pressable key={option.id} onPress={() => { onChange(option.id); selectionHaptic() }} accessibilityRole="radio" accessibilityLabel={option.label} accessibilityState={{ selected }} style={({ pressed }) => [styles.choice, { borderColor: selected ? option.value : 'transparent', opacity: pressed ? 0.72 : 1, transform: [{ scale: pressed && !reducedMotion ? 0.92 : 1 }] }]}>
-          <View style={[styles.swatch, { backgroundColor: option.value }]} />
-          {selected ? <Text style={styles.check}>✓</Text> : null}
+        const swatchColor = eink ? subBellColorValue(option.id, 0, true) : option.value
+        const checkColor = eink && Number.parseInt(swatchColor.slice(1, 3), 16) >= 128 ? tokens.text : '#fff'
+        return <Pressable key={option.id} onPress={() => { onChange(option.id); selectionHaptic() }} accessibilityRole="radio" accessibilityLabel={option.label} accessibilityState={{ selected }} style={({ pressed }) => [styles.choice, { borderColor: eink ? tokens.border : selected ? option.value : 'transparent', backgroundColor: eink && selected ? tokens.surfaceHi : 'transparent', opacity: pressed && !eink ? 0.72 : 1, transform: [{ scale: pressed && !reducedMotion ? 0.92 : 1 }] }]}>
+          <View style={[styles.swatch, { backgroundColor: swatchColor }]} />
+          {selected ? <Text style={[styles.check, { color: checkColor }]}>✓</Text> : null}
         </Pressable>
       })}
       </FadedHorizontalScrollView>

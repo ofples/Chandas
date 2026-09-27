@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { Animated, StyleSheet } from 'react-native'
+import { useTheme } from '../theme/ThemeContext'
 
 export const TIMER_CIRCLE_VIEW = 300
 export const TIMER_CIRCLE_CENTER = TIMER_CIRCLE_VIEW / 2
@@ -22,11 +23,13 @@ export function FlashingTimerCircle({
   flashes = 1,
   duration = 600,
 }: Props) {
+  const { theme } = useTheme()
   const progress = useRef(new Animated.Value(0)).current
 
   useEffect(() => {
     progress.stopAnimation()
     progress.setValue(0)
+    if (theme === 'eink') return
 
     if (continuous) {
       const loop = Animated.loop(
@@ -58,7 +61,7 @@ export function FlashingTimerCircle({
     )
     sequence.start()
     return () => sequence.stop()
-  }, [continuous, duration, flashes, progress, trigger])
+  }, [continuous, duration, flashes, progress, theme, trigger])
 
   const fill = progress.interpolate({
     inputRange: [0, 0.33, 0.66, 1],
@@ -70,6 +73,7 @@ export function FlashingTimerCircle({
   })
   const diameter = size * (TIMER_CIRCLE_RADIUS * 2 / TIMER_CIRCLE_VIEW)
   const inset = (size - diameter) / 2
+  if (theme === 'eink') return null
 
   return (
     <Animated.View

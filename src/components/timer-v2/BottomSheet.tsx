@@ -1,6 +1,7 @@
+import { useAppReducedMotion } from '../../theme/ThemeContext'
 import { type ReactNode, useEffect, useId, useRef } from 'react'
 import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
-import Animated, { FadeInDown, useReducedMotion } from 'react-native-reanimated'
+import Animated, { FadeInDown } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '../../theme/ThemeContext'
 import { useKeyboardVisible } from '../../hooks/use-keyboard-visible'
@@ -38,10 +39,10 @@ interface SheetHeaderAction {
 
 /** Shared, keyboard-safe sheet used by every Timer v2 secondary flow. */
 export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClose, onBack, leadingAction, trailingAction, help, presentationKey, pinnedContent, children, scroll = true, footer, minHeight, compactTop = false }: Props) {
-  const { tokens } = useTheme()
+  const { tokens, theme } = useTheme()
   const insets = useSafeAreaInsets()
   const keyboardVisible = useKeyboardVisible(visible)
-  const reducedMotion = useReducedMotion()
+  const reducedMotion = useAppReducedMotion()
   const setupHelp = useSetupHelp()
   const sheetId = useId()
   const setSheetVisible = useFeedbackSheetRegistration()
@@ -61,12 +62,12 @@ export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClo
     : <View style={styles.body}>{presented.children}</View>
 
   return (
-    <Modal visible={visible} transparent animationType={Platform.OS === 'web' ? 'none' : 'fade'} onRequestClose={presented.onBack ?? presented.onClose} statusBarTranslucent>
+    <Modal visible={visible} transparent animationType={Platform.OS === 'web' || theme === 'eink' ? 'none' : 'fade'} onRequestClose={presented.onBack ?? presented.onClose} statusBarTranslucent>
       <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}>
-        <View style={styles.backdrop}>
+        <View style={[styles.backdrop, theme === 'eink' && { backgroundColor: tokens.bg }]}>
           <Pressable style={StyleSheet.absoluteFill} onPress={presented.onClose} accessible={false} accessibilityRole="button" accessibilityLabel="Close sheet" />
           <Animated.View
-            entering={Platform.OS === 'web' ? FadeInDown.duration(reducedMotion ? 80 : 180) : undefined}
+            entering={Platform.OS === 'web' && !reducedMotion ? FadeInDown.duration(180) : undefined}
             style={[styles.sheet, { backgroundColor: tokens.surface, borderColor: tokens.border, paddingBottom: keyboardVisible ? 8 : Math.max(insets.bottom, 16), minHeight: presented.minHeight ?? styles.sheet.minHeight }]}
             accessible={false}
             accessibilityViewIsModal

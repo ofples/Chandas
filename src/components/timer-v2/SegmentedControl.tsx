@@ -1,5 +1,5 @@
+import { useAppReducedMotion } from '../../theme/ThemeContext'
 import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native'
-import { useReducedMotion } from 'react-native-reanimated'
 import { useTheme } from '../../theme/ThemeContext'
 import { selectionHaptic } from '../../lib/haptics'
 
@@ -16,8 +16,8 @@ export function SegmentedControl<T extends string>({ items, value, onChange, acc
   style?: StyleProp<ViewStyle>
   feedback?: boolean
 }) {
-  const { tokens } = useTheme()
-  const reducedMotion = useReducedMotion()
+  const { tokens, theme } = useTheme()
+  const reducedMotion = useAppReducedMotion()
   return <View style={[styles.control, { borderColor: tokens.border }, style]} accessibilityRole="tablist" accessibilityLabel={accessibilityLabel}>
     {items.map(item => {
       const selected = item.value === value
@@ -26,7 +26,7 @@ export function SegmentedControl<T extends string>({ items, value, onChange, acc
         onPress={() => { if (!selected && feedback) selectionHaptic(); onChange(item.value) }}
         accessibilityRole="tab"
         accessibilityState={{ selected }}
-        style={({ pressed }) => [styles.segment, selected && { backgroundColor: tokens.accent }, { opacity: pressed ? 0.78 : 1, transform: [{ scale: pressed && !reducedMotion ? 0.985 : 1 }] }]}
+        style={({ pressed }) => [styles.segment, selected && { backgroundColor: tokens.accent }, theme === 'eink' && { borderWidth: 1, borderColor: tokens.border }, { opacity: pressed && theme !== 'eink' ? 0.78 : 1, transform: [{ scale: pressed && !reducedMotion ? 0.985 : 1 }] }]}
       ><Text style={[styles.label, { color: selected ? '#fff' : tokens.textMuted }]}>{item.label}</Text></Pressable>
     })}
   </View>

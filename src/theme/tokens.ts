@@ -51,22 +51,22 @@ export const lightTheme: ThemeTokens = {
   border: 'rgba(0,0,0,0.09)',
 }
 
-/** A deliberately quiet monochrome palette for reflective, low-distraction displays. */
+/** Pure neutral values and opaque surfaces for grayscale reflective displays. */
 export const einkTheme: ThemeTokens = {
-  bg: '#f1efe4',
-  surface: '#faf8ef',
-  surfaceHi: '#dedbd0',
-  accent: '#171714',
-  accentDim: '#77766e',
-  accentGlow: 'rgba(23, 23, 20, 0.12)',
-  positive: '#171714',
-  positiveGlow: 'rgba(23, 23, 20, 0.08)',
-  warm: '#171714',
-  warmGlow: 'rgba(23, 23, 20, 0.08)',
-  text: '#171714',
-  textMuted: '#69685f',
-  textDisabled: '#aaa89d',
-  border: 'rgba(23,23,20,0.16)',
+  bg: '#ffffff',
+  surface: '#ffffff',
+  surfaceHi: '#e6e6e6',
+  accent: '#000000',
+  accentDim: '#555555',
+  accentGlow: '#eeeeee',
+  positive: '#000000',
+  positiveGlow: '#eeeeee',
+  warm: '#000000',
+  warmGlow: '#eeeeee',
+  text: '#000000',
+  textMuted: '#444444',
+  textDisabled: '#777777',
+  border: '#000000',
 }
 
 export const radius = {

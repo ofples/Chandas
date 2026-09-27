@@ -1,6 +1,6 @@
+import { useAppReducedMotion } from '../../theme/ThemeContext'
 import { useMemo, useState } from 'react'
 import { LayoutChangeEvent, Pressable, StyleSheet, Text, View } from 'react-native'
-import { useReducedMotion } from 'react-native-reanimated'
 import { useTheme } from '../../theme/ThemeContext'
 import { selectionHaptic } from '../../lib/haptics'
 import { formatCompactDurationSeconds } from '../../lib/timerV2'
@@ -18,7 +18,7 @@ interface Props {
 /** A deterministic tap-to-toggle elapsed-time grid. It deliberately never captures scrolling gestures. */
 export function OffsetGrid({ offsets, selected, unit = 'minutes', onChange }: Props) {
   const { tokens } = useTheme()
-  const reducedMotion = useReducedMotion()
+  const reducedMotion = useAppReducedMotion()
   const [width, setWidth] = useState(0)
   const renderedSelection = useMemo(() => new Set(selected), [selected])
 

@@ -1,7 +1,8 @@
+import { useAppReducedMotion } from '../../../theme/ThemeContext'
 import { Fragment, useEffect, useMemo, useRef } from 'react'
 import { Animated as RNAnimated, Pressable, StyleSheet, Text, View } from 'react-native'
 import Svg, { Circle } from 'react-native-svg'
-import Animated, { FadeIn, useReducedMotion } from 'react-native-reanimated'
+import Animated, { FadeIn } from 'react-native-reanimated'
 import type { TimerProgram } from '../../../types'
 import type { TimelinePosition } from '../../../lib/timeline'
 import { cueSegmentProgress } from '../../../lib/timeline'
@@ -35,8 +36,8 @@ interface Props {
 }
 
 export function TimerWatchface({ program, position, progress, eventPulse, size, model, presentation = 'running-screen', flashOnMount = false, accessibilityLabel, onPress, onLongPress }: Props) {
-  const { tokens } = useTheme()
-  const reducedMotion = useReducedMotion()
+  const { tokens, theme } = useTheme()
+  const reducedMotion = useAppReducedMotion()
   const compact = presentation === 'floating-overlay'
   return <Pressable
     onPress={onPress}
@@ -47,12 +48,12 @@ export function TimerWatchface({ program, position, progress, eventPulse, size, 
     accessibilityLabel={accessibilityLabel}
   >
     <TimerWatchfaceRings size={size} progress={progress} position={position} program={program} muted={model.muted} eventPulse={eventPulse} edgeToEdge={presentation === 'floating-overlay'} flashOnMount={flashOnMount} />
-    <View style={[styles.center, compact && styles.centerCompact, { opacity: model.runtimeMuted ? 0.72 : 1, pointerEvents: 'none' }]}>
+    <View style={[styles.center, compact && styles.centerCompact, { opacity: theme !== 'eink' && model.runtimeMuted ? 0.72 : 1, pointerEvents: 'none' }]}>
       <Text style={[styles.mainTime, compact && styles.mainTimeCompact, { color: tokens.text }]} adjustsFontSizeToFit numberOfLines={1}>{model.mainLabel}</Text>
       {model.mainCaption ? <Text numberOfLines={1} style={[styles.mainCaption, compact && styles.mainCaptionCompact, { color: tokens.textMuted }]}>{model.mainCaption}</Text> : null}
-      {model.nextName ? <Animated.View key={`${model.nextLabel ?? ''}:${model.nextName}`} entering={FadeIn.duration(reducedMotion ? 80 : 180)} style={[styles.nextCue, compact && styles.nextCueCompact]}>
+      {model.nextName ? <Animated.View key={`${model.nextLabel ?? ''}:${model.nextName}`} entering={reducedMotion ? undefined : FadeIn.duration(180)} style={[styles.nextCue, compact && styles.nextCueCompact]}>
         {model.nextLabel ? <Text style={[styles.nextLabel, { color: tokens.textMuted }]}>{model.nextLabel}</Text> : null}
-        <Text numberOfLines={1} style={[styles.nextCueName, compact && styles.nextCueNameCompact, { color: model.nextColor ?? tokens.text }]}>{model.nextName}</Text>
+        <Text numberOfLines={1} style={[styles.nextCueName, compact && styles.nextCueNameCompact, { color: theme === 'eink' ? tokens.text : model.nextColor ?? tokens.text }]}>{model.nextName}</Text>
         {model.nextTime ? <Text style={[styles.nextCueTime, compact && styles.nextCueTimeCompact, { color: tokens.textMuted }]}>{model.nextTime}</Text> : null}
       </Animated.View> : null}
     </View>
@@ -61,21 +62,21 @@ export function TimerWatchface({ program, position, progress, eventPulse, size, 
 }
 
 export function TimerWatchfaceRings({ size, progress, position, program, muted, eventPulse, edgeToEdge = false, flashOnMount = false }: { size: number; progress: number; position: TimelinePosition | null; program: TimerProgram; muted: boolean; eventPulse: number; edgeToEdge?: boolean; flashOnMount?: boolean }) {
-  const { tokens } = useTheme()
-  const reducedMotion = useReducedMotion()
+  const { tokens, theme } = useTheme()
+  const reducedMotion = useAppReducedMotion()
   const flash = useRef(new RNAnimated.Value(0)).current
   const lastPulse = useRef(eventPulse)
   useEffect(() => {
-    if (eventPulse <= 0 || eventPulse === lastPulse.current) return
+    if (reducedMotion || eventPulse <= 0 || eventPulse === lastPulse.current) return
     lastPulse.current = eventPulse
     flash.setValue(0.7)
     RNAnimated.timing(flash, { toValue: 0, duration: 650, useNativeDriver: true }).start()
-  }, [eventPulse, flash])
+  }, [eventPulse, flash, reducedMotion])
   useEffect(() => {
-    if (!flashOnMount) return
+    if (reducedMotion || !flashOnMount) return
     flash.setValue(0.7)
     RNAnimated.timing(flash, { toValue: 0, duration: 650, useNativeDriver: true }).start()
-  }, [flash, flashOnMount])
+  }, [flash, flashOnMount, reducedMotion])
   const rings = useMemo(() => {
     if (program.mode === 'sequence') return [{ progress: position?.stepProgress ?? progress, stroke: tokens.accent, background: tokens.surfaceHi, backgroundOpacity: 1 }]
     const mainSeconds = patternDurationSeconds(program)
@@ -84,17 +85,17 @@ export function TimerWatchfaceRings({ size, progress, position, program, muted, 
     return [
       { progress, stroke: tokens.accent, background: tokens.surfaceHi, backgroundOpacity: 1 },
       ...activeTracks.map((track, index) => {
-        const stroke = subBellColorValue(track.color, index)
+        const stroke = subBellColorValue(track.color, index, theme === 'eink')
         return { progress: cueSegmentProgress(trackSelectedOffsetsSeconds(track), mainSeconds, elapsedSeconds), stroke, background: stroke, backgroundOpacity: 0.17 }
       }),
     ]
-  }, [position?.stepProgress, program, progress, tokens.accent, tokens.surfaceHi])
+  }, [position?.stepProgress, program, progress, theme, tokens.accent, tokens.surfaceHi])
   return <View style={StyleSheet.absoluteFill}>
-    <RNAnimated.View style={[styles.flash, { width: size, height: size, borderRadius: size / 2, backgroundColor: tokens.accent, opacity: flash, pointerEvents: 'none' }]} />
+    {theme !== 'eink' ? <RNAnimated.View style={[styles.flash, { width: size, height: size, borderRadius: size / 2, backgroundColor: tokens.accent, opacity: flash, pointerEvents: 'none' }]} /> : null}
     <Svg width={size} height={size} viewBox="0 0 200 200" style={styles.svg}>
       {rings.map((ring, index) => {
         const radius = (edgeToEdge ? 96 : 83) - index * 7
-        return <Fragment key={index}><Circle cx={100} cy={100} r={radius} fill="none" stroke={ring.background} strokeOpacity={ring.backgroundOpacity} strokeWidth={3} /><SmoothProgressCircle radius={radius} progress={ring.progress} stroke={ring.stroke} strokeWidth={3} opacity={muted ? 0.3 : Math.max(0.52, 1 - index * 0.08)} reducedMotion={reducedMotion} /></Fragment>
+        return <Fragment key={index}><Circle cx={100} cy={100} r={radius} fill="none" stroke={ring.background} strokeOpacity={theme === 'eink' ? 1 : ring.backgroundOpacity} strokeWidth={3} /><SmoothProgressCircle radius={radius} progress={ring.progress} stroke={ring.stroke} strokeWidth={3} opacity={theme === 'eink' ? 1 : muted ? 0.3 : Math.max(0.52, 1 - index * 0.08)} reducedMotion={reducedMotion} /></Fragment>
       })}
     </Svg>
   </View>

@@ -35,7 +35,13 @@ export function normalizeSubBellColor(value: unknown, index: number): SubBellCol
     : defaultSubBellColor(index)
 }
 
-export function subBellColorValue(value: unknown, index: number): string {
+const EINK_RING_SHADES = ['#111111', '#444444', '#777777', '#999999', '#555555', '#222222'] as const
+
+export function subBellColorValue(value: unknown, index: number, grayscale = false): string {
   const id = normalizeSubBellColor(value, index)
+  if (grayscale) {
+    const shadeIndex = SUB_BELL_COLORS.findIndex(option => option.id === id)
+    return EINK_RING_SHADES[shadeIndex % EINK_RING_SHADES.length]
+  }
   return SUB_BELL_COLORS.find(option => option.id === id)?.value ?? SUB_BELL_COLORS[0].value
 }

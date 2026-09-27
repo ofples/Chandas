@@ -1,7 +1,8 @@
+import { useAppReducedMotion } from '../../theme/ThemeContext'
 import { useEffect, useMemo, useRef } from 'react'
 import { PanResponder, StyleSheet, Text } from 'react-native'
 import { mediumHaptic, selectionHaptic, tapHaptic } from '../../lib/haptics'
-import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withTiming, type SharedValue } from 'react-native-reanimated'
+import Animated, { useAnimatedStyle, useSharedValue, withTiming, type SharedValue } from 'react-native-reanimated'
 import { useTheme } from '../../theme/ThemeContext'
 import { reorderGestureIntent } from '../../lib/reorder-preview'
 
@@ -26,7 +27,7 @@ interface Props {
  */
 export function ReorderHandle({ index, itemCount, rowHeight = 72, onMove, onPreviewChange, onPreviewEnd, label, rowTranslation, onDragStateChange, onAutoScroll }: Props) {
   const { tokens } = useTheme()
-  const reducedMotion = useReducedMotion()
+  const reducedMotion = useAppReducedMotion()
   const internalTranslation = useSharedValue(0)
   const translation = rowTranslation ?? internalTranslation
   const originRef = useRef(index)

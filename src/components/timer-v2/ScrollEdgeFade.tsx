@@ -1,10 +1,13 @@
 import { useId } from 'react'
 import { StyleSheet } from 'react-native'
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg'
+import { useTheme } from '../../theme/ThemeContext'
 
 /** A non-interactive hint that scrollable content continues beyond an edge. */
 export function ScrollEdgeFade({ color, side, size = 34 }: { color: string; side: 'left' | 'right' | 'top' | 'bottom'; size?: number }) {
+  const { theme } = useTheme()
   const gradientId = `choice-edge-fade-${side}-${useId().replace(/:/g, '')}`
+  if (theme === 'eink') return null
   const vertical = side === 'top' || side === 'bottom'
   const startsOpaque = side === 'left' || side === 'top'
   return <Svg pointerEvents="none" width={vertical ? '100%' : size} height={vertical ? size : '100%'} style={[styles.fade, styles[side]]}>
