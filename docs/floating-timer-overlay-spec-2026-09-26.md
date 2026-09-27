@@ -496,3 +496,41 @@ Do not build a large screenshot automation suite before physical behavior is sta
 - Accessibility and physical-device checks pass on the required Android matrix.
 - A new Android build is produced and its generated manifest, runtime fingerprint and Play release requirements are verified before distribution.
 
+## 19. Implementation record — 2026-09-26
+
+**Status:** Implemented and locally verified on an Android 16 Pixel emulator. Physical phone and OEM permission checks remain manual release checks.
+
+### 19.1 Delivered architecture
+
+- `TimerWatchface` and `TimerControlButton` are shared React components used by both the normal running screen and the floating surface.
+- The expanded controls are opaque 48 dp circular buttons on one concentric lower orbit around the watchface. Active state is expressed by the button fill and border; no badge overlaps its icon. Long-pressing clock alignment or sound opens the matching running-screen panel.
+- The watchface ring reaches the edge of its circular shell. A normal tap returns to Chandas’ running screen; a cue-triggered expansion instead dismisses on tap.
+- The collapsed pill shows time to the next bell followed by a compact current-cycle remainder, for example `05:32 • 14m`. At the main bell it collapses to the single end-of-cycle countdown.
+- Each delivered timer cue expands the background overlay for 2.5 seconds, pulses the ring, and then returns to the pill. This behavior is native-driven so it works while the app Activity is backgrounded.
+- Floating timer appearance is a device setting in System integrations with System, Dark and Light choices. It overrides only the overlay’s React surface and never changes the main app appearance.
+- `ChandasFloatingTimer` is registered as a second React surface in the embedded application bundle. `FloatingTimerOverlay` mounts that surface in one `TYPE_APPLICATION_OVERLAY` window owned by the generalized `ChandasCountdownService`.
+- The overlay resumes the existing React host with no Activity while its service window is visible, then balances that lifecycle when the background surface closes. Reinitializing the native module is idempotent, so a retained stopped Activity cannot incorrectly hide the overlay.
+- The native persisted timer, control state, absolute timestamps, scheduler and service remain authoritative. Overlay actions execute through synchronized native transactions and the foreground app reconciles accepted changes when it resumes.
+- Opt-in state and portrait/landscape edge positions are device-global preferences. They do not enter saved configurations or transfer payloads.
+- The native contract is version 12 and capability-gates the System integrations UI. Android manifests include `SYSTEM_ALERT_WINDOW`; development and production package IDs keep independent grants.
+
+### 19.2 Intentional implementation adjustment
+
+The service emits one small authoritative snapshot each second while the overlay is active. The original design prohibited per-second bridge traffic, but the shared React host pauses JavaScript timers when its Activity stops. Native snapshots prevent a frozen countdown while retaining one timer session and absolute-time calculations. The overlay does not schedule cues or create its own timer.
+
+### 19.3 Verification evidence
+
+- `npm run release:check`: dependency validation, TypeScript and 125 Vitest tests passed.
+- `:chandas-timer-service:compileDebugKotlin` and `:chandas-timer-service:testDebugUnitTest` passed.
+- Expo Android prebuild completed; merged manifests contain `SYSTEM_ALERT_WINDOW` and the countdown service for `com.yukti.chandas.dev` and `com.yukti.chandas`.
+- Local `:app:assembleDebug` and `:app:assembleRelease` completed.
+- Pixel 9 API 37 emulator: production install, permission grant, timer start, Activity backgrounding, service persistence, collapsed pill rendering, tap expansion, shared circular watchface rendering and five-second collapse were exercised. The final concentric-orbit, appearance override and cue-expansion checks are included in the next verification pass. No fatal exception appeared in the focused logcat review.
+- The live cue countdown updates in place; its fade key excludes the per-second text so the inner label does not flash on every native snapshot.
+
+### 19.4 Remaining manual release checks
+
+- Run the permission deny, revoke and regrant flow on a physical phone and at least one non-AOSP OEM.
+- Check drag and edge persistence in portrait and landscape, cutouts, font/display scaling, gesture navigation and TalkBack.
+- Exercise every control with Cycle and Sequence sessions, including Stop confirmation, alarm modes, mute state and foreground reconciliation.
+- Verify screen off/on, removal from recents, process recreation and reboot restoration on hardware.
+- Review the Play Console declaration and reviewer copy before store submission. Publication remains a separate action.

@@ -161,6 +161,32 @@ export interface NativeTimerCapabilities {
   supportsDualLiveCountdown?: boolean
   supportsProgramClockAlignment?: boolean
   supportsProgramSchema3?: boolean
+  supportsFloatingOverlay?: boolean
+}
+
+export interface NativeFloatingOverlayState {
+  supported: boolean
+  requested: boolean
+  permissionGranted: boolean
+  visible: boolean
+  expanded: boolean
+  appearance?: 'system' | 'dark' | 'light'
+  edge?: 'left' | 'right'
+  verticalFraction?: number
+}
+
+export interface NativeFloatingOverlaySnapshot extends NativeTimerState {
+  now: number
+  expanded?: boolean
+  preview?: boolean
+  cueAttention?: boolean
+  cuePulse?: number
+}
+
+export interface NativeFloatingOverlayActionResult {
+  success: boolean
+  error?: string
+  snapshot?: NativeFloatingOverlaySnapshot
 }
 
 export interface NativeFocusState {
@@ -208,6 +234,15 @@ interface ChandasTimerServiceModule {
   muteForMinutes(minutes: number): void
   muteForSeconds?(seconds: number): void
   clearMute(): void
+  getFloatingOverlayState?(): NativeFloatingOverlayState
+  getFloatingOverlaySnapshot?(): NativeFloatingOverlaySnapshot
+  setFloatingOverlayRequested?(enabled: boolean): void
+  setFloatingOverlayAppearance?(appearance: 'system' | 'dark' | 'light'): void
+  openFloatingOverlaySettings?(): void
+  consumeFloatingOverlayDestination?(): 'clock' | 'sound' | null
+  previewFloatingOverlay?(): boolean
+  setFloatingOverlayPosition?(edge: 'left' | 'right', verticalFraction: number): void
+  floatingOverlayAction?(action: string): NativeFloatingOverlayActionResult
   pickDeviceSound(kind: 'alarm' | 'notification' | 'unknown'): Promise<{ uri: string; title: string } | null>
   pickAudioDocument(): Promise<{ uri: string; title: string; mimeType?: string } | null>
   previewSound(soundId: string, fallbackSoundId: BuiltInSoundId, volume: number): Promise<boolean>
@@ -220,6 +255,8 @@ interface ChandasTimerServiceModule {
   addListener(eventName: 'onTimerEventFired', listener: (event: NativeTimerEvent) => void): EventSubscription
   addListener(eventName: 'onFocusStateChanged', listener: (event: NativeFocusState) => void): EventSubscription
   addListener(eventName: 'onTimerStateChanged', listener: (event: NativeScheduleState) => void): EventSubscription
+  addListener(eventName: 'onFloatingOverlayStateChanged', listener: (event: NativeFloatingOverlayState) => void): EventSubscription
+  addListener(eventName: 'onFloatingOverlaySnapshot', listener: (event: NativeFloatingOverlaySnapshot) => void): EventSubscription
 }
 
 const native = Platform.OS === 'android'
@@ -374,6 +411,30 @@ export const ChandasTimerService = {
   clearMute() {
     native?.clearMute()
   },
+  getFloatingOverlayState(): NativeFloatingOverlayState {
+    return native?.getFloatingOverlayState?.() ?? { supported: false, requested: false, permissionGranted: false, visible: false, expanded: false }
+  },
+  getFloatingOverlaySnapshot(): NativeFloatingOverlaySnapshot {
+    return native?.getFloatingOverlaySnapshot?.() ?? { ...this.getState(), now: Date.now() }
+  },
+  setFloatingOverlayRequested(enabled: boolean) {
+    native?.setFloatingOverlayRequested?.(enabled)
+  },
+  setFloatingOverlayAppearance(appearance: 'system' | 'dark' | 'light') {
+    native?.setFloatingOverlayAppearance?.(appearance)
+  },
+  openFloatingOverlaySettings() {
+    native?.openFloatingOverlaySettings?.()
+  },
+  consumeFloatingOverlayDestination(): 'clock' | 'sound' | null {
+    return native?.consumeFloatingOverlayDestination?.() ?? null
+  },
+  previewFloatingOverlay(): boolean {
+    return native?.previewFloatingOverlay?.() ?? false
+  },
+  floatingOverlayAction(action: string): NativeFloatingOverlayActionResult {
+    return native?.floatingOverlayAction?.(action) ?? { success: false, error: 'unsupported' }
+  },
   async pickDeviceSound(kind: 'alarm' | 'notification' | 'unknown'): Promise<{ uri: string; title: string } | null> {
     return native?.pickDeviceSound(kind) ?? null
   },
@@ -441,5 +502,11 @@ export const ChandasTimerService = {
   },
   addTimerStateListener(listener: (state: NativeScheduleState) => void): EventSubscription | null {
     return native?.addListener('onTimerStateChanged', listener) ?? null
+  },
+  addFloatingOverlayStateListener(listener: (state: NativeFloatingOverlayState) => void): EventSubscription | null {
+    return native?.addListener('onFloatingOverlayStateChanged', listener) ?? null
+  },
+  addFloatingOverlaySnapshotListener(listener: (state: NativeFloatingOverlaySnapshot) => void): EventSubscription | null {
+    return native?.addListener('onFloatingOverlaySnapshot', listener) ?? null
   },
 }

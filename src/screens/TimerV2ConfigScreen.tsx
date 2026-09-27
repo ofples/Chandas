@@ -314,6 +314,20 @@ function SystemAccessPanel({ access, settings, onChangeSettings, onOpenExactAlar
   const capabilities = ChandasTimerService.getCapabilities()
   const liveCountdownSupported = capabilities?.supportsLiveCountdown === true
   const dualCountdownSupported = capabilities?.supportsDualLiveCountdown === true
+  const floatingOverlaySupported = capabilities?.supportsFloatingOverlay === true
+  const [floatingOverlay, setFloatingOverlay] = useState(() => ChandasTimerService.getFloatingOverlayState())
+  useEffect(() => {
+    if (!floatingOverlaySupported) return
+    setFloatingOverlay(ChandasTimerService.getFloatingOverlayState())
+    const subscription = ChandasTimerService.addFloatingOverlayStateListener(setFloatingOverlay)
+    return () => subscription?.remove()
+  }, [floatingOverlaySupported])
+  const toggleFloatingOverlay = (enabled: boolean) => {
+    ChandasTimerService.setFloatingOverlayRequested(enabled)
+    const next = ChandasTimerService.getFloatingOverlayState()
+    setFloatingOverlay(next)
+    if (enabled && !next.permissionGranted) ChandasTimerService.openFloatingOverlaySettings()
+  }
   const toggleCallMute = (enabled: boolean) => {
     onChangeSettings({ muteDuringCallsEnabled: enabled })
     if (enabled && !access.callMute) onRequestCallMuteAccess()
@@ -333,6 +347,7 @@ function SystemAccessPanel({ access, settings, onChangeSettings, onOpenExactAlar
     <View style={[styles.divider, { backgroundColor: tokens.border }]} />
     <PermissionToggleRow title="Timer notifications" detail={access.notifications ? 'Shows running status and controls.' : 'Optional notification access.'} value={settings.notificationsEnabled && access.notifications} pending={access.pending === 'notifications'} checking={access.checking} onChange={toggleNotifications} />
     {liveCountdownSupported ? <><View style={[styles.divider, { backgroundColor: tokens.border }]} /><PermissionToggleRow title={dualCountdownSupported ? 'Timer countdown' : 'Next cue countdown'} detail={!settings.notificationsEnabled || !access.notifications ? 'Requires timer notifications.' : dualCountdownSupported ? 'Shows the next cue and run finish when available.' : 'Notification and supported status bars.'} value={settings.liveCountdownEnabled} pending={false} checking={access.checking} onChange={toggleLiveCountdown} /></> : null}
+    {floatingOverlaySupported ? <><View style={[styles.divider, { backgroundColor: tokens.border }]} /><View style={styles.accessRow}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Floating timer</Text><Text style={[styles.helper, { color: floatingOverlay.requested && !floatingOverlay.permissionGranted ? tokens.warm : tokens.textMuted }]}>{floatingOverlay.requested && !floatingOverlay.permissionGranted ? 'Allow display over other apps in Android settings.' : 'Shows a small timer over other apps while a session runs.'}</Text></View><Toggle value={floatingOverlay.requested} onChange={toggleFloatingOverlay} accessibilityLabel="Floating timer" /></View><View style={styles.floatingAppearance}><Text style={[styles.helper, { color: tokens.textMuted }]}>Widget appearance</Text><SegmentedControl items={[{ value: 'system', label: 'System' }, { value: 'dark', label: 'Dark' }, { value: 'light', label: 'Light' }]} value={floatingOverlay.appearance ?? 'system'} onChange={appearance => { ChandasTimerService.setFloatingOverlayAppearance(appearance); setFloatingOverlay(current => ({ ...current, appearance })) }} accessibilityLabel="Floating timer appearance" /></View>{floatingOverlay.requested && !floatingOverlay.permissionGranted ? <SheetTextButton label="Open Android settings" tone="danger" onPress={ChandasTimerService.openFloatingOverlaySettings} /> : null}<SheetTextButton label={floatingOverlay.permissionGranted ? 'Preview floating timer' : 'Allow and preview'} onPress={() => floatingOverlay.permissionGranted ? ChandasTimerService.previewFloatingOverlay() : ChandasTimerService.openFloatingOverlaySettings()} /></> : null}
   </View>
 }
 
@@ -750,5 +765,5 @@ const styles = StyleSheet.create({
   mixerButton: { width: 36, height: 36, borderWidth: 1, borderRadius: 18, alignItems: 'center', justifyContent: 'center' }, previewButton: { width: 36, height: 36, borderWidth: 1, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   outline: { alignSelf: 'flex-start', borderWidth: 1.5, borderRadius: 99, paddingHorizontal: 13, paddingVertical: 9 }, bottom: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 20 }, bottomFade: { position: 'absolute', top: -34, left: 0, right: 0, height: 34 }, start: { width: '100%', maxWidth: 580, minHeight: 54, alignSelf: 'center', borderRadius: 99, paddingVertical: 15, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 9 }, startText: { color: '#fff', fontSize: 14, fontWeight: '800', letterSpacing: 1.1, textTransform: 'uppercase' },
   advancedReveal: { minHeight: 54, alignItems: 'center', justifyContent: 'center', overflow: 'visible' }, advancedRevealPrompt: { alignSelf: 'center' }, advancedRevealPressable: { minHeight: 48, minWidth: 150, alignItems: 'center', justifyContent: 'center', gap: 7, paddingHorizontal: 18 }, advancedRevealIndicator: { width: 54, height: 1, borderRadius: 1 }, advancedRevealTitle: { fontSize: 14, fontWeight: '700' }, advancedSection: { width: '100%', gap: 23, opacity: 1, paddingHorizontal: 0, marginHorizontal: 0 }, hideAdvanced: { minHeight: 48, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
-  accessRow: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: 12 }, accessAction: { minWidth: 64, minHeight: 40, paddingHorizontal: 12, borderWidth: 1.5, borderRadius: 99, alignItems: 'center', justifyContent: 'center' }, readyPill: { minHeight: 27, paddingHorizontal: 9, borderRadius: 99, alignItems: 'center', justifyContent: 'center' }, readyMark: { fontSize: 8, fontWeight: '900', letterSpacing: 0.9 }, checkingMark: { width: 36, textAlign: 'center', fontSize: 10, letterSpacing: 1 },
+  accessRow: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: 12 }, floatingAppearance: { gap: 8, paddingBottom: 5 }, accessAction: { minWidth: 64, minHeight: 40, paddingHorizontal: 12, borderWidth: 1.5, borderRadius: 99, alignItems: 'center', justifyContent: 'center' }, readyPill: { minHeight: 27, paddingHorizontal: 9, borderRadius: 99, alignItems: 'center', justifyContent: 'center' }, readyMark: { fontSize: 8, fontWeight: '900', letterSpacing: 0.9 }, checkingMark: { width: 36, textAlign: 'center', fontSize: 10, letterSpacing: 1 },
 })

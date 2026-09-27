@@ -71,6 +71,7 @@ class ChandasTimerServiceModule : Module() {
       }
     }
     sendEvent("onAlarmStateChanged", bundleOf("ringing" to ringing))
+    appContext.reactContext?.let(FloatingTimerOverlay::reconcile)
   }
   private val controlListener: (TimerControlState) -> Unit = { state ->
     sendEvent("onControlStateChanged", controlBundle(state))
@@ -99,11 +100,21 @@ class ChandasTimerServiceModule : Module() {
       "nextLogicalId" to state.nextLogicalId,
       "exactTimingAvailable" to state.exactTimingAvailable,
     ))
+    appContext.reactContext?.let(FloatingTimerOverlay::reconcile)
   }
+  private val floatingStateListener: (Bundle) -> Unit = { sendEvent("onFloatingOverlayStateChanged", it) }
+  private val floatingSnapshotListener: (Bundle) -> Unit = { sendEvent("onFloatingOverlaySnapshot", it) }
 
   override fun definition() = ModuleDefinition {
     Name("ChandasTimerService")
-    Events("onAlarmStateChanged", "onControlStateChanged", "onTimerEventFired", "onFocusStateChanged", "onTimerStateChanged")
+    Events("onAlarmStateChanged", "onControlStateChanged", "onTimerEventFired", "onFocusStateChanged", "onTimerStateChanged", "onFloatingOverlayStateChanged", "onFloatingOverlaySnapshot")
+
+    OnCreate {
+      appContext.reactContext?.let { context ->
+        FloatingTimerOverlay.initialize(context, appContext.activityProvider?.currentActivity != null)
+        FloatingTimerOverlay.reconcile(context)
+      }
+    }
 
     Function("getCapabilities") {
       bundleOf(
@@ -132,7 +143,56 @@ class ChandasTimerServiceModule : Module() {
         "supportsDualLiveCountdown" to true,
         "supportsProgramClockAlignment" to true,
         "supportsProgramSchema3" to true,
+        "supportsFloatingOverlay" to (Build.VERSION.SDK_INT >= 26),
       )
+    }
+
+    Function("getFloatingOverlayState") {
+      val context = appContext.reactContext ?: return@Function bundleOf("supported" to false)
+      FloatingTimerOverlay.initialize(context, appContext.activityProvider?.currentActivity != null)
+      FloatingTimerOverlay.reconcile(context)
+      FloatingTimerOverlay.state(context)
+    }
+
+    Function("getFloatingOverlaySnapshot") {
+      val context = appContext.reactContext ?: return@Function bundleOf("active" to false)
+      FloatingTimerOverlay.snapshot(context)
+    }
+
+    Function("setFloatingOverlayRequested") { value: Boolean ->
+      val context = appContext.reactContext ?: return@Function Unit
+      FloatingTimerOverlay.initialize(context, appContext.activityProvider?.currentActivity != null)
+      FloatingTimerOverlay.setRequested(context, value)
+    }
+
+    Function("setFloatingOverlayAppearance") { value: String ->
+      val context = appContext.reactContext ?: return@Function Unit
+      FloatingTimerOverlay.setAppearance(context, value)
+    }
+
+    Function("openFloatingOverlaySettings") {
+      val context = appContext.reactContext ?: return@Function Unit
+      FloatingTimerOverlay.openSettings(context)
+    }
+
+    Function("consumeFloatingOverlayDestination") {
+      val context = appContext.reactContext ?: return@Function null
+      FloatingTimerActions.consumeDestination(context)
+    }
+
+    Function("previewFloatingOverlay") {
+      val context = appContext.reactContext ?: return@Function false
+      FloatingTimerOverlay.preview(context)
+    }
+
+    Function("setFloatingOverlayPosition") { edge: String, verticalFraction: Double ->
+      val context = appContext.reactContext ?: return@Function Unit
+      FloatingTimerOverlay.position(context, edge, verticalFraction)
+    }
+
+    Function("floatingOverlayAction") { action: String ->
+      val context = appContext.reactContext ?: return@Function bundleOf("success" to false, "error" to "unavailable")
+      TimerScheduler.floatingOverlayAction(context, action)
     }
 
     Function("start") { record: TimerConfigRecord ->
@@ -412,6 +472,11 @@ class ChandasTimerServiceModule : Module() {
       AlarmStateRegistry.add(ringingListener)
     }
 
+    OnStartObserving("onFloatingOverlayStateChanged") { FloatingTimerOverlay.addListener(floatingStateListener) }
+    OnStopObserving("onFloatingOverlayStateChanged") { FloatingTimerOverlay.removeListener(floatingStateListener) }
+    OnStartObserving("onFloatingOverlaySnapshot") { FloatingTimerOverlay.addSnapshotListener(floatingSnapshotListener) }
+    OnStopObserving("onFloatingOverlaySnapshot") { FloatingTimerOverlay.removeSnapshotListener(floatingSnapshotListener) }
+
     OnStopObserving("onAlarmStateChanged") {
       AlarmStateRegistry.remove(ringingListener)
     }
@@ -442,6 +507,8 @@ class ChandasTimerServiceModule : Module() {
 
     OnStopObserving("onTimerStateChanged") {
       TimerStateRegistry.remove(stateListener)
+      FloatingTimerOverlay.removeListener(floatingStateListener)
+      FloatingTimerOverlay.removeSnapshotListener(floatingSnapshotListener)
     }
 
     OnStopObserving("onFocusStateChanged") {

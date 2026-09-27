@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, ReactNode } from 'react'
+import { useColorScheme } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import type { SubBellColorId } from '../types'
 import { normalizeSubBellColor, subBellColorValue } from '../lib/subBellColors'
@@ -17,9 +18,10 @@ interface ThemeContextValue {
 
 const ThemeContext = createContext<ThemeContextValue | null>(null)
 
-export function ThemeProvider({ children }: { children: ReactNode }) {
+export function ThemeProvider({ children, themeOverride }: { children: ReactNode; themeOverride?: ThemeName | 'system' }) {
   const [theme, setTheme] = useState<ThemeName>('dark')
   const [accentColor, setAccentColorState] = useState<SubBellColorId>('violet')
+  const systemScheme = useColorScheme()
 
   useEffect(() => {
     AsyncStorage.multiGet([THEME_KEY, ACCENT_KEY]).then(([[, savedTheme], [, savedAccent]]) => {
@@ -41,10 +43,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     AsyncStorage.setItem(ACCENT_KEY, value).catch(() => undefined)
   }
 
-  const tokens = useMemo(() => withAccent(theme === 'dark' ? darkTheme : lightTheme, subBellColorValue(accentColor, 0)), [accentColor, theme])
+  const effectiveTheme: ThemeName = themeOverride === 'system' ? (systemScheme === 'light' ? 'light' : 'dark') : themeOverride ?? theme
+  const tokens = useMemo(() => withAccent(effectiveTheme === 'dark' ? darkTheme : lightTheme, subBellColorValue(accentColor, 0)), [accentColor, effectiveTheme])
 
   return (
-    <ThemeContext.Provider value={{ theme, tokens, toggleTheme, accentColor, setAccentColor }}>
+    <ThemeContext.Provider value={{ theme: effectiveTheme, tokens, toggleTheme, accentColor, setAccentColor }}>
       {children}
     </ThemeContext.Provider>
   )

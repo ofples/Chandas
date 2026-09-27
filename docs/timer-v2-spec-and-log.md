@@ -3370,3 +3370,18 @@ Manual Android acceptance checklist:
 - The expanded overlay uses floating Reset, clock alignment, Alarm, Sound/mute and guarded Stop controls; Chandas Focus is omitted.
 - The implementation must extract and reuse the running screen's actual React watchface and button primitives, host them in a service-owned React Native overlay surface, and keep the persisted native timer session authoritative.
 - Permission, lifecycle, process recreation, position persistence, foreground-service integration, accessibility, failure containment and store-release requirements are specified in [the canonical floating timer overlay specification](floating-timer-overlay-spec-2026-09-26.md).
+
+### 2026-09-26 — Floating timer overlay implementation
+
+**Status:** Implemented, locally built and exercised on a Pixel API 37 emulator; physical-device matrix pending.
+
+- Added the optional Android floating timer with a compact pill and expandable circular watchface, using the same React watchface and control primitives as the running screen.
+- Generalized the countdown foreground service to own the overlay window and added native permission, lifecycle, positioning, preview, action and state bridges.
+- Kept the native timer session authoritative and reconciled overlay changes when Chandas returns to the foreground.
+- Fixed two emulator-discovered integration faults: repeated module initialization no longer treats a stopped retained Activity as foreground, and the shared React host is resumed while the background surface is visible.
+- Normalized native unbounded end timestamps so continuous sessions do not render as completed.
+- Arranged filled 48 dp controls around the lower watchface arc, routed clock and sound long presses to their running-screen panels, and stopped the cue block from replaying its fade every second.
+- Refined the overlay to a single concentric control orbit, removed overlapping active badges, brought the outer timer ring to the watchface edge, and made a normal watchface tap return to the running screen.
+- The compact pill now reads next bell plus compact cycle end (`05:32 • 14m`) and collapses to one value for the main bell. Delivered cues open a 2.5-second flashing visual acknowledgement that dismisses on tap.
+- Added the overlay-only System/Dark/Light appearance setting under Android System integrations.
+- Recorded the implementation structure, one-second native snapshot decision, build evidence and remaining physical checks in [the canonical overlay specification](floating-timer-overlay-spec-2026-09-26.md#19-implementation-record--2026-09-26).

@@ -5,6 +5,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.content.res.Configuration
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -15,7 +16,7 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 
 /**
- * Updates the optional promoted notification once per displayed second.
+ * Owns continuous timer presentation: optional promoted copy and floating surface.
  * Bell delivery remains entirely AlarmManager-owned; stopping this best-effort
  * presentation service cannot stop, delay, or duplicate timer events.
  */
@@ -27,15 +28,24 @@ class ChandasCountdownService : Service() {
     @Volatile private var live = false
     @Volatile private var instance: ChandasCountdownService? = null
 
-    fun ensureRunning(context: Context) {
-      if (Build.VERSION.SDK_INT < 36 || live) return
+    fun reconcile(context: Context) {
+      if (live) {
+        instance?.let { FloatingTimerOverlay.reconcile(it) }
+        return
+      }
+      val config = TimerStateStore.load(context) ?: return
+      val overlay = FloatingTimerOverlay.needsService(context)
+      val promoted = config.liveCountdownEnabled && Build.VERSION.SDK_INT >= 36
+      if (!overlay && !promoted) return
       runCatching {
         ContextCompat.startForegroundService(
           context,
           Intent(context, ChandasCountdownService::class.java).setAction(ACTION_START),
         )
-      }
+      }.onFailure { FloatingTimerOverlay.serviceStartFailed(context) }
     }
+
+    fun ensureRunning(context: Context) = reconcile(context)
 
     fun stop(context: Context) {
       instance?.fallbackOnDestroy = false
@@ -55,10 +65,17 @@ class ChandasCountdownService : Service() {
 
   override fun onBind(intent: Intent?): IBinder? = null
 
+  override fun onConfigurationChanged(newConfig: Configuration) {
+    super.onConfigurationChanged(newConfig)
+    FloatingTimerOverlay.reconcile(this)
+    FloatingTimerOverlay.refreshBounds(this)
+  }
+
   override fun onCreate() {
     super.onCreate()
     live = true
     instance = this
+    FloatingTimerOverlay.attachService(this)
   }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -79,20 +96,21 @@ class ChandasCountdownService : Service() {
   private fun render(promote: Boolean): Boolean {
     val config = TimerStateStore.load(this)
     val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    val overlay = FloatingTimerOverlay.needsService(this)
+    val promotedAvailable = config?.liveCountdownEnabled == true && Build.VERSION.SDK_INT >= 36 &&
+      NotificationManagerCompat.from(this).areNotificationsEnabled() && manager.canPostPromotedNotifications()
     if (
       config == null ||
-      !config.notificationsEnabled ||
-      !config.liveCountdownEnabled ||
-      !NotificationManagerCompat.from(this).areNotificationsEnabled() ||
-      (Build.VERSION.SDK_INT >= 36 && !manager.canPostPromotedNotifications())
+      (!overlay && !promotedAvailable)
     ) {
       finish(removeNotification = config?.notificationsEnabled != true)
       return false
     }
-    val notification = TimerNotifications.buildRunning(this, config, includeCompactStatus = true)
+    FloatingTimerOverlay.reconcile(this)
+    val notification = TimerNotifications.buildRunning(this, config, includeCompactStatus = promotedAvailable)
     // Paused schedules intentionally have no ticking target. Drop the updater
     // until the exact resume event posts the notification and starts it again.
-    if (NotificationCompat.getShortCriticalText(notification) == null) {
+    if (!overlay && NotificationCompat.getShortCriticalText(notification) == null) {
       finish(removeNotification = false)
       return false
     }
@@ -116,6 +134,7 @@ class ChandasCountdownService : Service() {
     } else {
       runCatching { manager.notify(TimerNotifications.RUNNING_ID, notification) }
     }
+    if (overlay) FloatingTimerOverlay.emitSnapshot(this)
     return true
   }
 
@@ -132,6 +151,7 @@ class ChandasCountdownService : Service() {
     live = false
     instance = null
     handler.removeCallbacks(refresh)
+    FloatingTimerOverlay.detachService(this)
     ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_DETACH)
     // If Android tears down this presentation helper, immediately replace a
     // potentially frozen custom label with the OS-owned single chronometer.

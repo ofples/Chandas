@@ -1,7 +1,7 @@
-import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, Animated as RNAnimated, AppState, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import Slider from '@react-native-community/slider'
-import Svg, { Circle, Line } from 'react-native-svg'
+import Svg, { Line } from 'react-native-svg'
 import Animated, { FadeIn, FadeInDown, FadeOut, ZoomIn, useReducedMotion } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import type { AlarmBehavior, CueSettings, ProgramPreset, TimerProgram } from '../types'
@@ -24,9 +24,11 @@ import { SheetTextButton } from '../components/timer-v2/SheetTextButton'
 import { selectionHaptic, tapHaptic } from '../lib/haptics'
 import { SheetSectionTitle } from '../components/timer-v2/SheetSectionTitle'
 import { ScrollEdgeFade } from '../components/timer-v2/ScrollEdgeFade'
-import { formatCompactDurationSeconds, patternDurationSeconds, sequenceStepDurationSeconds, trackSelectedOffsetsSeconds } from '../lib/timerV2'
+import { formatCompactDurationSeconds, patternDurationSeconds, sequenceStepDurationSeconds } from '../lib/timerV2'
 import { formatCountdown } from '../lib/snapLogic'
 import { formatEventLocalTime } from '../lib/upcoming-events'
+import { TimerWatchface, type TimerWatchfaceModel } from '../components/timer-v2/running/TimerWatchface'
+import { TimerControlButton } from '../components/timer-v2/running/TimerControlButton'
 
 interface Props {
   program: TimerProgram
@@ -69,6 +71,8 @@ interface Props {
   activeConfigurationId?: string
   configurationName?: string
   onSelectConfiguration: (presetId: string) => Promise<boolean>
+  externalPanel?: 'clock' | 'sound' | null
+  onExternalPanelConsumed?: () => void
 }
 
 export function TimerV2RunningScreen(props: Props) {
@@ -79,6 +83,12 @@ export function TimerV2RunningScreen(props: Props) {
   const [mixerOpen, setMixerOpen] = useState(false)
   const [customMute, setCustomMute] = useState(false)
   const [snapOpen, setSnapOpen] = useState(false)
+  useEffect(() => {
+    if (!props.externalPanel) return
+    if (props.externalPanel === 'clock') setSnapOpen(true)
+    else setMixerOpen(true)
+    props.onExternalPanelConsumed?.()
+  }, [props.externalPanel, props.onExternalPanelConsumed])
   const [helpOpen, setHelpOpen] = useState(false)
   const [configurationPickerOpen, setConfigurationPickerOpen] = useState(false)
   const [selectingConfiguration, setSelectingConfiguration] = useState<string | null>(null)
@@ -122,6 +132,22 @@ export function TimerV2RunningScreen(props: Props) {
     ? patternDurationSeconds(props.program) % 60 === 0 || enhancedClockAlignmentSupported
     : enhancedClockAlignmentSupported
   const cycleDurationSeconds = programCycleDurationMs(props.program) / 1_000
+  const watchfaceModel: TimerWatchfaceModel = {
+    mainLabel,
+    mainCaption: endsBeforeResume ? 'session ends quietly' : props.activeHoursPaused ? (hasResume ? 'Quiet until' : 'Schedule is quiet') : props.program.mode === 'sequence' ? `step ${sequenceIndex + 1} of ${sequenceLength}` : undefined,
+    nextLabel: props.activeHoursPaused && nextAudibleSummary ? 'NEXT AUDIBLE' : !props.activeHoursPaused && props.program.mode === 'sequence' && nextStep ? 'NEXT' : undefined,
+    nextName: props.activeHoursPaused && nextAudibleSummary
+      ? nextAudibleSummary
+      : !props.activeHoursPaused && props.program.mode === 'pattern' && props.position?.nextEvent?.boundary !== 'pattern-main'
+        ? props.nextCueLabel
+        : !props.activeHoursPaused && props.program.mode === 'sequence' && nextStep
+          ? `${nextStep.label} · ${formatCompactDurationSeconds(sequenceStepDurationSeconds(nextStep))}`
+          : undefined,
+    nextTime: !props.activeHoursPaused && props.program.mode === 'pattern' && props.position?.nextEvent?.boundary !== 'pattern-main' ? props.nextCueCountdown : undefined,
+    nextColor: !props.activeHoursPaused && props.program.mode === 'pattern' ? nextCueColor : tokens.text,
+    muted,
+    runtimeMuted,
+  }
 
   const dismissTooltip = () => {
     if (tooltipTimer.current) clearTimeout(tooltipTimer.current)
@@ -151,17 +177,7 @@ export function TimerV2RunningScreen(props: Props) {
       <Pressable onPress={() => { if (controlsVisible) setControlsVisible(false) }} accessibilityRole="button" accessibilityLabel={controlsVisible ? 'Hide timer controls' : 'Show timer controls'} accessibilityHint={controlsVisible ? 'Hides timer controls and leaves the running timer visible' : 'Shows timer controls'} style={[styles.visualStage, { minHeight: size + 112 }]}>
         <View style={[styles.timerStack, { height: size + 92 }]}>
         <Animated.View entering={reducedMotion ? FadeIn.duration(100) : ZoomIn.duration(260)}>
-          <Pressable onPress={() => setControlsVisible(value => !value)} style={({ pressed }) => [styles.ringWrap, { width: size, height: size, transform: [{ scale: pressed && !reducedMotion ? 0.985 : 1 }] }]} accessibilityRole="button" accessibilityLabel={controlsVisible ? 'Hide timer controls' : 'Show timer controls'}>
-            <TimerRings size={size} progress={props.progress} position={props.position} program={props.program} muted={muted} eventPulse={props.eventPulse} />
-            <View style={[styles.center, { opacity: runtimeMuted ? 0.72 : 1, pointerEvents: 'none' }]}>
-              <Text style={[styles.mainTime, { color: tokens.text }]} adjustsFontSizeToFit numberOfLines={1}>{mainLabel}</Text>
-              {endsBeforeResume || props.activeHoursPaused || props.program.mode === 'sequence' ? <Text style={[styles.mainCaption, { color: tokens.textMuted }]}>{endsBeforeResume ? 'session ends quietly' : props.activeHoursPaused ? (hasResume ? 'Quiet until' : 'Schedule is quiet') : `step ${sequenceIndex + 1} of ${sequenceLength}`}</Text> : null}
-              {props.activeHoursPaused && nextAudibleSummary ? <View style={styles.nextCue}><Text style={[styles.nextLabel, { color: tokens.textMuted }]}>NEXT AUDIBLE</Text><Text numberOfLines={1} style={[styles.nextCueName, { color: tokens.text }]}>{nextAudibleSummary}</Text></View> : null}
-              {!props.activeHoursPaused && props.program.mode === 'pattern' && props.position?.nextEvent?.boundary !== 'pattern-main' ? <Animated.View key={props.nextCueLabel} entering={FadeIn.duration(reducedMotion ? 80 : 180)} style={styles.nextCue}><Text numberOfLines={1} style={[styles.nextCueName, { color: nextCueColor }]}>{props.nextCueLabel}</Text><Text style={[styles.nextCueTime, { color: tokens.textMuted }]}>{props.nextCueCountdown}</Text></Animated.View> : null}
-              {!props.activeHoursPaused && props.program.mode === 'sequence' && nextStep ? <Animated.View key={nextStep.id} entering={FadeIn.duration(reducedMotion ? 80 : 180)} style={styles.nextCue}><Text style={[styles.nextLabel, { color: tokens.textMuted }]}>NEXT</Text><Text numberOfLines={1} style={[styles.nextCueName, { color: tokens.text }]}>{nextStep.label} · {formatCompactDurationSeconds(sequenceStepDurationSeconds(nextStep))}</Text></Animated.View> : null}
-            </View>
-            {muted ? <View style={[styles.slash, { width: size * 0.72, backgroundColor: tokens.accent, pointerEvents: 'none' }]} /> : null}
-          </Pressable>
+          <TimerWatchface program={props.program} position={props.position} progress={props.progress} eventPulse={props.eventPulse} size={size} model={watchfaceModel} onPress={() => setControlsVisible(value => !value)} accessibilityLabel={controlsVisible ? 'Hide timer controls' : 'Show timer controls'} />
         </Animated.View>
         {controlsVisible ? <View style={[styles.statusSlot, { top: size + 10 }]}>
           {props.runEndsAt > 0 ? <Animated.View entering={FadeIn.duration(150)} style={styles.runProgressBlock}>
@@ -178,12 +194,12 @@ export function TimerV2RunningScreen(props: Props) {
     {controlsVisible ? <Animated.View entering={FadeIn.duration(reducedMotion ? 80 : 160)} exiting={FadeOut.duration(reducedMotion ? 70 : 120)} style={[styles.bottom, { backgroundColor: tokens.bg, paddingBottom: insets.bottom + 17 }]}>
       <View pointerEvents="none" style={styles.bottomFade}><ScrollEdgeFade color={tokens.bg} side="bottom" /></View>
       <View style={styles.controls}>
-        <ControlButton label="Reset interval" tooltip={props.program.alignment.kind === 'local-clock' ? 'Unsnap from clock and reset the cycle' : 'Reset the cycle'} disabled={props.realigning} onPress={props.onRestartUnsynced} onTooltip={showTooltip}><RestartIcon color={tokens.accent} /></ControlButton>
-        {clockAlignmentAvailable ? <ControlButton label="Snap to clock" tooltip="Snap the repeating cycle to the clock" active={props.program.alignment.kind === 'local-clock'} disabled={props.realigning} onPress={() => setSnapOpen(true)} onTooltip={showTooltip}><ClockIcon color={tokens.accent} /></ControlButton> : null}
-        {props.showAdvancedControls && props.program.mode === 'pattern' ? <ControlButton label={props.alarmBehavior === 'locked' ? 'Alarm locked' : props.alarmBehavior === 'once' ? 'Next main gong alarm' : 'Alarm off'} tooltip="Tap once to enable the alarm at the end of the current main interval. Tap twice to enable it for every main interval." active={props.alarmBehavior !== 'off'} badge={props.alarmBehavior === 'locked' ? '∞' : props.alarmBehavior === 'once' ? '1' : undefined} onPress={props.onPressAlarm} onTooltip={showTooltip}><AlarmIcon color={props.alarmBehavior !== 'off' ? tokens.accent : tokens.textMuted} /></ControlButton> : null}
-        {props.showAdvancedControls && Platform.OS === 'android' ? <ControlButton label="Chandas Focus" tooltip={!props.focusPolicyAccess ? 'Set up Android Do Not Disturb access' : focusPaused ? 'Chandas Focus was paused in Android settings' : props.focusEnabled ? 'Turn off Chandas Focus automation' : 'Let Chandas manage its own Do Not Disturb rule'} active={props.focusEnabled && props.focusPolicyAccess && !focusPaused} onPress={!props.focusPolicyAccess || props.focusReason === 'rule-disabled' ? props.onOpenFocusSettings : props.onToggleFocus} onTooltip={showTooltip}><FocusIcon color={props.focusEnabled && props.focusPolicyAccess && !focusPaused ? tokens.accent : tokens.textMuted} /></ControlButton> : null}
+        <TimerControlButton label="Reset interval" tooltip={props.program.alignment.kind === 'local-clock' ? 'Unsnap from clock and reset the cycle' : 'Reset the cycle'} disabled={props.realigning} onPress={props.onRestartUnsynced} onTooltip={showTooltip}><RestartIcon color={tokens.accent} /></TimerControlButton>
+        {clockAlignmentAvailable ? <TimerControlButton label="Snap to clock" tooltip="Snap the repeating cycle to the clock" active={props.program.alignment.kind === 'local-clock'} disabled={props.realigning} onPress={() => setSnapOpen(true)} onTooltip={showTooltip}><ClockIcon color={tokens.accent} /></TimerControlButton> : null}
+        {props.showAdvancedControls && props.program.mode === 'pattern' ? <TimerControlButton label={props.alarmBehavior === 'locked' ? 'Alarm locked' : props.alarmBehavior === 'once' ? 'Next main gong alarm' : 'Alarm off'} tooltip="Tap once to enable the alarm at the end of the current main interval. Tap twice to enable it for every main interval." active={props.alarmBehavior !== 'off'} badge={props.alarmBehavior === 'locked' ? '∞' : props.alarmBehavior === 'once' ? '1' : undefined} onPress={props.onPressAlarm} onTooltip={showTooltip}><AlarmIcon color={props.alarmBehavior !== 'off' ? tokens.accent : tokens.textMuted} /></TimerControlButton> : null}
+        {props.showAdvancedControls && Platform.OS === 'android' ? <TimerControlButton label="Chandas Focus" tooltip={!props.focusPolicyAccess ? 'Set up Android Do Not Disturb access' : focusPaused ? 'Chandas Focus was paused in Android settings' : props.focusEnabled ? 'Turn off Chandas Focus automation' : 'Let Chandas manage its own Do Not Disturb rule'} active={props.focusEnabled && props.focusPolicyAccess && !focusPaused} onPress={!props.focusPolicyAccess || props.focusReason === 'rule-disabled' ? props.onOpenFocusSettings : props.onToggleFocus} onTooltip={showTooltip}><FocusIcon color={props.focusEnabled && props.focusPolicyAccess && !focusPaused ? tokens.accent : tokens.textMuted} /></TimerControlButton> : null}
         <View style={styles.spacer} />
-        <ControlButton label="Sound and mute" tooltip="Open volume, mixer and mute controls" active={mixerOpen || muted} onPress={() => setMixerOpen(true)} onTooltip={showTooltip}><VolumeIcon muted={muted} color={mixerOpen || muted ? tokens.accent : tokens.textMuted} /></ControlButton>
+        <TimerControlButton label="Sound and mute" tooltip="Open volume, mixer and mute controls" active={mixerOpen || muted} onPress={() => setMixerOpen(true)} onTooltip={showTooltip}><VolumeIcon muted={muted} color={mixerOpen || muted ? tokens.accent : tokens.textMuted} /></TimerControlButton>
       </View>
       <Pressable onPress={() => { tapHaptic(); props.onStop() }} style={[styles.stop, { borderColor: tokens.border, backgroundColor: tokens.surfaceHi }]} accessibilityRole="button"><Text style={[styles.stopText, { color: tokens.textMuted }]}>Stop</Text></Pressable>
     </Animated.View> : <><Pressable onPress={revealControls} style={styles.revealSurface} accessibilityRole="button" accessibilityLabel="Show timer controls" accessibilityHint="Shows the hidden timer controls" /><Text pointerEvents="none" style={[styles.revealHint, { color: tokens.textMuted }]}>Tap to show controls</Text></>}
@@ -242,65 +258,7 @@ function BoundedRunBar({ width, progress, segments, muted }: { width: number; pr
   </View>
 }
 
-function TimerRings({ size, progress, position, program, muted, eventPulse }: { size: number; progress: number; position: TimelinePosition | null; program: TimerProgram; muted: boolean; eventPulse: number }) {
-  const { tokens } = useTheme()
-  const reducedMotion = useReducedMotion()
-  const flash = useRef(new RNAnimated.Value(0)).current
-  const lastPulse = useRef(eventPulse)
-  useEffect(() => {
-    if (eventPulse <= 0 || eventPulse === lastPulse.current) return
-    lastPulse.current = eventPulse
-    flash.setValue(0.7)
-    RNAnimated.timing(flash, { toValue: 0, duration: 650, useNativeDriver: true }).start()
-  }, [eventPulse, flash])
-  const rings = useMemo(() => {
-    if (program.mode === 'sequence') return [{ progress: position?.stepProgress ?? progress, stroke: tokens.accent, background: tokens.surfaceHi, backgroundOpacity: 1 }]
-    const mainSeconds = patternDurationSeconds(program)
-    const elapsedSeconds = Math.max(0, Math.min(mainSeconds, progress * mainSeconds))
-    const activeTracks = (program.subBellsEnabled ? program.tracks : []).filter(track => track.enabled && track.showOnWatchFace !== false && trackSelectedOffsetsSeconds(track).length > 0)
-    return [
-      { progress, stroke: tokens.accent, background: tokens.surfaceHi, backgroundOpacity: 1 },
-      ...activeTracks.map((track, index) => {
-        const stroke = subBellColorValue(track.color, index)
-        return { progress: cueSegmentProgress(trackSelectedOffsetsSeconds(track), mainSeconds, elapsedSeconds), stroke, background: stroke, backgroundOpacity: 0.17 }
-      }),
-    ]
-  }, [position?.stepProgress, program, progress, tokens.accent, tokens.surfaceHi])
-  const center = 100
-  return <View style={StyleSheet.absoluteFill}>
-    <RNAnimated.View style={[styles.flash, { width: size, height: size, borderRadius: size / 2, backgroundColor: tokens.accent, opacity: flash, pointerEvents: 'none' }]} />
-    <Svg width={size} height={size} viewBox="0 0 200 200" style={styles.svg}>
-      {rings.map((ring, index) => {
-        const radius = 83 - index * 7
-        const width = 3
-        return <Fragment key={index}><Circle cx={center} cy={center} r={radius} fill="none" stroke={ring.background} strokeOpacity={ring.backgroundOpacity} strokeWidth={width} /><SmoothProgressCircle radius={radius} progress={ring.progress} stroke={ring.stroke} strokeWidth={width} opacity={muted ? 0.3 : Math.max(0.52, 1 - index * 0.08)} reducedMotion={reducedMotion} /></Fragment>
-      })}
-    </Svg>
-  </View>
-}
-
-const AnimatedCircle = RNAnimated.createAnimatedComponent(Circle)
 const AnimatedLine = RNAnimated.createAnimatedComponent(Line)
-
-function SmoothProgressCircle({ radius, progress, stroke, strokeWidth, opacity, reducedMotion }: { radius: number; progress: number; stroke: string; strokeWidth: number; opacity: number; reducedMotion: boolean }) {
-  const circumference = Math.PI * 2 * radius
-  const animatedProgress = useRef(new RNAnimated.Value(progress)).current
-  useEffect(() => {
-    if (reducedMotion) {
-      animatedProgress.setValue(progress)
-      return
-    }
-    RNAnimated.timing(animatedProgress, { toValue: progress, duration: 320, useNativeDriver: false }).start()
-  }, [animatedProgress, progress, reducedMotion])
-  return <AnimatedCircle cx={100} cy={100} r={radius} fill="none" stroke={stroke} strokeWidth={strokeWidth} strokeLinecap="round" strokeDasharray={`${circumference}, ${circumference}`} strokeDashoffset={animatedProgress.interpolate({ inputRange: [0, 1], outputRange: [circumference, 0] })} transform="rotate(-90 100 100)" opacity={opacity} />
-}
-
-function ControlButton({ children, label, tooltip, active = false, disabled = false, badge, onPress, onTooltip }: { children: ReactNode; label: string; tooltip: string; active?: boolean; disabled?: boolean; badge?: string; onPress: () => void; onTooltip: (message: string) => void }) {
-  const { tokens } = useTheme()
-  const reducedMotion = useReducedMotion()
-  const longPressed = useRef(false)
-  return <Pressable disabled={disabled} hitSlop={2} onPressIn={() => { longPressed.current = false }} onLongPress={() => { longPressed.current = true; onTooltip(tooltip) }} delayLongPress={450} onPressOut={() => setTimeout(() => { longPressed.current = false }, 0)} onPress={() => { if (!longPressed.current) { tapHaptic(); onPress() } }} accessibilityRole="button" accessibilityLabel={label} accessibilityHint={tooltip} accessibilityState={{ selected: active, disabled }} style={({ pressed }) => [styles.iconButton, { borderColor: active ? tokens.accent : tokens.border, backgroundColor: active ? tokens.accentGlow : 'transparent', opacity: disabled ? 0.38 : pressed ? 0.72 : 1, transform: [{ scale: pressed && !disabled && !reducedMotion ? 0.92 : 1 }] }]}>{children}{badge ? <Animated.View entering={FadeIn.duration(120)} style={[styles.badge, { backgroundColor: tokens.accent }]}><Text style={styles.badgeText}>{badge}</Text></Animated.View> : null}</Pressable>
-}
 
 function RunningMixerSheet({ visible, onClose, program, masterVolume, onMasterVolumeChange, onCueVolumeChange, mute, onMuteIterations, onClearMute, onCustom }: { visible: boolean; onClose: () => void; program: TimerProgram; masterVolume: number; onMasterVolumeChange: (value: number) => void; onCueVolumeChange: (cueId: string, value: number) => void; mute: RuntimeMuteState; onMuteIterations: (count: number) => void; onClearMute: () => void; onCustom: () => void }) {
   const { tokens } = useTheme()

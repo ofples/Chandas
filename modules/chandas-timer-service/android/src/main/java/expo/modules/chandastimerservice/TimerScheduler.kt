@@ -11,6 +11,9 @@ object TimerScheduler {
   private const val TIMER_REQUEST = 8201
   private const val MAX_NATIVE_INTERVAL_MS = NativeTimerContract.MAX_PROGRAM_CYCLE_MS
 
+  @Synchronized
+  fun floatingOverlayAction(context: Context, action: String): android.os.Bundle = FloatingTimerActions.perform(context, action)
+
   fun canScheduleExactAlarms(context: Context): Boolean {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
     val manager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
@@ -422,6 +425,7 @@ object TimerScheduler {
       launchAlarmOrFallback(context, config, TimerEventType.V2, onFinished)
       return
     }
+    FloatingTimerOverlay.onCue(context)
     playV2Haptics(context, config, event)
     val selectedSound = if (event.winner.soundEnabled) selectedCueSound(context, event) else null
     if (event.completesRun) completeSession(context) else scheduleNext(context, config)

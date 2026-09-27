@@ -22,6 +22,35 @@ object TimerNotifications {
   const val EVENT_CHANNEL = "chandas-events"
   const val ALARM_CHANNEL = "chandas-alarm"
 
+  /** Shared compact status contract for promoted notifications and the overlay pill. */
+  fun compactStatus(config: TimerConfig, now: Long = System.currentTimeMillis()): String? {
+    val program = config.timerV2Program
+    val event = program?.let { TimerV2Timeline.next(it, config.timerV2Anchor, now, config.timerV2StartedAt, config.timerV2EndsAt) }
+    if (program != null && event == null) return null
+    val current = program?.let { TimerV2Timeline.notificationContext(it, config.timerV2Anchor, now) }
+    val next = event?.at ?: TimerMath.nextTick(now, config.mainMs, config.phase)
+    val activeNow = ActiveHours.isActive(config, now)
+    val activeAtNext = next > now && ActiveHours.allowsCue(config, next)
+    val resumesAt = if (!activeNow || !activeAtNext) ActiveHours.nextStart(config, if (activeNow) next else now) else 0L
+    val endsBeforeResume = config.timerV2EndsAt > 0L && resumesAt >= config.timerV2EndsAt && resumesAt > 0L
+    val countdownAt = when {
+      event?.completesRun == true -> next
+      endsBeforeResume -> config.timerV2EndsAt
+      activeNow && activeAtNext -> next
+      else -> resumesAt
+    }
+    if (countdownAt <= now) return if (!activeNow) "Quiet" else null
+    val formatted = TimerCountdownText.forProgram(
+      identity = current?.compactIdentity.orEmpty(),
+      sequence = program?.let(TimerV2Timeline::isSequence) == true,
+      currentAt = countdownAt,
+      finalAt = current?.currentEndsAt ?: 0L,
+      currentIsFinal = event?.completesRun == true || countdownAt == current?.currentEndsAt,
+      now = now,
+    )
+    return if (activeNow) formatted else formatted?.let { "Quiet · $it" } ?: "Quiet"
+  }
+
   /** Android renders this transparent monochrome mask in the status bar and notification header. */
   fun smallIcon(): Int = R.drawable.chandas_notification
 
@@ -63,8 +92,11 @@ object TimerNotifications {
   fun postRunning(context: Context, config: TimerConfig) {
     val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     if (!config.notificationsEnabled) {
-      ChandasCountdownService.stop(context)
-      manager.cancel(RUNNING_ID)
+      if (FloatingTimerOverlay.needsService(context)) {
+        ensureChannels(context)
+        ChandasCountdownService.reconcile(context)
+      }
+      else { ChandasCountdownService.stop(context); manager.cancel(RUNNING_ID) }
       return
     }
     ensureChannels(context)
@@ -80,7 +112,9 @@ object TimerNotifications {
       manager.canPostPromotedNotifications() &&
       NotificationCompat.getUsesChronometer(notification)
     ) {
-      ChandasCountdownService.ensureRunning(context)
+      ChandasCountdownService.reconcile(context)
+    } else if (FloatingTimerOverlay.needsService(context)) {
+      ChandasCountdownService.reconcile(context)
     } else {
       ChandasCountdownService.stop(context)
     }
@@ -148,14 +182,7 @@ object TimerNotifications {
         .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
         .setPriority(NotificationCompat.PRIORITY_LOW)
     if (config.liveCountdownEnabled && countdownAt > now) {
-      val compactCountdown = TimerCountdownText.forProgram(
-        identity = notificationContext?.compactIdentity.orEmpty(),
-        sequence = program?.let(TimerV2Timeline::isSequence) == true,
-        currentAt = countdownAt,
-        finalAt = notificationContext?.currentEndsAt ?: 0L,
-        currentIsFinal = event?.completesRun == true || countdownAt == notificationContext?.currentEndsAt,
-        now = now,
-      )
+      val compactCountdown = compactStatus(config, now)
       builder
         .setWhen(countdownAt)
         .setShowWhen(true)

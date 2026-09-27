@@ -88,7 +88,7 @@ export interface UseTimerV2Return extends TimerV2Display {
   reanchor: (nextProgram: TimerProgram, alignToClock: boolean, nextSettings?: AppTimerSettings, nextSourcePreset?: WorkingProgramState['sourcePreset']) => Promise<boolean>
 }
 
-function displayFor(program: TimerProgram, settings: AppTimerSettings, mute: RuntimeMuteState, anchor: number, startedAt: number, terminalAt: number | null, now: number): TimerV2Display {
+export function timerV2DisplayFor(program: TimerProgram, settings: AppTimerSettings, mute: RuntimeMuteState, anchor: number, startedAt: number, terminalAt: number | null, now: number): TimerV2Display {
   const availability = effectiveAvailabilityForProgram(program, settings.availability)
   const active = isWithinActiveHours(availability, now)
   const endAt = terminalAt ?? 0
@@ -273,7 +273,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings, so
 
   const refreshDisplay = useCallback(() => {
     if (!runningRef.current) return
-    setDisplay(displayFor(programRef.current, settingsRef.current, muteRef.current, anchorRef.current, startedAtRef.current, endsAtRef.current, Date.now()))
+    setDisplay(timerV2DisplayFor(programRef.current, settingsRef.current, muteRef.current, anchorRef.current, startedAtRef.current, endsAtRef.current, Date.now()))
   }, [])
 
   const persistSession = useCallback((nextMute: RuntimeMuteState, nextAlarm: AlarmBehavior) => {
@@ -646,7 +646,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings, so
     cueSoundCursorRef.current.clear()
     previousCueSoundRef.current.clear()
     updateRuntimeState(nextMute, nextAlarm)
-    setDisplay(displayFor(nextProgram, nextSettings, nextMute, anchor, startedAt, endsAt, Date.now()))
+    setDisplay(timerV2DisplayFor(nextProgram, nextSettings, nextMute, anchor, startedAt, endsAt, Date.now()))
     void saveTimerV2Session({ schemaVersion: 2, anchor, startedAt, ...(endsAt ? { endsAt } : {}), program: nextProgram, mute: nextMute, alarmBehavior: nextAlarm, sourcePreset: nextSourcePreset, settings: nextSettings })
     if (!isNativeServiceAvailable) scheduleNext()
     return true
