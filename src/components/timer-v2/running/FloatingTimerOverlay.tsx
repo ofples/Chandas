@@ -39,7 +39,12 @@ function useOverlaySnapshot(): NativeFloatingOverlaySnapshot {
   const initial = ChandasTimerService.getFloatingOverlaySnapshot()
   const [snapshot, setSnapshot] = useState<NativeFloatingOverlaySnapshot>(() => ({ ...initial, now: Date.now(), expanded: ChandasTimerService.getFloatingOverlayState().expanded }))
   useEffect(() => {
-    const refresh = () => setSnapshot(current => ({ ...current, ...ChandasTimerService.getState(), now: Date.now(), expanded: ChandasTimerService.getFloatingOverlayState().expanded }))
+    // Preview has no persisted timer session. Retain its seeded program while
+    // ticking the demonstration clock instead of replacing it with an empty
+    // production snapshot after the first second.
+    const refresh = () => setSnapshot(current => current.preview
+      ? { ...current, now: Date.now(), expanded: ChandasTimerService.getFloatingOverlayState().expanded }
+      : { ...current, ...ChandasTimerService.getState(), now: Date.now(), expanded: ChandasTimerService.getFloatingOverlayState().expanded })
     const snapshots = ChandasTimerService.addFloatingOverlaySnapshotListener(next => setSnapshot(current => ({ ...current, ...next, expanded: next.expanded ?? current.expanded })))
     const states = ChandasTimerService.addFloatingOverlayStateListener(state => setSnapshot(current => ({ ...current, expanded: state.expanded, now: Date.now() })))
     const interval = setInterval(refresh, 1_000)
