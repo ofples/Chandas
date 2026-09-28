@@ -410,6 +410,8 @@ Transitions:
 
 ## 14. Performance and robustness
 
+Follow-up: `timer-state-and-performance-spec-2026-09-28.md` makes the no-per-second-bridge-event and stable-React-surface requirements below acceptance gates and adds measured Supernote battery verification.
+
 - Align display refreshes to second boundaries.
 - Use absolute timestamps; never decrement a stored counter.
 - Do not send a native bridge event every second.

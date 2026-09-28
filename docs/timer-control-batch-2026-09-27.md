@@ -2,6 +2,8 @@
 
 Status: implemented; Android interaction checks are recorded below.
 
+Follow-up: `timer-state-and-performance-spec-2026-09-28.md` supersedes the clock-rejoin-on-resume and Playback-sheet interaction specified here. The remaining verified history below describes the earlier implementation.
+
 ## Shared behavior
 
 - The running app, Android scheduler and floating overlay must describe one authoritative session. Timer controls made from any surface update that session and survive Activity recreation. Saved presets remain explicit snapshots: changing a step during a run changes the working program, not a saved preset until the user saves it.
