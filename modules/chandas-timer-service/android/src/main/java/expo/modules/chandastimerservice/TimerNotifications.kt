@@ -26,7 +26,7 @@ object TimerNotifications {
   fun compactStatus(config: TimerConfig, now: Long = System.currentTimeMillis()): String? {
     if (config.timerV2PausedAt > 0L) return "Paused"
     val program = config.timerV2Program
-    val event = program?.let { TimerV2Timeline.next(it, config.timerV2Anchor, now, config.timerV2StartedAt, config.timerV2EndsAt) }
+    val event = program?.let { TimerV2Timeline.next(it, config.timerV2Anchor, now, config.timerV2StartedAt, config.timerV2EndsAt, config.timerV2RandomSeed.takeIf { seed -> seed != 0L } ?: config.timerV2Anchor) }
     if (program != null && event == null) return null
     val current = program?.let { TimerV2Timeline.notificationContext(it, config.timerV2Anchor, now) }
     val next = event?.at ?: TimerMath.nextTick(now, config.mainMs, config.phase)
@@ -131,7 +131,7 @@ object TimerNotifications {
     val effectiveNow = config.timerV2PausedAt.takeIf { it > 0L } ?: now
     val copy = TimerNotificationCopy.from(config.notificationPresentation)
     val program = config.timerV2Program
-    val event = program?.let { TimerV2Timeline.next(it, config.timerV2Anchor, effectiveNow, config.timerV2StartedAt, config.timerV2EndsAt) }
+    val event = program?.let { TimerV2Timeline.next(it, config.timerV2Anchor, effectiveNow, config.timerV2StartedAt, config.timerV2EndsAt, config.timerV2RandomSeed.takeIf { seed -> seed != 0L } ?: config.timerV2Anchor) }
     val notificationContext = program?.let { TimerV2Timeline.notificationContext(it, config.timerV2Anchor, effectiveNow) }
     val completedProgram = config.timerV2Program != null && event == null
     val next = event?.at ?: if (completedProgram) 0L else TimerMath.nextTick(now, config.mainMs, config.phase)

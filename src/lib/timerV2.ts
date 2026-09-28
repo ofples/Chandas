@@ -630,3 +630,12 @@ export function replaceWorkingProgram(state: TimerV2State, program: TimerProgram
   } as WorkingProgramState
   return { ...state, workingPrograms }
 }
+
+/** Only a changed native program may replace the editable working program.
+ * Runtime snapshots and identical foreground reads leave settings and preset
+ * identity untouched, including slider edits that have not reached native yet.
+ */
+export function reconcileNativeProgram(state: TimerV2State, nativeProgram: TimerProgram): TimerV2State {
+  if (JSON.stringify(selectedProgram(state)) === JSON.stringify(nativeProgram)) return state
+  return replaceWorkingProgram(state, nativeProgram)
+}

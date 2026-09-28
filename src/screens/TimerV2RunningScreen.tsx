@@ -50,6 +50,7 @@ interface Props {
   alarmBehavior: AlarmBehavior
   realigning: boolean
   isPaused: boolean
+  isAlarmRinging: boolean
   onSetPaused: (paused: boolean) => boolean
   onSkipStep: (direction: 'next' | 'previous') => boolean
   onStop: () => void
@@ -88,7 +89,6 @@ export function TimerV2RunningScreen(props: Props) {
   const [mixerOpen, setMixerOpen] = useState(false)
   const [customMute, setCustomMute] = useState(false)
   const [snapOpen, setSnapOpen] = useState(false)
-  const [transportOpen, setTransportOpen] = useState(false)
   useEffect(() => {
     if (!props.externalPanel) return
     if (props.externalPanel === 'clock') setSnapOpen(true)
@@ -180,12 +180,17 @@ export function TimerV2RunningScreen(props: Props) {
         <View style={styles.topRight}>{props.realigning ? <Animated.View entering={FadeIn.duration(120)} exiting={FadeOut.duration(100)} style={styles.syncing}><ActivityIndicator size="small" color={tokens.accent} /><Text style={[styles.focusStatus, { color: tokens.textMuted }]}>UPDATING</Text></Animated.View> : null}{focusPaused ? <Animated.Text entering={FadeIn.duration(160)} exiting={FadeOut.duration(120)} style={[styles.focusStatus, { color: tokens.warm }]}>FOCUS PAUSED</Animated.Text> : null}<Pressable hitSlop={7} onPressIn={() => { helpLongPressed.current = false }} onLongPress={() => { helpLongPressed.current = true; showTooltip('Open Timer help') }} onPressOut={() => setTimeout(() => { helpLongPressed.current = false }, 0)} onPress={() => { if (!helpLongPressed.current) { tapHaptic(); setHelpOpen(true) } }} style={({ pressed }) => [styles.helpButton, { borderColor: tokens.border, transform: [{ scale: pressed && !reducedMotion ? 0.94 : 1 }] }]} accessibilityRole="button" accessibilityLabel="Timer help"><Text style={[styles.helpGlyph, { color: tokens.accent }]}>?</Text></Pressable></View>
       </Animated.View>
 
-      <Pressable onPress={() => { if (controlsVisible) setControlsVisible(false) }} accessibilityRole="button" accessibilityLabel={controlsVisible ? 'Hide timer controls' : 'Show timer controls'} accessibilityHint={controlsVisible ? 'Hides timer controls and leaves the running timer visible' : 'Shows timer controls'} style={[styles.visualStage, { minHeight: size + 112 }]}>
-        <View style={[styles.timerStack, { height: size + 92 }]}>
+      <Pressable onPress={() => { if (controlsVisible) setControlsVisible(false) }} accessibilityRole="button" accessibilityLabel={controlsVisible ? 'Hide timer controls' : 'Show timer controls'} accessibilityHint={controlsVisible ? 'Hides timer controls and leaves the running timer visible' : 'Shows timer controls'} style={[styles.visualStage, { minHeight: size + 164 }]}>
+        <View style={[styles.timerStack, { height: size + 144 }]}>
         <Animated.View entering={reducedMotion ? undefined : ZoomIn.duration(260)}>
           <TimerWatchface program={props.program} position={props.position} progress={props.progress} eventPulse={props.eventPulse} size={size} model={watchfaceModel} onPress={() => setControlsVisible(value => !value)} accessibilityLabel={controlsVisible ? 'Hide timer controls' : 'Show timer controls'} />
         </Animated.View>
-        {controlsVisible ? <View style={[styles.statusSlot, { top: size + 10 }]}>
+        <View pointerEvents={controlsVisible ? 'auto' : 'none'} importantForAccessibility={controlsVisible ? 'auto' : 'no-hide-descendants'} style={[styles.transport, { top: size + 4, opacity: controlsVisible ? 1 : 0 }]}>
+          {props.program.mode === 'sequence' ? <TimerControlButton size={48} filled label="Previous step" tooltip="Skip to previous step" disabled={props.isAlarmRinging || props.realigning || (sequenceIndex === 0 && props.position?.cycleIndex === 0 && props.runEndsAt > 0)} onPress={() => props.onSkipStep('previous')}><TimerTransportIcon kind="previous" color={tokens.accent} /></TimerControlButton> : null}
+          <TimerControlButton size={48} filled label={props.isPaused ? 'Resume timer' : 'Pause timer'} tooltip={props.isPaused ? 'Resume timer' : 'Pause timer'} active={props.isPaused} disabled={props.isAlarmRinging || props.realigning} onPress={() => props.onSetPaused(!props.isPaused)}><TimerTransportIcon kind={props.isPaused ? 'play' : 'pause'} color={tokens.accent} /></TimerControlButton>
+          {props.program.mode === 'sequence' ? <TimerControlButton size={48} filled label={sequenceIndex === sequenceLength - 1 && props.position?.nextEvent?.completesRun ? 'Finish run' : 'Next step'} tooltip="Skip to next step" disabled={props.isAlarmRinging || props.realigning} onPress={() => props.onSkipStep('next')}><TimerTransportIcon kind="next" color={tokens.accent} /></TimerControlButton> : null}
+        </View>
+        {controlsVisible ? <View style={[styles.statusSlot, { top: size + 64 }]}>
           {props.runEndsAt > 0 ? <Animated.View entering={FadeIn.duration(150)} style={styles.runProgressBlock}>
             <BoundedRunBar width={Math.min(size * 0.82, 286)} progress={props.runProgress} segments={props.program.runPolicy.kind === 'cycles' ? props.program.runPolicy.cycleCount : 1} muted={runtimeMuted} />
             <Text style={[styles.runStatus, { color: tokens.textMuted }]}>Ends in {formatDuration(Math.ceil(props.runRemainingMs / 1_000))}</Text>
@@ -200,7 +205,6 @@ export function TimerV2RunningScreen(props: Props) {
     {controlsVisible ? <Animated.View entering={reducedMotion ? undefined : FadeIn.duration(160)} exiting={reducedMotion ? undefined : FadeOut.duration(120)} style={[styles.bottom, { backgroundColor: tokens.bg, paddingBottom: insets.bottom + 17 }]}>
       <View pointerEvents="none" style={styles.bottomFade}><ScrollEdgeFade color={tokens.bg} side="bottom" /></View>
       <View style={styles.controls}>
-        <TimerControlButton label="Playback controls" tooltip="Pause, resume, or skip a sequence step" active={transportOpen || props.isPaused} onPress={() => setTransportOpen(true)} onTooltip={showTooltip}><TimerTransportIcon kind={props.isPaused ? 'play' : 'pause'} color={tokens.accent} /></TimerControlButton>
         <TimerControlButton label="Reset interval" tooltip={props.program.alignment.kind === 'local-clock' ? 'Unsnap from clock and reset the cycle' : 'Reset the cycle'} disabled={props.realigning} onPress={props.onRestartUnsynced} onTooltip={showTooltip}><RestartIcon color={tokens.accent} /></TimerControlButton>
         {clockAlignmentAvailable ? <TimerControlButton label="Snap to clock" tooltip="Snap the repeating cycle to the clock" active={props.program.alignment.kind === 'local-clock'} disabled={props.realigning} onPress={() => setSnapOpen(true)} onTooltip={showTooltip}><ClockIcon color={tokens.accent} /></TimerControlButton> : null}
         {props.showAdvancedControls && props.program.mode === 'pattern' ? <TimerControlButton label={props.alarmBehavior === 'locked' ? 'Alarm locked' : props.alarmBehavior === 'once' ? 'Next main gong alarm' : 'Alarm off'} tooltip="Tap once to enable the alarm at the end of the current main interval. Tap twice to enable it for every main interval." active={props.alarmBehavior !== 'off'} badge={props.alarmBehavior === 'locked' ? '∞' : props.alarmBehavior === 'once' ? '1' : undefined} onPress={props.onPressAlarm} onTooltip={showTooltip}><AlarmIcon color={props.alarmBehavior !== 'off' ? tokens.accent : tokens.textMuted} /></TimerControlButton> : null}
@@ -215,10 +219,6 @@ export function TimerV2RunningScreen(props: Props) {
     {props.focusActive ? <Animated.View entering={reducedMotion ? undefined : FadeIn.duration(180)} exiting={reducedMotion ? undefined : FadeOut.duration(140)} pointerEvents="none" style={[styles.focusBorder, { borderColor: tokens.accent }]} /> : null}
     <RunningMixerSheet visible={mixerOpen} onClose={() => setMixerOpen(false)} program={props.program} masterVolume={props.masterVolume} onMasterVolumeChange={props.onMasterVolumeChange} onCueVolumeChange={props.onCueVolumeChange} mute={props.mute} onMuteIterations={props.onMuteForIterations} onClearMute={props.onClearMute} onCustom={() => { setMixerOpen(false); setCustomMute(true) }} />
     <SnapSheet visible={snapOpen} cycleDurationSeconds={cycleDurationSeconds} current={props.program.alignment.kind === 'local-clock' ? props.program.alignment.offsetMinutes : null} onSelect={props.onSnapToClock} onClose={() => setSnapOpen(false)} />
-    <BottomSheet visible={transportOpen} title="Playback" onClose={() => setTransportOpen(false)} minHeight={290} compactTop>
-      <SheetTextButton label={props.isPaused ? 'Resume timer' : 'Pause timer'} onPress={() => { if (props.onSetPaused(!props.isPaused)) setTransportOpen(false) }} />
-      {props.program.mode === 'sequence' ? <View style={styles.actionPair}><SheetTextButton label="Previous step" disabled={sequenceIndex === 0 && props.position?.cycleIndex === 0 && props.runEndsAt > 0} onPress={() => { if (props.onSkipStep('previous')) setTransportOpen(false) }} /><SheetTextButton label={sequenceIndex === sequenceLength - 1 && props.position?.nextEvent?.completesRun ? 'Finish run' : 'Next step'} onPress={() => { if (props.onSkipStep('next')) setTransportOpen(false) }} /></View> : null}
-    </BottomSheet>
     <ConfigurationPickerSheet visible={configurationPickerOpen} configurations={props.configurations} activeId={props.activeConfigurationId} selectingId={selectingConfiguration} onClose={() => setConfigurationPickerOpen(false)} onSelect={async id => { setSelectingConfiguration(id); try { if (await props.onSelectConfiguration(id)) setConfigurationPickerOpen(false) } finally { setSelectingConfiguration(null) } }} />
     {customMute ? <CustomMinutePicker title="Mute duration" initial={15} initialSeconds={15 * 60} secondPrecision={props.secondPrecision} min={1} max={1440} minSeconds={1} maxSeconds={86_400} onConfirm={minutes => { props.onMuteForSeconds(minutes * 60); setCustomMute(false) }} onConfirmSeconds={seconds => { props.onMuteForSeconds(seconds); setCustomMute(false) }} onClose={() => setCustomMute(false)} /> : null}
     <TimerHelpSheet
@@ -280,7 +280,7 @@ function RunningMixerSheet({ visible, onClose, program, masterVolume, onMasterVo
   useEffect(() => { if (!visible) setChannelsOpen(false) }, [visible])
   const muted = Boolean(mute.iteration) || mute.mutedUntil > Date.now()
   const channels: { id: string; title: string; cue: CueSettings }[] = program.mode === 'pattern' ? [{ id: 'main', title: 'Main gong', cue: program.mainCue }, ...program.tracks.map(track => ({ id: track.id, title: track.label, cue: track }))] : program.steps.map((step, index) => ({ id: step.id, title: `${index + 1}. ${step.label}`, cue: step }))
-  if (program.runPolicy.kind !== 'continuous' && program.completionCue) channels.push({ id: '__chandas_completion__', title: 'Final gong', cue: program.completionCue })
+  if (program.runPolicy.kind !== 'continuous' && program.completionCue) channels.push({ id: '__chandas_completion__', title: 'End gong', cue: program.completionCue })
   const preview = async (title: string, cue: CueSettings) => {
     setPreviewError(null)
     try {
@@ -357,7 +357,7 @@ function runningConfigurationDescription(preset: ProgramPreset): string {
 }
 
 const styles = StyleSheet.create({
-  actionPair: { flexDirection: 'row', justifyContent: 'space-between', gap: 16 },
+  transport: { position: 'absolute', left: 0, right: 0, height: 52, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 22, zIndex: 2 },
   screen: { flex: 1 }, content: { flexGrow: 1, alignItems: 'center', paddingHorizontal: 20, paddingTop: 28 }, revealSurface: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 90 }, revealHint: { position: 'absolute', zIndex: 91, bottom: 28, alignSelf: 'center', fontSize: 11, letterSpacing: 0.7 },
   topline: { width: '100%', maxWidth: 480, minHeight: 40, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }, configurationTitle: { flex: 1, minWidth: 0, minHeight: 40, justifyContent: 'center' }, configurationNameRow: { alignSelf: 'flex-start', maxWidth: '100%', flexDirection: 'row', alignItems: 'center', gap: 5 }, configurationChevron: { flexShrink: 0, width: 18, textAlign: 'center', fontSize: 22, lineHeight: 24, fontWeight: '300' }, mode: { fontSize: 10, letterSpacing: 1.25, fontWeight: '800' }, stepTitle: { flexShrink: 1, fontSize: 17, fontWeight: '700' }, configurationStep: { fontSize: 11, fontWeight: '600' }, topRight: { flexDirection: 'row', alignItems: 'center', gap: 10 }, syncing: { flexDirection: 'row', alignItems: 'center', gap: 6 }, focusStatus: { fontSize: 9, letterSpacing: 1.1, fontWeight: '800' }, helpButton: { width: 40, height: 40, borderWidth: 1.5, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }, helpGlyph: { fontSize: 16, fontWeight: '800' },
   visualStage: { flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center', paddingVertical: 14 }, timerStack: { width: '100%', alignItems: 'center' }, ringWrap: { alignItems: 'center', justifyContent: 'center' }, svg: { position: 'absolute' }, flash: { position: 'absolute' }, center: { alignItems: 'center', gap: 5, maxWidth: '69%' }, mainTime: { width: '100%', textAlign: 'center', fontFamily: 'JetBrainsMono-Light', fontSize: 55, fontVariant: ['tabular-nums'] }, mainCaption: { fontSize: 10, letterSpacing: 1.05, textTransform: 'uppercase' }, nextCue: { marginTop: 11, alignItems: 'center', gap: 2, maxWidth: '100%' }, nextCueName: { fontSize: 13, fontWeight: '700' }, nextCueTime: { fontFamily: 'JetBrainsMono-Regular', fontSize: 12 }, nextLabel: { fontSize: 8, letterSpacing: 1.1, fontWeight: '800' }, slash: { position: 'absolute', height: 4, borderRadius: 3, transform: [{ rotate: '-45deg' }] }, statusSlot: { position: 'absolute', left: 0, right: 0, minHeight: 74, alignItems: 'center', gap: 6 }, runProgressBlock: { alignItems: 'center', gap: 4 }, muteStatus: { maxWidth: 330, fontSize: 12, lineHeight: 17, textAlign: 'center' }, nextAudibleStatus: { maxWidth: 330, fontSize: 10, lineHeight: 15, textAlign: 'center' }, runStatus: { fontSize: 13, lineHeight: 18, textAlign: 'center', fontVariant: ['tabular-nums'] }, focusBorder: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderWidth: 3, zIndex: 100 },

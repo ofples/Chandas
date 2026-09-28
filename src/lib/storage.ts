@@ -95,6 +95,7 @@ export interface TimerV2Session {
   /** Fixed when Start is accepted so timezone realignment cannot change the promised length. */
   endsAt?: number
   pausedAt?: number
+  randomSeed?: number
   program: TimerProgram
   mute: RuntimeMuteState
   alarmBehavior: AlarmBehavior
@@ -150,6 +151,7 @@ export async function loadTimerV2Session(): Promise<TimerV2Session | null> {
       startedAt: typeof value.startedAt === 'number' && Number.isFinite(value.startedAt) && value.startedAt > 0 ? value.startedAt : value.anchor,
       endsAt: typeof value.endsAt === 'number' && Number.isFinite(value.endsAt) && value.endsAt > 0 ? value.endsAt : undefined,
       pausedAt: typeof value.pausedAt === 'number' && Number.isFinite(value.pausedAt) && value.pausedAt > 0 ? value.pausedAt : undefined,
+      randomSeed: typeof value.randomSeed === 'number' && Number.isFinite(value.randomSeed) && value.randomSeed > 0 ? value.randomSeed : undefined,
       program,
       mute: {
         mutedUntil: typeof value.mute?.mutedUntil === 'number' ? Math.max(0, value.mute.mutedUntil) : 0,

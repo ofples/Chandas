@@ -11,6 +11,10 @@ internal object FloatingTimerActions {
   private const val PENDING_DESTINATION = "pendingDestination"
 
   fun perform(context: Context, action: String): android.os.Bundle {
+    if (action == "overlay-layout-ready") {
+      FloatingTimerOverlay.contentReady(context)
+      return result(context, true)
+    }
     val current = TimerStateStore.load(context)
     if (action == "collapse" || action == "expand") {
       FloatingTimerOverlay.setExpanded(context, action == "expand")
@@ -123,6 +127,7 @@ internal object FloatingTimerActions {
       timerV2Anchor = anchor,
       timerV2StartedAt = now,
       timerV2EndsAt = endsAt,
+      timerV2RandomSeed = now,
       timerV2PausedAt = 0L,
       timerV2ClockRejoinAt = 0L,
     )

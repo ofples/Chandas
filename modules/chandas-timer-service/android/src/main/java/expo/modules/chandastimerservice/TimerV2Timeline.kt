@@ -82,12 +82,12 @@ object TimerV2Timeline {
 
   fun isSequence(serialized: String): Boolean = runCatching { JSONObject(serialized).optString("mode") == "sequence" }.getOrDefault(false)
 
-  fun next(serialized: String, anchor: Long, now: Long, startedAt: Long = anchor, fixedEndsAt: Long = 0L): TimerV2Event? = runCatching {
+  fun next(serialized: String, anchor: Long, now: Long, startedAt: Long = anchor, fixedEndsAt: Long = 0L, randomSeed: Long = anchor): TimerV2Event? = runCatching {
     val root = JSONObject(serialized)
     val endAt = fixedEndsAt.takeIf { it > 0L } ?: runEndAt(root, anchor, startedAt)
     if (endAt != null && now >= endAt) return@runCatching null
     val natural = when (root.optString("mode")) {
-      "pattern" -> nextPattern(root, anchor, now)
+      "pattern" -> nextPattern(root, anchor, now, randomSeed)
       "sequence" -> nextSequence(root, anchor, now)
       else -> null
     }
@@ -161,6 +161,13 @@ object TimerV2Timeline {
     val root = JSONObject(serialized)
     cycleDuration(root) > 0L && root.optJSONObject("alignment")?.optString("kind") == "local-clock"
   }.getOrDefault(false)
+
+  /** Pause leaves wall-clock alignment without changing the realized timeline. */
+  fun elapsedAlignment(serialized: String): String? = runCatching {
+    if (!isLocalClock(serialized)) return@runCatching serialized
+    val root = JSONObject(serialized).put("alignment", JSONObject().put("kind", "elapsed"))
+    root.toString().takeIf { isValid(it) }
+  }.getOrNull()
 
   fun cycleDuration(serialized: String): Long? = runCatching {
     val root = JSONObject(serialized)
@@ -277,7 +284,7 @@ object TimerV2Timeline {
     set(Calendar.MILLISECOND, 0)
   }.timeInMillis
 
-  private fun nextPattern(root: JSONObject, anchor: Long, now: Long): TimerV2Event? {
+  private fun nextPattern(root: JSONObject, anchor: Long, now: Long, randomSeed: Long): TimerV2Event? {
     val duration = patternDuration(root)
     if (duration <= 0L) return null
     val tracks = root.optJSONArray("tracks") ?: JSONArray()
@@ -302,7 +309,7 @@ object TimerV2Timeline {
         track.optJSONObject("randomRepeat")?.let { range ->
           val minimum = range.optLong("minSeconds", 10L)
           val maximum = range.optLong("maxSeconds", 60L)
-          var seed = (anchor.toInt() xor cycle.toInt())
+          var seed = (randomSeed.toInt() xor cycle.toInt())
           for (character in track.optString("id")) seed = seed * 31 + character.code
           var offset = 0L
           var count = 0

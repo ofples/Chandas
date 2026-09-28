@@ -53,6 +53,7 @@ export interface NativeTimerConfig {
   /** Accepted Start time, distinct from a snapped program's phase anchor. */
   timerV2StartedAt?: number
   timerV2EndsAt?: number
+  timerV2RandomSeed?: number
   timerV2PausedAt?: number
   alarmOnceArmed?: boolean
   mutedUntil?: number
@@ -106,6 +107,7 @@ export interface NativeTimerState {
   timerV2Anchor?: number
   timerV2StartedAt?: number
   timerV2EndsAt?: number
+  timerV2RandomSeed?: number
   timerV2PausedAt?: number
   alarmOnceArmed?: boolean
   mutedUntil?: number
@@ -183,6 +185,7 @@ export interface NativeFloatingOverlayState {
 
 export interface NativeFloatingOverlaySnapshot extends NativeTimerState {
   now: number
+  screenInteractive?: boolean
   expanded?: boolean
   preview?: boolean
   cueAttention?: boolean

@@ -519,7 +519,7 @@ Do not build a large screenshot automation suite before physical behavior is sta
 
 ### 19.2 Intentional implementation adjustment
 
-The service emits one small authoritative snapshot each second while the overlay is active. The original design prohibited per-second bridge traffic, but the shared React host pauses JavaScript timers when its Activity stops. Native snapshots prevent a frozen countdown while retaining one timer session and absolute-time calculations. The overlay does not schedule cues or create its own timer.
+The 2026-09-28 follow-up removes per-second native snapshots. The overlay derives its visible countdown from the accepted native timestamp and a local second-boundary display tick; native sends structural, control, and cue changes. The presentation service only refreshes the promoted notification when its compact text changes. When the display switches off, the floating React surface is removed until the display returns. The overlay does not schedule cues or create its own timer.
 
 ### 19.3 Verification evidence
 

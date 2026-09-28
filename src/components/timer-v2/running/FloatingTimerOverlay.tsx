@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
-import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { ThemeProvider, useTheme } from '../../../theme/ThemeContext'
 import { AlarmIcon, ClockIcon, RestartIcon, TimerTransportIcon, VolumeIcon } from '../../Icons'
 import { TimerControlButton } from './TimerControlButton'
@@ -35,21 +34,30 @@ function muteFromSnapshot(snapshot: NativeTimerState): RuntimeMuteState {
   return { mutedUntil: snapshot.mutedUntil ?? 0, ...(snapshot.mutedIterationEndId && snapshot.mutedIterationEndAt ? { iteration: { endsAtLogicalId: snapshot.mutedIterationEndId, endsAt: snapshot.mutedIterationEndAt, iterations: snapshot.mutedIterationsRemaining ?? 1 } } : {}) }
 }
 
-function useOverlaySnapshot(): NativeFloatingOverlaySnapshot {
+function useOverlaySnapshot(incoming: NativeFloatingOverlaySnapshot): NativeFloatingOverlaySnapshot {
   const initial = ChandasTimerService.getFloatingOverlaySnapshot()
-  const [snapshot, setSnapshot] = useState<NativeFloatingOverlaySnapshot>(() => ({ ...initial, now: Date.now(), expanded: ChandasTimerService.getFloatingOverlayState().expanded }))
+  const [snapshot, setSnapshot] = useState<NativeFloatingOverlaySnapshot>(() => ({ ...initial, ...incoming, now: Date.now(), expanded: incoming.expanded ?? ChandasTimerService.getFloatingOverlayState().expanded }))
+  useEffect(() => { setSnapshot(current => ({ ...current, ...incoming })) }, [incoming])
   useEffect(() => {
-    // Preview has no persisted timer session. Retain its seeded program while
-    // ticking the demonstration clock instead of replacing it with an empty
-    // production snapshot after the first second.
-    const refresh = () => setSnapshot(current => current.preview
-      ? { ...current, now: Date.now(), expanded: ChandasTimerService.getFloatingOverlayState().expanded }
-      : { ...current, ...ChandasTimerService.getState(), now: Date.now(), expanded: ChandasTimerService.getFloatingOverlayState().expanded })
     const snapshots = ChandasTimerService.addFloatingOverlaySnapshotListener(next => setSnapshot(current => ({ ...current, ...next, expanded: next.expanded ?? current.expanded })))
     const states = ChandasTimerService.addFloatingOverlayStateListener(state => setSnapshot(current => ({ ...current, expanded: state.expanded, now: Date.now() })))
-    const interval = setInterval(refresh, 1_000)
-    return () => { snapshots?.remove(); states?.remove(); clearInterval(interval) }
+    return () => { snapshots?.remove(); states?.remove() }
   }, [])
+  useEffect(() => {
+    // The overlay owns a display clock only while it can actually be seen.
+    // Preview retains its seeded program without querying an absent session.
+    if (!snapshot.active || snapshot.timerV2PausedAt || snapshot.screenInteractive === false) return
+    let tick: ReturnType<typeof setTimeout>
+    const refresh = () => {
+      setSnapshot(current => {
+        const now = Date.now()
+        return Math.floor(now / 1_000) === Math.floor(current.now / 1_000) ? current : { ...current, now }
+      })
+      tick = setTimeout(refresh, 1_000 - (Date.now() % 1_000) + 12)
+    }
+    tick = setTimeout(refresh, 1_000 - (Date.now() % 1_000) + 12)
+    return () => clearTimeout(tick)
+  }, [snapshot.active, snapshot.timerV2PausedAt, snapshot.screenInteractive])
   return snapshot
 }
 
@@ -74,9 +82,10 @@ function collapsedText(program: TimerProgram, display: ReturnType<typeof timerV2
   return lastBell ? display.mainCountdown : `${display.nextCueCountdown} • ${compactCycleEnd(cycleEndsAt - now)}`
 }
 
-function Content() {
+function Content({ incoming }: { incoming: NativeFloatingOverlaySnapshot }) {
   const { tokens, theme } = useTheme()
-  const snapshot = useOverlaySnapshot()
+  const snapshot = useOverlaySnapshot(incoming)
+  useEffect(() => { ChandasTimerService.floatingOverlayAction('overlay-layout-ready') }, [snapshot.expanded])
   const [stopArmed, setStopArmed] = useState(false)
   const stopTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const alarmTap = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -84,10 +93,10 @@ function Content() {
     if (!snapshot.timerV2Program) return null
     try { return parseTimerProgram(JSON.parse(snapshot.timerV2Program)) } catch { return null }
   }, [snapshot.timerV2Program])
-  const settings = useMemo(() => settingsFromSnapshot(snapshot), [snapshot])
-  const mute = useMemo(() => muteFromSnapshot(snapshot), [snapshot])
+  const settings = useMemo(() => settingsFromSnapshot(snapshot), [snapshot.volume, snapshot.notificationsEnabled, snapshot.liveCountdownEnabled, snapshot.muteDuringCallsEnabled, snapshot.availabilityPolicy])
+  const mute = useMemo(() => muteFromSnapshot(snapshot), [snapshot.mutedUntil, snapshot.mutedIterationEndId, snapshot.mutedIterationEndAt, snapshot.mutedIterationsRemaining])
   const effectiveNow = snapshot.timerV2PausedAt && snapshot.timerV2PausedAt > 0 ? snapshot.timerV2PausedAt : snapshot.now
-  const display = useMemo(() => program ? timerV2DisplayFor(program, settings, mute, snapshot.timerV2Anchor ?? effectiveNow, snapshot.timerV2StartedAt ?? effectiveNow, snapshot.timerV2EndsAt && snapshot.timerV2EndsAt > 0 ? snapshot.timerV2EndsAt : null, effectiveNow) : null, [mute, program, settings, effectiveNow, snapshot.timerV2Anchor, snapshot.timerV2EndsAt, snapshot.timerV2StartedAt])
+  const display = useMemo(() => program ? timerV2DisplayFor(program, settings, mute, snapshot.timerV2Anchor ?? effectiveNow, snapshot.timerV2StartedAt ?? effectiveNow, snapshot.timerV2EndsAt && snapshot.timerV2EndsAt > 0 ? snapshot.timerV2EndsAt : null, effectiveNow, snapshot.timerV2RandomSeed || snapshot.timerV2Anchor || effectiveNow) : null, [mute, program, settings, effectiveNow, snapshot.timerV2Anchor, snapshot.timerV2EndsAt, snapshot.timerV2StartedAt, snapshot.timerV2RandomSeed])
   useEffect(() => () => { if (stopTimer.current) clearTimeout(stopTimer.current); if (alarmTap.current) clearTimeout(alarmTap.current) }, [])
   if (!program || !display || !snapshot.active) return <View style={styles.empty} />
   const collapsed = snapshot.timerV2PausedAt ? `Paused • ${display.nextCueCountdown}` : collapsedText(program, display, snapshot.timerV2Anchor ?? snapshot.now, snapshot.now)
@@ -130,18 +139,18 @@ function Content() {
   </View>
 }
 
-export function FloatingTimerOverlay() {
+export function FloatingTimerOverlay(incoming: NativeFloatingOverlaySnapshot) {
   const [appearance, setAppearance] = useState<'system' | 'dark' | 'light'>(() => ChandasTimerService.getFloatingOverlayState().appearance ?? 'system')
   useEffect(() => {
     const subscription = ChandasTimerService.addFloatingOverlayStateListener(state => setAppearance(state.appearance ?? 'system'))
     return () => subscription?.remove()
   }, [])
-  return <GestureHandlerRootView style={styles.root}><ThemeProvider themeOverride={appearance}><Content /></ThemeProvider></GestureHandlerRootView>
+  return <View style={styles.root}><ThemeProvider themeOverride={appearance}><Content incoming={incoming} /></ThemeProvider></View>
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: 'transparent' }, empty: { flex: 1, backgroundColor: 'transparent' },
-  pill: { flex: 1, minWidth: 116, height: 38, borderWidth: 1, borderRadius: 999, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
+  pill: { width: 132, height: 48, borderWidth: 1, borderRadius: 999, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
   pillText: { fontFamily: 'JetBrainsMono-Regular', fontSize: 13, fontVariant: ['tabular-nums'], fontWeight: '700' },
   expanded: { flex: 1, alignItems: 'center', justifyContent: 'flex-start', paddingTop: 66 },
   faceShell: { width: 220, height: 220, borderRadius: 110, alignItems: 'center', justifyContent: 'center', elevation: 8, zIndex: 1 },

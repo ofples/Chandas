@@ -37,10 +37,11 @@ export function nextAudibleProgramEvent(
   startedAt: number,
   terminalAt: number | null,
   canPlaySound: (event: ScheduledProgramEvent) => boolean = () => true,
+  randomSeed = anchor,
 ): ScheduledProgramEvent | null {
   let cursor = from
   for (let attempt = 0; attempt < 128; attempt += 1) {
-    const event = nextProgramEvent(program, anchor, cursor, startedAt, terminalAt)
+    const event = nextProgramEvent(program, anchor, cursor, startedAt, terminalAt, randomSeed)
     if (!event) return null
     if (isCueAllowedByActiveHours(availability, event.at)) {
       if (canPlaySound(event)) return event
@@ -55,7 +56,7 @@ export function nextAudibleProgramEvent(
 }
 
 export function programEventLabel(program: TimerProgram, event: ScheduledProgramEvent): string {
-  if (event.completesRun) return 'Final gong'
+  if (event.completesRun && program.completionCue) return 'End gong'
   if (program.mode === 'pattern') {
     if (event.boundary === 'pattern-main') return 'Main gong'
     return program.tracks.find(track => track.id === event.winner.cueId)?.label ?? 'Sub-bell'

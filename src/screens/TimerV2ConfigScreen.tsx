@@ -125,7 +125,7 @@ export function TimerV2ConfigScreen({ state, onChange, onStart, starting, focusS
   const changeSettings = (patch: Partial<typeof settings>) => onChange({ ...state, settings: { ...settings, ...patch } })
   const cue = cueTarget ? cueForTarget(state, cueTarget) : null
   const soundPickerVisible = cue !== null
-  const cueTitle = cueTarget?.kind === 'main' ? 'Main gong' : cueTarget?.kind === 'alarm' ? 'Alarm sound' : cueTarget?.kind === 'track' ? 'Sub-bell sound' : cueTarget?.kind === 'step' ? 'Step sound' : cueTarget?.kind === 'completion' ? 'Final gong' : ''
+  const cueTitle = cueTarget?.kind === 'main' ? 'Main gong' : cueTarget?.kind === 'alarm' ? 'Alarm sound' : cueTarget?.kind === 'track' ? 'Sub-bell sound' : cueTarget?.kind === 'step' ? 'Step sound' : cueTarget?.kind === 'completion' ? 'End gong' : ''
   const patchCue = (patch: Partial<CueSettings>) => {
     if (!cueTarget) return
     if (cueTarget.kind === 'main') onChange(updatePattern(state, value => ({ ...value, mainCue: { ...value.mainCue, ...patch } })))
@@ -420,7 +420,7 @@ function CompletionCueControls({ state, onChange, onEditCue, onFeedback }: { sta
     if (!cue) return
     try {
       if (!await ChandasTimerService.previewSound(cue.sound, state.settings.masterVolume * cue.volume)) {
-        onFeedback({ title: 'Preview stayed quiet', message: 'The final gong could not be opened. Its safe fallback will still be used.', tone: 'attention' })
+        onFeedback({ title: 'Preview stayed quiet', message: 'The end gong could not be opened. Its safe fallback will still be used.', tone: 'attention' })
       }
     } catch {
       onFeedback({ title: 'Preview stayed quiet', message: 'Nothing changed. Try another sound or check the phone’s Alarm volume.', tone: 'attention' })
@@ -428,12 +428,12 @@ function CompletionCueControls({ state, onChange, onEditCue, onFeedback }: { sta
   }
   return <Reanimated.View layout={LinearTransition.duration(reducedMotion ? 80 : 160)}>
     <View style={styles.settingRow}>
-      <View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Custom final gong</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>Use a different sound when this run finishes.</Text></View>
-      <Toggle value={cue !== null} onChange={enabled => onChange(setCompletionCueEnabled(state, mode, enabled))} accessibilityLabel="Custom final gong" />
+      <View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>End gong</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{mode === 'sequence' ? 'Play once when this run ends, in place of the final step cue.' : 'Play once when this run ends, in place of the final main gong.'}</Text></View>
+      <Toggle value={cue !== null} onChange={enabled => onChange(setCompletionCueEnabled(state, mode, enabled))} accessibilityLabel="End gong" />
     </View>
     {cue ? <Reanimated.View entering={reducedMotion ? undefined : FadeInDown.duration(150)} exiting={reducedMotion ? undefined : FadeOut.duration(100)} style={styles.completionCueControls}>
-      <VolumeControl label="Final gong volume" value={cue.volume} onChange={volume => onChange(patchCompletionCue(state, mode, { volume }))} onPreview={() => void preview()} />
-      <CueRow title="Final gong" detail={soundTitle(cue.sound)} sound={cue.sound} onPress={() => onEditCue({ kind: 'completion', mode })} />
+      <VolumeControl label="End gong volume" value={cue.volume} onChange={volume => onChange(patchCompletionCue(state, mode, { volume }))} onPreview={() => void preview()} />
+      <CueRow title="End gong sound" detail={soundTitle(cue.sound)} sound={cue.sound} onPress={() => onEditCue({ kind: 'completion', mode })} />
       {state.settings.advancedModeEnabled ? <CueHaptics cue={cue} inherited={state.settings.haptics.main} onChange={hapticOverride => onChange(patchCompletionCue(state, mode, { hapticOverride }))} /> : null}
     </Reanimated.View> : null}
   </Reanimated.View>
@@ -657,7 +657,7 @@ function MixerSheet({ visible, state, onChange, onEditCue, onClose, onFeedback }
   const masterControl = <View style={styles.pinnedMixerControl}><VolumeControl label="Volume" value={state.settings.masterVolume} onChange={masterVolume => onChange({ ...state, settings: { ...state.settings, masterVolume } })} onPreview={() => void preview(program.mode === 'pattern' ? 'Main gong' : program.steps[0]?.label ?? 'First step', program.mode === 'pattern' ? program.mainCue : program.steps[0])} /><View style={[styles.divider, { backgroundColor: tokens.border }]} /></View>
   return <BottomSheet visible={visible} title="Mixer" help="The main Volume sets the overall level. Each channel below adjusts one sound within that level; use its play button to preview the result." onClose={close} pinnedContent={masterControl}>
     {program.mode === 'pattern' ? <>{row('main', 'Main gong', program.mainCue, { kind: 'main' }, volume => updatePattern(state, value => ({ ...value, mainCue: { ...value.mainCue, volume } })))}{program.tracks.map(track => row(track.id, track.label, track, { kind: 'track', id: track.id }, volume => patchPatternTrack(state, track.id, { volume })))}</> : program.steps.map((step, index) => row(step.id, `${index + 1}. ${step.label}`, step, { kind: 'step', id: step.id }, volume => patchSequenceStep(state, step.id, { volume })))}
-    {program.runPolicy.kind !== 'continuous' && program.completionCue ? row('completion', 'Final gong', program.completionCue, { kind: 'completion', mode: program.mode }, volume => patchCompletionCue(state, program.mode, { volume })) : null}
+    {program.runPolicy.kind !== 'continuous' && program.completionCue ? row('completion', 'End gong', program.completionCue, { kind: 'completion', mode: program.mode }, volume => patchCompletionCue(state, program.mode, { volume })) : null}
   </BottomSheet>
 }
 

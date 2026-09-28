@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native'
-import { AlarmIcon, BellIcon, ClockIcon, FocusIcon, RestartIcon, VolumeIcon } from '../Icons'
+import { AlarmIcon, BellIcon, ClockIcon, FocusIcon, RestartIcon, TimerTransportIcon, VolumeIcon } from '../Icons'
 import { useTheme } from '../../theme/ThemeContext'
 import { BottomSheet } from './BottomSheet'
 import { SheetTextButton } from './SheetTextButton'
@@ -23,6 +23,8 @@ export function TimerHelpSheet({ visible, mode, clockAlignmentVisible, advancedM
     {mode === 'pattern'
       ? item(<BellIcon on color={tokens.accent} />, 'Your cycle', 'The large timer counts down the main interval. Colored inner rings show the next sub-bells you have set.')
       : item(<BellIcon on color={tokens.accent} />, 'Your sequence', 'The large timer counts down the current step. Its name and place in the sequence appear around the timer.')}
+    {item(<TimerTransportIcon kind="pause" color={tokens.accent} />, 'Pause and resume', 'Use the button below the watchface to freeze the countdown, then continue from the same position. Pausing a clock-aligned timer turns off clock alignment.')}
+    {mode === 'sequence' ? item(<TimerTransportIcon kind="next" color={tokens.accent} />, 'Move between steps', 'Use the buttons beside Pause to skip to the previous or next step without sounding the skipped cue.') : null}
     {item(<RestartIcon color={tokens.accent} />, mode === 'pattern' ? 'Restart cycle' : 'Restart sequence', mode === 'pattern' ? 'Begin a fresh main interval from now.' : 'Go back to the first step and begin again from now.')}
     {clockAlignmentVisible ? item(<ClockIcon color={tokens.accent} />, 'Align to clock', mode === 'pattern' ? 'Choose a clock mark for the repeating interval, such as every hour on :00.' : 'Choose a clock mark for the full sequence to begin on.') : null}
     {advancedModeEnabled && mode === 'pattern' ? item(<AlarmIcon color={tokens.accent} />, 'Alarm', 'Tap once to alarm at the next main gong. Double-tap to keep it on for every main gong. Tap anywhere when it rings to dismiss it.') : null}

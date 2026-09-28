@@ -29,6 +29,7 @@ export interface ScheduledProgramEvent {
 export interface TimelinePosition {
   mode: TimerMode
   anchor: number
+  randomSeed: number
   cycleIndex: number
   cycleProgress: number
   currentStepIndex?: number
@@ -62,7 +63,7 @@ function winnerForCandidates(candidates: TimelineCueCandidate[]): TimelineCueCan
   )[0]
 }
 
-export function nextPatternEvent(program: PatternProgram, anchor: number, now = Date.now()): ScheduledProgramEvent {
+export function nextPatternEvent(program: PatternProgram, anchor: number, now = Date.now(), randomSeed = anchor): ScheduledProgramEvent {
   const duration = patternDurationSeconds(program) * 1_000
   let cycleIndex = cycleIndexAt(now, anchor, duration)
   while (true) {
@@ -74,7 +75,7 @@ export function nextPatternEvent(program: PatternProgram, anchor: number, now = 
     }])
     if (program.subBellsEnabled !== false) program.tracks.forEach((track, trackOrder) => {
       if (!track.enabled) return
-      trackEventOffsetsSeconds(track, duration / 1_000, cycleIndex, anchor).forEach(offsetSeconds => {
+      trackEventOffsetsSeconds(track, duration / 1_000, cycleIndex, randomSeed).forEach(offsetSeconds => {
         const at = cycleStart + offsetSeconds * 1_000
         if (at >= mainAt) return
         const candidates = candidatesByTime.get(at) ?? []
@@ -166,10 +167,10 @@ function completionCandidate(program: TimerProgram): TimelineCueCandidate {
 }
 
 /** Returns null once a bounded run has reached or passed its terminal instant. */
-export function nextProgramEvent(program: TimerProgram, anchor: number, now = Date.now(), startedAt = anchor, terminalAt = runEndAt(program, anchor, startedAt)): ScheduledProgramEvent | null {
+export function nextProgramEvent(program: TimerProgram, anchor: number, now = Date.now(), startedAt = anchor, terminalAt = runEndAt(program, anchor, startedAt), randomSeed = anchor): ScheduledProgramEvent | null {
   const endAt = terminalAt
   if (endAt !== null && now >= endAt) return null
-  const next = program.mode === 'pattern' ? nextPatternEvent(program, anchor, now) : nextSequenceEvent(program, anchor, now)
+  const next = program.mode === 'pattern' ? nextPatternEvent(program, anchor, now, randomSeed) : nextSequenceEvent(program, anchor, now)
   if (endAt === null || next.at < endAt) return next
   if (next.at === endAt) {
     if (!program.completionCue) return { ...next, completesRun: true }
@@ -189,13 +190,13 @@ export function nextProgramEvent(program: TimerProgram, anchor: number, now = Da
   }
 }
 
-export function timelinePosition(program: TimerProgram, anchor: number, now = Date.now(), startedAt = anchor, terminalAt = runEndAt(program, anchor, startedAt)): TimelinePosition {
-  const nextEvent = nextProgramEvent(program, anchor, now, startedAt, terminalAt)
+export function timelinePosition(program: TimerProgram, anchor: number, now = Date.now(), startedAt = anchor, terminalAt = runEndAt(program, anchor, startedAt), randomSeed = anchor): TimelinePosition {
+  const nextEvent = nextProgramEvent(program, anchor, now, startedAt, terminalAt, randomSeed)
   if (program.mode === 'pattern') {
     const duration = patternDurationSeconds(program) * 1_000
     const cycleIndex = cycleIndexAt(now, anchor, duration)
     const cycleStart = anchor + cycleIndex * duration
-    return { mode: 'pattern', anchor, cycleIndex, cycleProgress: Math.max(0, Math.min(1, (now - cycleStart) / duration)), nextEvent }
+    return { mode: 'pattern', anchor, randomSeed, cycleIndex, cycleProgress: Math.max(0, Math.min(1, (now - cycleStart) / duration)), nextEvent }
   }
   const offsets = program.steps.reduce<number[]>((values, step) => [...values, (values.at(-1) ?? 0) + sequenceStepDurationSeconds(step) * 1_000], [])
   const total = offsets.at(-1)!
@@ -208,6 +209,7 @@ export function timelinePosition(program: TimerProgram, anchor: number, now = Da
   return {
     mode: 'sequence',
     anchor,
+    randomSeed,
     cycleIndex,
     cycleProgress: Math.max(0, Math.min(1, elapsed / total)),
     currentStepIndex,

@@ -77,19 +77,29 @@ export function TimerWatchfaceRings({ size, progress, position, program, muted, 
     flash.setValue(0.7)
     RNAnimated.timing(flash, { toValue: 0, duration: 650, useNativeDriver: true }).start()
   }, [flash, flashOnMount, reducedMotion])
+  // Cue positions change with the program or cycle, but not with each visible
+  // countdown second. Keep random offset generation out of the display tick.
+  const patternTracks = useMemo(() => {
+    if (program.mode !== 'pattern' || !program.subBellsEnabled) return []
+    const mainSeconds = patternDurationSeconds(program)
+    return program.tracks.flatMap((track, index) => {
+      if (!track.enabled || track.showOnWatchFace === false) return []
+      const offsets = trackEventOffsetsSeconds(track, mainSeconds, position?.cycleIndex ?? 0, position?.randomSeed ?? 0)
+      return offsets.length > 0 ? [{ track, index, offsets }] : []
+    })
+  }, [program, position?.cycleIndex, position?.randomSeed])
   const rings = useMemo(() => {
     if (program.mode === 'sequence') return [{ progress: position?.stepProgress ?? progress, stroke: tokens.accent, background: tokens.surfaceHi, backgroundOpacity: 1 }]
     const mainSeconds = patternDurationSeconds(program)
     const elapsedSeconds = Math.max(0, Math.min(mainSeconds, progress * mainSeconds))
-    const activeTracks = (program.subBellsEnabled ? program.tracks : []).filter(track => track.enabled && track.showOnWatchFace !== false && trackEventOffsetsSeconds(track, mainSeconds, position?.cycleIndex ?? 0, position?.anchor ?? 0).length > 0)
     return [
       { progress, stroke: tokens.accent, background: tokens.surfaceHi, backgroundOpacity: 1 },
-      ...activeTracks.map((track, index) => {
+      ...patternTracks.map(({ track, index, offsets }) => {
         const stroke = subBellColorValue(track.color, index, theme === 'eink')
-        return { progress: cueSegmentProgress(trackEventOffsetsSeconds(track, mainSeconds, position?.cycleIndex ?? 0, position?.anchor ?? 0), mainSeconds, elapsedSeconds), stroke, background: stroke, backgroundOpacity: 0.17 }
+        return { progress: cueSegmentProgress(offsets, mainSeconds, elapsedSeconds), stroke, background: stroke, backgroundOpacity: 0.17 }
       }),
     ]
-  }, [position?.stepProgress, position?.cycleIndex, position?.anchor, program, progress, theme, tokens.accent, tokens.surfaceHi])
+  }, [position?.stepProgress, program, progress, theme, tokens.accent, tokens.surfaceHi, patternTracks])
   return <View style={StyleSheet.absoluteFill}>
     {theme !== 'eink' ? <RNAnimated.View style={[styles.flash, { width: size, height: size, borderRadius: size / 2, backgroundColor: tokens.accent, opacity: flash, pointerEvents: 'none' }]} /> : null}
     <Svg width={size} height={size} viewBox="0 0 200 200" style={styles.svg}>

@@ -54,6 +54,7 @@ object TimerStateStore {
       .putLong("timerV2Anchor", config.timerV2Anchor)
       .putLong("timerV2StartedAt", config.timerV2StartedAt)
       .putLong("timerV2EndsAt", config.timerV2EndsAt)
+      .putLong("timerV2RandomSeed", config.timerV2RandomSeed)
       .putLong("timerV2PausedAt", config.timerV2PausedAt)
       .putLong("timerV2ClockRejoinAt", config.timerV2ClockRejoinAt)
       .putLong(WALL_CLOCK_SAMPLE, System.currentTimeMillis())
@@ -110,6 +111,7 @@ object TimerStateStore {
       timerV2Anchor = prefs.getLong("timerV2Anchor", 0L),
       timerV2StartedAt = prefs.getLong("timerV2StartedAt", prefs.getLong("timerV2Anchor", 0L)),
       timerV2EndsAt = prefs.getLong("timerV2EndsAt", 0L),
+      timerV2RandomSeed = prefs.getLong("timerV2RandomSeed", 0L),
       timerV2PausedAt = prefs.getLong("timerV2PausedAt", 0L),
       timerV2ClockRejoinAt = prefs.getLong("timerV2ClockRejoinAt", 0L),
     )

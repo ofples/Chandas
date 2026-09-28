@@ -2,14 +2,18 @@ package expo.modules.chandastimerservice
 
 import android.app.Activity
 import android.app.Application
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.ApplicationInfo
 import android.content.res.Configuration
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.provider.Settings
 import android.net.Uri
 import android.view.Gravity
@@ -23,6 +27,7 @@ import android.widget.FrameLayout
 import androidx.core.os.bundleOf
 import com.facebook.react.ReactApplication
 import com.facebook.react.interfaces.fabric.ReactSurface
+import com.facebook.react.runtime.ReactSurfaceImpl
 import org.json.JSONObject
 
 /** Device-only presentation state. The native timer store remains the sole session authority. */
@@ -35,9 +40,19 @@ internal object FloatingTimerOverlay {
   private val main = Handler(Looper.getMainLooper())
   private val listeners = NativeListenerRegistry<Bundle>()
   private var application: Application? = null
-  private var startedActivities = 0
+  private var resumedActivity: Activity? = null
+  private var activityCreatedInProcess = false
   private var foreground = false
   private var owner: ChandasCountdownService? = null
+  private var screenReceiverRegistered = false
+  private val screenReceiver = object : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent?) {
+      if (intent?.action == Intent.ACTION_SCREEN_OFF || intent?.action == Intent.ACTION_SCREEN_ON) {
+        reconcile(context)
+        emitSnapshot(context)
+      }
+    }
+  }
   private var surface: ReactSurface? = null
   private var windowView: FrameLayout? = null
   private var window: WindowManager? = null
@@ -58,20 +73,40 @@ internal object FloatingTimerOverlay {
   private var lastState: String? = null
 
   private val lifecycle = object : Application.ActivityLifecycleCallbacks {
-    override fun onActivityCreated(activity: Activity, state: Bundle?) = Unit
+    override fun onActivityCreated(activity: Activity, state: Bundle?) { activityCreatedInProcess = true }
     override fun onActivityStarted(activity: Activity) {
-      startedActivities++
       foreground = true
       reconcile(application ?: return)
     }
     override fun onActivityResumed(activity: Activity) {
+      val overlayOwnedHost = overlayHostResumed
+      resumedActivity = activity
+      foreground = true
       application?.let(ChandasCountdownService::reconcile)
       reconcile(application ?: return)
+      if (overlayOwnedHost) main.post {
+        // The service temporarily resumed the shared React host with no
+        // Activity. Hand its current Activity back after overlay teardown so
+        // React Native Modal can attach sheets to a real window again.
+        if (resumedActivity === activity) runCatching {
+          (application as? ReactApplication)?.reactHost?.let { host ->
+            // ReactHost remembers the new Activity on a duplicate resume,
+            // but ReactContext does not: its lifecycle manager returns early
+            // while already RESUMED from the service's null-Activity resume.
+            host.onHostPause()
+            host.onHostResume(activity)
+          }
+        }
+      }
     }
-    override fun onActivityPaused(activity: Activity) = Unit
+    override fun onActivityPaused(activity: Activity) {
+      if (resumedActivity === activity) {
+        resumedActivity = null
+        foreground = false
+        reconcile(application ?: return)
+      }
+    }
     override fun onActivityStopped(activity: Activity) {
-      startedActivities = (startedActivities - 1).coerceAtLeast(0)
-      foreground = startedActivities > 0
       application?.let(ChandasCountdownService::reconcile)
       reconcile(application ?: return)
     }
@@ -83,14 +118,22 @@ internal object FloatingTimerOverlay {
     // A service-owned React surface creates another module instance. Its
     // ActivityProvider can still retain the stopped Activity, so only use the
     // visibility hint while installing the process-wide lifecycle tracker.
-    if (application != null) return
+    if (application != null) {
+      if (activityVisible) {
+        activityCreatedInProcess = true
+        foreground = true
+        main.post { removeWindow() }
+      }
+      return
+    }
     val app = context.applicationContext as Application
     application = app
     foreground = activityVisible
-    startedActivities = if (activityVisible) 1 else 0
+    activityCreatedInProcess = activityVisible
     app.registerActivityLifecycleCallbacks(lifecycle)
-    AlarmStateRegistry.add { reconcile(app) }
-    TimerStateRegistry.add { reconcile(app) }
+    AlarmStateRegistry.add { reconcile(app); emitSnapshot(app) }
+    TimerStateRegistry.add { reconcile(app); emitSnapshot(app) }
+    TimerControlRegistry.add { emitSnapshot(app) }
   }
 
   fun addListener(listener: (Bundle) -> Unit) = listeners.add(listener)
@@ -98,6 +141,9 @@ internal object FloatingTimerOverlay {
 
   fun requested(context: Context): Boolean = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(REQUESTED, false)
   fun permitted(context: Context): Boolean = Build.VERSION.SDK_INT >= 26 && Settings.canDrawOverlays(context)
+
+  private fun screenInteractive(context: Context): Boolean =
+    (context.getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive
   fun needsService(context: Context): Boolean = requested(context) && permitted(context) && TimerStateStore.load(context) != null
 
   fun setRequested(context: Context, value: Boolean) {
@@ -141,11 +187,22 @@ internal object FloatingTimerOverlay {
   fun attachService(service: ChandasCountdownService) {
     initialize(service)
     owner = service
+    if (!screenReceiverRegistered) {
+      service.registerReceiver(screenReceiver, IntentFilter().apply {
+        addAction(Intent.ACTION_SCREEN_ON)
+        addAction(Intent.ACTION_SCREEN_OFF)
+      })
+      screenReceiverRegistered = true
+    }
     reconcile(service)
   }
 
   fun detachService(service: ChandasCountdownService) {
     if (owner !== service) return
+    if (screenReceiverRegistered) {
+      runCatching { service.unregisterReceiver(screenReceiver) }
+      screenReceiverRegistered = false
+    }
     owner = null
     main.post { if (!preview) removeWindow() }
   }
@@ -153,8 +210,8 @@ internal object FloatingTimerOverlay {
   fun reconcile(context: Context) {
     initialize(context)
     main.post {
-      val shouldShow = preview || (owner != null && requested(context) && permitted(context) &&
-        TimerStateStore.load(context) != null && !foreground && !TimerStateStore.isAlarmVisible(context))
+      val shouldShow = screenInteractive(context) && (preview || (owner != null && requested(context) && permitted(context) &&
+        TimerStateStore.load(context) != null && !foreground && !TimerStateStore.isAlarmVisible(context)))
       if (shouldShow) show(context) else removeWindow()
       emit(context)
     }
@@ -197,6 +254,7 @@ internal object FloatingTimerOverlay {
     val controls = TimerStateStore.getControlState(context)
     if (config == null && preview) return bundleOf(
       "now" to System.currentTimeMillis(),
+      "screenInteractive" to screenInteractive(context),
       "active" to true,
       "preview" to true,
       "expanded" to expanded,
@@ -215,6 +273,7 @@ internal object FloatingTimerOverlay {
     )
     return bundleOf(
       "now" to System.currentTimeMillis(),
+      "screenInteractive" to screenInteractive(context),
       "active" to (config != null),
       "preview" to false,
       "expanded" to expanded,
@@ -224,6 +283,8 @@ internal object FloatingTimerOverlay {
       "timerV2Anchor" to (config?.timerV2Anchor ?: 0L),
       "timerV2StartedAt" to (config?.timerV2StartedAt ?: 0L),
       "timerV2EndsAt" to (config?.timerV2EndsAt ?: 0L),
+      "timerV2RandomSeed" to (config?.timerV2RandomSeed ?: 0L),
+      "timerV2PausedAt" to (config?.timerV2PausedAt ?: 0L),
       "nextEventAt" to TimerStateStore.nextAt(context),
       "nextLogicalId" to TimerStateStore.nextLogicalId(context),
       "alarmOnceArmed" to controls.alarmOnceArmed,
@@ -245,7 +306,14 @@ internal object FloatingTimerOverlay {
     )
   }
 
-  fun emitSnapshot(context: Context) { snapshotListeners.notify(snapshot(context)) }
+  fun emitSnapshot(context: Context) {
+    val value = snapshot(context)
+    snapshotListeners.notify(value)
+    // The service-owned Fabric surface can outlive its Activity's event
+    // emitter. Root props are a second, structural-only delivery path for
+    // expansion and control changes; ordinary seconds never call this.
+    main.post { (surface as? ReactSurfaceImpl)?.updateInitProps(value) }
+  }
   private val snapshotListeners = NativeListenerRegistry<Bundle>()
   fun addSnapshotListener(listener: (Bundle) -> Unit) = snapshotListeners.add(listener)
   fun removeSnapshotListener(listener: (Bundle) -> Unit) = snapshotListeners.remove(listener)
@@ -264,7 +332,6 @@ internal object FloatingTimerOverlay {
         if (expanded == value) return@post
         expanded = value
         cueAttention = false
-        recreateWindow(context)
         scheduleCollapse(context)
         emit(context)
         emitSnapshot(context)
@@ -279,7 +346,6 @@ internal object FloatingTimerOverlay {
       expanded = true
       cueAttention = true
       cuePulse++
-      recreateWindow(context)
       scheduleCollapse(context, CUE_EXPAND_MS)
       emit(context)
       emitSnapshot(context)
@@ -297,11 +363,8 @@ internal object FloatingTimerOverlay {
 
   fun refreshBounds(context: Context) { main.post { updateBounds(context) } }
 
-  /** React surface props are fixed at construction while the app is backgrounded. */
-  private fun recreateWindow(context: Context) {
-    removeWindow(preserveExpanded = true)
-    show(context)
-  }
+  /** React calls after committing the new compact/expanded content. */
+  fun contentReady(context: Context) { main.post { if (visible) updateBounds(context) } }
 
   private fun shape(context: Context) = if (context.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) "landscape" else "portrait"
   private fun dp(context: Context, value: Int) = (value * context.resources.displayMetrics.density).toInt()
@@ -334,6 +397,11 @@ internal object FloatingTimerOverlay {
 
   private fun show(context: Context) {
     if (visible || Build.VERSION.SDK_INT < 26 || !permitted(context) || System.currentTimeMillis() < retryAfter) return
+    // A restored timer can start this service before the first Activity. In a
+    // development client, creating the overlay's React context at that point
+    // violates Expo Dev Launcher's Activity delegate initialization order and
+    // crashes the app on its next launch. The Activity callback reconciles it.
+    if (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0 && !activityCreatedInProcess) return
     val host = (context.applicationContext as? ReactApplication)?.reactHost
     if (host == null) { lastError = "react-surface"; retryAfter = System.currentTimeMillis() + 30_000L; return }
     val initial = snapshot(context).apply { putBoolean("preview", preview) }

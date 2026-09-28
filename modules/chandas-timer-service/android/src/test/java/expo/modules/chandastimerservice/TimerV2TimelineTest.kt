@@ -22,6 +22,15 @@ class TimerV2TimelineTest {
     assertTrue(TimerV2Timeline.isValid(program))
     assertEquals(48_000L, TimerV2Timeline.next(program, 1_000L, 1_000L)?.at)
     assertEquals(48_000L, TimerV2Timeline.next(program, 1_000L, 1_000L)?.at)
+    val seed = 1_000L
+    val first = requireNotNull(TimerV2Timeline.next(program, 1_000L, 1_000L, 1_000L, 0L, seed))
+    assertEquals(48_000L, first.at)
+    // A pause moves the time anchor but must not reseed this cycle.
+    assertEquals(118_000L, TimerV2Timeline.next(program, 71_000L, 102_000L, 71_000L, 0L, seed)?.at)
+    val nextCycles = (0 until 5).map { cycle ->
+      TimerV2Timeline.next(program, 1_000L, 1_000L + cycle * 300_000L, 1_000L, 0L, seed)?.at?.minus(cycle * 300_000L)
+    }
+    assertTrue(nextCycles.toSet().size > 1)
   }
 
   @Test fun cueAcceptsMoreThanEightDistinctSounds() {

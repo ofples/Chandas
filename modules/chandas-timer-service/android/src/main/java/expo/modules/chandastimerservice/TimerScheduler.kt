@@ -104,9 +104,11 @@ object TimerScheduler {
     val current = TimerStateStore.load(context) ?: return false
     if (current.timerV2Program == null || TimerStateStore.isRinging(context)) return false
     if ((current.timerV2PausedAt > 0L) == paused) return true
+    if (!paused && !canScheduleExactAlarms(context)) return false
     val now = System.currentTimeMillis()
     val controls = TimerStateStore.getControlState(context, current.timerV2PausedAt.takeIf { it > 0L } ?: now)
-    val updated = if (paused) current.copy(timerV2PausedAt = now) else {
+    val elapsedProgram = TimerV2Timeline.elapsedAlignment(current.timerV2Program) ?: return false
+    val updated = if (paused) current.copy(timerV2PausedAt = now, timerV2Program = elapsedProgram, timerV2ClockRejoinAt = 0L) else {
       val delta = (now - current.timerV2PausedAt).coerceAtLeast(0L)
       current.copy(
         phase = current.phase + delta,
@@ -114,10 +116,8 @@ object TimerScheduler {
         timerV2StartedAt = current.timerV2StartedAt + delta,
         timerV2EndsAt = if (current.timerV2EndsAt > 0L) current.timerV2EndsAt + delta else 0L,
         timerV2PausedAt = 0L,
-        timerV2ClockRejoinAt = current.timerV2Program?.takeIf(TimerV2Timeline::isLocalClock)?.let { program ->
-          val duration = TimerV2Timeline.cycleDuration(program) ?: 0L
-          if (duration > 0L) current.timerV2Anchor + delta + (Math.floorDiv(now - current.timerV2Anchor - delta, duration) + 1L) * duration else 0L
-        } ?: 0L,
+        timerV2Program = elapsedProgram,
+        timerV2ClockRejoinAt = 0L,
       )
     }
     cancelScheduledEvent(context)
@@ -281,7 +281,7 @@ object TimerScheduler {
 
     val now = System.currentTimeMillis()
     val active = reconcileLocalClock(context, initial, now).config
-    var v2Event = active.timerV2Program?.let { TimerV2Timeline.next(it, active.timerV2Anchor, now, active.timerV2StartedAt, active.timerV2EndsAt) }
+    var v2Event = active.timerV2Program?.let { TimerV2Timeline.next(it, active.timerV2Anchor, now, active.timerV2StartedAt, active.timerV2EndsAt, active.timerV2RandomSeed.takeIf { seed -> seed != 0L } ?: active.timerV2Anchor) }
     if (active.timerV2Program != null && v2Event == null) {
       completeSession(context)
       return false
@@ -303,7 +303,7 @@ object TimerScheduler {
       // Weekly/calendar availability gates sound, never the terminal clock.
       // Replace a skipped intermediate cue with the exact final event.
       v2Event = active.timerV2Program?.let {
-        TimerV2Timeline.next(it, active.timerV2Anchor, active.timerV2EndsAt - 1L, active.timerV2StartedAt, active.timerV2EndsAt)
+        TimerV2Timeline.next(it, active.timerV2Anchor, active.timerV2EndsAt - 1L, active.timerV2StartedAt, active.timerV2EndsAt, active.timerV2RandomSeed.takeIf { seed -> seed != 0L } ?: active.timerV2Anchor)
       } ?: v2Event
     }
     var triggerAt = v2Event?.at ?: initialTriggerAt
@@ -464,7 +464,7 @@ object TimerScheduler {
   }
 
   private fun handleV2Triggered(context: Context, config: TimerConfig, triggerAt: Long, onFinished: () -> Unit) {
-    val event = config.timerV2Program?.let { TimerV2Timeline.next(it, config.timerV2Anchor, triggerAt - 1L, config.timerV2StartedAt, config.timerV2EndsAt) }
+    val event = config.timerV2Program?.let { TimerV2Timeline.next(it, config.timerV2Anchor, triggerAt - 1L, config.timerV2StartedAt, config.timerV2EndsAt, config.timerV2RandomSeed.takeIf { seed -> seed != 0L } ?: config.timerV2Anchor) }
     if (event == null || event.at != triggerAt) {
       scheduleNext(context, config)
       onFinished()

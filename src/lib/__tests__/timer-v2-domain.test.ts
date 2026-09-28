@@ -2,13 +2,24 @@ import { describe, expect, it } from 'vitest'
 import type { PatternProgram, SequenceProgram } from '../../types'
 import { chooseProgramMode, deleteProgramPreset, hasUnsavedProgramChanges, loadProgramPreset, patchSequenceStep, saveProgramPreset, setPatternSubBellsEnabled, setTrackCadence, setTrackCadenceSeconds, setTrackOffsets, setTrackOffsetsSeconds, updatePatternMainDurationSeconds, updatePatternMainMinutes } from '../programActions'
 import { alarmBehaviorAfterGesture, gateProgramAudio, isFreshScheduledEvent, iterationMuteFor, muteAfterScheduleChange, shouldSurfaceTimerSignal, timestampMuteForSeconds } from '../runtimeV2'
-import { defaultTimerV2State, migrateLegacyConfig, normalizeAvailabilityPolicy, normalizeCue, normalizePatternProgram, normalizeSequenceProgram, normalizeSoundRef, parseTimerProgram, patternDurationSeconds, randomTrackOffsetsSeconds, sequenceStepDurationSeconds, trackCadenceSeconds, trackSelectedOffsetsSeconds, validOffsets, validOffsetsForCadenceSeconds } from '../timerV2'
+import { defaultTimerV2State, migrateLegacyConfig, normalizeAvailabilityPolicy, normalizeCue, normalizePatternProgram, normalizeSequenceProgram, normalizeSoundRef, parseTimerProgram, patternDurationSeconds, randomTrackOffsetsSeconds, reconcileNativeProgram, sequenceStepDurationSeconds, trackCadenceSeconds, trackSelectedOffsetsSeconds, validOffsets, validOffsetsForCadenceSeconds } from '../timerV2'
 import { boundedRunProgress, cueSegmentProgress, nextPatternEvent, nextProgramEvent, nextSequenceEvent, runEndAt, sequenceSkipTarget, timelinePosition } from '../timeline'
 import { effectiveAvailabilityForProgram, hasAvailableTime, isCueAllowedByActiveHours, isWithinActiveHours, nextActiveHoursStart, scheduleBoundaryMinutesForDay, scheduleRangeCountForDay, scheduleRenderedBoundaryMinutesForDay, scheduleSegmentsForDay, windowsOverlap } from '../activeHours'
 import { edgeAutoScrollStep, previewIndexForItem, previewOffsetForItem, reorderGestureIntent } from '../reorder-preview'
 import timelineFixtures from '../../../fixtures/timer-v2-timeline.json'
 
 const minute = 60_000
+
+it('ignores identical native program reads while a volume edit is pending', () => {
+  const state = defaultTimerV2State()
+  const edited = { ...state, settings: { ...state.settings, masterVolume: 0.35 } }
+  const nativeProgram = JSON.parse(JSON.stringify(edited.workingPrograms[edited.workingPrograms.selectedMode]))
+  expect(reconcileNativeProgram(edited, nativeProgram)).toBe(edited)
+  const changed = { ...nativeProgram, alignment: { kind: 'local-clock', offsetMinutes: 0 } }
+  const reconciled = reconcileNativeProgram(edited, changed)
+  expect(reconciled.settings.masterVolume).toBe(0.35)
+  expect(reconciled.workingPrograms[reconciled.workingPrograms.selectedMode].alignment.kind).toBe('local-clock')
+})
 
 it('keeps more than eight distinct sound choices when loading a cue', () => {
   const ids = ['temple-gong', 'clear-bell', 'bloom', 'boxing-bell', 'bubble', 'champagne', 'cymbal', 'handpan', 'heartbeat', 'ice'] as const
@@ -62,6 +73,22 @@ describe('timer v2 timeline contracts', () => {
     program.mainMinutes = 5
     program.tracks = [{ ...program.tracks[0], id: 'random-track', selectedOffsetsMinutes: [], repeatEnabled: false, randomRepeat: { minSeconds: 10, maxSeconds: 60 } }]
     expect(nextPatternEvent(program, 1_000, 1_000).at).toBe(48_000)
+  })
+
+  it('keeps a realized random cycle through a paused anchor shift and varies later cycles', () => {
+    const program = pattern()
+    program.mainMinutes = 5
+    program.mainDurationSeconds = 300
+    program.tracks = [{ ...program.tracks[0], id: 'random-track', selectedOffsetsMinutes: [], repeatEnabled: false, randomRepeat: { minSeconds: 10, maxSeconds: 60 } }]
+    const seed = 1_000
+    const first = randomTrackOffsetsSeconds('random-track', { minSeconds: 10, maxSeconds: 60 }, 300, 0, seed)
+    const cycles = Array.from({ length: 5 }, (_, cycle) => randomTrackOffsetsSeconds('random-track', { minSeconds: 10, maxSeconds: 60 }, 300, cycle, seed))
+    expect(new Set(cycles.map(offsets => offsets.join(','))).size).toBeGreaterThan(1)
+    expect(nextPatternEvent(program, 1_000, 1_000, seed).at).toBe(1_000 + first[0] * 1_000)
+    // Pausing at 31 s and resuming 70 s later moves the timeline anchor,
+    // while the immutable seed keeps the first cycle's realized offsets.
+    expect(nextPatternEvent(program, 71_000, 102_000, seed).at).toBe(71_000 + first.find(offset => offset > 31)! * 1_000)
+    expect(nextPatternEvent(program, 1_000, 301_000, seed).at).toBe(301_000 + cycles[1][0] * 1_000)
   })
 
   it('preserves a step alarm through normalization and marks its cue', () => {
@@ -699,6 +726,15 @@ describe('timer v2 validation and presets', () => {
     expect(edited.workingPrograms.sequence.steps[0].label).toBe('Changed working copy')
     expect(hasUnsavedProgramChanges(saved)).toBe(false)
     expect(hasUnsavedProgramChanges(edited)).toBe(true)
+  })
+
+  it('replaces the final Sequence step cue with one end gong at a bounded boundary', () => {
+    const program = { ...sequence(), completionCue: { sound: { kind: 'builtin', id: 'bloom' } as const, volume: 0.35 }, runPolicy: { kind: 'cycles', cycleCount: 1, durationSeconds: 420 } as const }
+    const end = runEndAt(program, 1_000, 1_000)
+    const event = nextProgramEvent(program, 1_000, end! - 1, 1_000, end)
+    expect(event).toMatchObject({ at: end, boundary: 'sequence-cycle', completesRun: true, winner: { cueId: 'completion', kind: 'run-complete' } })
+    expect(event?.candidates).toHaveLength(1)
+    expect(nextProgramEvent(program, 1_000, end!, 1_000, end)).toBeNull()
   })
 
   it('accepts one-second cycle and sequence-step durations', () => {

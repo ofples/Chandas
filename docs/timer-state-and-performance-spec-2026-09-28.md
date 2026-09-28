@@ -1,6 +1,6 @@
 # Timer state, transport, and power — fix specification
 
-Status: proposed implementation contract. This supersedes the pause/clock-rejoin and running Playback-sheet behavior in `timer-control-batch-2026-09-27.md`. It also makes the existing performance requirements in `floating-timer-overlay-spec-2026-09-26.md` release gates.
+Status: implemented in a local Android QA build; Supernote battery, e-ink flicker, audio, and long-running physical-device acceptance remain pending. Evidence and limits are in `timer-state-and-performance-implementation-2026-09-28.md`. This supersedes the pause/clock-rejoin and running Playback-sheet behavior in `timer-control-batch-2026-09-27.md`. It also makes the existing performance requirements in `floating-timer-overlay-spec-2026-09-26.md` release gates.
 
 ## 1. Purpose and observed problems
 
