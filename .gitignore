@@ -36,6 +36,8 @@ yarn-error.*
 .env
 .env*.local
 *.local
+/credentials.json
+/credentials/
 
 # typescript
 *.tsbuildinfo

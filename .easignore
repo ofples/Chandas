@@ -49,6 +49,8 @@ yarn-error.*
 .env
 .env*.local
 *.local
+/credentials.json
+/credentials/
 
 # TypeScript and downloaded build artifacts
 *.tsbuildinfo
