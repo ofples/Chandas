@@ -5,7 +5,7 @@ import { successHaptic } from '../../lib/haptics'
 import Animated, { FadeIn, FadeInDown, FadeOut, LinearTransition } from 'react-native-reanimated'
 import type { AppTimerSettings, ProgramPreset, TimerMode, TimerProgram, TimerV2State } from '../../types'
 import { addStarterProgramPresets, deleteProgramPreset, hasUnsavedProgramChanges, loadProgramPreset, saveProgramPreset, updatePattern } from '../../lib/programActions'
-import { soundTitle } from '../../lib/soundLibrary'
+import { soundChoicesSummary, soundTitle } from '../../lib/soundLibrary'
 import { useTheme } from '../../theme/ThemeContext'
 import { BottomSheet } from './BottomSheet'
 import { GentleNotice, type AppNotice } from './experience-feedback'
@@ -16,7 +16,7 @@ import { tapHaptic } from '../../lib/haptics'
 import { hapticProfileSummary } from '../../lib/haptic-profiles'
 import { SwipeToDeleteRow } from './swipe-to-delete-row'
 import { Toggle } from '../Toggle'
-import { formatCompactDurationSeconds, patternDurationSeconds, sequenceStepDurationSeconds, trackCadenceSeconds, trackEventOffsetsSeconds } from '../../lib/timerV2'
+import { cueSounds, formatCompactDurationSeconds, patternDurationSeconds, sequenceStepDurationSeconds, trackCadenceSeconds, trackEventOffsetsSeconds } from '../../lib/timerV2'
 import { configurationTransferFilename, parseConfigurationTransfer, serializeConfiguration, type ConfigurationTransferError, type ConfigurationTransferResult } from '../../lib/configuration-transfer'
 import { copyConfigurationText, pickConfigurationText, readConfigurationTextFromClipboard, saveConfigurationFile } from '../../lib/configuration-transfer-io'
 import { PatternTimelinePreview } from './PatternTimelinePreview'
@@ -277,13 +277,13 @@ function PresetDetails({ preset }: { preset: ProgramPreset }) {
     : program.runPolicy.kind === 'cycles'
       ? `${program.runPolicy.cycleCount} ${program.mode === 'sequence' ? (program.runPolicy.cycleCount === 1 ? 'round' : 'rounds') : (program.runPolicy.cycleCount === 1 ? 'main cycle' : 'main cycles')}`
       : formatDuration(program.runPolicy.durationSeconds)
-  if (program.mode === 'sequence') return <View style={[styles.details, { borderColor: tokens.border }]}><Text style={[styles.detailLine, { color: tokens.text }]}>Run · {run}</Text>{program.steps.map((step, index) => <Text key={step.id} style={[styles.detailLine, { color: tokens.text }]}>{index + 1}. {step.label} · {formatCompactDurationSeconds(sequenceStepDurationSeconds(step))} · {soundTitle(step.sound)} · {Math.round(step.volume * 100)}%</Text>)}{preset.settings ? <PresetSettingsDetails settings={preset.settings} /> : <Text style={[styles.detailLine, { color: tokens.text }]}>Settings · Keeps current timer settings</Text>}</View>
+  if (program.mode === 'sequence') return <View style={[styles.details, { borderColor: tokens.border }]}><Text style={[styles.detailLine, { color: tokens.text }]}>Run · {run}</Text>{program.steps.map((step, index) => <Text key={step.id} style={[styles.detailLine, { color: tokens.text }]}>{index + 1}. {step.label} · {formatCompactDurationSeconds(sequenceStepDurationSeconds(step))} · {soundChoicesSummary(cueSounds(step))} · {Math.round(step.volume * 100)}%</Text>)}{preset.settings ? <PresetSettingsDetails settings={preset.settings} /> : <Text style={[styles.detailLine, { color: tokens.text }]}>Settings · Keeps current timer settings</Text>}</View>
   return <View style={[styles.details, { borderColor: tokens.border }]}>
     <Text style={[styles.detailLine, { color: tokens.text }]}>Run · {run}</Text>
-    <Text style={[styles.detailLine, { color: tokens.text }]}>Main · {formatCompactDurationSeconds(patternDurationSeconds(program))} · {soundTitle(program.mainCue.sound)} · {Math.round(program.mainCue.volume * 100)}%</Text>
+    <Text style={[styles.detailLine, { color: tokens.text }]}>Main · {formatCompactDurationSeconds(patternDurationSeconds(program))} · {soundChoicesSummary(cueSounds(program.mainCue))} · {Math.round(program.mainCue.volume * 100)}%</Text>
     <Text style={[styles.detailLine, { color: tokens.text }]}>Timing · {program.alignment.kind === 'elapsed' ? 'starts when timer starts' : `aligned to :${String(program.alignment.offsetMinutes).padStart(2, '0')} local time`}</Text>
     {!program.subBellsEnabled ? <Text style={[styles.detailLine, { color: tokens.text }]}>Sub-bells off · settings preserved</Text> : null}
-    {program.tracks.map((track, index) => <Text key={track.id} style={[styles.detailLine, { color: tokens.text }]}>{index + 1}. {track.enabled ? `${track.repeatEnabled === false ? 'No repeat' : `Every ${formatCompactDurationSeconds(trackCadenceSeconds(track))}`} · ${trackEventOffsetsSeconds(track, patternDurationSeconds(program)).map(formatCompactDurationSeconds).join(', ') || 'no cues'}` : 'Off'} · {soundTitle(track.sound)} · {Math.round(track.volume * 100)}%</Text>)}
+    {program.tracks.map((track, index) => <Text key={track.id} style={[styles.detailLine, { color: tokens.text }]}>{index + 1}. {track.enabled ? `${track.repeatEnabled === false ? 'No repeat' : `Every ${formatCompactDurationSeconds(trackCadenceSeconds(track))}`} · ${trackEventOffsetsSeconds(track, patternDurationSeconds(program)).map(formatCompactDurationSeconds).join(', ') || 'no cues'}` : 'Off'} · {soundChoicesSummary(cueSounds(track))} · {Math.round(track.volume * 100)}%</Text>)}
     {preset.settings ? <PresetSettingsDetails settings={preset.settings} /> : <Text style={[styles.detailLine, { color: tokens.text }]}>Settings · Keeps current timer settings</Text>}
   </View>
 }

@@ -2,6 +2,13 @@
 
 Date: 2026-09-28. Source specification: `timer-state-and-performance-spec-2026-09-28.md`.
 
+## Follow-up, 2026-09-29
+
+- Status and floating-widget countdowns now use the next watchface-visible cue. Sub-bells hidden from the watchface remain in the audible native schedule; their times no longer take over those short countdowns. The running watchface's next-cue label follows the same rule.
+- Android and device sounds selected for any cue enter a device-local shared library. The sound picker shows that library for every cue, with selection marks reflecting only the cue being edited. Existing imported sounds are recovered from working programs and saved configurations on load; removing a sound from a cue does not remove it from the library.
+- Sound rows, sequence and sub-bell summaries, mixers, and saved-configuration details now use the same multi-sound summary as the sound-choices editor.
+- Focused JS/Kotlin tests cover display-only filtering and shared-library retention. The local Android debug build launched on the emulator without a fatal error. Imported-sound selection across two different cues and the promoted status presentation remain for device UI testing.
+
 ## Delivered
 
 | Requirement | Implementation | Verification |

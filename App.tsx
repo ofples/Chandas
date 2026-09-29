@@ -11,7 +11,7 @@ import { ThemeProvider, useTheme } from './src/theme/ThemeContext'
 import type { AppState, AppTimerSettings, TimerV2State } from './src/types'
 import { useTimerV2 } from './src/hooks/useTimerV2'
 import { clearTimerV2Session, loadTimerV2Session, loadTimerV2StateResult, saveTimerV2Session, saveTimerV2State, type TimerV2Session } from './src/lib/storage'
-import { defaultTimerV2State, normalizeAvailabilityPolicy, parseTimerProgram, reconcileNativeProgram, replaceWorkingProgram, selectedProgram } from './src/lib/timerV2'
+import { defaultTimerV2State, normalizeAvailabilityPolicy, parseTimerProgram, reconcileNativeProgram, replaceWorkingProgram, selectedProgram, withImportedSoundLibrary } from './src/lib/timerV2'
 import { defaultTimerHapticsSettings, normalizeTimerHapticsSettings } from './src/lib/haptic-profiles'
 import { setAppHapticsEnabled, successHaptic, tapHaptic } from './src/lib/haptics'
 import { hasUnsavedProgramChanges, loadProgramPreset, patchCompletionCue, patchPatternTrack, patchSequenceStep, updatePattern, updateSequence } from './src/lib/programActions'
@@ -262,11 +262,11 @@ function Root() {
         if (exactTimingAvailable && native.active && nativeProgram && native.timerV2Anchor && native.timerV2Anchor > 0) {
           const restoredSource = session?.sourcePreset && JSON.stringify(session.program) === JSON.stringify(nativeProgram) ? session.sourcePreset : undefined
           const replaced = replaceWorkingProgram(stored, nativeProgram)
-          reconciled = {
+          reconciled = withImportedSoundLibrary({
             ...replaced,
             workingPrograms: { ...replaced.workingPrograms, sourcePreset: restoredSource },
             settings: settingsFromNative(stored.settings, native),
-          }
+          })
           const nativeSession: TimerV2Session = {
             schemaVersion: 2,
             anchor: native.timerV2Anchor,
@@ -292,7 +292,7 @@ function Root() {
         // Without the Android service (web/testing), the persisted running
         // session is the runtime authority just as native state is on Android.
         const restored = replaceWorkingProgram(stored, session.program)
-        reconciled = { ...restored, settings: session.settings ?? restored.settings, workingPrograms: { ...restored.workingPrograms, sourcePreset: session.sourcePreset } }
+        reconciled = withImportedSoundLibrary({ ...restored, settings: session.settings ?? restored.settings, workingPrograms: { ...restored.workingPrograms, sourcePreset: session.sourcePreset } })
         pending = { session, attachNative: false }
         await saveTimerV2State(reconciled)
       }
@@ -433,8 +433,14 @@ function Root() {
   }, [openExactAlarmSettings, showNotice, timer.runtimeInterruption, timer.clearRuntimeInterruption])
 
   const changeTimerState = (next: TimerV2State) => {
-    setTimerState(next)
-    void saveTimerV2State(next).then(saved => {
+    // A volume slider updates settings rapidly. Only scan cue selections when
+    // a program, preset, or alarm sound actually changes.
+    const withLibrary = next.workingPrograms === timerState?.workingPrograms
+      && next.presets === timerState?.presets
+      && next.settings.alarmSound === timerState?.settings.alarmSound
+      ? next : withImportedSoundLibrary(next)
+    setTimerState(withLibrary)
+    void saveTimerV2State(withLibrary).then(saved => {
       if (saved) {
         storageWarningShown.current = false
         return

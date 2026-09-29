@@ -265,6 +265,7 @@ export function defaultTimerV2State(): TimerV2State {
     workingPrograms: defaultWorkingPrograms(),
     settings: defaultAppTimerSettings(),
     presets: [],
+    soundLibrary: [],
   }
 }
 
@@ -356,6 +357,46 @@ export function cueSounds(cue: Pick<CueSettings, 'sound' | 'sounds'>): SoundRef[
   const unique: SoundRef[] = []
   source.forEach(sound => { if (!unique.some(value => soundRefKey(value) === soundRefKey(sound))) unique.push(sound) })
   return unique.length ? unique : [cue.sound]
+}
+
+/** The clock face and short countdowns describe visible cues; audio still uses the full program. */
+export function programForVisibleCues(program: TimerProgram): TimerProgram {
+  if (program.mode !== 'pattern' || !program.tracks.some(track => track.showOnWatchFace === false)) return program
+  return { ...program, tracks: program.tracks.filter(track => track.showOnWatchFace !== false) }
+}
+
+/** Imported sounds remain in the device library after a cue stops using them. */
+export function importedSoundLibrary(state: Pick<TimerV2State, 'workingPrograms' | 'settings' | 'presets'>, stored: unknown = []): SoundRef[] {
+  const sources: SoundRef[] = Array.isArray(stored) ? [...stored] : []
+  const addCue = (cue: Pick<CueSettings, 'sound' | 'sounds'> | null | undefined) => { if (cue) sources.push(...cueSounds(cue)) }
+  const addProgram = (program: TimerProgram) => {
+    if (program.mode === 'pattern') {
+      addCue(program.mainCue)
+      program.tracks.forEach(addCue)
+    } else program.steps.forEach(addCue)
+    addCue(program.completionCue)
+  }
+  addProgram(state.workingPrograms.pattern)
+  addProgram(state.workingPrograms.sequence)
+  addCue({ sound: state.settings.alarmSound })
+  state.presets.forEach(preset => { addProgram(preset.program); if (preset.settings) addCue({ sound: preset.settings.alarmSound }) })
+  const result: SoundRef[] = []
+  const seen = new Set<string>()
+  for (const candidate of sources) {
+    if (!candidate || (candidate.kind !== 'android' && candidate.kind !== 'document')) continue
+    const sound = normalizeSoundRef(candidate, { kind: 'builtin', id: 'clear-bell' })
+    if (sound.kind !== candidate.kind) continue
+    const key = soundRefKey(sound)
+    if (!seen.has(key)) { seen.add(key); result.push(sound) }
+  }
+  return result
+}
+
+export function withImportedSoundLibrary(state: TimerV2State): TimerV2State {
+  const soundLibrary = importedSoundLibrary(state, state.soundLibrary)
+  return soundLibrary.length === state.soundLibrary.length && soundLibrary.every((sound, index) => soundRefKey(sound) === soundRefKey(state.soundLibrary[index]))
+    ? state
+    : { ...state, soundLibrary }
 }
 
 export function normalizeSoundRef(value: unknown, fallback: SoundRef): SoundRef {
@@ -614,6 +655,7 @@ export function migrateLegacyConfig(legacy: Partial<TimerConfig>): TimerV2State 
       alarmDurationSeconds: clamp(whole(legacy.alarmDurationSeconds, defaults.alarmDurationSeconds), 5, 3600),
     },
     presets: [],
+    soundLibrary: [],
   }
 }
 

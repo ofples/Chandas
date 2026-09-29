@@ -82,12 +82,12 @@ object TimerV2Timeline {
 
   fun isSequence(serialized: String): Boolean = runCatching { JSONObject(serialized).optString("mode") == "sequence" }.getOrDefault(false)
 
-  fun next(serialized: String, anchor: Long, now: Long, startedAt: Long = anchor, fixedEndsAt: Long = 0L, randomSeed: Long = anchor): TimerV2Event? = runCatching {
+  fun next(serialized: String, anchor: Long, now: Long, startedAt: Long = anchor, fixedEndsAt: Long = 0L, randomSeed: Long = anchor, visibleOnly: Boolean = false): TimerV2Event? = runCatching {
     val root = JSONObject(serialized)
     val endAt = fixedEndsAt.takeIf { it > 0L } ?: runEndAt(root, anchor, startedAt)
     if (endAt != null && now >= endAt) return@runCatching null
     val natural = when (root.optString("mode")) {
-      "pattern" -> nextPattern(root, anchor, now, randomSeed)
+      "pattern" -> nextPattern(root, anchor, now, randomSeed, visibleOnly)
       "sequence" -> nextSequence(root, anchor, now)
       else -> null
     }
@@ -168,6 +168,10 @@ object TimerV2Timeline {
     val root = JSONObject(serialized).put("alignment", JSONObject().put("kind", "elapsed"))
     root.toString().takeIf { isValid(it) }
   }.getOrNull()
+
+  /** Presentation countdown only. Hidden sub-bells remain in the audible scheduler. */
+  fun nextVisible(serialized: String, anchor: Long, now: Long, startedAt: Long = anchor, fixedEndsAt: Long = 0L, randomSeed: Long = anchor): TimerV2Event? =
+    next(serialized, anchor, now, startedAt, fixedEndsAt, randomSeed, visibleOnly = true)
 
   fun cycleDuration(serialized: String): Long? = runCatching {
     val root = JSONObject(serialized)
@@ -284,7 +288,7 @@ object TimerV2Timeline {
     set(Calendar.MILLISECOND, 0)
   }.timeInMillis
 
-  private fun nextPattern(root: JSONObject, anchor: Long, now: Long, randomSeed: Long): TimerV2Event? {
+  private fun nextPattern(root: JSONObject, anchor: Long, now: Long, randomSeed: Long, visibleOnly: Boolean): TimerV2Event? {
     val duration = patternDuration(root)
     if (duration <= 0L) return null
     val tracks = root.optJSONArray("tracks") ?: JSONArray()
@@ -295,7 +299,7 @@ object TimerV2Timeline {
       candidates.getOrPut(start + duration) { mutableListOf() }.add(Candidate("main", "pattern-main", true, -1, 0L, root.optJSONObject("mainCue")))
       for (trackIndex in 0 until tracks.length()) {
         val track = tracks.optJSONObject(trackIndex) ?: continue
-        if (!track.optBoolean("enabled", true)) continue
+        if (!track.optBoolean("enabled", true) || (visibleOnly && !track.optBoolean("showOnWatchFace", true))) continue
         val exactOffsets = track.has("selectedOffsetsSeconds")
         val offsets = track.optJSONArray(if (exactOffsets) "selectedOffsetsSeconds" else "selectedOffsetsMinutes") ?: JSONArray()
         val cadenceSeconds = if (track.has("cadenceSeconds")) track.optLong("cadenceSeconds", 0L) else track.optInt("cadenceMinutes", 0).toLong() * 60L

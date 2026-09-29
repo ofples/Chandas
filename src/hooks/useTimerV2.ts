@@ -12,7 +12,7 @@ import { clearTimerV2Session, saveTimerV2Session } from '../lib/storage'
 import { ChandasTimerService, isNativeServiceAvailable, type NativeTimerConfig } from '../native/ChandasTimerService'
 import { cueHapticProfile, selectionHaptic, setAppHapticsEnabled, startRepeatingAlarmHaptic, stopRepeatingAlarmHaptic, tapHaptic, timerCueHaptic } from '../lib/haptics'
 import { alignedClockAnchor } from '../lib/clockAlignment'
-import { cueSounds, patternDurationSeconds, sequenceStepDurationSeconds } from '../lib/timerV2'
+import { cueSounds, patternDurationSeconds, programForVisibleCues, sequenceStepDurationSeconds } from '../lib/timerV2'
 import { nextAudibleProgramEvent, programEventLabel } from '../lib/upcoming-events'
 
 const KEEP_AWAKE_TAG = 'chandas-running-v2'
@@ -117,7 +117,7 @@ export function timerV2DisplayFor(program: TimerProgram, settings: AppTimerSetti
       runProgress: boundedRunProgress(startedAt, terminalAt, now),
     }
   }
-  const position = timelinePosition(program, anchor, now, startedAt, terminalAt, randomSeed)
+  const position = timelinePosition(programForVisibleCues(program), anchor, now, startedAt, terminalAt, randomSeed)
   const next = position.nextEvent
   if (!next) {
     return {

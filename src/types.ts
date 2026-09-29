@@ -71,7 +71,7 @@ export interface PatternTrack extends CueSettings {
   label: string
   /** Visual identity only; timing and collision precedence remain unchanged. */
   color?: SubBellColorId
-  /** False hides only this Sub-bell's ring on the running watch face. */
+  /** False omits this cue from watchface markers and display countdowns; it still sounds. */
   showOnWatchFace?: boolean
   enabled: boolean
   cadenceMinutes: number
@@ -237,4 +237,6 @@ export interface TimerV2State {
   workingPrograms: WorkingProgramState
   settings: AppTimerSettings
   presets: ProgramPreset[]
+  /** Device-local imported sounds, available to every cue independently of its selections. */
+  soundLibrary: SoundRef[]
 }

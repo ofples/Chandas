@@ -5,7 +5,7 @@ import Slider from '@react-native-community/slider'
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated'
 import { selectionHaptic } from '../../lib/haptics'
 import type { CueSettings, SoundRef } from '../../types'
-import { BUILT_IN_SOUNDS, soundTitle } from '../../lib/soundLibrary'
+import { BUILT_IN_SOUNDS, soundChoicesSummary, soundTitle } from '../../lib/soundLibrary'
 import { cueSounds, soundRefKey } from '../../lib/timerV2'
 import { ChandasTimerService, isNativeServiceAvailable } from '../../native/ChandasTimerService'
 import { useTheme } from '../../theme/ThemeContext'
@@ -25,6 +25,7 @@ interface Props {
   visible: boolean
   title: string
   cue: CueSettings
+  soundLibrary: SoundRef[]
   masterVolume: number
   advanced?: boolean
   onChange: (patch: Partial<CueSettings>) => void
@@ -33,7 +34,7 @@ interface Props {
   onFeedback: (notice: Omit<AppNotice, 'id'>) => void
 }
 
-export function SoundPickerSheet({ visible, title, cue, masterVolume, advanced = false, onChange, onClose, onBack, onFeedback }: Props) {
+export function SoundPickerSheet({ visible, title, cue, soundLibrary, masterVolume, advanced = false, onChange, onClose, onBack, onFeedback }: Props) {
   const { tokens } = useTheme()
   const confirm = useConfirmation()
   const reducedMotion = useAppReducedMotion()
@@ -147,8 +148,10 @@ export function SoundPickerSheet({ visible, title, cue, masterVolume, advanced =
     } finally { setPicking(false) }
   }
 
-  const androidChoices = choices.filter(sound => sound.kind === 'android')
-  const deviceChoices = choices.filter(sound => sound.kind === 'document')
+  const imported = [...soundLibrary, ...choices.filter(sound => sound.kind !== 'builtin')]
+    .filter((sound, index, values) => values.findIndex(other => soundRefKey(other) === soundRefKey(sound)) === index)
+  const androidChoices = imported.filter(sound => sound.kind === 'android')
+  const deviceChoices = imported.filter(sound => sound.kind === 'document')
   const volumeFooter = <View style={[styles.footer, { backgroundColor: tokens.surface }]}>
     {advanced ? <Pressable onPress={() => { stopPreview(); setChoicesOpen(true) }} style={styles.settingsRow} accessibilityRole="button" accessibilityLabel="Edit sound choices">
       <View style={styles.optionCopy}><Text style={[styles.optionTitle, { color: tokens.text }]}>Sound choices</Text><Text numberOfLines={2} style={[styles.helper, { color: tokens.textMuted }]}>{soundChoicesSummary(choices)}</Text></View>
@@ -165,14 +168,14 @@ export function SoundPickerSheet({ visible, title, cue, masterVolume, advanced =
   </BottomSheet>
 
   return (
-    <BottomSheet visible={visible} title={title} help={advanced ? 'Tap a sound name to hear it and keep only that sound. Use the round selectors to combine included, Android and device sounds.' : 'Tap a sound to use it and hear it immediately, then set this cue’s own volume below. Included sounds travel with saved configurations.'} onClose={close} onBack={onBack ? () => { stopPreview(); onBack() } : undefined} pinnedContent={<SegmentedControl items={SOUND_TABS} value={tab} onChange={value => { stopPreview(); setTab(value) }} accessibilityLabel="Sound source" />} footer={volumeFooter}>
+    <BottomSheet visible={visible} title={title} help={advanced ? 'Tap a sound name to hear it and keep only that sound. Use the round selectors to combine sounds. Added Android and device sounds are available to every cue on this device.' : 'Tap a sound to use it and hear it immediately, then set this cue’s own volume below. Added Android and device sounds are available to every cue on this device.'} onClose={close} onBack={onBack ? () => { stopPreview(); onBack() } : undefined} pinnedContent={<SegmentedControl items={SOUND_TABS} value={tab} onChange={value => { stopPreview(); setTab(value) }} accessibilityLabel="Sound source" />} footer={volumeFooter}>
       {message ? <GentleNotice title={message.title} message={message.detail} tone="attention" /> : null}
       <Animated.View key={tab} entering={reducedMotion ? undefined : FadeIn.duration(180)} exiting={reducedMotion ? undefined : FadeOut.duration(120)}>
       {tab === 'built-in' ? <View style={styles.list}>{BUILT_IN_SOUNDS.map(sound => {
         const ref: SoundRef = { kind: 'builtin', id: sound.id }
         const selected = advanced ? choices.some(choice => soundRefKey(choice) === soundRefKey(ref)) : cue.sound.kind === 'builtin' && cue.sound.id === sound.id
         const selectionDisabled = advanced && selected && choices.length === 1
-        return <SoundLibraryRow key={sound.id} title={sound.name} detail={sound.description} advanced={advanced} selected={selected} selectionDisabled={selectionDisabled} onPress={() => advanced ? auditionAndChooseOnly(ref) : chooseSound(ref)} onToggle={() => toggleChoice(ref)} />
+        return <SoundLibraryRow key={sound.id} sound={ref} title={sound.name} detail={sound.description} advanced={advanced} selected={selected} selectionDisabled={selectionDisabled} onPress={() => advanced ? auditionAndChooseOnly(ref) : chooseSound(ref)} onToggle={() => toggleChoice(ref)} />
       })}</View> : null}
 
       {tab === 'android' ? <View style={styles.sourcePanel}>
@@ -183,7 +186,7 @@ export function SoundPickerSheet({ visible, title, cue, masterVolume, advanced =
         <Pressable disabled={!isNativeServiceAvailable || picking} onPress={() => void pickAndroid('notification')} style={[styles.sourceButton, { opacity: !isNativeServiceAvailable || picking ? 0.45 : 1 }]} accessibilityRole="button" accessibilityState={{ disabled: !isNativeServiceAvailable || picking, busy: picking }}>
           <View style={styles.optionCopy}><Text style={[styles.optionTitle, { color: tokens.text }]}>{advanced ? 'Add notification sound' : 'Choose notification sound'}</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>Also played on the Alarm audio stream</Text></View>{picking ? <ActivityIndicator color={tokens.accent} size="small" /> : <Text style={[styles.disclosure, { color: tokens.accent }]}>›</Text>}
         </Pressable>
-        {androidChoices.length ? <View style={styles.addedList}><SheetSectionTitle>Added Android sounds</SheetSectionTitle>{androidChoices.map(sound => <SoundLibraryRow key={soundRefKey(sound)} title={soundTitle(sound)} detail={sound.ringtoneType === 'alarm' ? 'Android alarm sound' : 'Android notification sound'} advanced={advanced} selected selectionDisabled={advanced && choices.length === 1} onPress={() => advanced ? auditionAndChooseOnly(sound) : chooseSound(sound)} onToggle={() => toggleChoice(sound)} />)}</View> : null}
+        {androidChoices.length ? <View style={styles.addedList}><SheetSectionTitle>Added Android sounds</SheetSectionTitle>{androidChoices.map(sound => { const selected = choices.some(choice => soundRefKey(choice) === soundRefKey(sound)); return <SoundLibraryRow key={soundRefKey(sound)} sound={sound} title={soundTitle(sound)} detail={sound.ringtoneType === 'alarm' ? 'Android alarm sound' : 'Android notification sound'} advanced={advanced} selected={selected} selectionDisabled={advanced && selected && choices.length === 1} onPress={() => advanced ? auditionAndChooseOnly(sound) : chooseSound(sound)} onToggle={() => toggleChoice(sound)} /> })}</View> : null}
       </View> : null}
 
       {tab === 'device' ? <View style={styles.sourcePanel}>
@@ -191,14 +194,15 @@ export function SoundPickerSheet({ visible, title, cue, masterVolume, advanced =
         <Pressable disabled={!isNativeServiceAvailable || picking} onPress={() => void pickDocument()} style={[styles.sourceButton, { opacity: !isNativeServiceAvailable || picking ? 0.45 : 1 }]} accessibilityRole="button" accessibilityState={{ disabled: !isNativeServiceAvailable || picking, busy: picking }}>
           <View style={styles.optionCopy}><Text style={[styles.optionTitle, { color: tokens.text }]}>{advanced ? 'Add audio file' : 'Choose audio file'}</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>MP3, M4A, OGG, WAV and other supported audio</Text></View>{picking ? <ActivityIndicator color={tokens.accent} size="small" /> : <Text style={[styles.disclosure, { color: tokens.accent }]}>›</Text>}
         </Pressable>
-        {deviceChoices.length ? <View style={styles.addedList}><SheetSectionTitle>Added audio files</SheetSectionTitle>{deviceChoices.map(sound => <SoundLibraryRow key={soundRefKey(sound)} title={soundTitle(sound)} detail="Audio file from this device" advanced={advanced} selected selectionDisabled={advanced && choices.length === 1} onPress={() => advanced ? auditionAndChooseOnly(sound) : chooseSound(sound)} onToggle={() => toggleChoice(sound)} />)}</View> : null}
+        {deviceChoices.length ? <View style={styles.addedList}><SheetSectionTitle>Added audio files</SheetSectionTitle>{deviceChoices.map(sound => { const selected = choices.some(choice => soundRefKey(choice) === soundRefKey(sound)); return <SoundLibraryRow key={soundRefKey(sound)} sound={sound} title={soundTitle(sound)} detail="Audio file from this device" advanced={advanced} selected={selected} selectionDisabled={advanced && selected && choices.length === 1} onPress={() => advanced ? auditionAndChooseOnly(sound) : chooseSound(sound)} onToggle={() => toggleChoice(sound)} /> })}</View> : null}
       </View> : null}
       </Animated.View>
     </BottomSheet>
   )
 }
 
-function SoundLibraryRow({ title, detail, advanced, selected, selectionDisabled, onPress, onToggle }: {
+function SoundLibraryRow({ sound, title, detail, advanced, selected, selectionDisabled, onPress, onToggle }: {
+  sound: SoundRef
   title: string
   detail: string
   advanced: boolean
@@ -208,12 +212,13 @@ function SoundLibraryRow({ title, detail, advanced, selected, selectionDisabled,
   onToggle: () => void
 }) {
   const { tokens } = useTheme()
+  const available = useSoundAvailability(sound)
   return <View style={[styles.libraryRow, { borderBottomColor: tokens.border }]}>
     {advanced ? <Pressable hitSlop={8} disabled={selectionDisabled} onPress={onToggle} style={[styles.checkboxPressable, { opacity: selectionDisabled ? 0.48 : 1 }]} accessibilityRole="checkbox" accessibilityLabel={`${selected ? 'Remove' : 'Add'} ${title} ${selected ? 'from' : 'to'} sound choices`} accessibilityState={{ checked: selected, disabled: selectionDisabled }}>
       <View style={[styles.checkbox, { borderColor: selected ? tokens.accent : tokens.border, backgroundColor: selected ? tokens.accent : 'transparent' }]}>{selected ? <Text style={styles.checkboxMark}>✓</Text> : null}</View>
     </Pressable> : null}
     <Pressable onPress={onPress} style={styles.libraryRowMain} accessibilityRole="button" accessibilityLabel={`${title}. Preview and use only this sound`}>
-      <View style={styles.optionCopy}><Text style={[styles.optionTitle, { color: tokens.text }]}>{title}</Text><Text style={[styles.helper, { color: tokens.textMuted }]}>{detail}</Text></View>
+      <View style={styles.optionCopy}><Text style={[styles.optionTitle, { color: available ? tokens.text : tokens.accent }]}>{title}</Text><Text style={[styles.helper, { color: available ? tokens.textMuted : tokens.accent }]}>{available ? detail : 'Unavailable on this device · fallback will play'}</Text></View>
     </Pressable>
   </View>
 }
@@ -269,12 +274,6 @@ function SortableSoundChoiceRow({ sound, itemCount, canDelete, playing, onMove, 
       </View>
     </SwipeToDeleteRow>
   </SortableItem>
-}
-
-function soundChoicesSummary(choices: SoundRef[]): string {
-  const visible = choices.slice(0, 3).map(soundTitle)
-  const remaining = choices.length - visible.length
-  return `${visible.join(', ')}${remaining > 0 ? ` and ${remaining} ${remaining === 1 ? 'other' : 'others'}` : ''}`
 }
 
 function soundPreviewKey(sound: SoundRef): string {

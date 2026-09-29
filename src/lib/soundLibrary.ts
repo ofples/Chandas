@@ -54,6 +54,12 @@ export function soundTitle(sound: SoundRef): string {
   return BUILT_IN_SOUNDS.find(item => item.id === sound.id)?.name ?? 'Built-in sound'
 }
 
+export function soundChoicesSummary(choices: SoundRef[]): string {
+  const visible = choices.slice(0, 3).map(soundTitle)
+  const remaining = choices.length - visible.length
+  return `${visible.join(', ')}${remaining > 0 ? ` and ${remaining} ${remaining === 1 ? 'other' : 'others'}` : ''}`
+}
+
 export function sourceForSound(sound: SoundRef): number | null {
   if (sound.kind !== 'builtin') return sound.uri ? null : null
   return BUILT_IN_SOUNDS.find(item => item.id === sound.id)?.source ?? BELL_SOURCE

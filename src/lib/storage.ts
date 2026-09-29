@@ -5,6 +5,7 @@ import {
   createProgramId,
   defaultTimerV2State,
   migrateLegacyConfig,
+  importedSoundLibrary,
   normalizeAvailabilityPolicy,
   normalizePatternProgram,
   normalizePreset,
@@ -19,6 +20,7 @@ const ADVANCED_SETTINGS_KEY = 'chandas-advanced-settings-expanded'
 const WORKING_PROGRAMS_V2_KEY = 'chandas-working-programs-v2'
 const PROGRAM_PRESETS_V2_KEY = 'chandas-program-presets-v1'
 const APP_TIMER_SETTINGS_V2_KEY = 'chandas-app-timer-settings-v2'
+const SOUND_LIBRARY_V2_KEY = 'chandas-sound-library-v2'
 const TIMER_V2_MIGRATION_KEY = 'chandas-timer-v2-migrated'
 const TIMER_V2_SESSION_KEY = 'chandas-timer-v2-session'
 
@@ -264,6 +266,7 @@ async function saveV2Records(state: TimerV2State, recordMigration: boolean): Pro
     [WORKING_PROGRAMS_V2_KEY, JSON.stringify(state.workingPrograms)],
     [PROGRAM_PRESETS_V2_KEY, JSON.stringify(state.presets)],
     [APP_TIMER_SETTINGS_V2_KEY, JSON.stringify(state.settings)],
+    [SOUND_LIBRARY_V2_KEY, JSON.stringify(state.soundLibrary)],
   ])
   if (recordMigration) await AsyncStorage.setItem(TIMER_V2_MIGRATION_KEY, 'true')
 }
@@ -274,10 +277,11 @@ async function saveV2Records(state: TimerV2State, recordMigration: boolean): Pro
  */
 export async function loadTimerV2StateResult(): Promise<TimerV2StateLoadResult> {
   try {
-    const [workingRaw, presetsRaw, settingsRaw] = await AsyncStorage.multiGet([
+    const [workingRaw, presetsRaw, settingsRaw, libraryRaw] = await AsyncStorage.multiGet([
       WORKING_PROGRAMS_V2_KEY,
       PROGRAM_PRESETS_V2_KEY,
       APP_TIMER_SETTINGS_V2_KEY,
+      SOUND_LIBRARY_V2_KEY,
     ])
     const workingPrograms = normalizeWorkingPrograms(parseJson<WorkingProgramState>(workingRaw[1]))
     const settings = normalizeSettings(parseJson<AppTimerSettings>(settingsRaw[1]))
@@ -285,7 +289,8 @@ export async function loadTimerV2StateResult(): Promise<TimerV2StateLoadResult> 
     const presets = normalizePresets(parsedPresets)
     if (workingPrograms && settings) {
       const presetsRecovered = presetsRaw[1] !== null && (!Array.isArray(parsedPresets) || presets.length !== parsedPresets.length)
-      return { state: { schemaVersion: 2, workingPrograms, settings, presets }, recovered: presetsRecovered, reason: presetsRecovered ? 'invalid-records' : undefined }
+      const soundLibrary = importedSoundLibrary({ workingPrograms, settings, presets }, parseJson<unknown>(libraryRaw[1]))
+      return { state: { schemaVersion: 2, workingPrograms, settings, presets, soundLibrary }, recovered: presetsRecovered, reason: presetsRecovered ? 'invalid-records' : undefined }
     }
 
     const legacy = parseJson<Partial<TimerConfig>>(await AsyncStorage.getItem(CONFIG_KEY)) ?? {}

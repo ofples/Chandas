@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { PatternProgram, SequenceProgram } from '../../types'
 import { chooseProgramMode, deleteProgramPreset, hasUnsavedProgramChanges, loadProgramPreset, patchSequenceStep, saveProgramPreset, setPatternSubBellsEnabled, setTrackCadence, setTrackCadenceSeconds, setTrackOffsets, setTrackOffsetsSeconds, updatePatternMainDurationSeconds, updatePatternMainMinutes } from '../programActions'
 import { alarmBehaviorAfterGesture, gateProgramAudio, isFreshScheduledEvent, iterationMuteFor, muteAfterScheduleChange, shouldSurfaceTimerSignal, timestampMuteForSeconds } from '../runtimeV2'
-import { defaultTimerV2State, migrateLegacyConfig, normalizeAvailabilityPolicy, normalizeCue, normalizePatternProgram, normalizeSequenceProgram, normalizeSoundRef, parseTimerProgram, patternDurationSeconds, randomTrackOffsetsSeconds, reconcileNativeProgram, sequenceStepDurationSeconds, trackCadenceSeconds, trackSelectedOffsetsSeconds, validOffsets, validOffsetsForCadenceSeconds } from '../timerV2'
+import { defaultTimerV2State, importedSoundLibrary, migrateLegacyConfig, normalizeAvailabilityPolicy, normalizeCue, normalizePatternProgram, normalizeSequenceProgram, normalizeSoundRef, parseTimerProgram, patternDurationSeconds, programForVisibleCues, randomTrackOffsetsSeconds, reconcileNativeProgram, sequenceStepDurationSeconds, trackCadenceSeconds, trackSelectedOffsetsSeconds, validOffsets, validOffsetsForCadenceSeconds, withImportedSoundLibrary } from '../timerV2'
 import { boundedRunProgress, cueSegmentProgress, nextPatternEvent, nextProgramEvent, nextSequenceEvent, runEndAt, sequenceSkipTarget, timelinePosition } from '../timeline'
 import { effectiveAvailabilityForProgram, hasAvailableTime, isCueAllowedByActiveHours, isWithinActiveHours, nextActiveHoursStart, scheduleBoundaryMinutesForDay, scheduleRangeCountForDay, scheduleRenderedBoundaryMinutesForDay, scheduleSegmentsForDay, windowsOverlap } from '../activeHours'
 import { edgeAutoScrollStep, previewIndexForItem, previewOffsetForItem, reorderGestureIntent } from '../reorder-preview'
@@ -19,6 +19,32 @@ it('ignores identical native program reads while a volume edit is pending', () =
   const reconciled = reconcileNativeProgram(edited, changed)
   expect(reconciled.settings.masterVolume).toBe(0.35)
   expect(reconciled.workingPrograms[reconciled.workingPrograms.selectedMode].alignment.kind).toBe('local-clock')
+})
+
+it('keeps hidden sub-bells audible while skipping them in display countdowns', () => {
+  const program = pattern()
+  program.tracks[0].showOnWatchFace = false
+  program.tracks[0].selectedOffsetsMinutes = [5, 10]
+  program.tracks[1].selectedOffsetsMinutes = [2, 10]
+  const audible = nextProgramEvent(program, 1_000, 1_000)
+  const visible = nextProgramEvent(programForVisibleCues(program), 1_000, 1_000)
+  expect(audible?.winner.cueId).toBe('bottom')
+  expect(visible?.winner.cueId).toBe('bottom')
+  const afterBottom = 1_000 + 2 * minute
+  expect(nextProgramEvent(program, 1_000, afterBottom)?.winner.cueId).toBe('top')
+  expect(nextProgramEvent(programForVisibleCues(program), 1_000, afterBottom)?.winner.cueId).toBe('bottom')
+})
+
+it('shares imported sounds across cues without losing them when deselected', () => {
+  const state = defaultTimerV2State()
+  const android = { kind: 'android' as const, uri: 'content://settings/system/alarm_alert', title: 'Morning', ringtoneType: 'alarm' as const }
+  const file = { kind: 'document' as const, uri: 'content://audio/7', title: 'Hand bell', mimeType: 'audio/mpeg' }
+  const selected = { ...state, workingPrograms: { ...state.workingPrograms, pattern: { ...state.workingPrograms.pattern, mainCue: { ...state.workingPrograms.pattern.mainCue, sound: android, sounds: [android, file] } } } }
+  const withLibrary = withImportedSoundLibrary(selected)
+  expect(withLibrary.soundLibrary).toEqual([android, file])
+  const deselected = { ...withLibrary, workingPrograms: state.workingPrograms }
+  expect(withImportedSoundLibrary(deselected).soundLibrary).toEqual([android, file])
+  expect(importedSoundLibrary(deselected, [android, android, { kind: 'document', uri: 'file:///not-persistent', title: 'Bad' }])).toEqual([android])
 })
 
 it('keeps more than eight distinct sound choices when loading a cue', () => {

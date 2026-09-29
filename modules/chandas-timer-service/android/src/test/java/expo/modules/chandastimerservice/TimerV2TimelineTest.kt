@@ -9,6 +9,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TimerV2TimelineTest {
+  @Test fun hiddenSubBellsDoNotEnterPresentationCountdown() {
+    val root = JSONObject(fixtures.getJSONObject("patternCollision").getJSONObject("program").toString())
+    root.getJSONArray("tracks").getJSONObject(1).put("showOnWatchFace", false)
+    val program = root.toString()
+    assertEquals("lower", TimerV2Timeline.next(program, 0L, 0L)?.winner?.cueId)
+    assertEquals("higher", TimerV2Timeline.nextVisible(program, 0L, 0L)?.winner?.cueId)
+    root.getJSONArray("tracks").getJSONObject(0).put("showOnWatchFace", false)
+    assertEquals(TimerV2Boundary.PATTERN_MAIN, TimerV2Timeline.nextVisible(root.toString(), 0L, 0L)?.boundary)
+  }
+
   @Test fun randomTrackTimingMatchesJavaScriptAndSurvivesRepeatedQueries() {
     val root = JSONObject(fixtures.getJSONObject("patternCollision").getJSONObject("program").toString())
     root.put("mainMinutes", 5)
