@@ -499,13 +499,13 @@ object TimerScheduler {
     }
     val alarmOnce = isPatternMain && !event.completesRun && TimerStateStore.consumeAlarmOnce(context)
     if (!event.completesRun && (event.winner.alarmEnabled || (isPatternMain && (config.alarmModeEnabled || alarmOnce)))) {
-      FloatingTimerOverlay.onCue(context)
+      if (event.showOnWatchFace) FloatingTimerOverlay.onCue(context)
       scheduleNext(context, config)
       emitV2Event(event, suppressed = false, reason = "none")
       launchAlarmOrFallback(context, config, TimerEventType.V2, onFinished)
       return
     }
-    FloatingTimerOverlay.onCue(context)
+    if (event.showOnWatchFace) FloatingTimerOverlay.onCue(context)
     playV2Haptics(context, config, event)
     val selectedSound = if (event.winner.soundEnabled) selectedCueSound(context, event) else null
     if (event.completesRun) completeSession(context) else scheduleNext(context, config)

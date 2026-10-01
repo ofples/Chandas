@@ -14,9 +14,31 @@ class TimerV2TimelineTest {
     root.getJSONArray("tracks").getJSONObject(1).put("showOnWatchFace", false)
     val program = root.toString()
     assertEquals("lower", TimerV2Timeline.next(program, 0L, 0L)?.winner?.cueId)
+    assertFalse(requireNotNull(TimerV2Timeline.next(program, 0L, 0L)).showOnWatchFace)
     assertEquals("higher", TimerV2Timeline.nextVisible(program, 0L, 0L)?.winner?.cueId)
     root.getJSONArray("tracks").getJSONObject(0).put("showOnWatchFace", false)
     assertEquals(TimerV2Boundary.PATTERN_MAIN, TimerV2Timeline.nextVisible(root.toString(), 0L, 0L)?.boundary)
+    assertTrue(requireNotNull(TimerV2Timeline.next(root.toString(), 0L, 29 * 60_000L)).showOnWatchFace)
+  }
+
+  @Test fun hiddenCollisionWinnerStillAcknowledgesVisibleBell() {
+    val root = JSONObject(fixtures.getJSONObject("patternCollision").getJSONObject("program").toString())
+    root.getJSONArray("tracks").getJSONObject(0).put("showOnWatchFace", false)
+    val event = requireNotNull(TimerV2Timeline.next(root.toString(), 0L, 9 * 60_000L))
+    assertEquals("higher", event.winner.cueId)
+    assertFalse(event.winner.showOnWatchFace)
+    assertTrue(event.showOnWatchFace)
+    root.getJSONArray("tracks").getJSONObject(1).put("showOnWatchFace", false)
+    assertFalse(requireNotNull(TimerV2Timeline.next(root.toString(), 0L, 9 * 60_000L)).showOnWatchFace)
+  }
+
+  @Test fun runEndStillAcknowledgesWhenItCoincidesWithHiddenBell() {
+    val root = JSONObject(fixtures.getJSONObject("patternCollision").getJSONObject("program").toString())
+    root.getJSONArray("tracks").getJSONObject(1).put("showOnWatchFace", false)
+    root.put("runPolicy", JSONObject().put("kind", "duration").put("durationSeconds", 120))
+    val event = requireNotNull(TimerV2Timeline.next(root.toString(), 1_000L, 1_000L, 1_000L))
+    assertTrue(event.completesRun)
+    assertTrue(event.showOnWatchFace)
   }
 
   @Test fun randomTrackTimingMatchesJavaScriptAndSurvivesRepeatedQueries() {

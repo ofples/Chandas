@@ -50,7 +50,7 @@ This is a user-enabled Android system integration. Chandas must explain and requ
 
 ### 5.1 Collapsed state
 
-The collapsed overlay is approximately `116 × 38dp`, excluding the larger transparent touch target.
+The collapsed overlay is `124 × 40dp`, excluding the `48dp` high transparent touch target. Horizontal padding is `8dp`.
 
 - Opaque Chandas surface with a subtle border and shadow.
 - Fully rounded pill shape.
@@ -508,9 +508,10 @@ Do not build a large screenshot automation suite before physical behavior is sta
 - The expanded controls are opaque 48 dp circular buttons on one concentric lower orbit around the watchface. Active state is expressed by the button fill and border; no badge overlaps its icon. Long-pressing clock alignment or sound opens the matching running-screen panel.
 - The watchface ring reaches the edge of its circular shell. A normal tap returns to Chandas’ running screen; a cue-triggered expansion instead dismisses on tap.
 - The collapsed pill shows time to the next bell followed by a compact current-cycle remainder, for example `05:32 • 14m`. At the main bell it collapses to the single end-of-cycle countdown.
-- Each delivered timer cue expands the background overlay for 2.5 seconds, pulses the ring, and then returns to the pill. This behavior is native-driven so it works while the app Activity is backgrounded.
+- Each delivered visible timer cue expands the background overlay for five seconds, pulses the ring, and then returns to the pill. Hidden-only cues retain the current widget size without a visual pulse. At a collision, any visible cue permits acknowledgement even if a hidden cue wins audio priority. This behavior is native-driven so it works while the app Activity is backgrounded.
 - Floating timer appearance is a device setting in System integrations with System, Dark and Light choices. It overrides only the overlay’s React surface. A deliberately undiscoverable long press on either app appearance toggle enables the global monochrome e-ink theme; that mode overrides the widget choice so both surfaces stay visually consistent. A normal appearance tap exits e-ink mode.
 - E-ink mode uses a pure white canvas, black primary text and borders, opaque neutral gray secondary tones, and distinct gray shades for cue rings and marks. The app and floating timer suppress decorative gradients, shadows, opacity fades, flashing, and animated transitions; countdown values and ring progress update directly. Selected controls use solid black with white labels, while inactive controls remain outlined. This is a display theme, not an Android hardware refresh-policy setting.
+- The expanded e-ink watchface uses its timer ring as the circle edge; its background shell has no additional border. The compact pill retains its outline and uses no press-opacity fade.
 - `ChandasFloatingTimer` is registered as a second React surface in the embedded application bundle. `FloatingTimerOverlay` mounts that surface in one `TYPE_APPLICATION_OVERLAY` window owned by the generalized `ChandasCountdownService`.
 - The overlay resumes the existing React host with no Activity while its service window is visible, then balances that lifecycle when the background surface closes. Reinitializing the native module is idempotent, so a retained stopped Activity cannot incorrectly hide the overlay.
 - The native persisted timer, control state, absolute timestamps, scheduler and service remain authoritative. Overlay actions execute through synchronized native transactions and the foreground app reconciles accepted changes when it resumes.
@@ -521,8 +522,11 @@ Do not build a large screenshot automation suite before physical behavior is sta
 
 The 2026-09-28 follow-up removes per-second native snapshots. The overlay derives its visible countdown from the accepted native timestamp and a local second-boundary display tick; native sends structural, control, and cue changes. The presentation service only refreshes the promoted notification when its compact text changes. When the display switches off, the floating React surface is removed until the display returns. The overlay does not schedule cues or create its own timer.
 
+The 2026-10-01 follow-up moves the initial synchronous native snapshot read into the React state initializer, avoiding another native query on each countdown render. Native cue presentation now checks watchface visibility without altering sound, haptics, cue priority, or timing.
+
 ### 19.3 Verification evidence
 
+- 2026-10-01 follow-up: TypeScript, all 135 Vitest tests, Android module compilation, and all 56 native unit tests passed locally. Visibility coverage includes hidden-only events, a hidden collision winner with a visible candidate, and a hidden cue at run completion. No device or emulator was connected; pill size, e-ink perimeter and five-second auto-collapse remain pending visual acceptance. This pass creates no remote builds or updates.
 - `npm run release:check`: dependency validation, TypeScript and 125 Vitest tests passed.
 - `:chandas-timer-service:compileDebugKotlin` and `:chandas-timer-service:testDebugUnitTest` passed.
 - Expo Android prebuild completed; merged manifests contain `SYSTEM_ALERT_WINDOW` and the countdown service for `com.yukti.chandas.dev` and `com.yukti.chandas`.

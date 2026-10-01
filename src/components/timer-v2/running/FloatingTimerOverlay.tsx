@@ -35,8 +35,7 @@ function muteFromSnapshot(snapshot: NativeTimerState): RuntimeMuteState {
 }
 
 function useOverlaySnapshot(incoming: NativeFloatingOverlaySnapshot): NativeFloatingOverlaySnapshot {
-  const initial = ChandasTimerService.getFloatingOverlaySnapshot()
-  const [snapshot, setSnapshot] = useState<NativeFloatingOverlaySnapshot>(() => ({ ...initial, ...incoming, now: Date.now(), expanded: incoming.expanded ?? ChandasTimerService.getFloatingOverlayState().expanded }))
+  const [snapshot, setSnapshot] = useState<NativeFloatingOverlaySnapshot>(() => ({ ...ChandasTimerService.getFloatingOverlaySnapshot(), ...incoming, now: Date.now(), expanded: incoming.expanded ?? ChandasTimerService.getFloatingOverlayState().expanded }))
   useEffect(() => { setSnapshot(current => ({ ...current, ...incoming })) }, [incoming])
   useEffect(() => {
     const snapshots = ChandasTimerService.addFloatingOverlaySnapshotListener(next => setSnapshot(current => ({ ...current, ...next, expanded: next.expanded ?? current.expanded })))
@@ -100,7 +99,7 @@ function Content({ incoming }: { incoming: NativeFloatingOverlaySnapshot }) {
   useEffect(() => () => { if (stopTimer.current) clearTimeout(stopTimer.current); if (alarmTap.current) clearTimeout(alarmTap.current) }, [])
   if (!program || !display || !snapshot.active) return <View style={styles.empty} />
   const collapsed = snapshot.timerV2PausedAt ? `Paused • ${display.nextCueCountdown}` : collapsedText(program, display, snapshot.timerV2Anchor ?? snapshot.now, snapshot.now)
-  if (!snapshot.expanded) return <Pressable onPress={() => ChandasTimerService.floatingOverlayAction('expand')} style={({ pressed }) => [styles.pill, { backgroundColor: tokens.surface, borderColor: tokens.border, opacity: pressed ? 0.76 : 1 }]} accessibilityRole="button" accessibilityLabel={`${collapsed}. Expand floating timer.`}><Text numberOfLines={1} style={[styles.pillText, { color: tokens.text }]}>{collapsed}</Text></Pressable>
+  if (!snapshot.expanded) return <View style={styles.compactTarget}><Pressable onPress={() => ChandasTimerService.floatingOverlayAction('expand')} style={({ pressed }) => [styles.pill, { backgroundColor: tokens.surface, borderColor: tokens.border, opacity: pressed && theme !== 'eink' ? 0.76 : 1 }]} accessibilityRole="button" accessibilityLabel={`${collapsed}. Expand floating timer.`}><Text numberOfLines={1} style={[styles.pillText, { color: tokens.text }]}>{collapsed}</Text></Pressable></View>
 
   const sequenceIndex = program.mode === 'sequence' ? display.position?.currentStepIndex ?? 0 : 0
   const currentStep = program.mode === 'sequence' ? program.steps[sequenceIndex] : null
@@ -150,11 +149,12 @@ export function FloatingTimerOverlay(incoming: NativeFloatingOverlaySnapshot) {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: 'transparent' }, empty: { flex: 1, backgroundColor: 'transparent' },
-  pill: { width: 132, height: 48, borderWidth: 1, borderRadius: 999, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
+  compactTarget: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  pill: { width: 124, height: 40, borderWidth: 1, borderRadius: 999, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
   pillText: { fontFamily: 'JetBrainsMono-Regular', fontSize: 13, fontVariant: ['tabular-nums'], fontWeight: '700' },
   expanded: { flex: 1, alignItems: 'center', justifyContent: 'flex-start', paddingTop: 66 },
   faceShell: { width: 220, height: 220, borderRadius: 110, alignItems: 'center', justifyContent: 'center', elevation: 8, zIndex: 1 },
-  einkFaceShell: { elevation: 0, borderWidth: 1.5, borderColor: '#000000' },
+  einkFaceShell: { elevation: 0 },
   // Control centers share a 150dp orbit around the 228dp face: a single,
   // readable lower arc rather than five individually placed buttons.
   previousControl: { position: 'absolute', left: 18, top: 58, zIndex: 2 },

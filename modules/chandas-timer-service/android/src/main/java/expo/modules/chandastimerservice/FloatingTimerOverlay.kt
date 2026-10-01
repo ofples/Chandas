@@ -36,7 +36,10 @@ internal object FloatingTimerOverlay {
   private const val REQUESTED = "requested"
   private const val APPEARANCE = "appearance"
   private const val PREVIEW_MS = 10_000L
-  private const val CUE_EXPAND_MS = 2_500L
+  private const val CUE_EXPAND_MS = 5_000L
+  private const val COMPACT_WIDTH_DP = 124
+  // The visible pill is 40dp tall; retain the 48dp effective touch target.
+  private const val COMPACT_TOUCH_HEIGHT_DP = 48
   private val main = Handler(Looper.getMainLooper())
   private val listeners = NativeListenerRegistry<Bundle>()
   private var application: Application? = null
@@ -382,8 +385,8 @@ internal object FloatingTimerOverlay {
     val safeTop = insets?.top ?: 0
     val safeRight = (bounds?.width() ?: screen.widthPixels) - (insets?.right ?: 0)
     val safeBottom = (bounds?.height() ?: screen.heightPixels) - (insets?.bottom ?: 0)
-    val width = dp(context, if (expanded) 344 else 132).coerceAtMost((safeRight - safeLeft).coerceAtLeast(1))
-    val height = dp(context, if (expanded) 470 else 48).coerceAtMost((safeBottom - safeTop).coerceAtLeast(1))
+    val width = dp(context, if (expanded) 344 else COMPACT_WIDTH_DP).coerceAtMost((safeRight - safeLeft).coerceAtLeast(1))
+    val height = dp(context, if (expanded) 470 else COMPACT_TOUCH_HEIGHT_DP).coerceAtMost((safeBottom - safeTop).coerceAtLeast(1))
     val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     val shape = shape(context)
     val edge = prefs.getString("$shape.edge", "right")
@@ -475,7 +478,7 @@ internal object FloatingTimerOverlay {
     }
     container.addView(view, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
     val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-    val p = WindowManager.LayoutParams(dp(context, 132), dp(context, 48),
+    val p = WindowManager.LayoutParams(dp(context, COMPACT_WIDTH_DP), dp(context, COMPACT_TOUCH_HEIGHT_DP),
       WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
       WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
       PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.LEFT }

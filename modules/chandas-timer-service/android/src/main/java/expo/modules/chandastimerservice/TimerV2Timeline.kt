@@ -14,7 +14,10 @@ data class TimerV2Event(
   val candidates: List<TimerV2Candidate>,
   val winner: TimerV2Candidate,
   val completesRun: Boolean = false,
-)
+) {
+  /** A hidden collision winner must not conceal a visible cue at the same time. */
+  val showOnWatchFace: Boolean get() = completesRun || candidates.any { it.showOnWatchFace }
+}
 
 data class TimerV2IterationEnd(val logicalId: String, val at: Long)
 data class TimerV2SkipTarget(val anchor: Long, val startedAt: Long, val endsAt: Long, val completesRun: Boolean)
@@ -44,6 +47,7 @@ data class TimerV2Candidate(
   val cadenceMinutes: Int? = null,
   val cadenceSeconds: Long? = null,
   val trackOrder: Int? = null,
+  val showOnWatchFace: Boolean = true,
 )
 
 /** User-facing identity of the interval that contains [now]. */
@@ -439,6 +443,7 @@ object TimerV2Timeline {
       soundMode = if (sounds.size > 1) mode else "single",
       hapticOverride = override,
       hapticsOff = off,
+      showOnWatchFace = kind != "pattern-track" || cue?.optBoolean("showOnWatchFace", true) != false,
     )
   }
   private data class Candidate(val cueId: String, val kind: String, val main: Boolean, val trackOrder: Int, val cadenceSeconds: Long, val cue: JSONObject?) {
