@@ -25,6 +25,8 @@ Parent review and rerun: TypeScript check passed; 221 Vitest cases across 16 fil
 
 ## Required proof
 
+Native facade integration: `TimerV2Timeline` now delegates schema-4 programs to the unified helper, adapting candidates to the existing scheduler's main/sub-bell/step-alarm contracts. Four acceptance tests exercise this exact facade, including hidden collision winners, visible countdowns, step alarms, whole-round transport, clock alignment and notification context. Android compilation and all 69 unit tests passed after this change, and Luna independently reviewed the adapter. Capability negotiation remains schema 3; persisted sessions, overlay parsing and application starts still require integration before schema 4 can be advertised.
+
 | Requirement | Required authoritative evidence | Status |
 | --- | --- | --- |
 | Normal application uses one coherent step model | Default entry, canonical types, store and editor wiring; browser Start journey | Pending |

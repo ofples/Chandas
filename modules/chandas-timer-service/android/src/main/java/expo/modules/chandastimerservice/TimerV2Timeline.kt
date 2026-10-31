@@ -76,6 +76,7 @@ object TimerV2Timeline {
   fun isValid(serialized: String): Boolean = runCatching {
     if (serialized.length > MAX_PROGRAM_CHARACTERS) return@runCatching false
     val root = JSONObject(serialized)
+    if (root.optInt("schemaVersion", -1) == 4) return@runCatching UnifiedTimerTimeline.isValid(serialized)
     if (root.optInt("schemaVersion", -1) !in NativeTimerContract.PROGRAM_SCHEMA_MIN..SCHEMA_VERSION) return@runCatching false
     when (root.optString("mode")) {
       "pattern" -> validatePattern(root)
@@ -84,10 +85,17 @@ object TimerV2Timeline {
     }
   }.getOrDefault(false)
 
-  fun isSequence(serialized: String): Boolean = runCatching { JSONObject(serialized).optString("mode") == "sequence" }.getOrDefault(false)
+  fun isSequence(serialized: String): Boolean = runCatching {
+    val root = JSONObject(serialized)
+    root.optString("mode") == "sequence" || (root.optString("mode") == "unified" && (root.optJSONArray("steps")?.length() ?: 0) > 1)
+  }.getOrDefault(false)
 
   fun next(serialized: String, anchor: Long, now: Long, startedAt: Long = anchor, fixedEndsAt: Long = 0L, randomSeed: Long = anchor, visibleOnly: Boolean = false): TimerV2Event? = runCatching {
     val root = JSONObject(serialized)
+    if (root.optString("mode") == "unified") {
+      return@runCatching UnifiedTimerTimeline.next(serialized, anchor, now, startedAt, fixedEndsAt.takeIf { it > 0L } ?: UnifiedTimerTimeline.runEndAt(serialized, anchor, startedAt), randomSeed, visibleOnly)
+        ?.let { schedulerEvent(it, root.getJSONArray("steps").length() == 1) }
+    }
     val endAt = fixedEndsAt.takeIf { it > 0L } ?: runEndAt(root, anchor, startedAt)
     if (endAt != null && now >= endAt) return@runCatching null
     val natural = when (root.optString("mode")) {
@@ -125,6 +133,7 @@ object TimerV2Timeline {
 
   fun iterationEnd(serialized: String, anchor: Long, now: Long, count: Int): TimerV2IterationEnd? = runCatching {
     val root = JSONObject(serialized)
+    if (root.optString("mode") == "unified") return@runCatching UnifiedTimerTimeline.iterationEnd(serialized, anchor, now, count)?.let { TimerV2IterationEnd(it.logicalId, it.at) }
     val iterations = count.coerceIn(1, NativeTimerContract.MAX_MUTE_ITERATIONS)
     when (root.optString("mode")) {
       "pattern" -> {
@@ -151,6 +160,7 @@ object TimerV2Timeline {
   /** Rebuilds a whole-program local-clock phase after timezone or wall-clock changes. */
   fun alignedAnchor(serialized: String, now: Long): Long? = runCatching {
     val root = JSONObject(serialized)
+    if (root.optString("mode") == "unified") return@runCatching UnifiedTimerTimeline.alignedAnchor(serialized, now)
     val alignment = root.optJSONObject("alignment") ?: return@runCatching null
     if (alignment.optString("kind") != "local-clock") return@runCatching null
     val duration = cycleDuration(root)
@@ -185,6 +195,8 @@ object TimerV2Timeline {
   /** Native mirror of sequenceSkipTarget; the caller commits this as one transaction. */
   fun skipSequenceTarget(serialized: String, anchor: Long, now: Long, startedAt: Long, endsAt: Long, direction: Int): TimerV2SkipTarget? = runCatching {
     val root = JSONObject(serialized)
+    if (root.optString("mode") == "unified") return@runCatching UnifiedTimerTimeline.skipTarget(serialized, anchor, now, startedAt, endsAt.takeIf { it > 0L }, direction)
+      ?.let { TimerV2SkipTarget(it.anchor, it.startedAt, it.terminalAt ?: 0L, it.completesRun) }
     if (root.optString("mode") != "sequence") return@runCatching null
     val steps = root.optJSONArray("steps") ?: return@runCatching null
     if (steps.length() < 2 || direction == 0) return@runCatching null
@@ -213,19 +225,53 @@ object TimerV2Timeline {
   }.getOrNull()
 
   private fun cycleDuration(root: JSONObject): Long = when (root.optString("mode")) {
+    "unified" -> UnifiedTimerTimeline.roundDuration(root.toString()) ?: 0L
     "pattern" -> patternDuration(root)
     "sequence" -> root.optJSONArray("steps")?.let(::sequenceDuration) ?: 0L
     else -> 0L
   }
 
+  /** Keep the scheduler's alarm/haptic contract while the authored program uses steps. */
+  private fun schedulerEvent(event: UnifiedTimelineEvent, singleStep: Boolean): TimerV2Event {
+    val boundary = when (event.boundary) {
+      "step-offset" -> TimerV2Boundary.PATTERN_OFFSET
+      "step-end" -> TimerV2Boundary.SEQUENCE_STEP
+      "round-end" -> if (singleStep) TimerV2Boundary.PATTERN_MAIN else TimerV2Boundary.SEQUENCE_CYCLE
+      else -> TimerV2Boundary.RUN_COMPLETE
+    }
+    val candidates = event.candidates.map { candidate ->
+      TimerV2Candidate(
+        cueId = candidate.cueId,
+        kind = when (candidate.kind) {
+          "sub-bell" -> "pattern-track"
+          "step-end" -> if (singleStep) "pattern-main" else "sequence-step"
+          else -> "run-complete"
+        },
+        alarmEnabled = candidate.alarmEnabled,
+        soundId = candidate.soundId,
+        volume = candidate.volume,
+        soundIds = candidate.soundIds,
+        soundMode = candidate.soundMode,
+        hapticOverride = candidate.hapticOverride,
+        hapticsOff = candidate.hapticsOff,
+        cadenceSeconds = candidate.cadenceSeconds.takeIf { candidate.cadencePriority > 0L },
+        trackOrder = candidate.trackOrder,
+        showOnWatchFace = candidate.showOnWatchFace,
+      )
+    }
+    return TimerV2Event(event.at, event.logicalId, boundary, candidates, candidates[event.candidates.indexOf(event.winner)], event.completesRun)
+  }
+
   /** Main cue scalar used while a Pattern continuous alarm is already ringing. */
   fun mainCueVolume(serialized: String): Float = runCatching {
     val root = JSONObject(serialized)
+    if (root.optString("mode") == "unified" && root.getJSONArray("steps").length() == 1) return@runCatching cueVolume(root.getJSONArray("steps").getJSONObject(0).optJSONObject("endCue"))
     if (root.optString("mode") == "pattern") cueVolume(root.optJSONObject("mainCue")) else 1f
   }.getOrDefault(1f)
 
   fun mainCueSound(serialized: String): String = runCatching {
     val root = JSONObject(serialized)
+    if (root.optString("mode") == "unified" && root.getJSONArray("steps").length() == 1) return@runCatching cueSound(root.getJSONArray("steps").getJSONObject(0).optJSONObject("endCue"))
     if (root.optString("mode") == "pattern") cueSound(root.optJSONObject("mainCue")) else "temple-gong"
   }.getOrDefault("temple-gong")
 
@@ -233,6 +279,7 @@ object TimerV2Timeline {
   fun notificationTitle(serialized: String): String? = runCatching {
     val root = JSONObject(serialized)
     when (root.optString("mode")) {
+      "unified" -> if (root.getJSONArray("steps").length() == 1) root.getJSONArray("steps").getJSONObject(0).optString("label").trim().takeIf { it.isNotEmpty() } else "Chandas"
       "pattern" -> root.optString("label").trim().takeIf { it.isNotEmpty() && it.codePointCount(0, it.length) <= 60 }
       "sequence" -> "Chandas sequence"
       else -> null
@@ -247,6 +294,10 @@ object TimerV2Timeline {
   fun notificationContext(serialized: String, anchor: Long, now: Long): TimerV2NotificationContext? = runCatching {
     val root = JSONObject(serialized)
     when (root.optString("mode")) {
+      "unified" -> {
+        val steps = root.getJSONArray("steps")
+        currentSequenceContext(steps, anchor, now)?.let { if (steps.length() == 1) it.copy(compactIdentity = "") else it }
+      }
       "pattern" -> {
         val label = root.optString("label").trim().ifEmpty { "Main interval" }
         val duration = patternDuration(root)
@@ -454,6 +505,7 @@ object TimerV2Timeline {
   }
 
   private fun runEndAt(root: JSONObject, anchor: Long, startedAt: Long): Long? {
+    if (root.optString("mode") == "unified") return UnifiedTimerTimeline.runEndAt(root.toString(), anchor, startedAt)
     val policy = root.optJSONObject("runPolicy") ?: return null
     return when (policy.optString("kind", "continuous")) {
       "duration" -> {
