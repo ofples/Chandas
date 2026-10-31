@@ -757,6 +757,9 @@ function Root() {
     stopRetryTimeout.current = null
     startingRef.current = true
     setStarting(true)
+    // Hold the accepted inputs throughout preparation and persistence. The
+    // editor may keep changing its draft while Start awaits device/storage work.
+    commitActiveRun(acceptedSnapshot)
     void timer.start().then(started => {
       if (started) {
         const identity = timer.getSessionIdentity()
@@ -765,12 +768,16 @@ function Root() {
         refreshFocusState()
         return
       }
+      commitActiveRun(null)
       if (Platform.OS === 'android' && isNativeServiceAvailable && !ChandasTimerService.canScheduleExactAlarms()) {
         showNotice({ title: 'Exact timing needs one setting', message: 'Allow Alarms & reminders so bells stay precise when the screen is off.', tone: 'attention', actionLabel: 'Open settings', onAction: openExactAlarmSettings, persistent: true })
       } else {
         showNotice({ title: 'The timer did not start yet', message: 'Your saved setup is unchanged. Check the timer settings or try again.', tone: 'attention', actionLabel: 'Try again', onAction: start })
       }
-    }).catch(() => showNotice({ title: 'The timer did not start yet', message: 'Your setup is safe. Please check Android access or try once more.', tone: 'attention', actionLabel: 'Try again', onAction: start }))
+    }).catch(() => {
+      commitActiveRun(null)
+      showNotice({ title: 'The timer did not start yet', message: 'Your setup is safe. Please check Android access or try once more.', tone: 'attention', actionLabel: 'Try again', onAction: start })
+    })
       .finally(() => {
         startingRef.current = false
         setStarting(false)
