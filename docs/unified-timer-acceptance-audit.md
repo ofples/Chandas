@@ -25,6 +25,8 @@ Parent review and rerun: TypeScript check passed; 221 Vitest cases across 16 fil
 
 ## Required proof
 
+Reviewed configuration-state/storage slice: 257 Vitest tests and TypeScript checks pass. The pure reducer and injected storage API preserve per-card saved snapshots and drafts, retained enabled-action metadata, Save/Save as/Keep/Discard/Cancel behavior, unnamed drafts, shared imported sounds and library metadata. Independent acceptance exercises restart restoration, active-card deletion, Unicode name limits, reserved/dictionary-like IDs, no-op semantic edits, current-vs-saved preference migration, interrupted verification and concurrent bootstraps. New state writes are verified before the advisory marker; malformed/future new records remain protected even from direct saves. Legacy configuration/session bytes remain untouched, and prototype keys are not read. These APIs are not yet wired into App or the production editor, so browser acceptance and actual AsyncStorage lifecycle integration remain pending.
+
 Native facade integration: `TimerV2Timeline` now delegates schema-4 programs to the unified helper, adapting candidates to the existing scheduler's main/sub-bell/step-alarm contracts. Four acceptance tests exercise this exact facade, including hidden collision winners, visible countdowns, step alarms, whole-round transport, clock alignment and notification context. Android compilation and all 69 unit tests passed after this change, and Luna independently reviewed the adapter. Capability negotiation remains schema 3; persisted sessions, overlay parsing and application starts still require integration before schema 4 can be advertised.
 
 | Requirement | Required authoritative evidence | Status |
