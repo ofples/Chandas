@@ -1,0 +1,92 @@
+{
+  "description": "Independent hand-computed acceptance vectors. All timestamps are milliseconds; step-relative durations are seconds. Expected candidate IDs refer to authored track/step IDs, before any session namespace mapping.",
+  "anchor": 1000,
+  "randomSeed": 1000,
+  "program": {
+    "schemaVersion": 4,
+    "mode": "unified",
+    "alignment": { "kind": "elapsed" },
+    "completionCue": null,
+    "runPolicy": { "kind": "continuous", "cycleCount": 1, "durationSeconds": 75 },
+    "steps": [
+      {
+        "id": "work",
+        "label": "Work",
+        "durationSeconds": 60,
+        "endCue": { "sound": { "kind": "builtin", "id": "temple-gong" }, "volume": 0.8 },
+        "endAlarmEnabled": false,
+        "subBellsEnabled": true,
+        "subBellTracks": [
+          {
+            "id": "slow-hidden",
+            "label": "Slow",
+            "enabled": true,
+            "showOnWatchFace": false,
+            "cadenceSeconds": 30,
+            "repeatEnabled": true,
+            "selectedOffsetsSeconds": [30],
+            "afterStartSeconds": 10,
+            "beforeEndSeconds": 5,
+            "sound": { "kind": "builtin", "id": "handpan" },
+            "volume": 0.6
+          },
+          {
+            "id": "fast-visible",
+            "label": "Fast",
+            "enabled": true,
+            "showOnWatchFace": true,
+            "cadenceSeconds": 10,
+            "repeatEnabled": true,
+            "selectedOffsetsSeconds": [10, 20, 30, 40, 50],
+            "sound": { "kind": "builtin", "id": "clear-bell" },
+            "volume": 0.7
+          }
+        ]
+      },
+      {
+        "id": "rest",
+        "label": "Rest",
+        "durationSeconds": 40,
+        "endCue": { "sound": { "kind": "builtin", "id": "bloom" }, "volume": 0.9 },
+        "endAlarmEnabled": true,
+        "subBellsEnabled": true,
+        "subBellTracks": [
+          {
+            "id": "point-and-random",
+            "label": "Independent sources",
+            "enabled": true,
+            "showOnWatchFace": true,
+            "cadenceSeconds": 30,
+            "repeatEnabled": false,
+            "selectedOffsetsSeconds": [30],
+            "randomRepeat": { "minSeconds": 10, "maxSeconds": 10 },
+            "afterStartSeconds": 5,
+            "beforeEndSeconds": 10,
+            "sound": { "kind": "builtin", "id": "water-drop" },
+            "volume": 0.5
+          }
+        ]
+      }
+    ]
+  },
+  "queries": [
+    { "name": "point cue inherits active cadence priority", "now": 1000, "at": 11000, "stepId": "work", "roundIndex": 0, "winnerCueId": "slow-hidden", "candidateCueIds": ["slow-hidden", "fast-visible"], "visible": true, "completesRun": false },
+    { "name": "collision dispatches once and preserves candidates", "now": 30000, "at": 31000, "stepId": "work", "roundIndex": 0, "winnerCueId": "slow-hidden", "candidateCueIds": ["slow-hidden", "fast-visible"], "visible": true, "completesRun": false },
+    { "name": "hidden point cue stays audible", "now": 51000, "at": 56000, "stepId": "work", "roundIndex": 0, "winnerCueId": "slow-hidden", "candidateCueIds": ["slow-hidden"], "visible": false, "completesRun": false },
+    { "name": "end boundary excludes interior offsets", "now": 56000, "at": 61000, "stepId": "work", "roundIndex": 0, "winnerCueId": "work", "candidateCueIds": ["work"], "visible": true, "completesRun": false },
+    { "name": "next step has relative point cues", "now": 61000, "at": 66000, "stepId": "rest", "roundIndex": 0, "winnerCueId": "point-and-random", "candidateCueIds": ["point-and-random"], "visible": true, "completesRun": false },
+    { "name": "random continues with cadence disabled", "now": 66000, "at": 71000, "stepId": "rest", "roundIndex": 0, "winnerCueId": "point-and-random", "candidateCueIds": ["point-and-random"], "visible": true, "completesRun": false },
+    { "name": "random and before end deduplicate within track", "now": 81000, "at": 91000, "stepId": "rest", "roundIndex": 0, "winnerCueId": "point-and-random", "candidateCueIds": ["point-and-random"], "visible": true, "completesRun": false },
+    { "name": "final step alarm closes round", "now": 91000, "at": 101000, "stepId": "rest", "roundIndex": 0, "winnerCueId": "rest", "candidateCueIds": ["rest"], "alarmEnabled": true, "visible": true, "completesRun": false },
+    { "name": "round repeats from first step", "now": 101000, "at": 111000, "stepId": "work", "roundIndex": 1, "winnerCueId": "slow-hidden", "candidateCueIds": ["slow-hidden", "fast-visible"], "visible": true, "completesRun": false }
+  ],
+  "visibleQueries": [
+    { "now": 51000, "at": 61000, "winnerCueId": "work" }
+  ],
+  "boundedQueries": [
+    { "name": "duration between events uses last step fallback", "durationSeconds": 75, "now": 71000, "at": 76000, "soundId": "bloom", "completesRun": true },
+    { "name": "natural hidden event completes duration run", "durationSeconds": 55, "now": 51000, "at": 56000, "winnerCueId": "slow-hidden", "completesRun": true, "visible": true },
+    { "name": "two complete rounds", "cycleCount": 2, "now": 191000, "at": 201000, "winnerCueId": "rest", "completesRun": true },
+    { "name": "snapped partial round counts its next boundary", "cycleCount": 1, "startedAt": 46000, "now": 91000, "at": 101000, "winnerCueId": "rest", "completesRun": true }
+  ]
+}

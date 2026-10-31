@@ -421,6 +421,20 @@ export function normalizeSoundRef(value: unknown, fallback: SoundRef): SoundRef 
   return fallback
 }
 
+/** Strict sound reference check shared with schema-4 validation (no fallback substitution). */
+export function isSupportedSoundRef(value: unknown, allowLegacyAliases = false): value is SoundRef {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const candidate = value as Record<string, unknown>
+  if (candidate.kind === 'builtin' && typeof candidate.id === 'string') {
+    const id = allowLegacyAliases ? LEGACY_BUILT_IN_SOUND_ALIASES[candidate.id] ?? candidate.id : candidate.id
+    return BUILT_IN_SOUND_IDS.has(id as BuiltInSoundId)
+  }
+  if (candidate.kind === 'android' && typeof candidate.uri === 'string' && isPersistentSoundUri('android', candidate.uri) && candidate.uri.length <= MAX_URI_CHARACTERS && typeof candidate.title === 'string' && candidate.title.length <= 60) {
+    return candidate.ringtoneType === 'alarm' || candidate.ringtoneType === 'notification' || candidate.ringtoneType === 'unknown'
+  }
+  return candidate.kind === 'document' && typeof candidate.uri === 'string' && isPersistentSoundUri('document', candidate.uri) && candidate.uri.length <= MAX_URI_CHARACTERS && typeof candidate.title === 'string' && candidate.title.length <= 60 && (candidate.mimeType === undefined || typeof candidate.mimeType === 'string')
+}
+
 function isPersistentSoundUri(kind: 'android' | 'document', uri: string): boolean {
   if (uri.length === 0) return false
   if (/^content:\/\//i.test(uri)) return true

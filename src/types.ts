@@ -146,6 +146,43 @@ export interface SequenceProgram {
 
 export type TimerProgram = PatternProgram | SequenceProgram
 
+/** Schema 4: the single authored timer shape used by the unified editor/runtime. */
+export interface UnifiedSubBellTrack extends CueSettings {
+  id: string
+  label: string
+  enabled: boolean
+  color?: SubBellColorId
+  showOnWatchFace: boolean
+  cadenceSeconds: number
+  repeatEnabled: boolean
+  selectedOffsetsSeconds: number[]
+  randomRepeat?: { minSeconds: number; maxSeconds: number }
+  afterStartSeconds?: number
+  beforeEndSeconds?: number
+}
+
+export interface UnifiedTimerStep {
+  id: string
+  label: string
+  /** Retains the Pattern label's automatic/custom intent through migration. */
+  labelIsCustom?: boolean
+  durationSeconds: number
+  endCue: CueSettings
+  /** Authored step-end alarm preference; Alarm Once/Locked remain session state. */
+  endAlarmEnabled: boolean
+  subBellsEnabled: boolean
+  subBellTracks: UnifiedSubBellTrack[]
+}
+
+export interface UnifiedTimerProgram {
+  schemaVersion: 4
+  mode: 'unified'
+  steps: UnifiedTimerStep[]
+  alignment: TimerAlignment
+  completionCue: CueSettings | null
+  runPolicy: RunPolicy
+}
+
 export interface ProgramPreset {
   id: string
   name: string
