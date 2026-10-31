@@ -73,6 +73,15 @@ describe('unified program acceptance boundaries', () => {
     expect(converted.steps[0].id).toBe(source.steps[0].id)
   })
 
+  it('preserves the existing 60-character label limit for supplementary Unicode', () => {
+    const source = defaultTimerV2State().workingPrograms.sequence
+    source.steps[0].label = '🔔'.repeat(60)
+    source.steps[0].sound = { kind: 'document', uri: 'content://sounds/1', title: '🔔'.repeat(60) }
+    const converted = convertSequenceToUnified(source)
+    expect(converted.steps[0].label).toBe(source.steps[0].label)
+    expect(converted.steps[0].endCue.sound).toEqual(source.steps[0].sound)
+  })
+
   it('keeps both working programs and captured preferences without aliasing legacy state', () => {
     const state = defaultTimerV2State()
     state.workingPrograms.selectedMode = 'sequence'

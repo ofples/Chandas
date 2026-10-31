@@ -92,7 +92,7 @@ function validateProgram(value: unknown): string | null {
   for (const [index, step] of value.steps.entries()) {
     if (!isRecord(step) || !validId(step.id) || stepIds.has(step.id)) return `Invalid or duplicate step id at index ${index}`
     stepIds.add(step.id)
-    if (typeof step.label !== 'string' || step.label.length > 60) return `Invalid step label at index ${index}`
+    if (typeof step.label !== 'string' || [...step.label].length > 60) return `Invalid step label at index ${index}`
     if (step.labelIsCustom !== undefined && typeof step.labelIsCustom !== 'boolean') return `Invalid label intent at index ${index}`
     if (!isIntIn(step.durationSeconds, 1, MAX_CUE_DURATION_SECONDS)) return `Invalid step duration at index ${index}`
     if (!validCue(step.endCue)) return `Invalid end cue at index ${index}`
@@ -102,7 +102,7 @@ function validateProgram(value: unknown): string | null {
     for (const [trackIndex, track] of step.subBellTracks.entries()) {
       if (!isRecord(track) || !validId(track.id) || trackIds.has(track.id)) return `Invalid or duplicate track id at ${index}:${trackIndex}`
       trackIds.add(track.id)
-      if (typeof track.label !== 'string' || track.label.length > 60 || typeof track.enabled !== 'boolean' || typeof track.showOnWatchFace !== 'boolean') return `Invalid track settings at ${index}:${trackIndex}`
+      if (typeof track.label !== 'string' || [...track.label].length > 60 || typeof track.enabled !== 'boolean' || typeof track.showOnWatchFace !== 'boolean') return `Invalid track settings at ${index}:${trackIndex}`
       if (track.color !== undefined && !['violet', 'blue', 'cyan', 'teal', 'green', 'lime', 'amber', 'orange', 'coral', 'rose'].includes(String(track.color))) return `Invalid track color at ${index}:${trackIndex}`
       if (!isIntIn(track.cadenceSeconds, 1, MAX_CUE_DURATION_SECONDS) || typeof track.repeatEnabled !== 'boolean') return `Invalid track cadence at ${index}:${trackIndex}`
       if (!Array.isArray(track.selectedOffsetsSeconds) || !track.selectedOffsetsSeconds.every(offset => isIntIn(offset, 1, MAX_CUE_DURATION_SECONDS))) return `Invalid selected offsets at ${index}:${trackIndex}`
