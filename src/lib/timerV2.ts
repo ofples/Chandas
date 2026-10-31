@@ -8,6 +8,7 @@ import type {
   PatternTrack,
   ProgramPreset,
   RunPolicy,
+  RuntimeTimerProgram,
   SequenceProgram,
   SequenceStep,
   SoundRef,
@@ -360,7 +361,13 @@ export function cueSounds(cue: Pick<CueSettings, 'sound' | 'sounds'>): SoundRef[
 }
 
 /** The clock face and short countdowns describe visible cues; audio still uses the full program. */
-export function programForVisibleCues(program: TimerProgram): TimerProgram {
+export function programForVisibleCues(program: TimerProgram): TimerProgram
+export function programForVisibleCues(program: RuntimeTimerProgram): RuntimeTimerProgram
+export function programForVisibleCues(program: RuntimeTimerProgram): RuntimeTimerProgram {
+  if (program.mode === 'unified') {
+    if (!program.steps.some(step => step.subBellTracks.some(track => track.showOnWatchFace === false))) return program
+    return { ...program, steps: program.steps.map(step => ({ ...step, subBellTracks: step.subBellTracks.filter(track => track.showOnWatchFace !== false) })) }
+  }
   if (program.mode !== 'pattern' || !program.tracks.some(track => track.showOnWatchFace === false)) return program
   return { ...program, tracks: program.tracks.filter(track => track.showOnWatchFace !== false) }
 }

@@ -183,6 +183,9 @@ export interface UnifiedTimerProgram {
   runPolicy: RunPolicy
 }
 
+/** Legacy snapshots remain runnable until explicitly stopped or safely upgraded. */
+export type RuntimeTimerProgram = TimerProgram | UnifiedTimerProgram
+
 export interface ProgramPreset {
   id: string
   name: string

@@ -1,4 +1,4 @@
-import type { AvailabilityPolicy, TimerProgram } from '../types'
+import type { AvailabilityPolicy, RuntimeTimerProgram } from '../types'
 import { isCueAllowedByActiveHours, nextActiveHoursStart } from './activeHours'
 import { nextProgramEvent, type ScheduledProgramEvent } from './timeline'
 
@@ -9,7 +9,7 @@ export interface UpcomingProgramEvent {
 
 /** A short, chronological projection for setup UI. Suppressed events remain visible. */
 export function upcomingProgramEvents(
-  program: TimerProgram,
+  program: RuntimeTimerProgram,
   availability: AvailabilityPolicy,
   anchor: number,
   from: number,
@@ -30,7 +30,7 @@ export function upcomingProgramEvents(
 
 /** Finds the next schedule-eligible cue without iterating through every cue in a long quiet span. */
 export function nextAudibleProgramEvent(
-  program: TimerProgram,
+  program: RuntimeTimerProgram,
   availability: AvailabilityPolicy,
   anchor: number,
   from: number,
@@ -55,8 +55,14 @@ export function nextAudibleProgramEvent(
   return null
 }
 
-export function programEventLabel(program: TimerProgram, event: ScheduledProgramEvent): string {
+export function programEventLabel(program: RuntimeTimerProgram, event: ScheduledProgramEvent): string {
   if (event.completesRun && program.completionCue) return 'End gong'
+  if (program.mode === 'unified') {
+    const step = program.steps.find(step => step.id === event.stepId)
+    if (event.winner.kind === 'pattern-track') return step?.subBellTracks.find(track => track.id === event.winner.trackId)?.label ?? 'Sub-bell'
+    if (event.winner.kind === 'run-complete') return 'End gong'
+    return step?.label || 'Step cue'
+  }
   if (program.mode === 'pattern') {
     if (event.boundary === 'pattern-main') return 'Main gong'
     return program.tracks.find(track => track.id === event.winner.cueId)?.label ?? 'Sub-bell'

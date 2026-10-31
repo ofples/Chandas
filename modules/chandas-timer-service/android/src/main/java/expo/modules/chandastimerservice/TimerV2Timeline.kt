@@ -235,7 +235,7 @@ object TimerV2Timeline {
   private fun schedulerEvent(event: UnifiedTimelineEvent, singleStep: Boolean): TimerV2Event {
     val boundary = when (event.boundary) {
       "step-offset" -> TimerV2Boundary.PATTERN_OFFSET
-      "step-end" -> TimerV2Boundary.SEQUENCE_STEP
+      "step-end" -> if (singleStep) TimerV2Boundary.PATTERN_MAIN else TimerV2Boundary.SEQUENCE_STEP
       "round-end" -> if (singleStep) TimerV2Boundary.PATTERN_MAIN else TimerV2Boundary.SEQUENCE_CYCLE
       else -> TimerV2Boundary.RUN_COMPLETE
     }

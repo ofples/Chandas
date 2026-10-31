@@ -1,8 +1,13 @@
-import type { CueSettings, PatternProgram, SequenceProgram, SoundRef, TimerMode, TimerProgram } from '../types'
+import type { CueSettings, PatternProgram, RuntimeTimerProgram, SequenceProgram, SoundRef, TimerMode, TimerProgram, UnifiedTimerProgram } from '../types'
 import { patternDurationSeconds, sequenceStepDurationSeconds, trackCadenceSeconds, trackEventOffsetsSeconds } from './timerV2'
+import { nextUnifiedProgramEvent, unifiedProgramDurationMs, unifiedRunEndAt, unifiedSkipTarget, unifiedTimelinePosition, type UnifiedScheduledEvent } from './unified-timeline'
 
 export interface TimelineCueCandidate {
   cueId: string
+  sourceCueId?: string
+  stepId?: string
+  trackId?: string
+  showOnWatchFace?: boolean
   kind: 'pattern-main' | 'pattern-track' | 'sequence-step' | 'run-complete'
   alarmEnabled?: boolean
   sound: SoundRef
@@ -24,6 +29,9 @@ export interface ScheduledProgramEvent {
   winner: TimelineCueCandidate
   collision: boolean
   completesRun: boolean
+  stepId?: string
+  stepIndex?: number
+  showOnWatchFace?: boolean
 }
 
 export interface TimelinePosition {
@@ -61,6 +69,29 @@ function winnerForCandidates(candidates: TimelineCueCandidate[]): TimelineCueCan
     (right.cadenceSeconds ?? (right.cadenceMinutes ?? 0) * 60) - (left.cadenceSeconds ?? (left.cadenceMinutes ?? 0) * 60)
       || (left.trackOrder ?? Number.MAX_SAFE_INTEGER) - (right.trackOrder ?? Number.MAX_SAFE_INTEGER),
   )[0]
+}
+
+/** Schema-4 programs use the same audio/alarm gates as retained legacy sessions. */
+function unifiedRuntimeEvent(event: UnifiedScheduledEvent, singleStep: boolean): ScheduledProgramEvent {
+  const candidates = event.candidates.map<TimelineCueCandidate>(candidate => ({
+    cueId: candidate.cueId,
+    sourceCueId: candidate.sourceCueId,
+    stepId: candidate.stepId,
+    trackId: candidate.trackId,
+    showOnWatchFace: candidate.showOnWatchFace,
+    kind: candidate.kind === 'sub-bell' ? 'pattern-track' : candidate.kind === 'step-end' ? (singleStep ? 'pattern-main' : 'sequence-step') : 'run-complete',
+    alarmEnabled: candidate.alarmEnabled,
+    sound: candidate.sound, volume: candidate.volume, sounds: candidate.sounds, soundMode: candidate.soundMode, hapticOverride: candidate.hapticOverride,
+    cadenceSeconds: candidate.cadencePriority > 0 ? candidate.cadenceSeconds : undefined,
+    trackOrder: candidate.trackOrder,
+  }))
+  return {
+    at: event.at, logicalId: event.logicalId, cycleIndex: event.roundIndex,
+    stepId: event.stepId, stepIndex: event.stepIndex,
+    boundary: event.boundary === 'step-offset' ? 'pattern-offset' : event.boundary === 'step-end' ? (singleStep ? 'pattern-main' : 'sequence-step') : event.boundary === 'round-end' ? (singleStep ? 'pattern-main' : 'sequence-cycle') : 'run-complete',
+    candidates, winner: candidates[event.candidates.indexOf(event.winner)], collision: event.collision, completesRun: event.completesRun,
+    showOnWatchFace: event.showOnWatchFace,
+  }
 }
 
 export function nextPatternEvent(program: PatternProgram, anchor: number, now = Date.now(), randomSeed = anchor): ScheduledProgramEvent {
@@ -139,13 +170,15 @@ export function nextSequenceEvent(program: SequenceProgram, anchor: number, now 
   }
 }
 
-export function programCycleDurationMs(program: TimerProgram): number {
+export function programCycleDurationMs(program: RuntimeTimerProgram): number {
+  if (program.mode === 'unified') return unifiedProgramDurationMs(program)
   return program.mode === 'pattern'
     ? patternDurationSeconds(program) * 1_000
     : program.steps.reduce((total, step) => total + sequenceStepDurationSeconds(step) * 1_000, 0)
 }
 
-export function runEndAt(program: TimerProgram, anchor: number, startedAt: number): number | null {
+export function runEndAt(program: RuntimeTimerProgram, anchor: number, startedAt: number): number | null {
+  if (program.mode === 'unified') return unifiedRunEndAt(program, anchor, startedAt)
   if (program.runPolicy.kind === 'continuous') return null
   if (program.runPolicy.kind === 'duration') return startedAt + program.runPolicy.durationSeconds * 1_000
   const duration = programCycleDurationMs(program)
@@ -167,7 +200,11 @@ function completionCandidate(program: TimerProgram): TimelineCueCandidate {
 }
 
 /** Returns null once a bounded run has reached or passed its terminal instant. */
-export function nextProgramEvent(program: TimerProgram, anchor: number, now = Date.now(), startedAt = anchor, terminalAt = runEndAt(program, anchor, startedAt), randomSeed = anchor): ScheduledProgramEvent | null {
+export function nextProgramEvent(program: RuntimeTimerProgram, anchor: number, now = Date.now(), startedAt = anchor, terminalAt = runEndAt(program, anchor, startedAt), randomSeed = anchor): ScheduledProgramEvent | null {
+  if (program.mode === 'unified') {
+    const event = nextUnifiedProgramEvent(program, anchor, now, startedAt, terminalAt, randomSeed)
+    return event ? unifiedRuntimeEvent(event, program.steps.length === 1) : null
+  }
   const endAt = terminalAt
   if (endAt !== null && now >= endAt) return null
   const next = program.mode === 'pattern' ? nextPatternEvent(program, anchor, now, randomSeed) : nextSequenceEvent(program, anchor, now)
@@ -190,7 +227,11 @@ export function nextProgramEvent(program: TimerProgram, anchor: number, now = Da
   }
 }
 
-export function timelinePosition(program: TimerProgram, anchor: number, now = Date.now(), startedAt = anchor, terminalAt = runEndAt(program, anchor, startedAt), randomSeed = anchor): TimelinePosition {
+export function timelinePosition(program: RuntimeTimerProgram, anchor: number, now = Date.now(), startedAt = anchor, terminalAt = runEndAt(program, anchor, startedAt), randomSeed = anchor): TimelinePosition {
+  if (program.mode === 'unified') {
+    const position = unifiedTimelinePosition(program, anchor, now, startedAt, terminalAt, randomSeed)
+    return { mode: program.steps.length === 1 ? 'pattern' : 'sequence', anchor, randomSeed, cycleIndex: position.roundIndex, cycleProgress: position.roundProgress, currentStepIndex: position.currentStepIndex, stepProgress: position.stepProgress, nextEvent: position.nextEvent ? unifiedRuntimeEvent(position.nextEvent, program.steps.length === 1) : null }
+  }
   const nextEvent = nextProgramEvent(program, anchor, now, startedAt, terminalAt, randomSeed)
   if (program.mode === 'pattern') {
     const duration = patternDurationSeconds(program) * 1_000
@@ -226,7 +267,8 @@ export interface SequenceSkipTarget {
 }
 
 /** Silently places an adjacent step at its beginning while preserving round count. */
-export function sequenceSkipTarget(program: SequenceProgram, anchor: number, now: number, startedAt: number, terminalAt: number | null, direction: 'next' | 'previous'): SequenceSkipTarget | null {
+export function sequenceSkipTarget(program: SequenceProgram | UnifiedTimerProgram, anchor: number, now: number, startedAt: number, terminalAt: number | null, direction: 'next' | 'previous'): SequenceSkipTarget | null {
+  if (program.mode === 'unified') return unifiedSkipTarget(program, anchor, now, startedAt, terminalAt, direction)
   if (program.steps.length < 2) return null
   const position = timelinePosition(program, anchor, now, startedAt, terminalAt)
   const index = position.currentStepIndex ?? 0

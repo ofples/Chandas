@@ -1,6 +1,7 @@
-import type { AlarmBehavior, TimerProgram } from '../types'
+import type { AlarmBehavior, RuntimeTimerProgram } from '../types'
 import type { ScheduledProgramEvent } from './timeline'
 import { patternDurationSeconds, sequenceStepDurationSeconds } from './timerV2'
+import { unifiedIterationEnd } from './unified-timeline'
 
 export interface IterationMute {
   /** The final main/cycle boundary that remains audible and clears mute. */
@@ -74,7 +75,11 @@ function cycleIndexAt(now: number, anchor: number, cycleMs: number): number {
  * intentionally persisted instead of a decrementing counter so a timezone or
  * process restart cannot accidentally suppress the final audible boundary.
  */
-export function iterationMuteFor(program: TimerProgram, anchor: number, now: number, count: number): IterationMute {
+export function iterationMuteFor(program: RuntimeTimerProgram, anchor: number, now: number, count: number): IterationMute {
+  if (program.mode === 'unified') {
+    const end = unifiedIterationEnd(program, anchor, now, count)
+    return { endsAtLogicalId: end.logicalId, endsAt: end.at, iterations: end.iterations }
+  }
   const iterations = Math.max(1, Math.min(99, Math.round(count)))
   if (program.mode === 'pattern') {
     const cycleMs = patternDurationSeconds(program) * 1_000
@@ -108,7 +113,7 @@ export function gateProgramAudio(options: {
     ? { mutedUntil: 0, iteration: mute.iteration }
     : mute
   const isMain = event.boundary === 'pattern-main'
-  const continuousAlarmRequested = !event.completesRun && ((isMain && alarmBehavior !== 'off') || (event.winner.kind === 'sequence-step' && event.winner.alarmEnabled === true))
+  const continuousAlarmRequested = !event.completesRun && ((isMain && alarmBehavior !== 'off') || event.winner.alarmEnabled === true)
   const consumesOnce = isMain && !event.completesRun && alarmBehavior === 'once'
   const consumedAlarmBehavior: AlarmBehavior = event.completesRun ? 'off' : consumesOnce ? 'off' : alarmBehavior
 
