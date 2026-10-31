@@ -3,9 +3,19 @@ import fixture from '../../../fixtures/timer-unified-timeline.json'
 import { convertLegacyProgramToUnified, convertSequenceToUnified, convertTimerV2State, parseUnifiedTimerProgram } from '../unified-timer'
 import { defaultTimerV2State } from '../timerV2'
 import type { UnifiedTimerProgram } from '../../types'
+import invalidFields from '../../../fixtures/timer-unified-invalid-fields.json'
 
 // Independent acceptance cases. Keep these separate from implementation tests.
 describe('unified program acceptance boundaries', () => {
+  it.each(invalidFields)('rejects shared malformed schema case: $name', mutation => {
+    const program = structuredClone(fixture.program)
+    let target: any = program
+    for (const key of mutation.path.slice(0, -1)) target = target[key]
+    const key = mutation.path.at(-1)!
+    if ('remove' in mutation) delete target[key]
+    else target[key] = mutation.value
+    expect(parseUnifiedTimerProgram(program)).toMatchObject({ ok: false, raw: program })
+  })
   it('accepts the multi-step scheduling contract without changing authored fields', () => {
     const source = structuredClone(fixture.program) as UnifiedTimerProgram
     const result = parseUnifiedTimerProgram(source)

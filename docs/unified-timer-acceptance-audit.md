@@ -8,7 +8,14 @@ The current normal application still uses `PatternProgram | SequenceProgram` (pr
 
 Baseline rerun: all 143 existing Vitest tests passed. JDK 21 and Android SDK 36 are available; `android/gradlew.bat :chandas-timer-service:testDebugUnitTest --console=plain` passed. This is legacy runtime evidence, not schema-4 acceptance.
 
-Independent model acceptance cases live in `src/lib/__tests__/unified-timer-acceptance.test.ts`. They check caller/source isolation, retained dormant offsets, future/malformed recovery, persistent sound references, cue-only migration and both working copies/settings snapshots. `fixtures/timer-unified-timeline.json` contains hand-computed multi-step timing vectors for the next implementation slice; timing expectations are not yet executed and therefore remain unproven.
+Independent model acceptance cases live in `src/lib/__tests__/unified-timer-acceptance.test.ts`. They check caller/source isolation, retained dormant offsets, future/malformed recovery, persistent sound references, cue-only migration and both working copies/settings snapshots. `fixtures/timer-unified-timeline.json` contains hand-computed multi-step timing vectors for the next implementation slice; the independent TypeScript timing cases now pass, while native parity and production runtime integration remain unproven.
+
+## Integration findings to carry forward
+
+- Schema-4 cue identity includes the step and track IDs using UTF-16 length prefixes, so delimiter-containing IDs and repeated track IDs remain distinct. Natural event IDs also contain the phase anchor. Legacy restore must explicitly translate old cue cursor and iteration-mute keys or keep the old session adapter.
+- The old JS session reader filters cue cursor keys to 120 characters (`storage.ts`, `sanitizeSoundState`). A valid unified cue key may exceed this with two 200-character authored IDs. The unified session reader must accept the full validated key range and test cursor preservation after restart; copying the old sanitizer would lose playback position.
+- Final-step skip must compare the round boundary with the run deadline. Checking only whether the *next cue* completes the run fails when an interior sub-bell precedes the final boundary.
+- String limits for step labels and sound titles must count Unicode code points like the existing `normalizeLabel`, while length-prefixed identities use UTF-16 units identically in JS and Kotlin.
 
 ## Required proof
 
