@@ -42,6 +42,32 @@ Remote EAS Build remains an option for distributable artifacts and matching the 
 
 ## Before every release
 
+### Unified timer migration (native contract 14)
+
+The unified editor writes program schema 4 and requires the matching native engine
+for new starts. This change includes native scheduler/overlay code and Expo native
+package patches, so it requires a new compatible binary. Do not publish it to an
+older runtime as an OTA-only change.
+
+Configuration migration writes `chandas-timer-unified-state-v3`, verifies readback,
+then writes an advisory migration marker. Original legacy keys remain untouched;
+both legacy working copies, preset snapshots, settings and imported sounds are
+retained. The retired experimental setup key is never read. Malformed or future
+records require recovery and must not be overwritten with defaults.
+
+Accepted canonical runs use the separate `chandas-timer-unified-session-v3` record.
+Android remains authoritative for active timing, transport and alarms. Existing
+schema-2/3 running programs keep their original runtime adapter until stopped;
+incomplete old sessions are preserved for recovery. Configuration drafts never
+replace an active run.
+
+Before a rollback, stop the active unified timer explicitly and preserve/export
+configuration data. Older binaries cannot edit schema-4 configurations; returning
+to legacy keys is a downgrade of the library view, not a reverse migration of new
+edits. Do not delete the unified records or restore legacy records over them as a
+rollback shortcut. Verify any release candidate against the acceptance audit and
+the physical-device checks below. No release was performed as part of this work.
+
 1. Start from the exact commit intended for release and ensure unrelated working-tree changes are not included.
 2. For a new store version, set the same semantic version in `app.json` and `package.json`, then refresh `package-lock.json` with `npm install`.
 3. Run `npm run release:check`. This verifies Expo package compatibility, TypeScript, and the test suite. For native changes, also compile locally and run relevant Android tests and device checks before creating the release artifact.

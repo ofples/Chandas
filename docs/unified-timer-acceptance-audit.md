@@ -1,64 +1,58 @@
 # Unified timer — independent acceptance audit
 
-Authority: `unified-timer-goal-prompt-2026-10-31.md`. This audit belongs to the parent reviewer; implementation coverage is tracked separately in Luna's coverage ledger.
+Authority: `unified-timer-goal-prompt-2026-10-31.md`. Parent review is independent of Luna's implementation coverage ledger. Evidence below concerns the actual normal application, not the former experimental entry.
 
-## Starting evidence — 2026-10-31
+## Implementation and review
 
-The current normal application still uses `PatternProgram | SequenceProgram` (program schema 3), two working programs and a mode selector. Sequence steps have end cues but no sub-bell tracks. Both timeline implementations dispatch separate Pattern and Sequence event generators; only Pattern currently generates sub-bell events. The unified setup remains behind `EXPO_PUBLIC_SETUP_PROTOTYPE=1`. Prototype checks therefore do not prove application integration or timing parity.
+The normal App bootstraps schema-3 configuration storage and edits schema-4 unified programs. A timer has ordered steps with full sub-bells and whole-round repetition. A frozen accepted run is separate from saved configurations and durable drafts. Existing legacy runtime adapters remain only for old accepted sessions; configuration migration does not rewrite an active session's cue identity.
 
-Baseline rerun: all 143 existing Vitest tests passed. JDK 21 and Android SDK 36 are available; `android/gradlew.bat :chandas-timer-service:testDebugUnitTest --console=plain` passed. This is legacy runtime evidence, not schema-4 acceptance.
+Reviewed slices: strict canonical model, recoverable legacy conversion, shared TS/Kotlin timing fixtures, durable configuration commands/storage, production editor/shared draggable sheet, JS/native scheduler facades, native contract 14/capability negotiation, accepted-session persistence, App/runtime/overlay integration. The parent independently checked source and ran focused/full checks and browser journeys.
 
-Independent model acceptance cases live in `src/lib/__tests__/unified-timer-acceptance.test.ts`. They check caller/source isolation, retained dormant offsets, future/malformed recovery, persistent sound references, cue-only migration and both working copies/settings snapshots. `fixtures/timer-unified-timeline.json` contains hand-computed multi-step timing vectors for the next implementation slice; the independent TS/Kotlin timing cases now pass, while production runtime integration remains unproven.
+Review fixes included UTF-16 cue namespace parity; Unicode label limits; dormant offsets; random-seed stability; final-step skips and following-step labels independent of intervening bells; one-step alarm gates; hidden-cue presentation independent of audibility; race-safe draft persistence; failed Save & switch; active-session source metadata; native-authoritative restore; protected future records; long playback cursor keys; preserving accepted legacy track order/cue lists; and confirmation stacking above the picker. Browser audio testing found and fixed ExpoAudio's unhandled expected AbortError when replacing pending web playback.
 
-## Integration findings to carry forward
+## Current evidence
 
-- Schema-4 cue identity includes the step and track IDs using UTF-16 length prefixes, so delimiter-containing IDs and repeated track IDs remain distinct. Natural event IDs also contain the phase anchor. Legacy restore must explicitly translate old cue cursor and iteration-mute keys or keep the old session adapter.
-- The old JS session reader filters cue cursor keys to 120 characters (`storage.ts`, `sanitizeSoundState`). A valid unified cue key may exceed this with two 200-character authored IDs. The unified session reader must accept the full validated key range and test cursor preservation after restart; copying the old sanitizer would lose playback position.
-- Final-step skip must compare the round boundary with the run deadline. Checking only whether the *next cue* completes the run fails when an interior sub-bell precedes the final boundary.
-- String limits for step labels and sound titles must count Unicode code points like the existing `normalizeLabel`, while length-prefixed identities use UTF-16 units identically in JS and Kotlin.
+Final `npm run release:check` passes: Expo dependency compatibility, TypeScript, and 285 tests across 23 files. Eight prototype tests were removed with the retired scaffold; production acceptance tests remain. Focused tests cover strict malformed schemas, hand-computed TS/Kotlin timing vectors, deterministic random sequences across rounds/anchors and Unicode IDs, migration/retry/write races, every draft transition, future-record protection, capability gates and session identity/cursor preservation. After dependency alignment and Android prebuild, the native module suite passed 72 tests with zero failures/errors/skips and the x86_64 debug APK built successfully. Production web export and Android Hermes export both pass. Final browser journeys were rerun against the updated normal entry.
 
-## Reviewed timing-helper slice
+Browser evidence uses the normal React Native Web App at localhost:8092 in fresh isolated Edge contexts, synthetic storage/audio instrumentation and no user clipboard or live device data. Artifacts are outside the repository at `C:/Users/pless/.codex/visualizations/2026/09/29/01a0eca8-b56d-76e3-a15a-15e81cdf6272`:
 
-Parent review and rerun: TypeScript check passed; 221 Vitest cases across 16 files passed; Android module compilation/unit test task passed, with 65 tests and zero failures in the XML reports. Independent TS timing acceptance includes 25 cases. Kotlin consumes the same authored timing fixture, 28 invalid-field mutations and frozen random vectors, including Unicode IDs, three rounds and a shifted phase anchor with a fixed seed. Review fixed phase-anchor identity, skipping preceding steps' track generation, bounded final-step skipping, Unicode character limits and negative-anchor run-end overflow.
+| Actual browser journey | Result artifact |
+| --- | --- |
+| Cancel/Keep/reload, Save/update, single-to-multistep, dismiss/reopen, actual Start/interior cue, pause/resume, previous/next, Stop, saved/draft/run separation | `unified-app-journey.json` — 9 flows pass |
+| Injected quota failure on Save & switch; two steps/two rounds; independently ordered sounds for same authored track ID; exactly one terminal cue; session clear and saved snapshot unchanged | `unified-app-failure-audio.json` — 5 flows pass; exact 8 expected play calls, no page errors |
+| Injected slow storage with rapid name/duration/alarm edits | `check-unified-rapid-edits.cjs` — pass after race correction |
+| Drag partial/full/dismiss, pinned header, horizontal rail, simultaneous enabled fields/reload, 320px width, light/e-ink | `unified-app-layout.json` — 6 flows pass; screenshots visually inspected |
+| Identical clipboard/file export, unavailable imported URI warning, dirty-draft preservation, future import rejection, paused session reload and next ordered sound | `unified-app-transfer-restore.json` — 4 flows pass |
+| Discard, rename another card while dirty, visibility, duplicate without activation, delete cancel/confirm, restart | `unified-app-library.json` — 7 flows pass |
+| Old paused session exact program/seed/long cursors; incomplete V1 recovery; future configuration bootstrap protection | `unified-app-legacy-recovery.json` — 3 flows pass |
+| Session quota failure refuses Start; edits during asynchronous Start remain draft-only | `unified-app-start-safety.json` — 2 flows pass |
+| Runtime configuration switching preserves setup selection/drafts; Stop returns to the previous draft | `unified-app-running-switch.json` — 2 flows pass |
+| Shared main/secondary gestures; sound selection; running mixer/iteration mute; collapse and drag-dismiss | `unified-app-secondary-sheets.json` — 3 flows pass; sound/mixer screenshots visually inspected |
 
-`unified-timeline.ts` and `UnifiedTimerTimeline.kt` are additive pure helpers. Production scheduler/state/bridge/overlay callers still use the legacy runtime. Native capabilities still advertise schema 3. No app-wide timing or UI integration is claimed by these tests. The next slices must connect these helpers to actual scheduling/session persistence and the unified editor.
+## Requirement disposition
 
-## Required proof
+| Requirement | Evidence / disposition |
+| --- | --- |
+| Coherent normal step model and per-step bells | Normal App/editor wiring; browser Start; shared TS/Kotlin fixtures and native scheduler facade tests. |
+| Legacy configurations/presets/both drafts/settings/sounds | Pure adapter and durable migration suites; raw legacy keys retained, marker advisory, readback verified, no experimental record promotion. |
+| Old accepted running sessions | Original legacy runtime retained; session tests compare next event, exact accepted track order, cue lists, seed, pause, mute and long cursors; actual legacy restore browser journey. Incomplete V1/future records require recovery rather than false resume. |
+| Boundaries/collisions/randomness | Shared independent expected timing/invalid-field/random vectors, facades, run bounds and silent skip tests. |
+| Runtime transport and frozen snapshots | Actual browser Start/pause/resume/prev/next/Stop/reload/terminal journey; session storage/race tests; same-generation native-authoritative restore. |
+| Quiet windows, Focus, calls and late delivery | Existing shared gates retained; actual running snapshot owns runtime edits, native DND state refreshed independently. Gate/timing suites and native compile tests. Physical call/DND/background acceptance remains below. |
+| Sounds/vibration/alarms | Full editor destinations and shared library; independent ordered playback across steps/rounds; URI warning and cursor reload; native cue/alarm gates. Browser play-call evidence is not physical audio/vibration proof. |
+| Configuration lifecycle and durable drafts | Reducer/storage suites plus actual browser save-as/update, save/keep/discard/cancel, rename/duplicate/delete/visibility/import/export and failure/slow-write journeys. |
+| Shared editing interaction | Production main and secondary sheets share `use-sheet-snap`; sound picker, mixer, help and other existing secondary editors retain their controls/help/feedback and gain drag, explicit expand/collapse/close. Browser sound/mixer/main gestures, pinned title/actions, horizontal rails, retained fields, 320px/themes/dismissal pass. Confirmation portal stacking fixed and exercised. |
+| Watchface and immediate controls | Original layout retained; actual two-step browser transport and final-step screenshot inspected; canonical ring and mixer data adapted. |
+| Notifications and floating overlay | Existing authoritative native service retained, schema-4 facade and overlay action helper tests, hidden/visible event vectors and source review. Final-binary overlay/handoff was not demonstrated on emulator; native helper/facade evidence is distinct from device acceptance. |
+| Unsupported native versions | Pure min/max/feature capability tests; Start refuses incompatible binary; unknown native active timer never cleared by JS restore. |
+| Cleanup/help/release notes | Prototype/root flag/launcher and obsolete dual-mode setup screen removed; unified setup guide and running help updated; migration/binary/rollback instructions added to RELEASES.md. |
+| Final verification | Required local checks, debug APK, production web/Android exports and browser journeys pass. All 61 inventory rows have evidence/limits in the coverage ledger. Working changes are recorded in local commits. |
 
-Production editor component review: `UnifiedTimerConfigScreen` and shared `DraggableSheet` now implement the named-card picker, partial/full/closed sheets, retained horizontal settings/track rails, step editing, per-step sub-bells, shared sound selection, device/permission callbacks and versioned transfer. Source review fixed inaccessible Add step from a single interval, ineffective dismissal, name-tap navigation, completion-cue removal, sound controls incorrectly coupled to haptics, imported-sound retention, duplicate/label limits and precision behavior. Haptic previews and track duplication retain their existing helpers. TypeScript and unit checks pass; this is component/source evidence only. Default App wiring and RN Web journeys remain pending.
+## Emulator observations and evidence limits
 
-JavaScript runtime facade: existing timeline, mute, upcoming-event and visible-cue APIs now accept canonical schema-4 programs alongside retained legacy sessions. Seven integration tests cover the actual audio gates (including single-step saved alarms and Once/Locked), call mute, exact iteration-mute endpoint identity, terminal replacement, step transport and cue labels. Parent checks: TypeScript and the focused 103-test runtime/domain/clock set pass; native adapter tests still pass after aligning the defensive one-step boundary mapping. Hook/session/App/overlay wiring remains pending.
+Luna used only the new task-owned AVD `codex-unified-timer-qa` on serial `emulator-5560`. Earlier local binary observations covered actual schema-4 setup, Start, previous/next, pause/resume, JS-process kill/reopen with the native session still active, and Stop. The setup capture `unified-timer-native-setup.png` was inspected by the parent; it predates the automatic step-label wording fix. Timed native point-bell delivery and floating-overlay gestures were not directly demonstrated. Final APK reinstallation was attempted only as a bounded follow-up: targeted ADB shell became unresponsive, so no server reset, final install or further device mutation occurred. Final native compile/unit results and Android Hermes bundle therefore do not claim final-binary emulator acceptance. Existing emulators 5554/5556 and physical devices were untouched.
 
-Reviewed configuration-state/storage slice: 257 Vitest tests and TypeScript checks pass. The pure reducer and injected storage API preserve per-card saved snapshots and drafts, retained enabled-action metadata, Save/Save as/Keep/Discard/Cancel behavior, unnamed drafts, shared imported sounds and library metadata. Independent acceptance exercises restart restoration, active-card deletion, Unicode name limits, reserved/dictionary-like IDs, no-op semantic edits, current-vs-saved preference migration, interrupted verification and concurrent bootstraps. New state writes are verified before the advisory marker; malformed/future new records remain protected even from direct saves. Legacy configuration/session bytes remain untouched, and prototype keys are not read. These APIs are not yet wired into App or the production editor, so browser acceptance and actual AsyncStorage lifecycle integration remain pending.
+The final browser journey has no uncaught page errors. React Native Web emits an upstream warning about `collapsable=false` forwarded by its ScrollView; it does not affect the tested flows. The nested-button running wrapper was corrected for web. During dependency refresh, a Windows fallback watcher storm from generated native build files temporarily prevented dev bundling; `metro.config.js` now excludes generated native roots/build caches, after which browser journeys and production exports pass.
 
-Native facade integration: `TimerV2Timeline` now delegates schema-4 programs to the unified helper, adapting candidates to the existing scheduler's main/sub-bell/step-alarm contracts. Four acceptance tests exercise this exact facade, including hidden collision winners, visible countdowns, step alarms, whole-round transport, clock alignment and notification context. Android compilation and all 69 unit tests passed after this change, and Luna independently reviewed the adapter. Capability negotiation remains schema 3; persisted sessions, overlay parsing and application starts still require integration before schema 4 can be advertised.
 
-| Requirement | Required authoritative evidence | Status |
-| --- | --- | --- |
-| Normal application uses one coherent step model | Default entry, canonical types, store and editor wiring; browser Start journey | Pending |
-| Cycle and Sequence conversion | Migration fixtures preserving all intervals, settings, sounds, tracks and source metadata | Pure adapters verified; production migration pending |
-| Recovery of both legacy working programs | Explicit recovery/library destination for unselected legacy edits; idempotence tests | Both copies preserved by pure adapter; production destination pending |
-| Durable migration | Versioned records, interrupted-write/retry behavior, retained legacy source and storage-error tests | Pending |
-| Old running sessions | Preserve anchor/start/end/pause, next event, random seed, mute, alarm flags and sound cursors through restore | Pending |
-| Per-step sub-bells execute | Matching TS/Kotlin vectors for multiple steps/rounds with cadence, selected occurrences, random gaps and independent point cues | Shared TS/Kotlin helper vectors pass; live scheduler integration pending |
-| Stable identity and collision behavior | Event/cue identity fixtures including old-session iteration mute, ordered/random sound cursors, coincident cues and step transitions | Pending |
-| Session transport and bounds | Pause/resume, silent previous/next, clock snap, step/round restart, exact duration and round count; exactly one terminal cue | Pending |
-| Quiet hours, Focus and calls | Active-minus-Quiet windows, overnight boundaries, closing bell and late delivery; permission/call/Focus gates | Pending |
-| Sounds and vibration | Shared imported library, multi-sound modes/order, cue/master levels, mute, unavailable sounds and haptic inheritance/overrides | Pending |
-| Saved configurations and drafts | Save/update/save-as/rename/duplicate/delete/import/export; durable keep/discard/save switching and cancellation without lost edits | Pending |
-| Draft/session separation | Editing or switching a draft cannot replace the native session without an explicit accepted runtime operation | Pending |
-| Shared editing interaction | Actual main sheets and secondary editors use drag/expand/collapse, labelled horizontal actions, retained enabled fields and keyboard-safe dismissal | Pending |
-| Running watchface/direct controls preserved | Running screen source review and browser/emulator journey including sub-bells inside the current step | Pending |
-| Notifications and floating overlay | Visible-only countdowns; hidden-only cues stay hidden; sub-bell/current-step presentation; foreground host handoff | Pending |
-| Native version compatibility | New capability/schema gates and explicit rejection on unsupported binaries, with matching validator tests | Pending |
-| Presentation/accessibility | Light/dark/e-ink, compact viewport, exact seconds retained, safe areas, keyboard, accessible alternatives and reduced motion | Pending |
-| Cleanup and help | Default flow is integrated; obsolete prototype/dual-mode scaffolding retired or documented as explicit legacy adapters; help/migration/release docs updated | Pending |
-| Final verification | TypeScript, relevant unit suites, native Kotlin tests/build, RN Web journeys and requirement-by-requirement ledger reconciliation | Pending |
-
-## Review rules
-
-- A passing prototype test is evidence only for that prototype behavior. Production wiring, native scheduling and migration each need their own proof.
-- Preserve relevant stable event and cue identities across restored sessions, or test an explicit transactional conversion. Matching durations alone is insufficient: iteration mute, cue delivery and sound ordering depend on identity.
-- Native state remains authoritative for a running timer. Saved snapshots, editable drafts, transient mute/transport state and device-wide preferences have explicit ownership.
-- Browser checks are the primary interaction surface. Native changes still require targeted compilation/tests and practical emulator checks; physical audio, long background behavior, battery and e-ink limits must be stated accurately.
-- Do not mark this audit or the active goal complete while any required implementation row is pending or relies only on intent. Physical-only acceptance may remain explicitly documented where hardware is unavailable.
+No iOS build is possible on this Windows host. Emulator/local build evidence does not establish physical speaker or imported-file playback, vibration strength, live cellular-call interruption, DND behavior on every OEM, long background/Doze/battery reliability, or physical e-ink performance. These remain device acceptance checks. No OTA/store publishing, deployment, remote push or live-device data reset is authorized or performed.
