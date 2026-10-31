@@ -45,6 +45,14 @@ export function shouldSurfaceTimerSignal(
   return appActive && !event.suppressed && typeof event.firedAt === 'number' && Math.abs(observedAt - event.firedAt) <= windowMs
 }
 
+/** Visibility controls animation/countdowns, independently from audible delivery. */
+export function programEventIsVisible(program: RuntimeTimerProgram, event: ScheduledProgramEvent): boolean {
+  if (event.completesRun) return true
+  if (typeof event.showOnWatchFace === 'boolean') return event.showOnWatchFace
+  if (program.mode === 'pattern') return event.candidates.some(candidate => candidate.kind !== 'pattern-track' || program.tracks.find(track => track.id === candidate.cueId)?.showOnWatchFace !== false)
+  return true
+}
+
 export function emptyRuntimeMute(): RuntimeMuteState {
   return { mutedUntil: 0 }
 }

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import fixture from '../../../fixtures/timer-unified-timeline.json'
 import type { UnifiedTimerProgram } from '../../types'
-import { nextProgramEvent, programCycleDurationMs, runEndAt, sequenceSkipTarget, timelinePosition } from '../timeline'
-import { emptyRuntimeMute, gateProgramAudio, iterationMuteFor } from '../runtimeV2'
+import { currentStepEndAt, hasFollowingStep, nextProgramEvent, programCycleDurationMs, runEndAt, sequenceSkipTarget, timelinePosition } from '../timeline'
+import { emptyRuntimeMute, gateProgramAudio, iterationMuteFor, programEventIsVisible } from '../runtimeV2'
 import { programForVisibleCues } from '../timerV2'
 import { programEventLabel, upcomingProgramEvents } from '../upcoming-events'
 
@@ -10,12 +10,30 @@ const source = fixture.program as UnifiedTimerProgram
 const query = (now: number, program = source) => nextProgramEvent(program, 1000, now)!
 
 describe('unified programs through existing JS runtime contracts', () => {
+  it('uses step boundaries rather than interior bells to describe bounded transport', () => {
+    const program = structuredClone(source)
+    program.runPolicy = { ...program.runPolicy, kind: 'cycles', cycleCount: 1 }
+    const position = timelinePosition(program, 1000, 62000, 1000)
+    expect(position.nextEvent?.boundary).toBe('pattern-offset')
+    expect(position.nextEvent?.completesRun).toBe(false)
+    expect(currentStepEndAt(program, position)).toBe(101000)
+    expect(hasFollowingStep(program, position, 101000)).toBe(false)
+    expect(hasFollowingStep(program, position, 99000)).toBe(false)
+    expect(hasFollowingStep(program, position, 201000)).toBe(true)
+    expect(hasFollowingStep(program, position, 0)).toBe(true)
+    const first = timelinePosition(program, 1000, 1000, 1000)
+    expect(hasFollowingStep(program, first, 101000)).toBe(true)
+    expect(hasFollowingStep(program, first, 30000)).toBe(false)
+  })
+
   it('preserves candidate identity, hidden collisions and audio/display separation', () => {
     const audible = query(1000)
     expect(audible).toMatchObject({ at: 11000, boundary: 'pattern-offset', stepId: 'work', collision: true, showOnWatchFace: true, winner: { kind: 'pattern-track', sourceCueId: 'slow-hidden', showOnWatchFace: false } })
     expect(audible.candidates).toHaveLength(2)
+    expect(programEventIsVisible(source, audible)).toBe(true)
     expect(programEventLabel(source, audible)).toBe('Slow')
     expect(query(51000)).toMatchObject({ at: 56000, showOnWatchFace: false })
+    expect(programEventIsVisible(source, query(51000))).toBe(false)
     const visible = nextProgramEvent(programForVisibleCues(source), 1000, 51000)!
     expect(visible.at).toBe(61000)
     expect(programEventLabel(source, visible)).toBe('Work')

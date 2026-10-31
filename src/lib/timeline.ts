@@ -177,6 +177,20 @@ export function programCycleDurationMs(program: RuntimeTimerProgram): number {
     : program.steps.reduce((total, step) => total + sequenceStepDurationSeconds(step) * 1_000, 0)
 }
 
+/** The authored step boundary, independent of intervening sub-bells. */
+export function currentStepEndAt(program: RuntimeTimerProgram, position: TimelinePosition): number {
+  const elapsed = program.mode === 'pattern'
+    ? patternDurationSeconds(program) * 1_000
+    : program.mode === 'unified'
+      ? program.steps.slice(0, (position.currentStepIndex ?? 0) + 1).reduce((sum, step) => sum + step.durationSeconds * 1_000, 0)
+      : program.steps.slice(0, (position.currentStepIndex ?? 0) + 1).reduce((sum, step) => sum + sequenceStepDurationSeconds(step) * 1_000, 0)
+  return position.anchor + position.cycleIndex * programCycleDurationMs(program) + elapsed
+}
+
+export function hasFollowingStep(program: RuntimeTimerProgram, position: TimelinePosition | null, runEndsAt: number): boolean {
+  return !!position && (runEndsAt <= 0 || currentStepEndAt(program, position) < runEndsAt)
+}
+
 export function runEndAt(program: RuntimeTimerProgram, anchor: number, startedAt: number): number | null {
   if (program.mode === 'unified') return unifiedRunEndAt(program, anchor, startedAt)
   if (program.runPolicy.kind === 'continuous') return null

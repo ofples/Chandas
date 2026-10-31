@@ -3,11 +3,11 @@ import { Fragment, useEffect, useMemo, useRef } from 'react'
 import { Animated as RNAnimated, Pressable, StyleSheet, Text, View } from 'react-native'
 import Svg, { Circle } from 'react-native-svg'
 import Animated, { FadeIn } from 'react-native-reanimated'
-import type { TimerProgram } from '../../../types'
+import type { RuntimeTimerProgram, UnifiedSubBellTrack } from '../../../types'
 import type { TimelinePosition } from '../../../lib/timeline'
 import { cueSegmentProgress } from '../../../lib/timeline'
 import { subBellColorValue } from '../../../lib/subBellColors'
-import { patternDurationSeconds, trackEventOffsetsSeconds } from '../../../lib/timerV2'
+import { patternDurationSeconds, randomTrackOffsetsSeconds, trackEventOffsetsSeconds } from '../../../lib/timerV2'
 import { useTheme } from '../../../theme/ThemeContext'
 
 export interface TimerWatchfaceModel {
@@ -22,7 +22,7 @@ export interface TimerWatchfaceModel {
 }
 
 interface Props {
-  program: TimerProgram
+  program: RuntimeTimerProgram
   position: TimelinePosition | null
   progress: number
   eventPulse: number
@@ -61,7 +61,7 @@ export function TimerWatchface({ program, position, progress, eventPulse, size, 
   </Pressable>
 }
 
-export function TimerWatchfaceRings({ size, progress, position, program, muted, eventPulse, edgeToEdge = false, flashOnMount = false }: { size: number; progress: number; position: TimelinePosition | null; program: TimerProgram; muted: boolean; eventPulse: number; edgeToEdge?: boolean; flashOnMount?: boolean }) {
+export function TimerWatchfaceRings({ size, progress, position, program, muted, eventPulse, edgeToEdge = false, flashOnMount = false }: { size: number; progress: number; position: TimelinePosition | null; program: RuntimeTimerProgram; muted: boolean; eventPulse: number; edgeToEdge?: boolean; flashOnMount?: boolean }) {
   const { tokens, theme } = useTheme()
   const reducedMotion = useAppReducedMotion()
   const flash = useRef(new RNAnimated.Value(0)).current
@@ -80,26 +80,38 @@ export function TimerWatchfaceRings({ size, progress, position, program, muted, 
   // Cue positions change with the program or cycle, but not with each visible
   // countdown second. Keep random offset generation out of the display tick.
   const patternTracks = useMemo(() => {
-    if (program.mode !== 'pattern' || !program.subBellsEnabled) return []
-    const mainSeconds = patternDurationSeconds(program)
-    return program.tracks.flatMap((track, index) => {
-      if (!track.enabled || track.showOnWatchFace === false) return []
-      const offsets = trackEventOffsetsSeconds(track, mainSeconds, position?.cycleIndex ?? 0, position?.randomSeed ?? 0)
+    if (program.mode === 'pattern') {
+      if (!program.subBellsEnabled) return []
+      const mainSeconds = patternDurationSeconds(program)
+      return program.tracks.flatMap((track, index) => {
+        if (!track.enabled || track.showOnWatchFace === false) return []
+        const offsets = trackEventOffsetsSeconds(track, mainSeconds, position?.cycleIndex ?? 0, position?.randomSeed ?? 0)
+        return offsets.length > 0 ? [{ track, index, offsets }] : []
+      })
+    }
+    if (program.mode !== 'unified') return []
+    const step = program.steps[position?.currentStepIndex ?? 0]
+    if (!step?.subBellsEnabled) return []
+    const mainSeconds = step.durationSeconds
+    return step.subBellTracks.flatMap((track, index) => {
+      if (!track.enabled || !track.showOnWatchFace) return []
+      const offsets = unifiedTrackOffsets(track, mainSeconds, position?.cycleIndex ?? 0, position?.randomSeed ?? 0)
       return offsets.length > 0 ? [{ track, index, offsets }] : []
     })
-  }, [program, position?.cycleIndex, position?.randomSeed])
+  }, [program, position?.cycleIndex, position?.currentStepIndex, position?.randomSeed])
   const rings = useMemo(() => {
     if (program.mode === 'sequence') return [{ progress: position?.stepProgress ?? progress, stroke: tokens.accent, background: tokens.surfaceHi, backgroundOpacity: 1 }]
-    const mainSeconds = patternDurationSeconds(program)
-    const elapsedSeconds = Math.max(0, Math.min(mainSeconds, progress * mainSeconds))
+    const mainSeconds = program.mode === 'pattern' ? patternDurationSeconds(program) : program.steps[position?.currentStepIndex ?? 0]?.durationSeconds ?? 1
+    const stepProgress = program.mode === 'unified' ? position?.stepProgress ?? progress : progress
+    const elapsedSeconds = Math.max(0, Math.min(mainSeconds, stepProgress * mainSeconds))
     return [
-      { progress, stroke: tokens.accent, background: tokens.surfaceHi, backgroundOpacity: 1 },
+      { progress: stepProgress, stroke: tokens.accent, background: tokens.surfaceHi, backgroundOpacity: 1 },
       ...patternTracks.map(({ track, index, offsets }) => {
         const stroke = subBellColorValue(track.color, index, theme === 'eink')
         return { progress: cueSegmentProgress(offsets, mainSeconds, elapsedSeconds), stroke, background: stroke, backgroundOpacity: 0.17 }
       }),
     ]
-  }, [position?.stepProgress, program, progress, theme, tokens.accent, tokens.surfaceHi, patternTracks])
+  }, [position?.currentStepIndex, position?.stepProgress, program, progress, theme, tokens.accent, tokens.surfaceHi, patternTracks])
   return <View style={StyleSheet.absoluteFill}>
     {theme !== 'eink' ? <RNAnimated.View style={[styles.flash, { width: size, height: size, borderRadius: size / 2, backgroundColor: tokens.accent, opacity: flash, pointerEvents: 'none' }]} /> : null}
     <Svg width={size} height={size} viewBox="0 0 200 200" style={styles.svg}>
@@ -109,6 +121,14 @@ export function TimerWatchfaceRings({ size, progress, position, program, muted, 
       })}
     </Svg>
   </View>
+}
+
+function unifiedTrackOffsets(track: UnifiedSubBellTrack, durationSeconds: number, roundIndex: number, randomSeed: number): number[] {
+  const offsets = track.repeatEnabled ? [...track.selectedOffsetsSeconds] : []
+  if (track.randomRepeat) offsets.push(...randomTrackOffsetsSeconds(track.id, track.randomRepeat, durationSeconds, roundIndex, randomSeed))
+  if (track.afterStartSeconds !== undefined) offsets.push(track.afterStartSeconds)
+  if (track.beforeEndSeconds !== undefined) offsets.push(durationSeconds - track.beforeEndSeconds)
+  return [...new Set(offsets.filter(value => Number.isSafeInteger(value) && value > 0 && value < durationSeconds))].sort((left, right) => left - right)
 }
 
 const AnimatedCircle = RNAnimated.createAnimatedComponent(Circle)

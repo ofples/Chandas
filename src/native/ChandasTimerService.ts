@@ -168,6 +168,8 @@ export interface NativeTimerCapabilities {
   supportsFloatingOverlay?: boolean
   supportsRandomRepeat?: boolean
   supportsStepAlarms?: boolean
+  supportsUnifiedSteps?: boolean
+  supportsStepSubBells?: boolean
   supportsTransportControls?: boolean
   supportsUnlimitedSounds?: boolean
 }

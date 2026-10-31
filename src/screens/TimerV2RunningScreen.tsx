@@ -5,9 +5,11 @@ import Slider from '@react-native-community/slider'
 import Svg, { Line } from 'react-native-svg'
 import Animated, { FadeIn, FadeInDown, FadeOut, ZoomIn } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import type { AlarmBehavior, CueSettings, ProgramPreset, TimerProgram } from '../types'
-import type { TimelinePosition } from '../lib/timeline'
-import { cueSegmentProgress, programCycleDurationMs } from '../lib/timeline'
+import type { AlarmBehavior, CueSettings, ProgramPreset, RuntimeTimerProgram, UnifiedTimerProgram } from '../types'
+import type { UnifiedTimerConfig } from '../lib/unified-config-state'
+import type { TimelineCueCandidate, TimelinePosition } from '../lib/timeline'
+import { cueSegmentProgress, hasFollowingStep, programCycleDurationMs } from '../lib/timeline'
+import { unifiedCueIdentity } from '../lib/unified-timeline'
 import { AlarmIcon, ClockIcon, FocusIcon, MixerIcon, RestartIcon, TimerTransportIcon, VolumeIcon } from '../components/Icons'
 import { Chip } from '../components/Chip'
 import { CustomMinutePicker } from '../components/CustomMinutePicker'
@@ -25,14 +27,14 @@ import { SheetTextButton } from '../components/timer-v2/SheetTextButton'
 import { selectionHaptic, tapHaptic } from '../lib/haptics'
 import { SheetSectionTitle } from '../components/timer-v2/SheetSectionTitle'
 import { ScrollEdgeFade } from '../components/timer-v2/ScrollEdgeFade'
-import { formatCompactDurationSeconds, patternDurationSeconds, sequenceStepDurationSeconds } from '../lib/timerV2'
+import { formatCompactDurationSeconds, patternDurationSeconds, sequenceStepDurationSeconds, randomTrackOffsetsSeconds } from '../lib/timerV2'
 import { formatCountdown } from '../lib/snapLogic'
 import { formatEventLocalTime } from '../lib/upcoming-events'
 import { TimerWatchface, type TimerWatchfaceModel } from '../components/timer-v2/running/TimerWatchface'
 import { TimerControlButton } from '../components/timer-v2/running/TimerControlButton'
 
 interface Props {
-  program: TimerProgram
+  program: RuntimeTimerProgram
   mainCountdown: string
   nextCueCountdown: string
   nextCueLabel: string
@@ -73,7 +75,7 @@ interface Props {
   focusReason: string
   onToggleFocus: () => void
   onOpenFocusSettings: () => void
-  configurations: ProgramPreset[]
+  configurations: Array<ProgramPreset | UnifiedTimerConfig>
   activeConfigurationId?: string
   configurationName?: string
   onSelectConfiguration: (presetId: string) => Promise<boolean>
@@ -126,31 +128,34 @@ export function TimerV2RunningScreen(props: Props) {
   const nextAudibleSummary = props.nextAudibleAt > Date.now()
     ? `${props.nextAudibleLabel} · ${formatEventLocalTime(props.nextAudibleAt)}`
     : null
-  const sequenceIndex = props.program.mode === 'sequence' ? props.position?.currentStepIndex ?? 0 : 0
-  const sequenceLength = props.program.mode === 'sequence' ? props.program.steps.length : 0
-  const currentStep = props.program.mode === 'sequence' ? props.program.steps[sequenceIndex] : null
-  const nextStep = props.program.mode === 'sequence' && !props.position?.nextEvent?.completesRun ? props.program.steps[(sequenceIndex + 1) % props.program.steps.length] : null
-  const nextCueColor = props.program.mode === 'pattern'
-    ? subBellColorValue(props.program.tracks.find(track => track.id === props.position?.nextEvent?.winner.cueId)?.color, Math.max(0, props.program.tracks.findIndex(track => track.id === props.position?.nextEvent?.winner.cueId)), theme === 'eink')
-    : tokens.accent
+  const unified = props.program.mode === 'unified'
+  const steps = props.program.mode === 'unified' || props.program.mode === 'sequence' ? props.program.steps : []
+  const multiStep = props.program.mode === 'sequence' || (unified && steps.length > 1)
+  const sequenceIndex = multiStep ? props.position?.currentStepIndex ?? 0 : 0
+  const sequenceLength = multiStep ? steps.length : 0
+  const currentStep = multiStep ? steps[sequenceIndex] : null
+  const oneStepUnified = unified && steps.length === 1
+  const followsStep = hasFollowingStep(props.program, props.position, props.runEndsAt)
+  const nextStep = multiStep && followsStep ? steps[(sequenceIndex + 1) % steps.length] : null
+  const nextCueColor = nextTrackColor(props.program, props.position?.nextEvent?.winner, theme === 'eink', tokens.accent)
   const enhancedClockAlignmentSupported = !isNativeServiceAvailable || ChandasTimerService.getCapabilities()?.supportsProgramClockAlignment === true
-  const clockAlignmentAvailable = props.program.mode === 'pattern'
-    ? patternDurationSeconds(props.program) % 60 === 0 || enhancedClockAlignmentSupported
-    : enhancedClockAlignmentSupported
   const cycleDurationSeconds = programCycleDurationMs(props.program) / 1_000
+  const clockAlignmentAvailable = props.program.mode === 'pattern' || oneStepUnified
+    ? cycleDurationSeconds % 60 === 0 || enhancedClockAlignmentSupported
+    : enhancedClockAlignmentSupported
   const watchfaceModel: TimerWatchfaceModel = {
     mainLabel,
-    mainCaption: props.isPaused ? 'Paused' : endsBeforeResume ? 'session ends quietly' : props.activeHoursPaused ? (hasResume ? 'Quiet until' : 'Schedule is quiet') : props.program.mode === 'sequence' ? `step ${sequenceIndex + 1} of ${sequenceLength}` : undefined,
-    nextLabel: props.activeHoursPaused && nextAudibleSummary ? 'NEXT AUDIBLE' : !props.activeHoursPaused && props.program.mode === 'sequence' && nextStep ? 'NEXT' : undefined,
+    mainCaption: props.isPaused ? 'Paused' : endsBeforeResume ? 'session ends quietly' : props.activeHoursPaused ? (hasResume ? 'Quiet until' : 'Schedule is quiet') : multiStep ? `step ${sequenceIndex + 1} of ${sequenceLength}` : undefined,
+    nextLabel: props.activeHoursPaused && nextAudibleSummary ? 'NEXT AUDIBLE' : !props.activeHoursPaused && multiStep && nextStep ? 'NEXT' : undefined,
     nextName: props.activeHoursPaused && nextAudibleSummary
       ? nextAudibleSummary
-      : !props.activeHoursPaused && props.program.mode === 'pattern' && props.position?.nextEvent?.boundary !== 'pattern-main'
+      : !props.activeHoursPaused && (props.program.mode === 'pattern' || oneStepUnified) && props.position?.nextEvent?.boundary !== 'pattern-main'
         ? props.nextCueLabel
-        : !props.activeHoursPaused && props.program.mode === 'sequence' && nextStep
-          ? `${nextStep.label} · ${formatCompactDurationSeconds(sequenceStepDurationSeconds(nextStep))}`
+        : !props.activeHoursPaused && multiStep && nextStep
+          ? `${nextStep.label} · ${formatCompactDurationSeconds(runningStepDurationSeconds(nextStep))}`
           : undefined,
-    nextTime: !props.activeHoursPaused && props.program.mode === 'pattern' && props.position?.nextEvent?.boundary !== 'pattern-main' ? props.nextCueCountdown : undefined,
-    nextColor: !props.activeHoursPaused && props.program.mode === 'pattern' ? nextCueColor : tokens.text,
+    nextTime: !props.activeHoursPaused && (props.program.mode === 'pattern' || oneStepUnified) && props.position?.nextEvent?.boundary !== 'pattern-main' ? props.nextCueCountdown : undefined,
+    nextColor: !props.activeHoursPaused && (props.program.mode === 'pattern' || oneStepUnified) ? nextCueColor : tokens.text,
     muted,
     runtimeMuted,
   }
@@ -176,19 +181,19 @@ export function TimerV2RunningScreen(props: Props) {
   return <View style={[styles.screen, { backgroundColor: tokens.bg, paddingTop: insets.top }]}>
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 140 }]}>
       <Animated.View pointerEvents={controlsVisible ? 'auto' : 'none'} importantForAccessibility={controlsVisible ? 'auto' : 'no-hide-descendants'} accessibilityElementsHidden={!controlsVisible} style={[styles.topline, { opacity: controlsVisible ? 1 : 0 }]}>
-        <Pressable disabled={props.configurations.length === 0} onPress={() => setConfigurationPickerOpen(true)} style={styles.configurationTitle} accessibilityRole={props.configurations.length ? 'button' : undefined} accessibilityLabel={props.configurations.length ? 'Switch saved configuration' : undefined}><View style={styles.configurationCopy}><View style={styles.configurationNameRow}><Text numberOfLines={1} style={[styles.stepTitle, { color: tokens.text }]}>{props.configurationName ?? (props.program.mode === 'pattern' ? props.program.label : 'Sequence')}</Text>{props.configurations.length ? <Text accessible={false} style={[styles.configurationChevron, { color: tokens.accent }]}>›</Text> : null}</View>{props.program.mode === 'sequence' && currentStep ? <Text numberOfLines={1} style={[styles.configurationStep, { color: tokens.textMuted }]}>{currentStep.label}</Text> : null}</View></Pressable>
+        <Pressable disabled={props.configurations.length === 0} onPress={() => setConfigurationPickerOpen(true)} style={styles.configurationTitle} accessibilityRole={props.configurations.length ? 'button' : undefined} accessibilityLabel={props.configurations.length ? 'Switch saved configuration' : undefined}><View style={styles.configurationCopy}><View style={styles.configurationNameRow}><Text numberOfLines={1} style={[styles.stepTitle, { color: tokens.text }]}>{props.configurationName ?? (props.program.mode === 'pattern' ? props.program.label : props.program.mode === 'unified' && !multiStep ? props.program.steps[0]?.label ?? 'Timer' : 'Timer')}</Text>{props.configurations.length ? <Text accessible={false} style={[styles.configurationChevron, { color: tokens.accent }]}>›</Text> : null}</View>{multiStep && currentStep ? <Text numberOfLines={1} style={[styles.configurationStep, { color: tokens.textMuted }]}>{currentStep.label}</Text> : null}</View></Pressable>
         <View style={styles.topRight}>{props.realigning ? <Animated.View entering={FadeIn.duration(120)} exiting={FadeOut.duration(100)} style={styles.syncing}><ActivityIndicator size="small" color={tokens.accent} /><Text style={[styles.focusStatus, { color: tokens.textMuted }]}>UPDATING</Text></Animated.View> : null}{focusPaused ? <Animated.Text entering={FadeIn.duration(160)} exiting={FadeOut.duration(120)} style={[styles.focusStatus, { color: tokens.warm }]}>FOCUS PAUSED</Animated.Text> : null}<Pressable hitSlop={7} onPressIn={() => { helpLongPressed.current = false }} onLongPress={() => { helpLongPressed.current = true; showTooltip('Open Timer help') }} onPressOut={() => setTimeout(() => { helpLongPressed.current = false }, 0)} onPress={() => { if (!helpLongPressed.current) { tapHaptic(); setHelpOpen(true) } }} style={({ pressed }) => [styles.helpButton, { borderColor: tokens.border, transform: [{ scale: pressed && !reducedMotion ? 0.94 : 1 }] }]} accessibilityRole="button" accessibilityLabel="Timer help"><Text style={[styles.helpGlyph, { color: tokens.accent }]}>?</Text></Pressable></View>
       </Animated.View>
 
       <Pressable onPress={() => { if (controlsVisible) setControlsVisible(false) }} accessibilityRole="button" accessibilityLabel={controlsVisible ? 'Hide timer controls' : 'Show timer controls'} accessibilityHint={controlsVisible ? 'Hides timer controls and leaves the running timer visible' : 'Shows timer controls'} style={[styles.visualStage, { minHeight: size + 164 }]}>
         <View style={[styles.timerStack, { height: size + 144 }]}>
         <Animated.View entering={reducedMotion ? undefined : ZoomIn.duration(260)}>
-          <TimerWatchface program={props.program} position={props.position} progress={props.progress} eventPulse={props.eventPulse} size={size} model={watchfaceModel} onPress={() => setControlsVisible(value => !value)} accessibilityLabel={controlsVisible ? 'Hide timer controls' : 'Show timer controls'} />
+          <TimerWatchface program={props.program} position={props.position} progress={unified ? props.position?.stepProgress ?? props.progress : props.progress} eventPulse={props.eventPulse} size={size} model={watchfaceModel} onPress={() => setControlsVisible(value => !value)} accessibilityLabel={controlsVisible ? 'Hide timer controls' : 'Show timer controls'} />
         </Animated.View>
         <View pointerEvents={controlsVisible ? 'auto' : 'none'} importantForAccessibility={controlsVisible ? 'auto' : 'no-hide-descendants'} style={[styles.transport, { top: size + 4, opacity: controlsVisible ? 1 : 0 }]}>
-          {props.program.mode === 'sequence' ? <TimerControlButton size={48} filled label="Previous step" tooltip="Skip to previous step" disabled={props.isAlarmRinging || props.realigning || (sequenceIndex === 0 && props.position?.cycleIndex === 0 && props.runEndsAt > 0)} onPress={() => props.onSkipStep('previous')}><TimerTransportIcon kind="previous" color={tokens.accent} /></TimerControlButton> : null}
+          {multiStep ? <TimerControlButton size={48} filled label="Previous step" tooltip="Skip to previous step" disabled={props.isAlarmRinging || props.realigning || (sequenceIndex === 0 && props.position?.cycleIndex === 0 && props.runEndsAt > 0)} onPress={() => props.onSkipStep('previous')}><TimerTransportIcon kind="previous" color={tokens.accent} /></TimerControlButton> : null}
           <TimerControlButton size={48} filled label={props.isPaused ? 'Resume timer' : 'Pause timer'} tooltip={props.isPaused ? 'Resume timer' : 'Pause timer'} active={props.isPaused} disabled={props.isAlarmRinging || props.realigning} onPress={() => props.onSetPaused(!props.isPaused)}><TimerTransportIcon kind={props.isPaused ? 'play' : 'pause'} color={tokens.accent} /></TimerControlButton>
-          {props.program.mode === 'sequence' ? <TimerControlButton size={48} filled label={sequenceIndex === sequenceLength - 1 && props.position?.nextEvent?.completesRun ? 'Finish run' : 'Next step'} tooltip="Skip to next step" disabled={props.isAlarmRinging || props.realigning} onPress={() => props.onSkipStep('next')}><TimerTransportIcon kind="next" color={tokens.accent} /></TimerControlButton> : null}
+          {multiStep ? <TimerControlButton size={48} filled label={!followsStep ? 'Finish run' : 'Next step'} tooltip="Skip to next step" disabled={props.isAlarmRinging || props.realigning} onPress={() => props.onSkipStep('next')}><TimerTransportIcon kind="next" color={tokens.accent} /></TimerControlButton> : null}
         </View>
         {controlsVisible ? <View style={[styles.statusSlot, { top: size + 64 }]}>
           {props.runEndsAt > 0 ? <Animated.View entering={FadeIn.duration(150)} style={styles.runProgressBlock}>
@@ -207,8 +212,8 @@ export function TimerV2RunningScreen(props: Props) {
       <View style={styles.controls}>
         <TimerControlButton label="Reset interval" tooltip={props.program.alignment.kind === 'local-clock' ? 'Unsnap from clock and reset the cycle' : 'Reset the cycle'} disabled={props.realigning} onPress={props.onRestartUnsynced} onTooltip={showTooltip}><RestartIcon color={tokens.accent} /></TimerControlButton>
         {clockAlignmentAvailable ? <TimerControlButton label="Snap to clock" tooltip="Snap the repeating cycle to the clock" active={props.program.alignment.kind === 'local-clock'} disabled={props.realigning} onPress={() => setSnapOpen(true)} onTooltip={showTooltip}><ClockIcon color={tokens.accent} /></TimerControlButton> : null}
-        {props.showAdvancedControls && props.program.mode === 'pattern' ? <TimerControlButton label={props.alarmBehavior === 'locked' ? 'Alarm locked' : props.alarmBehavior === 'once' ? 'Next main gong alarm' : 'Alarm off'} tooltip="Tap once to enable the alarm at the end of the current main interval. Tap twice to enable it for every main interval." active={props.alarmBehavior !== 'off'} badge={props.alarmBehavior === 'locked' ? '∞' : props.alarmBehavior === 'once' ? '1' : undefined} onPress={props.onPressAlarm} onTooltip={showTooltip}><AlarmIcon color={props.alarmBehavior !== 'off' ? tokens.accent : tokens.textMuted} /></TimerControlButton> : null}
-        {currentStep ? <TimerControlButton label={`${currentStep.alarmEnabled ? 'Turn off' : 'Turn on'} alarm for ${currentStep.label}`} tooltip="Toggle the alarm at this step's end, including future rounds of this run." active={currentStep.alarmEnabled === true} onPress={props.onToggleCurrentStepAlarm} onTooltip={showTooltip}><AlarmIcon color={currentStep.alarmEnabled ? tokens.accent : tokens.textMuted} /></TimerControlButton> : null}
+        {props.showAdvancedControls && (props.program.mode === 'pattern' || oneStepUnified) ? <TimerControlButton label={props.alarmBehavior === 'locked' ? 'Alarm locked' : props.alarmBehavior === 'once' ? 'Next main gong alarm' : 'Alarm off'} tooltip="Tap once to enable the alarm at the end of the current main interval. Tap twice to enable it for every main interval." active={props.alarmBehavior !== 'off'} badge={props.alarmBehavior === 'locked' ? '∞' : props.alarmBehavior === 'once' ? '1' : undefined} onPress={props.onPressAlarm} onTooltip={showTooltip}><AlarmIcon color={props.alarmBehavior !== 'off' ? tokens.accent : tokens.textMuted} /></TimerControlButton> : null}
+        {multiStep && currentStep ? <TimerControlButton label={`${stepAlarmEnabled(currentStep) ? 'Turn off' : 'Turn on'} alarm for ${currentStep.label}`} tooltip="Toggle the alarm at this step's end, including future rounds of this run." active={stepAlarmEnabled(currentStep)} onPress={props.onToggleCurrentStepAlarm} onTooltip={showTooltip}><AlarmIcon color={stepAlarmEnabled(currentStep) ? tokens.accent : tokens.textMuted} /></TimerControlButton> : null}
         {props.showAdvancedControls && Platform.OS === 'android' ? <TimerControlButton label="Chandas Focus" tooltip={!props.focusPolicyAccess ? 'Set up Android Do Not Disturb access' : focusPaused ? 'Chandas Focus was paused in Android settings' : props.focusEnabled ? 'Turn off Chandas Focus automation' : 'Let Chandas manage its own Do Not Disturb rule'} active={props.focusEnabled && props.focusPolicyAccess && !focusPaused} onPress={!props.focusPolicyAccess || props.focusReason === 'rule-disabled' ? props.onOpenFocusSettings : props.onToggleFocus} onTooltip={showTooltip}><FocusIcon color={props.focusEnabled && props.focusPolicyAccess && !focusPaused ? tokens.accent : tokens.textMuted} /></TimerControlButton> : null}
         <View style={styles.spacer} />
         <TimerControlButton label="Sound and mute" tooltip="Open volume, mixer and mute controls" active={mixerOpen || muted} onPress={() => setMixerOpen(true)} onTooltip={showTooltip}><VolumeIcon muted={muted} color={mixerOpen || muted ? tokens.accent : tokens.textMuted} /></TimerControlButton>
@@ -223,7 +228,7 @@ export function TimerV2RunningScreen(props: Props) {
     {customMute ? <CustomMinutePicker title="Mute duration" initial={15} initialSeconds={15 * 60} secondPrecision={props.secondPrecision} min={1} max={1440} minSeconds={1} maxSeconds={86_400} onConfirm={minutes => { props.onMuteForSeconds(minutes * 60); setCustomMute(false) }} onConfirmSeconds={seconds => { props.onMuteForSeconds(seconds); setCustomMute(false) }} onClose={() => setCustomMute(false)} /> : null}
     <TimerHelpSheet
       visible={helpOpen}
-      mode={props.program.mode}
+      mode={multiStep ? 'sequence' : 'pattern'}
       clockAlignmentVisible={clockAlignmentAvailable}
       advancedModeEnabled={props.showAdvancedControls}
       onShowAdvanced={props.onShowAdvancedControls}
@@ -272,14 +277,21 @@ function BoundedRunBar({ width, progress, segments, muted }: { width: number; pr
 
 const AnimatedLine = RNAnimated.createAnimatedComponent(Line)
 
-function RunningMixerSheet({ visible, onClose, program, masterVolume, onMasterVolumeChange, onCueVolumeChange, mute, onMuteIterations, onClearMute, onCustom }: { visible: boolean; onClose: () => void; program: TimerProgram; masterVolume: number; onMasterVolumeChange: (value: number) => void; onCueVolumeChange: (cueId: string, value: number) => void; mute: RuntimeMuteState; onMuteIterations: (count: number) => void; onClearMute: () => void; onCustom: () => void }) {
+function RunningMixerSheet({ visible, onClose, program, masterVolume, onMasterVolumeChange, onCueVolumeChange, mute, onMuteIterations, onClearMute, onCustom }: { visible: boolean; onClose: () => void; program: RuntimeTimerProgram; masterVolume: number; onMasterVolumeChange: (value: number) => void; onCueVolumeChange: (cueId: string, value: number) => void; mute: RuntimeMuteState; onMuteIterations: (count: number) => void; onClearMute: () => void; onCustom: () => void }) {
   const { tokens } = useTheme()
   const reducedMotion = useAppReducedMotion()
   const [previewError, setPreviewError] = useState<string | null>(null)
   const [channelsOpen, setChannelsOpen] = useState(false)
   useEffect(() => { if (!visible) setChannelsOpen(false) }, [visible])
   const muted = Boolean(mute.iteration) || mute.mutedUntil > Date.now()
-  const channels: { id: string; title: string; cue: CueSettings }[] = program.mode === 'pattern' ? [{ id: 'main', title: 'Main gong', cue: program.mainCue }, ...program.tracks.map(track => ({ id: track.id, title: track.label, cue: track }))] : program.steps.map((step, index) => ({ id: step.id, title: `${index + 1}. ${step.label}`, cue: step }))
+  const channels: { id: string; title: string; cue: CueSettings }[] = program.mode === 'pattern'
+    ? [{ id: 'main', title: 'Main gong', cue: program.mainCue }, ...program.tracks.map(track => ({ id: track.id, title: track.label, cue: track }))]
+    : program.mode === 'sequence'
+      ? program.steps.map((step, index) => ({ id: step.id, title: `${index + 1}. ${step.label}`, cue: step }))
+      : program.steps.flatMap((step, index) => [
+        { id: unifiedCueIdentity(step.id), title: `${index + 1}. ${step.label}`, cue: step.endCue },
+        ...step.subBellTracks.map(track => ({ id: unifiedCueIdentity(step.id, track.id), title: `${index + 1}. ${track.label}`, cue: track })),
+      ])
   if (program.runPolicy.kind !== 'continuous' && program.completionCue) channels.push({ id: '__chandas_completion__', title: 'End gong', cue: program.completionCue })
   const preview = async (title: string, cue: CueSettings) => {
     setPreviewError(null)
@@ -338,22 +350,46 @@ function SnapSheet({ visible, cycleDurationSeconds, current, onSelect, onClose }
   </BottomSheet>
 }
 
-function ConfigurationPickerSheet({ visible, configurations, activeId, selectingId, onSelect, onClose }: { visible: boolean; configurations: ProgramPreset[]; activeId?: string; selectingId: string | null; onSelect: (id: string) => Promise<void>; onClose: () => void }) {
+function ConfigurationPickerSheet({ visible, configurations, activeId, selectingId, onSelect, onClose }: { visible: boolean; configurations: Array<ProgramPreset | UnifiedTimerConfig>; activeId?: string; selectingId: string | null; onSelect: (id: string) => Promise<void>; onClose: () => void }) {
   const { tokens } = useTheme()
   return <BottomSheet visible={visible} title="Switch configuration" help="Switching begins this saved timer from now. Only configurations marked Show while running appear here." onClose={onClose}>
     {configurations.map(preset => <Pressable key={preset.id} disabled={Boolean(selectingId)} onPress={() => void onSelect(preset.id)} style={[styles.configurationRow, { borderColor: preset.id === activeId ? tokens.accent : tokens.border, backgroundColor: preset.id === activeId ? tokens.accentGlow : 'transparent', opacity: selectingId && selectingId !== preset.id ? 0.45 : 1 }]} accessibilityRole="button" accessibilityState={{ selected: preset.id === activeId, busy: selectingId === preset.id }} accessibilityLabel={`Switch to ${preset.name}`}><View style={styles.configurationCopy}><Text numberOfLines={1} style={[styles.channelTitle, { color: tokens.text }]}>{preset.name}</Text><Text numberOfLines={2} style={[styles.channelSound, { color: tokens.textMuted }]}>{runningConfigurationDescription(preset)}</Text></View>{selectingId === preset.id ? <ActivityIndicator size="small" color={tokens.accent} /> : preset.id === activeId ? <Text style={[styles.configurationCurrent, { color: tokens.accent }]}>CURRENT</Text> : null}</Pressable>)}
   </BottomSheet>
 }
 
-function runningConfigurationDescription(preset: ProgramPreset): string {
+function runningConfigurationDescription(preset: ProgramPreset | UnifiedTimerConfig): string {
   const base = preset.program.mode === 'pattern'
     ? `Cycle · ${formatCompactDurationSeconds(patternDurationSeconds(preset.program))}`
-    : `Sequence · ${preset.program.steps.length} ${preset.program.steps.length === 1 ? 'step' : 'steps'}`
+    : preset.program.mode === 'sequence'
+      ? `Sequence · ${preset.program.steps.length} ${preset.program.steps.length === 1 ? 'step' : 'steps'}`
+      : `Timer · ${preset.program.steps.length} ${preset.program.steps.length === 1 ? 'step' : 'steps'}`
   if (!preset.settings) return `${base} · keeps current settings`
   if (!preset.settings?.availability.enabled) return `${base} · schedule off`
   const active = preset.settings.availability.weeklyWindows.filter(window => window.enabled && window.days !== 0 && window.behavior !== 'mute').length
   const quiet = preset.settings.availability.weeklyWindows.filter(window => window.enabled && window.days !== 0 && window.behavior === 'mute').length
   return `${base} · ${active} active ${active === 1 ? 'range' : 'ranges'}${quiet ? ` · ${quiet} quiet` : ''}`
+}
+
+function stepAlarmEnabled(step: { alarmEnabled?: boolean; endAlarmEnabled?: boolean }): boolean {
+  return step.endAlarmEnabled === true || step.alarmEnabled === true
+}
+
+function runningStepDurationSeconds(step: { durationSeconds?: number; durationMinutes?: number }): number {
+  return step.durationSeconds ?? (step.durationMinutes ?? 1) * 60
+}
+
+function nextTrackColor(program: RuntimeTimerProgram, winner: TimelineCueCandidate | undefined, eink: boolean, fallback: string): string {
+  if (!winner) return fallback
+  if (program.mode === 'pattern') {
+    const index = program.tracks.findIndex(track => track.id === winner.cueId)
+    return subBellColorValue(program.tracks[index]?.color, Math.max(0, index), eink)
+  }
+  if (program.mode === 'unified' && winner.trackId) {
+    const step = program.steps.find(value => value.id === winner.stepId)
+    const index = step?.subBellTracks.findIndex(track => track.id === winner.trackId) ?? -1
+    return subBellColorValue(index >= 0 ? step?.subBellTracks[index]?.color : undefined, Math.max(0, index), eink)
+  }
+  return fallback
 }
 
 const styles = StyleSheet.create({

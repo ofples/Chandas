@@ -43,7 +43,7 @@ export function ConfirmationProvider({ children }: { children: ReactNode }) {
 
   return <ConfirmationContext.Provider value={confirm}>
     {children}
-    <Modal visible={request !== null} transparent animationType={theme === 'eink' ? 'none' : 'fade'} onRequestClose={() => finish(false)} statusBarTranslucent accessibilityViewIsModal>
+    {request ? <Modal visible transparent animationType={theme === 'eink' ? 'none' : 'fade'} onRequestClose={() => finish(false)} statusBarTranslucent accessibilityViewIsModal>
       <View style={[styles.backdrop, { backgroundColor: theme === 'eink' ? tokens.bg : 'rgba(0,0,0,0.58)' }]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={() => finish(false)} accessibilityLabel="Cancel confirmation" />
         {request ? <View key={request.id} style={[styles.dialog, { backgroundColor: tokens.surface, borderColor: tokens.border }]} accessibilityRole="alert">
@@ -55,7 +55,7 @@ export function ConfirmationProvider({ children }: { children: ReactNode }) {
           </View>
         </View> : null}
       </View>
-    </Modal>
+    </Modal> : null}
   </ConfirmationContext.Provider>
 }
 

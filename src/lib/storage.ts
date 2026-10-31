@@ -13,6 +13,7 @@ import {
   normalizeSoundRef,
 } from './timerV2'
 import { normalizeTimerHapticsSettings } from './haptic-profiles'
+import { legacySessionProgram } from './legacy-session-program'
 
 const CONFIG_KEY = 'chandas-config'
 const SESSION_KEY = 'chandas-session'
@@ -141,11 +142,7 @@ export async function loadTimerV2Session(): Promise<TimerV2Session | null> {
   try {
     const value = parseJson<Partial<TimerV2Session>>(await AsyncStorage.getItem(TIMER_V2_SESSION_KEY))
     if (!value || value.schemaVersion !== 2 || typeof value.anchor !== 'number' || !Number.isFinite(value.anchor) || value.anchor <= 0 || !value.program) return null
-    const program = value.program.mode === 'pattern'
-      ? normalizePatternProgram(value.program)
-      : value.program.mode === 'sequence'
-        ? normalizeSequenceProgram(value.program)
-        : null
+    const program = legacySessionProgram(value.program)
     if (!program) return null
     return {
       schemaVersion: 2,
@@ -178,7 +175,7 @@ export async function loadTimerV2Session(): Promise<TimerV2Session | null> {
 
 function sanitizeSoundState(value: unknown): Record<string, number> {
   if (!value || typeof value !== 'object') return {}
-  return Object.fromEntries(Object.entries(value).filter(([key, index]) => key.length <= 120 && typeof index === 'number' && Number.isInteger(index) && index >= 0))
+  return Object.fromEntries(Object.entries(value).filter(([key, index]) => key.length <= 512 && typeof index === 'number' && Number.isInteger(index) && index >= 0))
 }
 
 export async function clearTimerV2Session(): Promise<void> {

@@ -146,6 +146,8 @@ class ChandasTimerServiceModule : Module() {
         "supportsDualLiveCountdown" to true,
         "supportsProgramClockAlignment" to true,
         "supportsProgramSchema3" to true,
+        "supportsUnifiedSteps" to true,
+        "supportsStepSubBells" to true,
         "supportsFloatingOverlay" to (Build.VERSION.SDK_INT >= 26),
         "supportsRandomRepeat" to true,
         "supportsStepAlarms" to true,

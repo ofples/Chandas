@@ -92,12 +92,8 @@ internal object FloatingTimerActions {
 
   private fun toggleStepAlarm(context: Context, config: TimerConfig, stepId: String): Boolean {
     val serialized = config.timerV2Program ?: return false
-    val root = runCatching { JSONObject(serialized) }.getOrNull() ?: return false
-    if (root.optString("mode") != "sequence") return false
-    val steps = root.optJSONArray("steps") ?: return false
-    val step = (0 until steps.length()).mapNotNull { steps.optJSONObject(it) }.firstOrNull { it.optString("id") == stepId } ?: return false
-    step.put("alarmEnabled", !step.optBoolean("alarmEnabled", false))
-    val updated = root.toString().takeIf { it.length <= NativeTimerContract.MAX_PROGRAM_CHARACTERS && TimerV2Timeline.isValid(it) } ?: return false
+    val updated = UnifiedTimerOverlayProgram.toggleStepAlarm(serialized, stepId)
+      ?.takeIf { it.length <= NativeTimerContract.MAX_PROGRAM_CHARACTERS } ?: return false
     TimerScheduler.update(context, config.copy(timerV2Program = updated))
     return TimerStateStore.load(context)?.timerV2Program == updated
   }

@@ -51,7 +51,7 @@ export interface UnifiedTimerConfigScreenProps {
   onFeedback: (notice: Omit<AppNotice, 'id'>) => void
 }
 
-type ExtraAction = 'alignment' | 'run-length' | 'schedule' | 'haptics' | 'alarm' | 'focus' | 'notifications' | 'calls' | 'precision' | 'system' | 'device'
+type ExtraAction = 'alignment' | 'run-length' | 'schedule' | 'haptics' | 'alarm' | 'focus' | 'notifications' | 'calls' | 'precision' | 'running-controls' | 'system' | 'device'
 type CueTarget = { kind: 'step-end'; stepId: string } | { kind: 'track'; stepId: string; trackId: string } | { kind: 'alarm' } | { kind: 'completion' }
 type ModalKind = 'picker' | 'switch' | 'save-as' | null
 const ACTIONS: ReadonlyArray<{ id: ExtraAction; label: string }> = [
@@ -59,7 +59,7 @@ const ACTIONS: ReadonlyArray<{ id: ExtraAction; label: string }> = [
   { id: 'schedule', label: 'Schedule' }, { id: 'haptics', label: 'Haptics' },
   { id: 'alarm', label: 'Alarm settings' }, { id: 'focus', label: 'Focus' },
   { id: 'notifications', label: 'Notifications' }, { id: 'calls', label: 'Call mute' },
-  { id: 'precision', label: 'Seconds' }, { id: 'system', label: 'System access' }, { id: 'device', label: 'Device appearance' },
+  { id: 'precision', label: 'Seconds' }, { id: 'running-controls', label: 'Running controls' }, { id: 'system', label: 'System access' }, { id: 'device', label: 'Device appearance' },
 ]
 const DURATION_PRESETS = [1, 2, 3, 5, 10, 15, 20, 25, 30, 45, 60, 90, 120] as const
 const own = (object: object, key: PropertyKey) => Object.prototype.hasOwnProperty.call(object, key)
@@ -233,8 +233,9 @@ export function UnifiedTimerConfigScreen({ state, onCommand, onStart, starting, 
     if (transferBusy) return
     setTransferBusy(true)
     try {
-      await copyConfigurationText(serializeUnifiedConfiguration(config))
-      await saveConfigurationFile(configurationTransferFilename(config.name), serializeUnifiedConfiguration(config))
+      const exported = serializeUnifiedConfiguration(config)
+      await copyConfigurationText(exported)
+      await saveConfigurationFile(configurationTransferFilename(config.name), exported)
       onFeedback({ title: 'Configuration exported', message: `“${config.name}” is ready to share or save.`, tone: 'success' })
     } catch {
       onFeedback({ title: 'Could not export configuration', message: 'The setup remains saved. Try again in a moment.', tone: 'attention' })
@@ -247,7 +248,7 @@ export function UnifiedTimerConfigScreen({ state, onCommand, onStart, starting, 
   const previewEvent = nextProgramEvent(program, previewAnchor, previewAnchor, previewAnchor, previewTerminal)
 
   return <KeyboardAvoidingView testID="unified-config-screen" style={[styles.screen, { backgroundColor: tokens.bg }]} behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}>
-    {!sheetOpen ? <View style={[styles.closedSummary, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }]}><Text style={[styles.sectionTitle, { color: tokens.text }]}>{draft.name}</Text><Text style={[styles.helperText, { color: tokens.textMuted }]}>{program.steps.length} steps · {draft.dirty ? 'Draft changes saved' : 'Saved configuration'}</Text><SheetTextButton label="Continue editing" onPress={() => setSheetOpen(true)} /><Pressable testID="unified-config-start" disabled={!nativeSchemaReady || starting} onPress={() => { tapHaptic(); onStart() }} style={[styles.startButton, { backgroundColor: tokens.accent, opacity: !nativeSchemaReady || starting ? 0.5 : 1 }]}><Text style={[styles.startText, { color: '#fff' }]}>{starting ? 'Starting timer…' : 'Start timer'}</Text></Pressable></View> : null}
+    {!sheetOpen ? <View style={[styles.closedSummary, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }]}><Text style={[styles.sectionTitle, { color: tokens.text }]}>{draft.name}</Text><Text style={[styles.helperText, { color: tokens.textMuted }]}>{program.steps.length} steps · {draft.dirty ? 'Draft changes' : 'Saved configuration'}</Text><SheetTextButton label="Continue editing" onPress={() => setSheetOpen(true)} /><Pressable testID="unified-config-start" disabled={!nativeSchemaReady || starting} onPress={() => { tapHaptic(); onStart() }} style={[styles.startButton, { backgroundColor: tokens.accent, opacity: !nativeSchemaReady || starting ? 0.5 : 1 }]}><Text style={[styles.startText, { color: '#fff' }]}>{starting ? 'Starting timer…' : 'Start timer'}</Text></Pressable></View> : null}
     <DraggableSheet visible={mainVisible} title="Timer setup" testID="unified-config-main-sheet" initialSnap="full" onClose={() => { Keyboard.dismiss(); setSheetOpen(false) }} pinnedContent={<View style={[styles.pinned, { borderColor: tokens.border, paddingTop: insets.top > 0 ? 2 : 0 }]}>
       <View style={styles.nameLine}>
         {renameCurrent ? <TextInput testID="unified-config-name" accessibilityLabel="Timer configuration name" value={draftName} onChangeText={value => { const next = [...value].slice(0, 80).join(''); setDraftName(next); if (next.trim()) edit({ name: next }) }} onBlur={() => { const name = draftName.trim() || draft.name; setDraftName(name); edit({ name }); setRenameCurrent(false) }} placeholder="Name this timer" placeholderTextColor={tokens.textMuted} style={[styles.nameInput, { color: tokens.text, borderBottomColor: tokens.accent }]} returnKeyType="done" /> : <Pressable testID="unified-config-name" accessibilityLabel={`Choose configuration, current ${draft.name}`} accessibilityRole="button" onPress={() => setModal('picker')} style={styles.currentName}><Text numberOfLines={1} style={[styles.currentNameText, { color: tokens.text }]}>{draft.name}</Text><Text style={[styles.helperText, { color: tokens.textMuted }]}>{selectedConfig ? 'Saved configuration' : 'Unnamed draft'}</Text></Pressable>}
@@ -290,7 +291,7 @@ export function UnifiedTimerConfigScreen({ state, onCommand, onStart, starting, 
       </View>
 
       <View style={[styles.actionBlock, { borderColor: tokens.border }]}>
-        <Text style={[styles.sectionTitle, { color: tokens.text }]}>More settings</Text>
+        <Text style={[styles.sectionTitle, { color: tokens.text }]}>Optional settings</Text>
         <ScrollView testID="unified-config-action-rail" horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.actionRail} accessibilityLabel="Optional timer settings">
           {ACTIONS.map(action => <Pressable key={action.id} testID={`unified-config-action-${action.id}`} onPress={() => toggleAction(action.id)} accessibilityRole="switch" accessibilityState={{ checked: enabledActions.has(action.id) }} accessibilityLabel={`${enabledActions.has(action.id) ? 'Hide' : 'Show'} ${action.label}`} style={[styles.actionChip, { borderColor: enabledActions.has(action.id) ? tokens.accent : tokens.border, backgroundColor: enabledActions.has(action.id) ? tokens.accentGlow : tokens.surface }]}><Text style={[styles.actionLabel, { color: enabledActions.has(action.id) ? tokens.text : tokens.textMuted }]}>{action.label}</Text></Pressable>)}
         </ScrollView>
@@ -337,6 +338,10 @@ export function UnifiedTimerConfigScreen({ state, onCommand, onStart, starting, 
         <View style={styles.row}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Show seconds</Text><Text style={[styles.helperText, { color: tokens.textMuted }]}>Keep duration and run-length editors at second precision.</Text></View><Toggle value={draft.settings.secondPrecisionEnabled} onChange={secondPrecisionEnabled => patchSettings({ secondPrecisionEnabled })} accessibilityLabel="Use second precision" /></View>
       </Panel> : null}
 
+      {enabledActions.has('running-controls') ? <Panel title="Running controls" tokens={tokens}>
+        <View style={styles.row}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Show all timer controls</Text><Text style={[styles.helperText, { color: tokens.textMuted }]}>Keep alarm, mute and sound controls available on the running screen.</Text></View><Toggle value={draft.settings.advancedModeEnabled} onChange={advancedModeEnabled => patchSettings({ advancedModeEnabled })} accessibilityLabel="Show all running timer controls" /></View>
+      </Panel> : null}
+
       {enabledActions.has('system') && Platform.OS === 'android' ? <Panel title="Android system access" tokens={tokens}>
         {!androidAccess.exactAlarms ? <View style={styles.row}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Exact timing</Text><Text style={[styles.helperText, { color: tokens.warm }]}>Needed for precise background timing.</Text></View><SheetTextButton label="Set up" tone="danger" onPress={onOpenExactAlarmSettings} /></View> : null}
         {!androidAccess.fullScreenAlarms ? <View style={styles.row}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Full-screen alarms</Text><Text style={[styles.helperText, { color: tokens.warm }]}>Allow alarms to appear over the lock screen.</Text></View><SheetTextButton label="Set up" tone="danger" onPress={onOpenFullScreenIntentSettings} /></View> : null}
@@ -350,7 +355,7 @@ export function UnifiedTimerConfigScreen({ state, onCommand, onStart, starting, 
     </DraggableSheet>
 
     <DraggableSheet visible={modal === 'picker'} title="Configurations" testID="unified-config-picker-sheet" onClose={() => setModal(null)} pinnedContent={<View style={styles.buttonRow}><SheetTextButton label={transferBusy ? 'Loading…' : 'Import from clipboard'} disabled={transferBusy} onPress={() => void openExternalImport('clipboard')} /><SheetTextButton label="Import file" disabled={transferBusy} onPress={() => void openExternalImport('file')} /><SheetTextButton label={own(state.drafts, UNNAMED_DRAFT_KEY) ? 'Return to unnamed draft' : 'New unnamed timer'} onPress={() => switchTo(null)} /></View>}>
-        {state.configs.map(config => <ConfigCard key={config.id} config={config} draft={own(state.drafts, config.id) ? state.drafts[config.id] : undefined} renameValue={own(renameValues, config.id) ? renameValues[config.id]! : config.name} onRenameChange={value => setRenameValues(current => ({ ...current, [config.id]: value }))} onRename={async () => { if (await performCommand({ type: 'rename', id: config.id, name: own(renameValues, config.id) ? renameValues[config.id]! : config.name })) setRenameValues(current => ({ ...current, [config.id]: config.name })) }} onSelect={() => switchTo(config.id)} onDuplicate={() => { void performCommand({ type: 'duplicate', id: config.id, newId: createProgramId() }) }} onDelete={async () => {
+        {state.configs.map(config => <ConfigCard key={config.id} config={config} draft={own(state.drafts, config.id) ? state.drafts[config.id] : undefined} renameValue={own(renameValues, config.id) ? renameValues[config.id]! : config.name} onRenameChange={value => setRenameValues(current => ({ ...current, [config.id]: value }))} onRename={async () => { if (await performCommand({ type: 'rename', id: config.id, name: own(renameValues, config.id) ? renameValues[config.id]! : config.name })) setRenameValues(current => { const next = { ...current }; delete next[config.id]; return next }) }} onSelect={() => switchTo(config.id)} onDuplicate={() => { void performCommand({ type: 'duplicate', id: config.id, newId: createProgramId() }) }} onDelete={async () => {
         if (own(state.drafts, config.id) && state.drafts[config.id]!.dirty) { onFeedback({ title: 'Unsaved draft kept', message: 'Save, switch, or discard this configuration’s draft before deleting it.', tone: 'attention' }); return }
         if (await confirm({ title: `Delete ${config.name}?`, message: 'This removes the saved configuration and its clean draft.', confirmLabel: 'Delete', cancelLabel: 'Keep', destructive: true })) await performCommand({ type: 'delete', id: config.id })
       }} onVisibility={showInRunningSelector => { void performCommand({ type: 'setVisibility', id: config.id, showInRunningSelector }) }} onExport={() => void exportConfig(config)} transferBusy={transferBusy} />)}
@@ -575,6 +580,7 @@ function inferConfiguredActions(draft: UnifiedTimerDraft | undefined): ExtraActi
   if (!draft.settings.notificationsEnabled || draft.settings.liveCountdownEnabled) actions.push('notifications')
   if (!draft.settings.muteDuringCallsEnabled) actions.push('calls')
   if (draft.settings.secondPrecisionEnabled) actions.push('precision')
+  if (draft.settings.advancedModeEnabled) actions.push('running-controls')
   if (Platform.OS === 'android') actions.push('system')
   return actions
 }

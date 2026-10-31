@@ -1,19 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { AppState, Platform } from 'react-native'
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake'
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio'
-import type { AlarmBehavior, AppTimerSettings, BuiltInSoundId, SoundRef, TimerProgram, WorkingProgramState } from '../types'
+import type { AlarmBehavior, AppTimerSettings, BuiltInSoundId, SoundRef, RuntimeTimerProgram as TimerProgram, WorkingProgramState } from '../types'
 import { effectiveAvailabilityForProgram, hasAvailableTime, isCueAllowedByActiveHours, isCueDeliveryAllowedByActiveHours, isWithinActiveHours, nextActiveHoursStart } from '../lib/activeHours'
 import { formatCountdown } from '../lib/snapLogic'
 import { sourceForSound, soundTitle } from '../lib/soundLibrary'
-import { boundedRunProgress, nextProgramEvent, programCycleDurationMs, runEndAt, sequenceSkipTarget, timelinePosition, type TimelinePosition } from '../lib/timeline'
-import { alarmBehaviorAfterGesture, emptyRuntimeMute, gateProgramAudio, isFreshScheduledEvent, iterationMuteFor, muteAfterScheduleChange, shouldSurfaceTimerSignal, timestampMuteForSeconds, type RuntimeMuteState } from '../lib/runtimeV2'
+import { boundedRunProgress, currentStepEndAt, nextProgramEvent, programCycleDurationMs, runEndAt, sequenceSkipTarget, timelinePosition, type TimelinePosition } from '../lib/timeline'
+import { alarmBehaviorAfterGesture, emptyRuntimeMute, gateProgramAudio, isFreshScheduledEvent, iterationMuteFor, muteAfterScheduleChange, programEventIsVisible, shouldSurfaceTimerSignal, timestampMuteForSeconds, type RuntimeMuteState } from '../lib/runtimeV2'
 import { clearTimerV2Session, saveTimerV2Session } from '../lib/storage'
 import { ChandasTimerService, isNativeServiceAvailable, type NativeTimerConfig } from '../native/ChandasTimerService'
 import { cueHapticProfile, selectionHaptic, setAppHapticsEnabled, startRepeatingAlarmHaptic, stopRepeatingAlarmHaptic, tapHaptic, timerCueHaptic } from '../lib/haptics'
 import { alignedClockAnchor } from '../lib/clockAlignment'
-import { cueSounds, patternDurationSeconds, programForVisibleCues, sequenceStepDurationSeconds } from '../lib/timerV2'
+import { createProgramId, cueSounds, patternDurationSeconds, programForVisibleCues, sequenceStepDurationSeconds } from '../lib/timerV2'
 import { nextAudibleProgramEvent, programEventLabel } from '../lib/upcoming-events'
+import { clearUnifiedTimerSession, saveUnifiedTimerSession } from '../lib/unified-session'
+import { nativeSupportsRuntimeProgram, requiresExactSubBellRuntime } from '../lib/runtime-capabilities'
 
 const KEEP_AWAKE_TAG = 'chandas-running-v2'
 const ALARM_SOURCE = require('../../assets/sounds/alarm.mp3')
@@ -67,14 +70,31 @@ export interface TimerV2Display {
   runProgress: number
 }
 
+export interface TimerRestore {
+  anchor: number
+  startedAt?: number
+  endsAt?: number
+  pausedAt?: number
+  randomSeed?: number
+  mute: RuntimeMuteState
+  alarmBehavior: AlarmBehavior
+  soundState?: { sequence: Record<string, number>; randomPrevious: Record<string, number> }
+  sessionId?: string
+  nativeGeneration?: string
+}
+
 export interface UseTimerV2Return extends TimerV2Display {
+  sessionId: string | null
+  nativeGeneration?: string
+  sessionPersistenceError: string | null
+  getSessionIdentity: () => { sessionId: string | null; nativeGeneration?: string }
   isRunning: boolean
   isPaused: boolean
   isAlarmRinging: boolean
   alarmBehavior: AlarmBehavior
   mute: RuntimeMuteState
-  start: (restore?: number | { anchor: number; startedAt?: number; endsAt?: number; pausedAt?: number; randomSeed?: number; mute: RuntimeMuteState; alarmBehavior: AlarmBehavior; soundState?: { sequence: Record<string, number>; randomPrevious: Record<string, number> } }) => Promise<boolean>
-  attachNativeSession: (restore: { anchor: number; startedAt?: number; endsAt?: number; pausedAt?: number; randomSeed?: number; mute: RuntimeMuteState; alarmBehavior: AlarmBehavior; soundState?: { sequence: Record<string, number>; randomPrevious: Record<string, number> } }) => Promise<void>
+  start: (restore?: number | TimerRestore) => Promise<boolean>
+  attachNativeSession: (restore: TimerRestore) => Promise<void>
   /** False means Android still reports an authoritative live schedule. */
   stop: () => boolean
   dismissAlarm: () => void
@@ -128,13 +148,15 @@ export function timerV2DisplayFor(program: TimerProgram, settings: AppTimerSetti
       runProgress: endAt ? 1 : 0,
     }
   }
-  const mainCountdown = program.mode === 'pattern'
+  const mainCountdown = program.mode === 'unified'
+    ? formatCountdown(Math.min(currentStepEndAt(program, position), program.steps.length > 1 ? terminalAt ?? Infinity : Infinity) - now)
+    : program.mode === 'pattern'
     ? formatCountdown(anchor + (position.cycleIndex + 1) * patternDurationSeconds(program) * 1_000 - now)
     : formatCountdown(next.at - now)
   return {
     mainCountdown,
     nextCueCountdown: formatCountdown(next.at - now),
-    nextCueLabel: program.mode === 'pattern'
+    nextCueLabel: program.mode === 'unified' ? programEventLabel(program, next) : program.mode === 'pattern'
       ? next.winner.kind === 'pattern-main' ? 'Main gong' : program.tracks.find(track => track.id === next.winner.cueId)?.label ?? soundTitle(next.winner.sound)
       : program.steps.find(step => step.id === next.winner.cueId)?.label ?? soundTitle(next.winner.sound),
     progress: position.cycleProgress,
@@ -155,9 +177,7 @@ function nativeConfigFor(program: TimerProgram, settings: AppTimerSettings, anch
   const nativeProgram: TimerProgram = program.mode === 'pattern' && !program.subBellsEnabled
     ? { ...program, tracks: program.tracks.map(track => ({ ...track, enabled: false })) }
     : program
-  const mainMs = program.mode === 'pattern'
-    ? patternDurationSeconds(program) * 1_000
-    : program.steps.reduce((sum, step) => sum + sequenceStepDurationSeconds(step) * 1_000, 0)
+  const mainMs = programCycleDurationMs(program)
   const availability = effectiveAvailabilityForProgram(program, settings.availability)
   const capabilities = ChandasTimerService.getCapabilities()
   return {
@@ -203,7 +223,9 @@ function builtInSoundsFor(program: TimerProgram, alarmSound: SoundRef): BuiltInS
     if (sound?.kind === 'builtin') ids.add(sound.id)
   }
   const addCue = (cue: { sound: SoundRef; sounds?: SoundRef[] } | undefined) => cueSounds(cue ?? { sound: { kind: 'builtin', id: 'clear-bell' } }).forEach(add)
-  if (program.mode === 'pattern') {
+  if (program.mode === 'unified') {
+    program.steps.forEach(step => { addCue(step.endCue); step.subBellTracks.forEach(addCue) })
+  } else if (program.mode === 'pattern') {
     addCue(program.mainCue)
     program.tracks.forEach(addCue)
   } else {
@@ -214,21 +236,8 @@ function builtInSoundsFor(program: TimerProgram, alarmSound: SoundRef): BuiltInS
   return [...ids]
 }
 
-function requiresExactSubBellRuntime(program: TimerProgram): boolean {
-  return program.mode === 'pattern'
-    && program.subBellsEnabled
-    && program.tracks.some(track => track.enabled && (typeof track.cadenceSeconds === 'number' || Array.isArray(track.selectedOffsetsSeconds)))
-}
-
 function supportsProgram(program: TimerProgram): boolean {
-  if (!isNativeServiceAvailable) return true
-  const capabilities = ChandasTimerService.getCapabilities()
-  if (capabilities === null || capabilities.programSchemaMin > program.schemaVersion || capabilities.programSchemaMax < program.schemaVersion) return false
-  const cues = program.mode === 'pattern' ? [program.mainCue, ...program.tracks, program.completionCue] : [...program.steps, program.completionCue]
-  if (capabilities.supportsUnlimitedSounds !== true && cues.some(cue => (cue?.sounds?.length ?? 0) > 8)) return false
-  if (program.mode === 'pattern' && capabilities.supportsRandomRepeat !== true && program.tracks.some(track => !!track.randomRepeat)) return false
-  if (program.mode === 'sequence' && capabilities.supportsStepAlarms !== true && program.steps.some(step => step.alarmEnabled)) return false
-  return true
+  return !isNativeServiceAvailable || nativeSupportsRuntimeProgram(program, ChandasTimerService.getCapabilities())
 }
 
 function alignedAnchorForStart(program: TimerProgram, now: number): number {
@@ -241,6 +250,7 @@ function alignedAnchorForStart(program: TimerProgram, now: number): number {
  * exact-alarm native service once that service receives the V2 program record.
  */
 export function useTimerV2(program: TimerProgram, settings: AppTimerSettings, sourcePreset?: WorkingProgramState['sourcePreset']): UseTimerV2Return {
+  const [sessionPersistenceError, setSessionPersistenceError] = useState<string | null>(null)
   const [isRunning, setIsRunning] = useState(false)
   const [isPaused, setIsPaused] = useState(false)
   const [isAlarmRinging, setIsAlarmRinging] = useState(false)
@@ -276,6 +286,10 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings, so
   const reanchorRequestRef = useRef(0)
   const cueSoundCursorRef = useRef(new Map<string, number>())
   const previousCueSoundRef = useRef(new Map<string, number>())
+  const sessionIdRef = useRef<string | null>(null)
+  const nativeGenerationRef = useRef<string | undefined>(undefined)
+  const persistenceGenerationRef = useRef(0)
+  const getSessionIdentity = useCallback(() => ({ sessionId: sessionIdRef.current, nativeGeneration: nativeGenerationRef.current }), [])
   const clearRuntimeInterruption = useCallback(() => setRuntimeInterruption(null), [])
 
   useEffect(() => { programRef.current = program }, [program])
@@ -302,21 +316,40 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings, so
     }, delay)
   }, [refreshDisplay])
 
-  const persistSession = useCallback((nextMute: RuntimeMuteState, nextAlarm: AlarmBehavior) => {
-    if (!runningRef.current) return
-    void saveTimerV2Session({
-      schemaVersion: 2,
+  const persistSession = useCallback(async (nextMute: RuntimeMuteState, nextAlarm: AlarmBehavior): Promise<boolean> => {
+    if (!runningRef.current) return true
+    const generation = ++persistenceGenerationRef.current
+    const activeProgram = programRef.current
+    const snapshot = {
       anchor: anchorRef.current,
       randomSeed: randomSeedRef.current || anchorRef.current,
       startedAt: startedAtRef.current,
       ...(endsAtRef.current ? { endsAt: endsAtRef.current } : {}),
       ...(pausedAtRef.current ? { pausedAt: pausedAtRef.current } : {}),
-      program: programRef.current,
       mute: nextMute,
       alarmBehavior: nextAlarm,
       sourcePreset: sourcePresetRef.current,
       soundState: { sequence: Object.fromEntries(cueSoundCursorRef.current), randomPrevious: Object.fromEntries(previousCueSoundRef.current) },
       settings: settingsRef.current,
+    }
+    if (activeProgram.mode === 'unified') {
+      const saved = await saveUnifiedTimerSession(AsyncStorage, {
+        ...snapshot, schemaVersion: 3, sessionId: sessionIdRef.current!, randomAlgorithmVersion: 1,
+        program: activeProgram, ...(nativeGenerationRef.current ? { nativeGeneration: nativeGenerationRef.current } : {}),
+      })
+      if (generation === persistenceGenerationRef.current) setSessionPersistenceError(saved.ok ? null : saved.reason)
+      return saved.ok
+    }
+    await saveTimerV2Session({ ...snapshot, schemaVersion: 2, program: activeProgram })
+    return true
+  }, [])
+
+  const clearPersistedSession = useCallback(() => {
+    ++persistenceGenerationRef.current
+    if (programRef.current.mode !== 'unified') { void clearTimerV2Session(); return }
+    const sessionId = sessionIdRef.current
+    if (sessionId) void clearUnifiedTimerSession(AsyncStorage, sessionId).then(result => {
+      if (!result.ok) setSessionPersistenceError(result.reason)
     })
   }, [])
 
@@ -353,7 +386,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings, so
     })
     updateRuntimeState(gate.nextMute, gate.nextAlarmBehavior)
     if (!gate.shouldPlay) return event.completesRun
-    setEventPulse(value => value + 1)
+    if (programEventIsVisible(activeProgram, event)) setEventPulse(value => value + 1)
 
     if (gate.disposition === 'continuous-alarm') {
       dismissAlarm()
@@ -416,9 +449,9 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings, so
     stopRepeatingAlarmHaptic()
     setIsAlarmRinging(false)
     releaseDisplayWakeLock()
-    void clearTimerV2Session()
+    clearPersistedSession()
     setCompletionPulse(value => value + 1)
-  }, [])
+  }, [clearPersistedSession])
 
   const scheduleNext = useCallback(() => {
     if (!runningRef.current) return
@@ -467,25 +500,31 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings, so
     }, Math.max(0, triggerAt - firedAtSafe(now)))
   }, [finishJsRun, playEvent, refreshDisplay])
 
-  const start = useCallback(async (restore?: number | { anchor: number; startedAt?: number; endsAt?: number; pausedAt?: number; randomSeed?: number; mute: RuntimeMuteState; alarmBehavior: AlarmBehavior; soundState?: { sequence: Record<string, number>; randomPrevious: Record<string, number> } }) => {
+  const start = useCallback(async (restore?: number | TimerRestore) => {
+    const acceptedProgram = programRef.current
+    const acceptedSettings = settingsRef.current
+    const acceptedSource = sourcePresetRef.current
     const request = ++reanchorRequestRef.current
     nativeUpdateGenerationRef.current += 1
     setRuntimeInterruption(null)
     const restored = typeof restore === 'number' ? undefined : restore
+    const acceptedSessionId = restored?.sessionId ?? createProgramId()
+    setSessionPersistenceError(null)
     const acceptedAt = Date.now()
-    const anchor = typeof restore === 'number' ? restore : restored?.anchor ?? alignedAnchorForStart(programRef.current, acceptedAt)
+    const anchor = typeof restore === 'number' ? restore : restored?.anchor ?? alignedAnchorForStart(acceptedProgram, acceptedAt)
     const randomSeed = restored?.randomSeed ?? acceptedAt
     const startedAt = restored?.startedAt ?? (typeof restore === 'number' ? restore : acceptedAt)
-    const endsAt = restored?.endsAt && restored.endsAt > 0 ? restored.endsAt : runEndAt(programRef.current, anchor, startedAt)
-    if (!hasAvailableTime(effectiveAvailabilityForProgram(programRef.current, settingsRef.current.availability), acceptedAt)) return false
-    if (nextProgramEvent(programRef.current, anchor, restored?.pausedAt ?? acceptedAt, startedAt, endsAt, randomSeed) === null) return false
-    if (isNativeServiceAvailable && (!ChandasTimerService.canScheduleExactAlarms() || !supportsProgram(programRef.current))) return false
-    if (isNativeServiceAvailable && requiresExactSubBellRuntime(programRef.current) && ChandasTimerService.getCapabilities()?.supportsSubBellSecondPrecision !== true) return false
-    if (isNativeServiceAvailable) await ChandasTimerService.prepareBuiltInSounds(builtInSoundsFor(programRef.current, settingsRef.current.alarmSound))
+    const endsAt = restored?.endsAt && restored.endsAt > 0 ? restored.endsAt : runEndAt(acceptedProgram, anchor, startedAt)
+    if (!hasAvailableTime(effectiveAvailabilityForProgram(acceptedProgram, acceptedSettings.availability), acceptedAt)) return false
+    if (nextProgramEvent(acceptedProgram, anchor, restored?.pausedAt ?? acceptedAt, startedAt, endsAt, randomSeed) === null) return false
+    if (isNativeServiceAvailable && (!ChandasTimerService.canScheduleExactAlarms() || !supportsProgram(acceptedProgram))) return false
+    if (isNativeServiceAvailable && requiresExactSubBellRuntime(acceptedProgram) && ChandasTimerService.getCapabilities()?.supportsSubBellSecondPrecision !== true) return false
+    if (isNativeServiceAvailable) await ChandasTimerService.prepareBuiltInSounds(builtInSoundsFor(acceptedProgram, acceptedSettings.alarmSound))
     if (request !== reanchorRequestRef.current) return false
     await setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: false })
     await activateDisplayWakeLock()
-    const nativeConfig = nativeConfigFor(programRef.current, settingsRef.current, anchor, startedAt, endsAt, restored?.alarmBehavior === 'locked' || (!restored && alarmBehaviorRef.current === 'locked'), randomSeed)
+    if (request !== reanchorRequestRef.current) return false
+    const nativeConfig = nativeConfigFor(acceptedProgram, acceptedSettings, anchor, startedAt, endsAt, restored?.alarmBehavior === 'locked' || (!restored && alarmBehaviorRef.current === 'locked'), randomSeed)
     nativeConfig.timerV2PausedAt = restored?.pausedAt ?? 0
     if (restored) {
       nativeConfig.alarmOnceArmed = restored.alarmBehavior === 'once'
@@ -498,6 +537,11 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings, so
       releaseDisplayWakeLock()
       return false
     }
+    programRef.current = acceptedProgram
+    settingsRef.current = acceptedSettings
+    sourcePresetRef.current = acceptedSource
+    sessionIdRef.current = acceptedSessionId
+    nativeGenerationRef.current = isNativeServiceAvailable ? ChandasTimerService.getState().sessionGeneration : restored?.nativeGeneration
     anchorRef.current = anchor
     randomSeedRef.current = randomSeed
     startedAtRef.current = startedAt
@@ -511,15 +555,29 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings, so
     setIsRunning(true)
     refreshDisplay()
     scheduleDisplayTick()
-    persistSession(restored?.mute ?? muteRef.current, restored?.alarmBehavior ?? alarmBehaviorRef.current)
+    const persisted = await persistSession(restored?.mute ?? muteRef.current, restored?.alarmBehavior ?? alarmBehaviorRef.current)
+    if (request !== reanchorRequestRef.current || !runningRef.current) return false
+    if (!persisted && !isNativeServiceAvailable) {
+      runningRef.current = false
+      setIsRunning(false)
+      if (refreshIntervalRef.current) clearTimeout(refreshIntervalRef.current)
+      releaseDisplayWakeLock()
+      return false
+    }
+    // Setup edits during asynchronous preparation stay in the draft.
+    programRef.current = acceptedProgram
+    settingsRef.current = acceptedSettings
+    sourcePresetRef.current = acceptedSource
     if (!isNativeServiceAvailable) scheduleNext()
     return true
   }, [persistSession, refreshDisplay, scheduleDisplayTick, scheduleNext, updateRuntimeState])
 
-  const attachNativeSession = useCallback(async (restore: { anchor: number; startedAt?: number; endsAt?: number; pausedAt?: number; randomSeed?: number; mute: RuntimeMuteState; alarmBehavior: AlarmBehavior; soundState?: { sequence: Record<string, number>; randomPrevious: Record<string, number> } }) => {
+  const attachNativeSession = useCallback(async (restore: TimerRestore) => {
     if (isNativeServiceAvailable && !ChandasTimerService.getState().active) {
       throw new Error('Native timer is no longer active')
     }
+    sessionIdRef.current = restore.sessionId ?? `native:${restore.nativeGeneration ?? createProgramId()}`
+    nativeGenerationRef.current = restore.nativeGeneration ?? ChandasTimerService.getState().sessionGeneration
     anchorRef.current = restore.anchor
     randomSeedRef.current = restore.randomSeed ?? restore.anchor
     startedAtRef.current = restore.startedAt ?? restore.anchor
@@ -594,10 +652,10 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings, so
     setMute(clearedMute)
     setAlarmBehavior('off')
     releaseDisplayWakeLock()
-    void clearTimerV2Session()
+    clearPersistedSession()
     setDisplay({ mainCountdown: '--:--', nextCueCountdown: '--:--', nextCueLabel: '', progress: 0, position: null, activeHoursPaused: false, activeHoursResumeAt: 0, nextAudibleAt: 0, nextAudibleLabel: '', runEndsAt: 0, runRemainingMs: 0, runProgress: 0 })
     return true
-  }, [])
+  }, [clearPersistedSession])
 
   const applyAlarmBehavior = useCallback((current: AlarmBehavior, next: AlarmBehavior) => {
     updateRuntimeState(muteRef.current, next)
@@ -699,7 +757,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings, so
   }, [persistSession, refreshDisplay, scheduleDisplayTick, scheduleNext, syncNativeClock, updateRuntimeState])
 
   const skipSequenceStep = useCallback((direction: 'next' | 'previous') => {
-    if (!runningRef.current || programRef.current.mode !== 'sequence' || programRef.current.steps.length < 2) return false
+    if (!runningRef.current || programRef.current.mode === 'pattern' || programRef.current.steps.length < 2) return false
     if (isNativeServiceAvailable) {
       const result = ChandasTimerService.floatingOverlayAction(direction === 'next' ? 'next-step' : 'previous-step')
       if (!result.success) return false
@@ -748,13 +806,24 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings, so
     // Reanchoring changes cycle identities. Preserve timestamp mute, but clear
     // cycle mute so its promised final boundary cannot silently move.
     const nextMute = muteAfterScheduleChange(currentMute)
-    const nextAlarm: AlarmBehavior = nextProgram.mode === 'sequence' ? 'off' : alarmBehaviorRef.current
+    const nextAlarm: AlarmBehavior = nextProgram.mode === 'sequence' || (nextProgram.mode === 'unified' && nextProgram.steps.length > 1) ? 'off' : alarmBehaviorRef.current
     const config = nativeConfigFor(nextProgram, nextSettings, anchor, startedAt, endsAt, nextAlarm === 'locked', randomSeed)
     config.alarmOnceArmed = nextAlarm === 'once'
     config.mutedUntil = nextMute.mutedUntil
     config.mutedIterationEndId = nextMute.iteration?.endsAtLogicalId
     config.mutedIterationEndAt = nextMute.iteration?.endsAt
     config.mutedIterationCount = nextMute.iteration?.iterations
+    if (!isNativeServiceAvailable && nextProgram.mode === 'unified') {
+      const saved = await saveUnifiedTimerSession(AsyncStorage, {
+        schemaVersion: 3, sessionId: sessionIdRef.current!, randomAlgorithmVersion: 1,
+        anchor, randomSeed, startedAt, ...(endsAt !== null ? { endsAt } : {}),
+        program: nextProgram, settings: nextSettings, mute: nextMute, alarmBehavior: nextAlarm,
+        sourcePreset: nextSourcePreset, soundState: { sequence: {}, randomPrevious: {} },
+      })
+      if (request !== reanchorRequestRef.current || !runningRef.current) return false
+      setSessionPersistenceError(saved.ok ? null : saved.reason)
+      if (!saved.ok) return false
+    }
     if (isNativeServiceAvailable && !ChandasTimerService.start(config)) return false
     programRef.current = nextProgram
     settingsRef.current = nextSettings
@@ -769,10 +838,12 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings, so
     previousCueSoundRef.current.clear()
     updateRuntimeState(nextMute, nextAlarm)
     setDisplay(timerV2DisplayFor(nextProgram, nextSettings, nextMute, anchor, startedAt, endsAt, Date.now(), randomSeed))
-    void saveTimerV2Session({ schemaVersion: 2, anchor, randomSeed, startedAt, ...(endsAt ? { endsAt } : {}), program: nextProgram, mute: nextMute, alarmBehavior: nextAlarm, sourcePreset: nextSourcePreset, settings: nextSettings })
+    nativeGenerationRef.current = isNativeServiceAvailable ? ChandasTimerService.getState().sessionGeneration : undefined
+    await persistSession(nextMute, nextAlarm)
+    if (request !== reanchorRequestRef.current || !runningRef.current) return false
     if (!isNativeServiceAvailable) scheduleNext()
     return true
-  }, [dismissAlarm, scheduleNext, updateRuntimeState])
+  }, [dismissAlarm, persistSession, scheduleNext, updateRuntimeState])
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', nextState => {
@@ -849,13 +920,15 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings, so
     if (!isNativeServiceAvailable) return
     const listener = ChandasTimerService.addTimerEventListener(event => {
       ChandasTimerService.stopSoundPreview()
-      if (shouldSurfaceTimerSignal(event, Date.now(), AppState.currentState === 'active')) {
+      const projected = nextProgramEvent(programRef.current, anchorRef.current, event.at - 1, startedAtRef.current, endsAtRef.current, randomSeedRef.current || anchorRef.current)
+      const matchesSession = projected?.logicalId === event.logicalId && projected.at === event.at
+      if (shouldSurfaceTimerSignal(event, Date.now(), AppState.currentState === 'active') && matchesSession && programEventIsVisible(programRef.current, projected)) {
         // Android performs cue haptics beside its exact alarm so background and
         // foreground behavior match without producing a double vibration here.
         if (Platform.OS !== 'android') timerCueHaptic(event.boundary, settingsRef.current.haptics)
         setEventPulse(value => value + 1)
       }
-      if (event.completesRun) setCompletionPulse(value => value + 1)
+      if (event.completesRun && matchesSession && projected.completesRun) setCompletionPulse(value => value + 1)
     })
     return () => listener?.remove()
   }, [])
@@ -904,6 +977,10 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings, so
 
   return {
     ...display,
+    sessionId: sessionIdRef.current,
+    nativeGeneration: nativeGenerationRef.current,
+    sessionPersistenceError,
+    getSessionIdentity,
     isRunning,
     isPaused,
     isAlarmRinging,
