@@ -10,6 +10,7 @@ import { loadTimerV2Session } from '../storage'
 import { legacySessionProgram } from '../legacy-session-program'
 import { iterationMuteFor } from '../runtimeV2'
 import { nextProgramEvent } from '../timeline'
+import { stableJson } from '../unified-config-state'
 
 describe('retained legacy session adapter', () => {
   it('resumes the exact accepted track order, cue list, seed, pause and mute identity', async () => {
@@ -30,6 +31,8 @@ describe('retained legacy session adapter', () => {
   it('retains accepted sequence cue identities and rejects ambiguous track identities', () => {
     const program = defaultSequenceProgram()
     expect(legacySessionProgram(program)).toEqual(program)
+    const nativeOrder = Object.fromEntries(Object.entries(program).reverse())
+    expect(stableJson(legacySessionProgram(nativeOrder))).toBe(stableJson(legacySessionProgram(program)))
     const malformed = defaultPatternProgram()
     malformed.tracks[0].id = ''
     expect(legacySessionProgram(malformed)).toBeNull()

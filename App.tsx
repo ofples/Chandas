@@ -27,7 +27,7 @@ import { ConfirmationProvider } from './src/components/timer-v2/ConfirmationDial
 import { clockOffsetLabel } from './src/lib/clockAlignment'
 import { unifiedCueIdentity } from './src/lib/unified-timeline'
 import { bootstrapUnifiedConfigState, saveUnifiedConfigState } from './src/lib/unified-storage'
-import { reduceUnifiedConfigCommand, UNNAMED_DRAFT_KEY, type ConfigStateCommand, type UnifiedConfigState, type UnifiedTimerConfig, type UnifiedTimerDraft } from './src/lib/unified-config-state'
+import { reduceUnifiedConfigCommand, stableJson, UNNAMED_DRAFT_KEY, type ConfigStateCommand, type UnifiedConfigState, type UnifiedTimerConfig, type UnifiedTimerDraft } from './src/lib/unified-config-state'
 import { clearUnifiedTimerSession, loadUnifiedTimerSession } from './src/lib/unified-session'
 import { parseUnifiedTimerProgram } from './src/lib/unified-timer'
 import type { TimerRestore } from './src/hooks/useTimerV2'
@@ -366,7 +366,7 @@ function Root() {
       const nativeProgram = native.active ? parseRuntimeProgram(native.timerV2Program) : null
       if (!nativeProgram) return
       const current = activeRunRef.current
-      if (!current || JSON.stringify(current.program) === JSON.stringify(nativeProgram)) return
+      if (!current || stableJson(current.program) === stableJson(nativeProgram)) return
       // The overlay changes the live schedule, never a configuration draft.
       commitActiveRun({ ...current, program: nativeProgram })
     }
@@ -446,7 +446,7 @@ function Root() {
             }
           } else {
             // Existing native schema 2/3 sessions remain on their original timeline.
-            const matchingLegacy = legacySession && JSON.stringify(legacySession.program) === JSON.stringify(nativeProgram) ? legacySession : null
+            const matchingLegacy = legacySession && stableJson(legacySession.program) === stableJson(nativeProgram) ? legacySession : null
             const anchor = native.timerV2Anchor
             if (typeof anchor !== 'number') recovery = { reason: 'Android has an active timer without a readable anchor. Its native schedule was left untouched.' }
             else {
@@ -827,7 +827,7 @@ function Root() {
     const config = state?.configs.find(value => value.id === configId && value.showInRunningSelector)
     if (!config || realigningRef.current) return false
     const source = { id: config.id, name: config.name, createdAt: config.createdAt }
-    if (activeRunRef.current?.sourcePreset?.id === config.id && JSON.stringify(activeRunRef.current.program) === JSON.stringify(config.program)) return true
+    if (activeRunRef.current?.sourcePreset?.id === config.id && stableJson(activeRunRef.current.program) === stableJson(config.program) && stableJson(activeRunRef.current.settings) === stableJson(config.settings)) return true
     realigningRef.current = true
     const generation = ++reanchorAttemptGeneration.current
     setRealigning(true)

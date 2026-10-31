@@ -9,7 +9,7 @@ import {
   cueSounds, soundRefKey,
 } from './timerV2'
 import { normalizeTimerHapticsSettings } from './haptic-profiles'
-import { parseUnifiedTimerProgram, type LegacyWorkingRecovery } from './unified-timer'
+import { defaultUnifiedStepLabel, parseUnifiedTimerProgram, type LegacyWorkingRecovery } from './unified-timer'
 
 export const UNIFIED_CONFIG_STATE_SCHEMA_VERSION = 3 as const
 export const UNNAMED_DRAFT_KEY = 'draft:unnamed'
@@ -97,7 +97,7 @@ function setDraft(drafts: Record<string, UnifiedTimerDraft>, key: string, value:
 }
 const configIdValid = (value: unknown): value is string => idValid(value) && value !== UNNAMED_DRAFT_KEY
 
-function stableJson(value: unknown): string {
+export function stableJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(item => item === undefined ? 'null' : stableJson(item)).join(',')}]`
   if (record(value)) return `{${Object.keys(value).filter(key => value[key] !== undefined).sort().map(key => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`
   return JSON.stringify(value)
@@ -173,7 +173,7 @@ export function createUnifiedDefaultProgram(createId: () => string = () => 'defa
     mode: 'unified',
     steps: [{
       id: createId() || 'default-step',
-      label: legacy.label,
+      label: defaultUnifiedStepLabel(legacy.mainDurationSeconds ?? legacy.mainMinutes * 60),
       labelIsCustom: false,
       durationSeconds: legacy.mainDurationSeconds ?? legacy.mainMinutes * 60,
       endCue: clone(legacy.mainCue),

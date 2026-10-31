@@ -13,6 +13,7 @@ interface Props {
   mode: TimerMode
   value: RunPolicy
   cycleDurationSeconds: number
+  rounds?: boolean
   secondPrecision?: boolean
   onChange: (value: RunPolicy) => void
 }
@@ -23,17 +24,17 @@ const choices = [
   { value: 'duration', label: 'Duration' },
 ] as const
 
-export function RunLengthConfig({ mode, value, cycleDurationSeconds, secondPrecision = false, onChange }: Props) {
+export function RunLengthConfig({ mode, rounds = mode === 'sequence', value, cycleDurationSeconds, secondPrecision = false, onChange }: Props) {
   const { tokens } = useTheme()
   const reducedMotion = useAppReducedMotion()
-  const summary = runLengthSummary(mode, value, cycleDurationSeconds)
+  const summary = runLengthSummary(mode, value, cycleDurationSeconds, rounds)
 
   return <View style={styles.section}>
     <Text accessibilityLiveRegion="polite" style={[styles.summary, { color: tokens.textMuted }]}>{summary}</Text>
-    <SegmentedControl items={choices} value={value.kind} onChange={kind => onChange({ ...value, kind })} accessibilityLabel="Run length" />
+    <SegmentedControl items={choices.map(choice => choice.value === 'cycles' && rounds ? { ...choice, label: 'Rounds' } : choice)} value={value.kind} onChange={kind => onChange({ ...value, kind })} accessibilityLabel="Run length" />
     {value.kind !== 'continuous' ? <Animated.View entering={reducedMotion ? undefined : FadeInDown.duration(170)} exiting={reducedMotion ? undefined : FadeOut.duration(110)} layout={reducedMotion ? undefined : LinearTransition.duration(150)}>
       {value.kind === 'cycles'
-        ? <View style={styles.cycleRow}><View style={styles.valueRow}><StepButton label={mode === 'sequence' ? 'Decrease rounds' : 'Decrease cycles'} glyph="−" disabled={value.cycleCount <= 1} onPress={() => onChange({ ...value, cycleCount: value.cycleCount - 1 })} /><NumberField label={mode === 'sequence' ? 'Rounds' : 'Cycles'} value={value.cycleCount} max={MAX_RUN_CYCLES} onCommit={cycleCount => onChange({ ...value, cycleCount })} hideLabel /><StepButton label={mode === 'sequence' ? 'Increase rounds' : 'Increase cycles'} glyph="+" disabled={value.cycleCount >= MAX_RUN_CYCLES} onPress={() => onChange({ ...value, cycleCount: value.cycleCount + 1 })} /></View></View>
+        ? <View style={styles.cycleRow}><View style={styles.valueRow}><StepButton label={rounds ? 'Decrease rounds' : 'Decrease cycles'} glyph="−" disabled={value.cycleCount <= 1} onPress={() => onChange({ ...value, cycleCount: value.cycleCount - 1 })} /><NumberField label={rounds ? 'Rounds' : 'Cycles'} value={value.cycleCount} max={MAX_RUN_CYCLES} onCommit={cycleCount => onChange({ ...value, cycleCount })} hideLabel /><StepButton label={rounds ? 'Increase rounds' : 'Increase cycles'} glyph="+" disabled={value.cycleCount >= MAX_RUN_CYCLES} onPress={() => onChange({ ...value, cycleCount: value.cycleCount + 1 })} /></View></View>
         : <DurationFields seconds={value.durationSeconds} secondPrecision={secondPrecision} onChange={durationSeconds => onChange({ ...value, durationSeconds })} />}
     </Animated.View> : null}
   </View>

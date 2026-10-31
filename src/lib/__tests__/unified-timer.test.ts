@@ -1,12 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import { defaultPatternProgram, defaultSequenceProgram, defaultTimerV2State } from '../timerV2'
+import { createUnifiedDefaultProgram } from '../unified-config-state'
 import {
   convertLegacyConfigStateToUnified, convertLegacyConfigToUnified, convertLegacyWorkingPrograms, convertPatternToUnified,
   convertLegacyProgramToUnified, convertSequenceToUnified, convertTimerV2State, normalizeUnifiedTimerProgram,
-  parseUnifiedTimerProgram,
+  parseUnifiedTimerProgram, defaultUnifiedStepLabel,
 } from '../unified-timer'
 
 describe('unified timer model', () => {
+  it('uses step terminology for automatic unified labels while formatting exact seconds', () => {
+    expect(defaultUnifiedStepLabel(60)).toBe('1-minute step')
+    expect(defaultUnifiedStepLabel(1)).toBe('1-second step')
+    expect(defaultUnifiedStepLabel(75)).toBe('1m 15s step')
+    let id = 0
+    expect(createUnifiedDefaultProgram(() => `fixture-${++id}`).steps[0]?.label).toBe('30-minute step')
+  })
+
   it('validates exact-second bounds and rejects malformed or future versions with raw recovery data', () => {
     const source = convertPatternToUnified(defaultPatternProgram())
     expect(parseUnifiedTimerProgram({ ...source, steps: [{ ...source.steps[0], durationSeconds: 1 }] }).ok).toBe(true)

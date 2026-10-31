@@ -20,7 +20,8 @@ import { GentleNotice, type AppNotice } from '../components/timer-v2/experience-
 import { useConfirmation } from '../components/timer-v2/ConfirmationDialog'
 import { useTheme, useAppReducedMotion } from '../theme/ThemeContext'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { createProgramId, defaultAppTimerSettings, defaultPatternLabel, MAX_CUE_DURATION_SECONDS, MAX_PATTERN_TRACKS, MAX_SEQUENCE_STEPS, MAX_VISIBLE_PATTERN_OFFSETS, formatCompactDurationSeconds } from '../lib/timerV2'
+import { createProgramId, defaultAppTimerSettings, MAX_CUE_DURATION_SECONDS, MAX_PATTERN_TRACKS, MAX_SEQUENCE_STEPS, MAX_VISIBLE_PATTERN_OFFSETS, formatCompactDurationSeconds } from '../lib/timerV2'
+import { defaultUnifiedStepLabel } from '../lib/unified-timer'
 import { hapticProfileSummary, HAPTIC_PATTERNS, HAPTIC_STRENGTHS } from '../lib/haptic-profiles'
 import { previewHapticProfile, setAppHapticsEnabled, tapHaptic } from '../lib/haptics'
 import { normalizeSubBellColor } from '../lib/subBellColors'
@@ -303,7 +304,7 @@ export function UnifiedTimerConfigScreen({ state, onCommand, onStart, starting, 
       </Panel> : null}
 
       {enabledActions.has('run-length') ? <Panel title="Run length" tokens={tokens}>
-        <RunLengthConfig mode={program.steps.length === 1 ? 'pattern' : 'sequence'} value={program.runPolicy} cycleDurationSeconds={cycleDurationSeconds} secondPrecision={draft.settings.secondPrecisionEnabled} onChange={runPolicy => patchProgram({ runPolicy })} />
+        <RunLengthConfig mode={program.steps.length === 1 ? 'pattern' : 'sequence'} rounds value={program.runPolicy} cycleDurationSeconds={cycleDurationSeconds} secondPrecision={draft.settings.secondPrecisionEnabled} onChange={runPolicy => patchProgram({ runPolicy })} />
       </Panel> : null}
 
       {enabledActions.has('schedule') ? <Panel title="Active and quiet times" tokens={tokens}>
@@ -389,7 +390,7 @@ function StepEditor({ step, stepIndex, program, settings, enabledActions, soundL
   const { tokens } = useTheme()
   const confirm = useConfirmation()
   const duration = step.durationSeconds
-  const updateStepDuration = (durationSeconds: number) => onPatch({ durationSeconds, ...(step.labelIsCustom === false ? { label: defaultPatternLabel(durationSeconds) } : {}) })
+  const updateStepDuration = (durationSeconds: number) => onPatch({ durationSeconds, ...(step.labelIsCustom === false ? { label: defaultUnifiedStepLabel(durationSeconds) } : {}) })
   const addTrack = () => {
     if (step.subBellTracks.length >= MAX_PATTERN_TRACKS) return
     const index = step.subBellTracks.length

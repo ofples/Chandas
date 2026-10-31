@@ -9,6 +9,14 @@ import {
 } from './timerV2'
 
 export const UNIFIED_TIMER_SCHEMA_VERSION = 4 as const
+
+/** Automatic name for a new unified step; legacy Cycle labels remain unchanged on import. */
+export function defaultUnifiedStepLabel(durationSeconds: number): string {
+  const seconds = Math.max(1, Math.round(durationSeconds))
+  if (seconds % 60 === 0) return `${seconds / 60}-minute step`
+  if (seconds < 60) return `${seconds}-second step`
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s step`
+}
 export const MAX_UNIFIED_STEPS = MAX_SEQUENCE_STEPS
 export const MAX_UNIFIED_TRACKS_PER_STEP = MAX_PATTERN_TRACKS
 
