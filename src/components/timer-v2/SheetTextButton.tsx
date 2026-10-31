@@ -10,14 +10,16 @@ interface Props {
   accessibilityLabel?: string
   tone?: 'accent' | 'muted' | 'danger'
   feedback?: boolean
+  testID?: string
 }
 
 /** One quiet, generous text action for sheet navigation and secondary actions. */
-export function SheetTextButton({ label, onPress, disabled = false, accessibilityLabel, tone = 'accent', feedback = true }: Props) {
+export function SheetTextButton({ label, onPress, disabled = false, accessibilityLabel, tone = 'accent', feedback = true, testID }: Props) {
   const { tokens, theme } = useTheme()
   const reducedMotion = useAppReducedMotion()
   const color = tone === 'muted' ? tokens.textMuted : tone === 'danger' ? tokens.warm : tokens.accent
   return <Pressable
+    testID={testID}
     disabled={disabled}
     hitSlop={6}
     onPress={() => { if (feedback) tapHaptic(); onPress() }}

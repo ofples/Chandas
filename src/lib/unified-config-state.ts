@@ -70,7 +70,7 @@ export type ConfigStateCommand =
   | { type: 'delete'; id: string; now?: number }
   | { type: 'setVisibility'; id: string; showInRunningSelector: boolean; now?: number }
   | { type: 'importConfig'; config: UnifiedTimerConfig; select?: boolean; now?: number }
-  | { type: 'switch'; configId: string | null; choice: 'save' | 'keep' | 'discard' | 'cancel'; now?: number }
+  | { type: 'switch'; configId: string | null; choice: 'save' | 'save-as' | 'keep' | 'discard' | 'cancel'; saveAsName?: string; saveAsId?: string; now?: number }
   | { type: 'setSoundLibrary'; sounds: SoundRef[] }
 
 export interface ConfigCommandResult {
@@ -101,6 +101,30 @@ function stableJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(item => item === undefined ? 'null' : stableJson(item)).join(',')}]`
   if (record(value)) return `{${Object.keys(value).filter(key => value[key] !== undefined).sort().map(key => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`
   return JSON.stringify(value)
+}
+
+function soundsUsedByDraft(draft: UnifiedTimerDraft): SoundRef[] {
+  const sounds: SoundRef[] = []
+  draft.program.steps.forEach(step => {
+    sounds.push(...cueSounds(step.endCue))
+    step.subBellTracks.forEach(track => sounds.push(...cueSounds(track)))
+  })
+  if (draft.program.completionCue) sounds.push(...cueSounds(draft.program.completionCue))
+  sounds.push(draft.settings.alarmSound)
+  return sounds.filter(sound => sound.kind !== 'builtin')
+}
+
+function mergeSharedSounds(current: SoundRef[], added: SoundRef[]): SoundRef[] {
+  const merged = clone(current)
+  const seen = new Set(merged.map(soundRefKey))
+  for (const sound of added) {
+    const key = soundRefKey(sound)
+    if (!seen.has(key)) {
+      seen.add(key)
+      merged.push(clone(sound))
+    }
+  }
+  return merged
 }
 
 function snapshotOf(value: Pick<UnifiedTimerConfig | UnifiedTimerDraft, 'name' | 'program' | 'settings' | 'editorOptions'>) {
@@ -430,6 +454,7 @@ export function reduceUnifiedConfigCommand(
     updated.program = parse.value
     updated.settings = settings
     setDraft(state.drafts, currentKey, recomputeDraft(updated, currentConfig))
+    state.soundLibrary = mergeSharedSounds(state.soundLibrary, soundsUsedByDraft(updated))
     return result(state, 'applied')
   }
   if (command.type === 'save') {
@@ -541,6 +566,17 @@ export function reduceUnifiedConfigCommand(
         const saved: UnifiedTimerConfig = { ...currentConfig, ...snapshotOf(draft), updatedAt: now }
         state.configs = state.configs.map(config => config.id === currentConfig.id ? clone(saved) : config)
         setDraft(state.drafts, currentKey, { ...copyDraft(draft), updatedAt: now, dirty: false })
+      } else if (command.choice === 'save-as') {
+        const name = configName(command.saveAsName)
+        const id = command.saveAsId ?? deps.createId?.()
+        if (!name) return result(input, 'blocked', 'invalid-name')
+        if (!configIdValid(id) || state.configs.some(config => config.id === id)) return result(input, 'blocked', 'duplicate-id')
+        const saved: UnifiedTimerConfig = {
+          id, name, createdAt: now, updatedAt: now,
+          program: clone(draft.program), settings: clone(draft.settings), editorOptions: clone(draft.editorOptions), showInRunningSelector: true,
+        }
+        state.configs.push(saved)
+        setDraft(state.drafts, id, { ...copyConfigAsDraft(saved, now), dirty: false })
       } else if (command.choice === 'discard') {
         if (currentConfig) setDraft(state.drafts, currentKey, copyConfigAsDraft(currentConfig, now))
         else delete state.drafts[UNNAMED_DRAFT_KEY]

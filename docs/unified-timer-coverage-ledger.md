@@ -109,7 +109,7 @@ The setup prototype is a behavioral reference, not the production schema or time
 | Unified TS model + legacy adapters | schema validation, both old work drafts/presets/settings/sounds, idempotence/recovery tests | Model-only: focused tests and type check pass; production persistence cutover remains pending |
 | TS/Kotlin timeline + bridge | shared vectors, random parity, boundaries/collisions, capability/rejection tests | TS/Kotlin helpers verified; production bridge/scheduler integration pending |
 | Production storage + dirty drafts | bootstrap safety, ordered persistence, save/keep/discard/cancel/restart journeys | **Model/storage helpers verified:** pure config transitions, injected bootstrap/migration, verified writes, retry safety, raw recovery and reducer/storage tests pass. App/provider wiring and real AsyncStorage bootstrap remain pending. |
-| Setup editor + config picker | RN Web complete configuration journey, horizontal rail and retained options, accessibility/sheet/keyboard | Not started |
+| Setup editor + config picker | RN Web complete configuration journey, horizontal rail and retained options, accessibility/sheet/keyboard | Production screen, shared sheet, and transfer parser implemented; TypeScript and unit tests pass. App/provider wiring and RN Web journeys remain pending. |
 | Running/session/overlay/notification | no face regression, preserved immediate controls, authoritative session reconciliation | Not started |
 | Cleanup/documentation/review | every row evidenced, migration/rollback notes, local build and web review | Not started |
 

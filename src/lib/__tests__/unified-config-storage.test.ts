@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { defaultTimerV2State } from '../timerV2'
 import {
-  createDefaultUnifiedConfigState, parseUnifiedConfigState, reduceUnifiedConfigCommand,
+  createDefaultUnifiedConfigState, parseUnifiedConfigState, reduceUnifiedConfigCommand, UNNAMED_DRAFT_KEY,
 } from '../unified-config-state'
 import {
   bootstrapUnifiedConfigState, LEGACY_TIMER_STORAGE_KEYS, saveUnifiedConfigState,
@@ -57,6 +57,16 @@ describe('unified config drafts', () => {
     expect(reduceUnifiedConfigCommand(duplicate, { type: 'setSoundLibrary', sounds: [] }).state.drafts.first?.name).toBe('Draft title')
   })
 
+  it('keeps device sounds in the shared library as soon as an editor selects them', () => {
+    const initial = createDefaultUnifiedConfigState({ now: () => 100, createId: () => 'one' })
+    const draft = initial.drafts.one!
+    const documentSound = { kind: 'document' as const, uri: 'content://sounds/unique', title: 'Unique sound', mimeType: 'audio/mpeg' }
+    const selected = reduceUnifiedConfigCommand(initial, { type: 'edit', changes: { settings: { ...draft.settings, alarmSound: documentSound } } })
+    expect(selected.state.soundLibrary).toContainEqual(documentSound)
+    const changedAway = reduceUnifiedConfigCommand(selected.state, { type: 'edit', changes: { settings: { ...selected.state.drafts.one!.settings, alarmSound: draft.settings.alarmSound } } })
+    expect(changedAway.state.soundLibrary).toContainEqual(documentSound)
+  })
+
   it('keeps draft on switch, discards only on explicit discard, and cancel preserves selection', () => {
     const initial = createDefaultUnifiedConfigState({ now: () => 100, createId: () => 'one' })
     const added = reduceUnifiedConfigCommand(initial, { type: 'saveAs', name: 'Two', id: 'two', now: 101 }).state
@@ -91,6 +101,17 @@ describe('unified config drafts', () => {
     expect(saved.state.drafts.constructor?.name).toBe('Ctor')
     const reserved = reduceUnifiedConfigCommand(saved.state, { type: 'saveAs', name: 'Bad', id: 'draft:unnamed' })
     expect(reserved.status).toBe('blocked')
+  })
+
+  it('saves an unnamed draft before switching without losing the unnamed working copy', () => {
+    const initial = createDefaultUnifiedConfigState({ now: () => 100, createId: () => 'saved-config' })
+    const unnamed = reduceUnifiedConfigCommand(initial, { type: 'switch', configId: null, choice: 'keep', now: 101 }).state
+    const edited = reduceUnifiedConfigCommand(unnamed, { type: 'edit', changes: { name: 'Unfinished timer' }, now: 102 }).state
+    const switched = reduceUnifiedConfigCommand(edited, { type: 'switch', configId: 'saved-config', choice: 'save-as', saveAsName: 'New snapshot', saveAsId: 'new-snapshot', now: 103 })
+    expect(switched.state.selectedConfigId).toBe('saved-config')
+    expect(switched.state.configs.find(config => config.id === 'new-snapshot')?.name).toBe('New snapshot')
+    expect(switched.state.drafts[UNNAMED_DRAFT_KEY]?.name).toBe('Unfinished timer')
+    expect(switched.state.drafts[UNNAMED_DRAFT_KEY]?.dirty).toBe(true)
   })
 })
 
