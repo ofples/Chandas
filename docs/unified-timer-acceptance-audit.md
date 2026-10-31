@@ -8,7 +8,7 @@ The current normal application still uses `PatternProgram | SequenceProgram` (pr
 
 Baseline rerun: all 143 existing Vitest tests passed. JDK 21 and Android SDK 36 are available; `android/gradlew.bat :chandas-timer-service:testDebugUnitTest --console=plain` passed. This is legacy runtime evidence, not schema-4 acceptance.
 
-Independent model acceptance cases live in `src/lib/__tests__/unified-timer-acceptance.test.ts`. They check caller/source isolation, retained dormant offsets, future/malformed recovery, persistent sound references, cue-only migration and both working copies/settings snapshots. `fixtures/timer-unified-timeline.json` contains hand-computed multi-step timing vectors for the next implementation slice; the independent TypeScript timing cases now pass, while native parity and production runtime integration remain unproven.
+Independent model acceptance cases live in `src/lib/__tests__/unified-timer-acceptance.test.ts`. They check caller/source isolation, retained dormant offsets, future/malformed recovery, persistent sound references, cue-only migration and both working copies/settings snapshots. `fixtures/timer-unified-timeline.json` contains hand-computed multi-step timing vectors for the next implementation slice; the independent TS/Kotlin timing cases now pass, while production runtime integration remains unproven.
 
 ## Integration findings to carry forward
 
@@ -17,16 +17,22 @@ Independent model acceptance cases live in `src/lib/__tests__/unified-timer-acce
 - Final-step skip must compare the round boundary with the run deadline. Checking only whether the *next cue* completes the run fails when an interior sub-bell precedes the final boundary.
 - String limits for step labels and sound titles must count Unicode code points like the existing `normalizeLabel`, while length-prefixed identities use UTF-16 units identically in JS and Kotlin.
 
+## Reviewed timing-helper slice
+
+Parent review and rerun: TypeScript check passed; 221 Vitest cases across 16 files passed; Android module compilation/unit test task passed, with 65 tests and zero failures in the XML reports. Independent TS timing acceptance includes 25 cases. Kotlin consumes the same authored timing fixture, 28 invalid-field mutations and frozen random vectors, including Unicode IDs, three rounds and a shifted phase anchor with a fixed seed. Review fixed phase-anchor identity, skipping preceding steps' track generation, bounded final-step skipping, Unicode character limits and negative-anchor run-end overflow.
+
+`unified-timeline.ts` and `UnifiedTimerTimeline.kt` are additive pure helpers. Production scheduler/state/bridge/overlay callers still use the legacy runtime. Native capabilities still advertise schema 3. No app-wide timing or UI integration is claimed by these tests. The next slices must connect these helpers to actual scheduling/session persistence and the unified editor.
+
 ## Required proof
 
 | Requirement | Required authoritative evidence | Status |
 | --- | --- | --- |
 | Normal application uses one coherent step model | Default entry, canonical types, store and editor wiring; browser Start journey | Pending |
-| Cycle and Sequence conversion | Migration fixtures preserving all intervals, settings, sounds, tracks and source metadata | Pending |
-| Recovery of both legacy working programs | Explicit recovery/library destination for unselected legacy edits; idempotence tests | Pending |
+| Cycle and Sequence conversion | Migration fixtures preserving all intervals, settings, sounds, tracks and source metadata | Pure adapters verified; production migration pending |
+| Recovery of both legacy working programs | Explicit recovery/library destination for unselected legacy edits; idempotence tests | Both copies preserved by pure adapter; production destination pending |
 | Durable migration | Versioned records, interrupted-write/retry behavior, retained legacy source and storage-error tests | Pending |
 | Old running sessions | Preserve anchor/start/end/pause, next event, random seed, mute, alarm flags and sound cursors through restore | Pending |
-| Per-step sub-bells execute | Matching TS/Kotlin vectors for multiple steps/rounds with cadence, selected occurrences, random gaps and independent point cues | Pending |
+| Per-step sub-bells execute | Matching TS/Kotlin vectors for multiple steps/rounds with cadence, selected occurrences, random gaps and independent point cues | Shared TS/Kotlin helper vectors pass; live scheduler integration pending |
 | Stable identity and collision behavior | Event/cue identity fixtures including old-session iteration mute, ordered/random sound cursors, coincident cues and step transitions | Pending |
 | Session transport and bounds | Pause/resume, silent previous/next, clock snap, step/round restart, exact duration and round count; exactly one terminal cue | Pending |
 | Quiet hours, Focus and calls | Active-minus-Quiet windows, overnight boundaries, closing bell and late delivery; permission/call/Focus gates | Pending |

@@ -1,0 +1,17 @@
+{
+  "description": "Frozen LCG vectors from the existing Pattern algorithm, including UTF-16 surrogate pairs. Offsets are seconds from the step start. Phase-anchor changes must not change an accepted random seed.",
+  "stepDurationSeconds": 300,
+  "range": { "minSeconds": 10, "maxSeconds": 60 },
+  "vectors": [
+    {
+      "trackId": "random-track",
+      "randomSeed": 1000,
+      "roundOffsets": [[47, 80, 132, 152, 184, 230, 264, 298], [15, 53, 101, 157, 197, 212, 223, 240, 290], [34, 78, 122, 163, 211, 246, 285]]
+    },
+    {
+      "trackId": "🔔:random",
+      "randomSeed": 987654321,
+      "roundOffsets": [[39, 85, 127, 152, 197, 235, 255], [36, 84, 126, 171, 182, 204, 247], [45, 87, 128, 164, 176, 196, 221, 276, 299]]
+    }
+  ]
+}

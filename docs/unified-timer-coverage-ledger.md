@@ -107,7 +107,7 @@ The setup prototype is a behavioral reference, not the production schema or time
 | Slice | Planned exit evidence | Status |
 |---|---|---|
 | Unified TS model + legacy adapters | schema validation, both old work drafts/presets/settings/sounds, idempotence/recovery tests | Model-only: focused tests and type check pass; production persistence cutover remains pending |
-| TS/Kotlin timeline + bridge | shared vectors, random parity, boundaries/collisions, capability/rejection tests | Not started |
+| TS/Kotlin timeline + bridge | shared vectors, random parity, boundaries/collisions, capability/rejection tests | TS/Kotlin helpers verified; production bridge/scheduler integration pending |
 | Production storage + dirty drafts | bootstrap safety, ordered persistence, save/keep/discard/cancel/restart journeys | Not started |
 | Setup editor + config picker | RN Web complete configuration journey, horizontal rail and retained options, accessibility/sheet/keyboard | Not started |
 | Running/session/overlay/notification | no face regression, preserved immediate controls, authoritative session reconciliation | Not started |
