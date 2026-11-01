@@ -28,13 +28,14 @@ interface Props {
   soundLibrary: SoundRef[]
   masterVolume: number
   advanced?: boolean
+  volumeLabel?: string
   onChange: (patch: Partial<CueSettings>) => void
   onClose: () => void
   onBack?: () => void
   onFeedback: (notice: Omit<AppNotice, 'id'>) => void
 }
 
-export function SoundPickerSheet({ visible, title, cue, soundLibrary, masterVolume, advanced = false, onChange, onClose, onBack, onFeedback }: Props) {
+export function SoundPickerSheet({ visible, title, cue, soundLibrary, masterVolume, advanced = false, volumeLabel = 'Cue volume', onChange, onClose, onBack, onFeedback }: Props) {
   const { tokens } = useTheme()
   const confirm = useConfirmation()
   const reducedMotion = useAppReducedMotion()
@@ -159,7 +160,7 @@ export function SoundPickerSheet({ visible, title, cue, soundLibrary, masterVolu
     </Pressable> : <View style={styles.selected}>
       <Text numberOfLines={1} style={[styles.optionTitle, styles.selectedTitle, { color: selectedAvailable ? tokens.text : tokens.accent }]}>{soundTitle(cue.sound)}{selectedAvailable ? '' : ' · unavailable'}</Text>
     </View>}
-    <View style={styles.volumeHeader}><SheetSectionTitle>Cue volume</SheetSectionTitle><Text style={[styles.value, { color: tokens.text }]}>{Math.round(cue.volume * 100)}%</Text></View>
+    <View style={styles.volumeHeader}><SheetSectionTitle>{volumeLabel}</SheetSectionTitle><Text style={[styles.value, { color: tokens.text }]}>{Math.round(cue.volume * 100)}%</Text></View>
     <View style={styles.volumeRow}><Slider style={styles.slider} minimumValue={0} maximumValue={1} step={0.05} value={cue.volume} onSlidingStart={stopPreview} onValueChange={volume => onChange({ volume })} minimumTrackTintColor={tokens.accent} maximumTrackTintColor={tokens.surfaceHi} thumbTintColor={tokens.accent} accessibilityLabel={`${title} volume`} accessibilityValue={{ min: 0, max: 100, now: Math.round(cue.volume * 100), text: `${Math.round(cue.volume * 100)} percent` }} /><Pressable onPress={() => void preview(cue.sound)} style={[styles.preview, { borderColor: tokens.border }]} accessibilityRole="button" accessibilityLabel={`${previewing === selectedKey ? 'Stop' : 'Preview'} selected sound`}><Text style={[styles.previewText, { color: tokens.accent }]}>{previewing === selectedKey ? '■' : '▶'}</Text></Pressable></View>
   </View>
 

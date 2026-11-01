@@ -106,7 +106,7 @@ function validName(value: unknown): value is string {
 }
 
 function validEditorOptions(value: unknown): value is { enabledActionIds: string[] } {
-  return record(value) && Array.isArray(value.enabledActionIds)
+  return record(value) && (value.configurationNameIsCustom === undefined || typeof value.configurationNameIsCustom === 'boolean') && Array.isArray(value.enabledActionIds)
     && value.enabledActionIds.every(id => typeof id === 'string' && id.length > 0 && id.length <= 120)
     && new Set(value.enabledActionIds).size === value.enabledActionIds.length
 }

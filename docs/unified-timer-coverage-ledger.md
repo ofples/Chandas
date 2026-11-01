@@ -1,6 +1,6 @@
 # Unified timer capability coverage ledger
 
-Status: updated through production App/session/overlay integration. Helper and local runtime evidence is recorded separately from browser journey, emulator, and release evidence.
+Status: updated through the November 1 setup revision. The current UI contract is `timer-setup-interaction-2026-11-01.md`; the prior setup presentation was rejected in user review. Current setup/browser proof is recorded at the top of the independent acceptance audit. Engine/native evidence below remains separate from new presentation acceptance.
 
 The first two columns inventory the pre-change behavior and its unified destination. The final column records the evidence level for every row. Automated/source evidence and physical-device acceptance are deliberately distinguished; the independent audit links actual browser artifacts.
 

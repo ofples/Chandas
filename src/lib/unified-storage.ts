@@ -3,7 +3,7 @@ import {
   convertLegacyConfigStateToUnified, convertLegacyProgramToUnified,
 } from './unified-timer'
 import {
-  UNNAMED_DRAFT_KEY, createDefaultUnifiedConfigState, convertLegacyTimerSettings,
+  UNNAMED_DRAFT_KEY, createUnsavedUnifiedConfigState, defaultUnifiedTimerName, convertLegacyTimerSettings,
   isUnifiedDraftDirty, makeLegacyRecoveryDraft, parseUnifiedConfigState, parseUnifiedTimerSettings,
   type ConfigStateDependencies, type UnifiedConfigState, type UnifiedLegacyRecovery,
   type UnifiedTimerConfig, type UnifiedTimerDraft,
@@ -181,16 +181,15 @@ function migrateV1(raw: string, now: number): UnifiedConfigState | null {
   if (parsed.mode !== undefined) return null
   try {
     const migrated = convertLegacyConfigStateToUnified(parsed)
-    const id = 'legacy:v1:config'
-    const config: UnifiedTimerConfig = {
-      id, name: 'Cycle', createdAt: 0, updatedAt: now, program: migrated.program, settings: migrated.settings,
-      showInRunningSelector: true, editorOptions: { enabledActionIds: [] },
-    }
+    const program = clone(migrated.program)
+    const isCustom = program.steps[0].labelIsCustom === true
+    const name = isCustom ? program.steps[0].label : defaultUnifiedTimerName(program.steps[0].durationSeconds)
+    program.steps[0].label = name
     const draft: UnifiedTimerDraft = {
-      baseConfigId: id, name: config.name, program: clone(config.program), settings: clone(config.settings), editorOptions: clone(config.editorOptions), updatedAt: now, dirty: false,
+      name, program, settings: clone(migrated.settings), editorOptions: { enabledActionIds: [], configurationNameIsCustom: isCustom }, updatedAt: now, dirty: true,
     }
     return {
-      schemaVersion: 3, selectedConfigId: id, configs: [config], drafts: { [id]: draft }, legacyRecoveries: [],
+      schemaVersion: 3, selectedConfigId: null, configs: [], drafts: { [UNNAMED_DRAFT_KEY]: draft }, legacyRecoveries: [],
       soundLibrary: uniqueSounds(migrated.soundLibrary), legacyRuntimeMetadata: { alarmModeEnabled: migrated.legacyRuntime.alarmModeEnabled },
     }
   } catch { return null }
@@ -251,7 +250,7 @@ async function bootstrapUnlocked(storage: AsyncKeyValueStorage, deps: UnifiedSto
   if (hasLegacySession || records.get(LEGACY_TIMER_STORAGE_KEYS.v2Marker) !== null) {
     return recoverResult('legacy-session-without-config', legacy, 'Legacy runtime or migration records exist without a recoverable configuration')
   }
-  const state = createDefaultUnifiedConfigState({ now: deps.now, createId: deps.createId })
+  const state = createUnsavedUnifiedConfigState({ now: deps.now, createId: deps.createId })
   return persistMigration(storage, state, 'new-install', legacy)
 }
 

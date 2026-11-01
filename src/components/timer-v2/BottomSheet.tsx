@@ -48,7 +48,7 @@ export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClo
   const setupHelp = useSetupHelp()
   const sheetId = useId()
   const setSheetVisible = useFeedbackSheetRegistration()
-  const sheet = useSheetSnap({ visible, initialSnap, onClose, windowHeight, topInset: insets.top, minHeight: minHeight ?? styles.sheet.minHeight, partialMinHeight: minHeight ?? 220, maxHeightFraction: 0.92, topMargin: 18, reducedMotion })
+  const sheet = useSheetSnap({ visible, initialSnap, onClose: onBack ?? onClose, windowHeight, topInset: insets.top, minHeight: minHeight ?? styles.sheet.minHeight, partialMinHeight: minHeight ?? 220, maxHeightFraction: 0.92, topMargin: 18, reducedMotion })
   useEffect(() => {
     setSheetVisible?.(sheetId, visible)
     return () => setSheetVisible?.(sheetId, false)
@@ -68,7 +68,7 @@ export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClo
     <Modal visible={visible} transparent animationType={Platform.OS === 'web' || theme === 'eink' ? 'none' : 'fade'} onRequestClose={presented.onBack ?? presented.onClose} statusBarTranslucent>
       <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}>
         <View style={[styles.backdrop, theme === 'eink' && { backgroundColor: tokens.bg }]}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={presented.onClose} accessible={false} accessibilityRole="button" accessibilityLabel="Close sheet" />
+          <Pressable style={StyleSheet.absoluteFill} onPress={presented.onBack ?? presented.onClose} accessible={false} accessibilityRole="button" accessibilityLabel="Close sheet" />
           <Animated.View
             style={[styles.sheet, { height: sheet.height, maxHeight: '92%', backgroundColor: tokens.surface, borderColor: tokens.border, paddingBottom: keyboardVisible ? 8 : Math.max(insets.bottom, 16), minHeight: presented.minHeight ?? styles.sheet.minHeight }]}
             accessible={false}
@@ -77,19 +77,13 @@ export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClo
             <View {...sheet.panHandlers} style={styles.dragArea} accessible accessibilityRole="adjustable" accessibilityLabel={`${presented.accessibilityTitle ?? (typeof presented.title === 'string' ? presented.title : 'Sheet')} sheet height`} accessibilityValue={{ text: sheet.snap === 'full' ? 'Expanded' : 'Partial' }} accessibilityActions={[{ name: 'increment', label: 'Expand sheet' }, { name: 'decrement', label: 'Collapse sheet' }, { name: 'escape', label: 'Close sheet' }]} onAccessibilityAction={event => sheet.onAccessibilityAction(event.nativeEvent.actionName)}>
               <View style={[styles.handle, { backgroundColor: tokens.textMuted }]} />
             </View>
-            <View style={[styles.actions, presented.compactTop && styles.compactActions]}>
-              {presented.leadingAction
-                ? <SheetTextButton {...presented.leadingAction} />
-                : <View style={styles.actionSpacer} />}
+            {presented.leadingAction || presented.trailingAction || (setupHelp.visible && setupHelp.onChange) ? <View style={[styles.actions, presented.compactTop && styles.compactActions]}>
+              {presented.leadingAction ? <SheetTextButton {...presented.leadingAction} /> : <View style={styles.actionSpacer} />}
               <View style={styles.trailingActions}>
-                {presented.trailingAction
-                  ? <SheetTextButton {...presented.trailingAction} />
-                  : <SheetTextButton label="Done" onPress={presented.onBack ?? presented.onClose} accessibilityLabel={`${presented.onBack ? 'Finish editing' : 'Close'} ${presented.accessibilityTitle ?? (typeof presented.title === 'string' ? presented.title : 'sheet')}`} />}
-                {presented.trailingAction || presented.onBack ? <SheetTextButton label="Close" onPress={presented.onClose} accessibilityLabel={`Close ${presented.accessibilityTitle ?? (typeof presented.title === 'string' ? presented.title : 'sheet')}`} /> : null}
-                <SheetTextButton label={sheet.snap === 'full' ? 'Collapse' : 'Expand'} onPress={() => sheet.moveTo(sheet.snap === 'full' ? 'partial' : 'full')} accessibilityLabel={sheet.snap === 'full' ? 'Collapse sheet' : 'Expand sheet'} />
+                {presented.trailingAction ? <SheetTextButton {...presented.trailingAction} /> : null}
                 {setupHelp.visible && setupHelp.onChange ? <HelpToggleButton active onPress={() => setupHelp.onChange?.(false)} /> : null}
               </View>
-            </View>
+            </View> : null}
             <View style={styles.header}>
               <View style={styles.heading}>
                 {presented.eyebrow ? <Text style={[styles.eyebrow, { color: tokens.textMuted }]}>{presented.eyebrow}</Text> : null}

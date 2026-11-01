@@ -2,7 +2,25 @@
 
 Authority: `unified-timer-goal-prompt-2026-10-31.md`. Parent review is independent of Luna's implementation coverage ledger. Evidence below concerns the actual normal application, not the former experimental entry.
 
-## Implementation and review
+## November 1 UI review revision
+
+The user rejected the prior presentation despite its functional checks. [The November 1 interaction revision](timer-setup-interaction-2026-11-01.md) supersedes the previous setup layout and visible sheet-toolbar requirements. The scheduler and accepted-session ownership are unchanged.
+
+The revised actual app uses a direct working timer, duration-based/inline configuration name, original main-duration presets and sound disclosure, contextual horizontal controls, three-dot broad settings, compact draggable step cards and layered step/bell editors. Generic visible Done/Expand/Collapse controls were removed; backdrop, drag and accessibility/native dismissal remain. Defaults, cue overrides and library-only auditions are kept distinct.
+
+Current local check: Expo compatibility and TypeScript pass; 289 tests across 24 files pass. New tests cover durable unsaved startup, automatic/custom naming metadata, V1 working-copy migration, and all-selected/custom cadence changes without losing dormant points. No native scheduler changes were made in this revision. Browser artifacts are under the earlier artifact directory's `2026-11-01-redesign/` folder:
+
+| Journey | Result |
+| --- | --- |
+| `core.json` | 7 checks: direct unsaved timer; automatic/custom name; sound selection/backdrop; retained run/clock values; step cards and editor; drag/reload. |
+| `nested.json` | 6 checks: inline bell editing/cadence; repeat-off retention; combined timing modes; sound → bell → list → main; library auditions isolated; explicit first Save and reload. |
+| `drag.json`, `edges.json` | 4 + 4 checks: non-overlapping whole-card drag; persisted order; three-step insertion; local haptic feedback; name buffering; drag dismissal; multi → single transition. |
+| `lifecycle.json` | 6 checks: current-draft Save as; Save/Keep/Discard/Cancel; separate named drafts; rename/duplicate/delete; visibility/import/export; all broad setting destinations. |
+| `runtime.json` | 3 checks: actual Start/pause/resume; both steps' timed interior/end cues and single completion; compact viewport and light/e-ink controls. |
+
+Parent review inspected phone screenshots of the main page, cards, drag, step modal, bell modal, sub-bell list and settings. It fixed missing Save as, incorrect fixed-row geometry and white Sortable background, endpoint swapping instead of insertion, redundant bell naming/controls, misleading disabled-layer markers, cadence edits that left stale repeat points, name-transition edges and cue/default feedback. Browser audio evidence remains play-call instrumentation, not physical speaker/vibration acceptance. Device acceptance limits below still apply.
+
+## October 31 implementation and review
 
 The normal App bootstraps schema-3 configuration storage and edits schema-4 unified programs. A timer has ordered steps with full sub-bells and whole-round repetition. A frozen accepted run is separate from saved configurations and durable drafts. Existing legacy runtime adapters remain only for old accepted sessions; configuration migration does not rewrite an active session's cue identity.
 

@@ -16,6 +16,7 @@ export const UNNAMED_DRAFT_KEY = 'draft:unnamed'
 
 export interface UnifiedEditorOptions {
   enabledActionIds: string[]
+  configurationNameIsCustom?: boolean
 }
 
 export interface UnifiedTimerConfig {
@@ -149,6 +150,11 @@ function configName(value: unknown): string | null {
   return name.length > 0 && [...name].length <= 80 ? name : null
 }
 
+function nameSingleStep(program: UnifiedTimerProgram, name: string, isCustom = true): UnifiedTimerProgram {
+  if (program.steps.length !== 1) return program
+  return { ...program, steps: [{ ...program.steps[0], label: [...name].slice(0, 60).join(''), labelIsCustom: isCustom }] }
+}
+
 function copyDraft(draft: UnifiedTimerDraft): UnifiedTimerDraft {
   return clone(draft)
 }
@@ -215,6 +221,25 @@ export function createDefaultUnifiedConfigState(deps: ConfigStateDependencies = 
     legacyRecoveries: [],
     soundLibrary: [],
   }
+}
+
+/** A new installation opens a working timer; saving is an explicit library action. */
+export function createUnsavedUnifiedConfigState(deps: ConfigStateDependencies = {}): UnifiedConfigState {
+  const state = createDefaultUnifiedConfigState(deps)
+  const initial = copyConfigAsDraft(state.configs[0], deps.now?.() ?? Date.now())
+  delete initial.baseConfigId
+  initial.name = defaultUnifiedTimerName(initial.program.steps[0].durationSeconds)
+  initial.program.steps[0].label = initial.name
+  initial.editorOptions.configurationNameIsCustom = false
+  initial.dirty = true
+  state.configs = []
+  state.selectedConfigId = null
+  state.drafts = { [UNNAMED_DRAFT_KEY]: initial }
+  return state
+}
+
+export function defaultUnifiedTimerName(durationSeconds: number): string {
+  return defaultUnifiedStepLabel(durationSeconds).replace(/ step$/, ' timer')
 }
 
 function validHaptics(value: unknown): value is TimerHapticsSettings {
@@ -332,6 +357,7 @@ export function convertLegacyTimerSettings(input: unknown, createId: () => strin
 
 function validEditorOptions(value: unknown): value is UnifiedEditorOptions {
   return record(value) && Array.isArray(value.enabledActionIds)
+    && (value.configurationNameIsCustom === undefined || typeof value.configurationNameIsCustom === 'boolean')
     && value.enabledActionIds.every(id => typeof id === 'string' && id.length > 0 && id.length <= 120)
     && new Set(value.enabledActionIds).size === value.enabledActionIds.length
 }
@@ -431,9 +457,8 @@ export function reduceUnifiedConfigCommand(
   let draft = getDraft(state.drafts, currentKey)
   if (!draft && command.type !== 'setSoundLibrary') {
     if (command.type === 'switch' && command.configId === null) {
-      const defaults = createDefaultUnifiedConfigState({ now: () => now, createId: deps.createId })
-      const unnamed = copyConfigAsDraft(defaults.configs[0], now)
-      delete unnamed.baseConfigId
+      const defaults = createUnsavedUnifiedConfigState({ now: () => now, createId: deps.createId })
+      const unnamed = defaults.drafts[UNNAMED_DRAFT_KEY]!
       setDraft(state.drafts, UNNAMED_DRAFT_KEY, { ...unnamed, dirty: true })
       draft = getDraft(state.drafts, UNNAMED_DRAFT_KEY)
     } else return result(input, 'blocked', 'missing-config')
@@ -473,9 +498,10 @@ export function reduceUnifiedConfigCommand(
     if (state.configs.some(config => config.id === id)) return result(input, 'blocked', 'duplicate-id')
     const saved: UnifiedTimerConfig = {
       id, name, createdAt: now, updatedAt: now,
-      program: clone(draft!.program), settings: clone(draft!.settings), editorOptions: clone(draft!.editorOptions),
+      program: clone(draft!.program), settings: clone(draft!.settings), editorOptions: { ...clone(draft!.editorOptions), configurationNameIsCustom: draft!.editorOptions.configurationNameIsCustom === false && name === draft!.name ? false : true },
       showInRunningSelector: true,
     }
+    if (draft!.editorOptions.configurationNameIsCustom !== undefined) saved.program = nameSingleStep(saved.program, saved.name, saved.editorOptions.configurationNameIsCustom !== false)
     state.configs.push(saved)
     setDraft(state.drafts, id, { ...copyConfigAsDraft(saved, now), dirty: false })
     state.selectedConfigId = id
@@ -487,9 +513,11 @@ export function reduceUnifiedConfigCommand(
     if (!target) return result(input, 'blocked', 'missing-config')
     if (!name) return result(input, 'blocked', 'invalid-name')
     target.name = name
+    target.editorOptions.configurationNameIsCustom = true
+    target.program = nameSingleStep(target.program, name)
     target.updatedAt = now
     const targetDraft = getDraft(state.drafts, target.id)
-    if (targetDraft && !targetDraft.dirty) setDraft(state.drafts, target.id, { ...targetDraft, name, updatedAt: now, dirty: false })
+    if (targetDraft && !targetDraft.dirty) setDraft(state.drafts, target.id, { ...targetDraft, name, program: clone(target.program), editorOptions: { ...targetDraft.editorOptions, configurationNameIsCustom: true }, updatedAt: now, dirty: false })
     return result(state, 'applied')
   }
   if (command.type === 'setVisibility') {
@@ -535,7 +563,8 @@ export function reduceUnifiedConfigCommand(
     const id = command.newId ?? deps.createId?.()
     if (!configIdValid(id) || state.configs.some(config => config.id === id)) return result(input, 'blocked', 'duplicate-id')
     const copyName = [...`${source.name} copy`].slice(0, 80).join('')
-    const copyConfig: UnifiedTimerConfig = { ...clone(source), id, name: copyName, createdAt: now, updatedAt: now }
+    const copyConfig: UnifiedTimerConfig = { ...clone(source), id, name: copyName, editorOptions: { ...clone(source.editorOptions), configurationNameIsCustom: true }, createdAt: now, updatedAt: now }
+    if (source.editorOptions.configurationNameIsCustom !== undefined) copyConfig.program = nameSingleStep(copyConfig.program, copyName)
     state.configs.push(copyConfig)
     setDraft(state.drafts, id, { ...copyConfigAsDraft(copyConfig, now), dirty: false })
     return result(state, 'applied', undefined, id)
@@ -573,8 +602,9 @@ export function reduceUnifiedConfigCommand(
         if (!configIdValid(id) || state.configs.some(config => config.id === id)) return result(input, 'blocked', 'duplicate-id')
         const saved: UnifiedTimerConfig = {
           id, name, createdAt: now, updatedAt: now,
-          program: clone(draft.program), settings: clone(draft.settings), editorOptions: clone(draft.editorOptions), showInRunningSelector: true,
+          program: clone(draft.program), settings: clone(draft.settings), editorOptions: { ...clone(draft.editorOptions), configurationNameIsCustom: draft.editorOptions.configurationNameIsCustom === false && name === draft.name ? false : true }, showInRunningSelector: true,
         }
+        if (draft.editorOptions.configurationNameIsCustom !== undefined) saved.program = nameSingleStep(saved.program, name, saved.editorOptions.configurationNameIsCustom !== false)
         state.configs.push(saved)
         setDraft(state.drafts, id, { ...copyConfigAsDraft(saved, now), dirty: false })
       } else if (command.choice === 'discard') {
@@ -590,10 +620,9 @@ export function reduceUnifiedConfigCommand(
       setDraft(state.drafts, command.configId, copyConfigAsDraft(target, now))
     }
     if (command.configId === null && !getDraft(state.drafts, UNNAMED_DRAFT_KEY)) {
-      const defaults = createDefaultUnifiedConfigState({ now: () => now, createId: deps.createId })
-      const unnamed = copyConfigAsDraft(defaults.configs[0], now)
-      delete unnamed.baseConfigId
-      setDraft(state.drafts, UNNAMED_DRAFT_KEY, { ...unnamed, name: 'New timer', dirty: true })
+      const defaults = createUnsavedUnifiedConfigState({ now: () => now, createId: deps.createId })
+      const unnamed = defaults.drafts[UNNAMED_DRAFT_KEY]!
+      setDraft(state.drafts, UNNAMED_DRAFT_KEY, { ...unnamed, dirty: true })
     }
     return result(state, 'applied')
   }

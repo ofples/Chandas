@@ -25,7 +25,7 @@ export function DraggableSheet({ visible, title, onClose, onBack, children, foot
   const { height: windowHeight } = useWindowDimensions()
   const insets = useSafeAreaInsets()
   const scroll = useRef<ScrollView>(null)
-  const sheet = useSheetSnap({ visible, initialSnap, onClose, windowHeight, topInset: insets.top, minHeight: 260, partialMinHeight: 340, reducedMotion })
+  const sheet = useSheetSnap({ visible, initialSnap, onClose: onBack ?? onClose, windowHeight, topInset: insets.top, minHeight: 260, partialMinHeight: 340, reducedMotion })
 
   useEffect(() => {
     if (!visible) return
@@ -36,17 +36,10 @@ export function DraggableSheet({ visible, title, onClose, onBack, children, foot
   return <Modal visible={visible} transparent animationType="none" onRequestClose={onBack ?? onClose} statusBarTranslucent>
     <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}>
       <View style={styles.backdrop}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Dismiss editor" />
+        <Pressable style={StyleSheet.absoluteFill} onPress={onBack ?? onClose} accessibilityLabel="Dismiss editor" />
         <Animated.View testID={testID} accessibilityViewIsModal style={[styles.sheet, { height: sheet.height, maxHeight: '100%', backgroundColor: tokens.surface, borderColor: tokens.border, paddingBottom: Math.max(12, insets.bottom) }]}>
           <View {...sheet.panHandlers} style={styles.dragArea} accessible accessibilityRole="adjustable" accessibilityLabel={`${title} sheet height`} accessibilityValue={{ text: sheet.snap === 'full' ? 'Expanded' : 'Partial' }} accessibilityActions={[{ name: 'increment', label: 'Expand sheet' }, { name: 'decrement', label: 'Collapse sheet' }, { name: 'escape', label: 'Close sheet' }]} onAccessibilityAction={event => sheet.onAccessibilityAction(event.nativeEvent.actionName)}>
             <View style={[styles.handle, { backgroundColor: tokens.textMuted }]} />
-          </View>
-          <View style={styles.toolbar}>
-            {onBack ? <Pressable accessibilityRole="button" accessibilityLabel="Back to previous editor" onPress={onBack} style={styles.action}><Text style={{ color: tokens.accent }}>‹ Back</Text></Pressable> : <View style={styles.action} />}
-            <View style={styles.toolbarActions}>
-              <Pressable accessibilityRole="button" accessibilityLabel={sheet.snap === 'full' ? 'Collapse sheet' : 'Expand sheet'} onPress={() => sheet.moveTo(sheet.snap === 'full' ? 'partial' : 'full')} style={styles.action}><Text style={{ color: tokens.textMuted }}>{sheet.snap === 'full' ? 'Collapse' : 'Expand'}</Text></Pressable>
-              <Pressable accessibilityRole="button" onPress={onBack ?? onClose} accessibilityLabel={`Done editing ${title}`} style={styles.action}><Text style={{ color: tokens.accent }}>Done</Text></Pressable>
-            </View>
           </View>
           {showTitle ? <Text accessibilityRole="header" style={[styles.title, { color: tokens.text }]}>{title}</Text> : null}
           {pinnedContent ? <View style={{ paddingHorizontal: 22, paddingBottom: 8 }}>{pinnedContent}</View> : null}
@@ -66,9 +59,6 @@ const styles = StyleSheet.create({
   sheet: { width: '100%', maxWidth: 680, alignSelf: 'center', borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, borderBottomWidth: 0, overflow: 'hidden' },
   dragArea: { minHeight: 30, alignItems: 'center', justifyContent: 'center' },
   handle: { width: 38, height: 4, borderRadius: 4, opacity: 0.55 },
-  toolbar: { paddingHorizontal: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  toolbarActions: { flexDirection: 'row', gap: 10 },
-  action: { minHeight: 44, minWidth: 44, alignItems: 'center', justifyContent: 'center' },
   title: { fontSize: 23, fontWeight: '500', paddingHorizontal: 22, paddingBottom: 16 },
   scroll: { flex: 1 },
   body: { paddingHorizontal: 22, paddingBottom: 22, gap: 16 },

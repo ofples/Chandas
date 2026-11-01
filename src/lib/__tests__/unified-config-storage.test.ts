@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { defaultTimerV2State } from '../timerV2'
 import {
-  createDefaultUnifiedConfigState, parseUnifiedConfigState, reduceUnifiedConfigCommand, UNNAMED_DRAFT_KEY,
+  createDefaultUnifiedConfigState, createUnsavedUnifiedConfigState, parseUnifiedConfigState, reduceUnifiedConfigCommand, UNNAMED_DRAFT_KEY,
 } from '../unified-config-state'
 import {
   bootstrapUnifiedConfigState, LEGACY_TIMER_STORAGE_KEYS, saveUnifiedConfigState,
@@ -36,6 +36,31 @@ function setV2(storage: MemoryStorage) {
 }
 
 describe('unified config drafts', () => {
+  it('starts with a durable working copy and only creates a saved card on explicit Save as', () => {
+    const initial = createUnsavedUnifiedConfigState({ now: () => 100, createId: () => 'first' })
+    expect(initial.configs).toEqual([])
+    expect(initial.selectedConfigId).toBeNull()
+    const working = initial.drafts[UNNAMED_DRAFT_KEY]!
+    expect(working.baseConfigId).toBeUndefined()
+    expect(parseUnifiedConfigState(JSON.stringify(initial))).toMatchObject({ ok: true, value: initial })
+    const saved = reduceUnifiedConfigCommand(initial, { type: 'saveAs', name: working.name, id: 'saved' }).state
+    expect(saved.configs).toHaveLength(1)
+    expect(saved.configs[0].editorOptions.configurationNameIsCustom).toBe(false)
+    expect(saved.drafts[UNNAMED_DRAFT_KEY]).toEqual(working)
+    const renamed = reduceUnifiedConfigCommand(saved, { type: 'rename', id: 'saved', name: 'Meditation' }).state
+    expect(renamed.configs[0].editorOptions.configurationNameIsCustom).toBe(true)
+    expect(renamed.drafts.saved?.name).toBe('Meditation')
+    expect(renamed.drafts.saved?.editorOptions.configurationNameIsCustom).toBe(true)
+  })
+
+  it('accepts old editor metadata and protects malformed automatic-name metadata', () => {
+    const legacy = createDefaultUnifiedConfigState({ now: () => 100, createId: () => 'first' })
+    expect(parseUnifiedConfigState(JSON.stringify(legacy)).ok).toBe(true)
+    const bad = JSON.parse(JSON.stringify(legacy))
+    bad.drafts.first.editorOptions.configurationNameIsCustom = 'false'
+    expect(parseUnifiedConfigState(bad).ok).toBe(false)
+  })
+
   it('Save as activates a clean snapshot while retaining the outgoing dirty draft', () => {
     const initial = createDefaultUnifiedConfigState({ now: () => 100, createId: () => 'first' })
     const edited = reduceUnifiedConfigCommand(initial, { type: 'edit', changes: { name: 'Unsaved name' }, now: 101 }).state
@@ -122,7 +147,9 @@ describe('unified config storage migration', () => {
     expect(result.status).toBe('loaded')
     if (result.status !== 'loaded') return
     expect(result.source).toBe('new-install')
-    expect(result.state.configs[0]?.id).toBe('default-id')
+    expect(result.state.configs).toEqual([])
+    expect(result.state.selectedConfigId).toBeNull()
+    expect(result.state.drafts[UNNAMED_DRAFT_KEY]).toMatchObject({ name: '30-minute timer', dirty: true, editorOptions: { configurationNameIsCustom: false } })
     expect(storage.values.has(UNIFIED_MIGRATION_MARKER_KEY)).toBe(true)
     expect(storage.values.has(LEGACY_TIMER_STORAGE_KEYS.config)).toBe(false)
   })
@@ -237,8 +264,10 @@ describe('unified config storage migration', () => {
     expect(result.status).toBe('loaded')
     if (result.status !== 'loaded') return
     expect(result.source).toBe('v1-migration')
-    expect(result.state.configs[0]?.settings.masterVolume).toBe(0.42)
-    expect(result.state.configs[0]?.settings.availability.weeklyWindows[0]?.id).toBe('legacy:v1:availability-window-1')
+    expect(result.state.configs).toEqual([])
+    expect(result.state.selectedConfigId).toBeNull()
+    expect(result.state.drafts[UNNAMED_DRAFT_KEY]?.settings.masterVolume).toBe(0.42)
+    expect(result.state.drafts[UNNAMED_DRAFT_KEY]?.settings.availability.weeklyWindows[0]?.id).toBe('legacy:v1:availability-window-1')
     expect(result.state.legacyRuntimeMetadata?.alarmModeEnabled).toBe(true)
   })
 
