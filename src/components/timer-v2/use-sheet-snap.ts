@@ -11,6 +11,7 @@ interface UseSheetSnapOptions {
   topInset: number
   minHeight: number
   partialMinHeight: number
+  partialHeightFraction?: number
   maxHeightFraction?: number
   topMargin?: number
   reducedMotion: boolean
@@ -19,10 +20,10 @@ interface UseSheetSnapOptions {
 /** Shared handle-only drag and snap behavior for all timer sheets. */
 export function useSheetSnap({
   visible, initialSnap, onClose, windowHeight, topInset, minHeight, partialMinHeight,
-  maxHeightFraction = 1, topMargin = 18, reducedMotion,
+  partialHeightFraction = 0.64, maxHeightFraction = 1, topMargin = 18, reducedMotion,
 }: UseSheetSnapOptions) {
   const fullHeight = Math.max(minHeight, Math.min(windowHeight * maxHeightFraction, windowHeight - topInset - topMargin))
-  const partialHeight = Math.min(fullHeight, Math.max(minHeight, partialMinHeight, Math.round(windowHeight * 0.64)))
+  const partialHeight = Math.min(fullHeight, Math.max(minHeight, partialMinHeight, Math.round(windowHeight * partialHeightFraction)))
   const [snap, setSnap] = useState<SheetSnap>(initialSnap)
   const snapRef = useRef<SheetSnap>(initialSnap)
   const height = useRef(new Animated.Value(initialSnap === 'full' ? fullHeight : partialHeight)).current

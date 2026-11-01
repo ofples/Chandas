@@ -2,6 +2,12 @@
 
 Authority: `unified-timer-goal-prompt-2026-10-31.md`. Parent review is independent of Luna's implementation coverage ledger. Evidence below concerns the actual normal application, not the former experimental entry.
 
+## November 1 follow-up consistency pass
+
+Implemented the user's next review in the actual app. Page and step sheets share `UnifiedIntervalEditor`; the whole sub-bell summary opens its sheet while the toggle changes only enablement. Timer policy controls are no longer duplicated in Settings; completion sound is contextual to bounded runs beside Add step. Settings retains keyed scroll offsets and has one section heading. Full setup mixer, brighter action labels, inline step headings, configuration shortcut and multi-step timeline cards are present. Step/bell/configuration commands use dismissible overflow menus. Reused the original delayed ReorderHandle with animated insertion previews and edge scrolling, without changing persisted order until drop. Sound choices retain the cue layer behind a shorter partial sheet and provide Back. Web scrollbars are hidden. Complete repeating selections extend when duration grows; explicit custom selections remain intact.
+
+Validation: Expo dependency check, TypeScript and all 290 tests across 24 files pass; web and Android Hermes exports pass. Browser artifacts: `2026-11-01-followup/ui.json` records six grouped flows (card/toggle ownership, Random off and cadence growth, full mixer, bounded completion/layered sounds, settings scroll and de-duplication, live drag/shared step menu, saved cards and disabled Save); it reports no uncaught or console errors. `runtime.json` verifies accepted-session pause/resume identity, both steps' four expected bell/end audio play calls, single completion and return to setup, plus 320px/light/e-ink views. Screenshots of the bell, live drag, sound layering, saved cards and compact/theme views were inspected. Sound-choice list key/row-height issues were corrected during this pass. Audio is browser instrumentation; physical sound, vibration and native gestures remain device acceptance work. No native/runtime engine changes or publication.
+
 ## November 1 UI review revision
 
 The user rejected the prior presentation despite its functional checks. [The November 1 interaction revision](timer-setup-interaction-2026-11-01.md) supersedes the previous setup layout and visible sheet-toolbar requirements. The scheduler and accepted-session ownership are unchanged.

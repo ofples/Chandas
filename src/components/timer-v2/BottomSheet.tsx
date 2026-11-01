@@ -10,6 +10,13 @@ import { SheetFeedbackOverlay, useFeedbackSheetRegistration } from './feedback-l
 import { ContextualHelp, HelpToggleButton, useSetupHelp } from './inline-help'
 import { useSheetSnap, type SheetSnap } from './use-sheet-snap'
 
+if (Platform.OS === 'web' && typeof document !== 'undefined' && !document.getElementById('chandas-hide-web-scrollbars')) {
+  const style = document.createElement('style')
+  style.id = 'chandas-hide-web-scrollbars'
+  style.textContent = 'html * { scrollbar-width: none !important; -ms-overflow-style: none !important; } html *::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }'
+  document.head.appendChild(style)
+}
+
 interface Props {
   visible: boolean
   title: ReactNode
@@ -28,6 +35,7 @@ interface Props {
   minHeight?: number
   compactTop?: boolean
   initialSnap?: SheetSnap
+  partialHeightFraction?: number
 }
 
 interface SheetHeaderAction {
@@ -39,7 +47,7 @@ interface SheetHeaderAction {
 }
 
 /** Shared, keyboard-safe sheet used by every Timer v2 secondary flow. */
-export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClose, onBack, leadingAction, trailingAction, help, presentationKey, pinnedContent, children, scroll = true, footer, minHeight, compactTop = false, initialSnap = 'partial' }: Props) {
+export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClose, onBack, leadingAction, trailingAction, help, presentationKey, pinnedContent, children, scroll = true, footer, minHeight, compactTop = false, initialSnap = 'partial', partialHeightFraction }: Props) {
   const { tokens, theme } = useTheme()
   const insets = useSafeAreaInsets()
   const { height: windowHeight } = useWindowDimensions()
@@ -48,7 +56,7 @@ export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClo
   const setupHelp = useSetupHelp()
   const sheetId = useId()
   const setSheetVisible = useFeedbackSheetRegistration()
-  const sheet = useSheetSnap({ visible, initialSnap, onClose: onBack ?? onClose, windowHeight, topInset: insets.top, minHeight: minHeight ?? styles.sheet.minHeight, partialMinHeight: minHeight ?? 220, maxHeightFraction: 0.92, topMargin: 18, reducedMotion })
+  const sheet = useSheetSnap({ visible, initialSnap, onClose: onBack ?? onClose, windowHeight, topInset: insets.top, minHeight: minHeight ?? styles.sheet.minHeight, partialMinHeight: minHeight ?? 220, partialHeightFraction, maxHeightFraction: 0.92, topMargin: 18, reducedMotion })
   useEffect(() => {
     setSheetVisible?.(sheetId, visible)
     return () => setSheetVisible?.(sheetId, false)

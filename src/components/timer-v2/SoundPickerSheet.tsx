@@ -164,11 +164,8 @@ export function SoundPickerSheet({ visible, title, cue, soundLibrary, masterVolu
     <View style={styles.volumeRow}><Slider style={styles.slider} minimumValue={0} maximumValue={1} step={0.05} value={cue.volume} onSlidingStart={stopPreview} onValueChange={volume => onChange({ volume })} minimumTrackTintColor={tokens.accent} maximumTrackTintColor={tokens.surfaceHi} thumbTintColor={tokens.accent} accessibilityLabel={`${title} volume`} accessibilityValue={{ min: 0, max: 100, now: Math.round(cue.volume * 100), text: `${Math.round(cue.volume * 100)} percent` }} /><Pressable onPress={() => void preview(cue.sound)} style={[styles.preview, { borderColor: tokens.border }]} accessibilityRole="button" accessibilityLabel={`${previewing === selectedKey ? 'Stop' : 'Preview'} selected sound`}><Text style={[styles.previewText, { color: tokens.accent }]}>{previewing === selectedKey ? '■' : '▶'}</Text></Pressable></View>
   </View>
 
-  if (choicesOpen) return <BottomSheet visible={visible} title="Sound choices" help="Drag the dotted handle to set the order. Swipe left to remove a sound. The first sound is used when only one choice remains." onClose={close} onBack={() => { stopPreview(); setChoicesOpen(false) }}>
-    <SoundChoicesEditor choices={choices} mode={cue.soundMode === 'random' ? 'random' : 'sequence'} previewing={previewing} onModeChange={soundMode => onChange({ soundMode })} onMove={moveChoice} onRemove={removeChoice} onPreview={sound => preview(sound, false)} />
-  </BottomSheet>
-
   return (
+    <>
     <BottomSheet visible={visible} title={title} help={advanced ? 'Tap a sound name to hear it and keep only that sound. Use the round selectors to combine sounds. Added Android and device sounds are available to every cue on this device.' : 'Tap a sound to use it and hear it immediately, then set this cue’s own volume below. Added Android and device sounds are available to every cue on this device.'} onClose={close} onBack={onBack ? () => { stopPreview(); onBack() } : undefined} pinnedContent={<SegmentedControl items={SOUND_TABS} value={tab} onChange={value => { stopPreview(); setTab(value) }} accessibilityLabel="Sound source" />} footer={volumeFooter}>
       {message ? <GentleNotice title={message.title} message={message.detail} tone="attention" /> : null}
       <Animated.View key={tab} entering={reducedMotion ? undefined : FadeIn.duration(180)} exiting={reducedMotion ? undefined : FadeOut.duration(120)}>
@@ -199,6 +196,20 @@ export function SoundPickerSheet({ visible, title, cue, soundLibrary, masterVolu
       </View> : null}
       </Animated.View>
     </BottomSheet>
+    <BottomSheet
+      visible={visible && choicesOpen}
+      title="Sound choices"
+      help="Drag the dotted handle to set the order. Swipe left to remove a sound. The first sound is used when only one choice remains."
+      leadingAction={{ label: 'Back', accessibilityLabel: 'Back to cue sound', onPress: () => { stopPreview(); setChoicesOpen(false) } }}
+      onClose={() => { stopPreview(); setChoicesOpen(false) }}
+      onBack={() => { stopPreview(); setChoicesOpen(false) }}
+      initialSnap="partial"
+      partialHeightFraction={0.46}
+      presentationKey="sound-choices"
+    >
+      <SoundChoicesEditor choices={choices} mode={cue.soundMode === 'random' ? 'random' : 'sequence'} previewing={previewing} onModeChange={soundMode => onChange({ soundMode })} onMove={moveChoice} onRemove={removeChoice} onPreview={sound => preview(sound, false)} />
+    </BottomSheet>
+    </>
   )
 }
 
@@ -241,7 +252,7 @@ function SoundChoicesEditor({ choices, mode, previewing, onModeChange, onMove, o
         <Sortable data={rows} itemHeight={54} useFlatList={false} style={[styles.choiceScroller, { backgroundColor: tokens.surface }]} contentContainerStyle={[styles.choiceListContent, { backgroundColor: tokens.surface }]} renderItem={props => {
           const sound = choices.find(choice => soundRefKey(choice) === props.item.id)
           if (!sound) return null
-          return <SortableSoundChoiceRow {...props} sound={sound} itemCount={choices.length} canDelete={choices.length > 1} playing={previewing === soundPreviewKey(sound)} onMove={onMove} onRemove={onRemove} onPreview={onPreview} />
+          return <SortableSoundChoiceRow key={props.item.id} {...props} sound={sound} itemCount={choices.length} canDelete={choices.length > 1} playing={previewing === soundPreviewKey(sound)} onMove={onMove} onRemove={onRemove} onPreview={onPreview} />
         }} />
       </View>
       <Text style={[styles.choiceHint, { color: tokens.textMuted }]}>{choices.length > 1 ? 'Hold the dotted handle to reorder. Swipe left to delete.' : 'Add another sound to enable ordering and removal.'}</Text>
@@ -258,14 +269,14 @@ function SortableSoundChoiceRow({ sound, itemCount, canDelete, playing, onMove, 
   onPreview: (sound: SoundRef) => void | Promise<void>
 }) {
   const { tokens } = useTheme()
-  const { id, index, item, positions, lowerBound, autoScrollDirection, itemsCount, isDynamicHeight, estimatedItemHeight, itemHeights, scheduleHeightUpdate } = props
+  const { id, index, item, positions, lowerBound, autoScrollDirection, itemsCount, itemHeight, isDynamicHeight, estimatedItemHeight, itemHeights, scheduleHeightUpdate } = props
   const available = useSoundAvailability(sound)
   const finishMove = (_id: string, to: number) => { if (to !== index) onMove(index, to) }
   const adjust = (direction: 'increment' | 'decrement') => {
     const target = Math.max(0, Math.min(itemCount - 1, index + (direction === 'increment' ? 1 : -1)))
     if (target !== index) { selectionHaptic(); onMove(index, target) }
   }
-  return <SortableItem id={id} data={item} positions={positions} lowerBound={lowerBound} autoScrollDirection={autoScrollDirection} itemsCount={itemsCount} isDynamicHeight={isDynamicHeight} estimatedItemHeight={estimatedItemHeight} itemHeights={itemHeights} scheduleHeightUpdate={scheduleHeightUpdate} onDrop={finishMove} style={styles.choiceSortableItem}>
+  return <SortableItem id={id} data={item} positions={positions} lowerBound={lowerBound} autoScrollDirection={autoScrollDirection} itemsCount={itemsCount} itemHeight={itemHeight ?? 54} containerHeight={itemCount * (itemHeight ?? 54)} isDynamicHeight={isDynamicHeight} estimatedItemHeight={estimatedItemHeight} itemHeights={itemHeights} scheduleHeightUpdate={scheduleHeightUpdate} onDrop={finishMove} style={styles.choiceSortableItem}>
     <SwipeToDeleteRow disabled={!canDelete} onDelete={() => onRemove(sound)} accessibilityLabel={`Delete ${soundTitle(sound)} from sound choices`}>
       <View style={[styles.choiceRow, { borderBottomColor: tokens.border }]}>
         <SortableItem.Handle style={styles.choiceHandle}><Pressable hitSlop={8} style={styles.choiceHandlePressable} accessibilityRole="adjustable" accessibilityLabel={`Reorder ${soundTitle(sound)}`} accessibilityHint="Touch and hold to drag, or use accessibility actions to move it" accessibilityValue={{ text: `${index + 1} of ${itemCount}` }} accessibilityActions={[{ name: 'increment', label: 'Move later' }, { name: 'decrement', label: 'Move earlier' }]} onAccessibilityAction={event => adjust(event.nativeEvent.actionName as 'increment' | 'decrement')}><Text style={[styles.choiceHandleGlyph, { color: tokens.textMuted }]}>⠿</Text></Pressable></SortableItem.Handle>
