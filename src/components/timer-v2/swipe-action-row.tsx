@@ -104,23 +104,16 @@ export function SwipeActionRow({ children, onDelete, onDuplicate, accessibilityL
       }
 
       pendingAction.value = true
-      if (reducedMotion) {
-        translateX.value = 0
-        pendingAction.value = false
-        scheduleOnRN(invokeAction, direction)
-        return
-      }
-      translateX.value = withTiming(0, { duration: 140 }, finished => {
-        if (finished) {
-          pendingAction.value = false
-          scheduleOnRN(invokeAction, direction)
-        }
-      })
+      // Invoke at release so confirmation and duplication never wait for the
+      // visual reset. The row returns independently with a short linear settle.
+      scheduleOnRN(invokeAction, direction)
+      translateX.value = reducedMotion ? 0 : withTiming(0, { duration: 120 })
     })
     .onFinalize((_event, success) => {
-      if (!success) pendingAction.value = false
+      const actionWasAccepted = pendingAction.value
+      pendingAction.value = false
       scheduleOnRN(markGestureFinalized)
-      if (!pendingAction.value) translateX.value = reducedMotion ? 0 : withTiming(0, { duration: 140 })
+      if (!success || !actionWasAccepted) translateX.value = reducedMotion ? 0 : withTiming(0, { duration: 120 })
     }), [hasDelete, hasDuplicate, reducedMotion, markGestureStarted, refreshSuppression, markGestureFinalized, invokeAction, pendingAction, threshold, translateX])
 
   const rowStyle = useAnimatedStyle(() => ({ transform: [{ translateX: translateX.value }] }))
@@ -132,17 +125,19 @@ export function SwipeActionRow({ children, onDelete, onDuplicate, accessibilityL
     const progress = Math.min(1, Math.max(0, translateX.value / threshold.value))
     return { opacity: progress, transform: [{ scale: 0.8 + progress * 0.2 }] }
   })
+  const duplicateRevealStyle = useAnimatedStyle(() => ({ width: Math.max(0, translateX.value) }))
+  const deleteRevealStyle = useAnimatedStyle(() => ({ width: Math.max(0, -translateX.value) }))
 
   const content = typeof children === 'function' ? children(canPress) : children
 
   return <Animated.View testID={testID} onLayout={onLayout} style={[styles.clip, { backgroundColor: tokens.surface }]}>
     <View pointerEvents="none" style={styles.actionLayer} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-      {onDuplicate ? <View style={[styles.actionSlot, styles.leftSlot, { backgroundColor: theme === 'eink' ? tokens.surfaceHi : tokens.accentGlow }]}>
+      {onDuplicate ? <Animated.View style={[styles.actionPanel, styles.leftSlot, duplicateRevealStyle, { backgroundColor: theme === 'eink' ? tokens.surfaceHi : tokens.accentGlow }]}>
         <Animated.View style={duplicateCueStyle}><DuplicateIcon color={tokens.accent} /></Animated.View>
-      </View> : null}
-      {onDelete ? <View style={[styles.actionSlot, styles.rightSlot, { backgroundColor: theme === 'eink' ? tokens.surfaceHi : tokens.warmGlow }]}>
+      </Animated.View> : null}
+      {onDelete ? <Animated.View style={[styles.actionPanel, styles.rightSlot, deleteRevealStyle, { backgroundColor: theme === 'eink' ? tokens.surfaceHi : tokens.warmGlow }]}>
         <Animated.View style={deleteCueStyle}><TrashIcon color={tokens.warm} size={20} /></Animated.View>
-      </View> : null}
+      </Animated.View> : null}
     </View>
     <GestureDetector gesture={pan}>
       <Animated.View style={[styles.row, { backgroundColor: tokens.surface }, rowStyle]}>
@@ -154,9 +149,9 @@ export function SwipeActionRow({ children, onDelete, onDuplicate, accessibilityL
 
 const styles = StyleSheet.create({
   clip: { overflow: 'hidden', position: 'relative', borderRadius: 16 },
-  actionLayer: { ...StyleSheet.absoluteFill, flexDirection: 'row', justifyContent: 'space-between' },
-  actionSlot: { width: 64, alignItems: 'center', justifyContent: 'center' },
-  leftSlot: { alignSelf: 'stretch' },
-  rightSlot: { alignSelf: 'stretch' },
+  actionLayer: { ...StyleSheet.absoluteFill, overflow: 'hidden' },
+  actionPanel: { position: 'absolute', top: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
+  leftSlot: { left: 0 },
+  rightSlot: { right: 0 },
   row: { position: 'relative' },
 })

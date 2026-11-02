@@ -9,6 +9,7 @@ import { useTheme } from '../../theme/ThemeContext'
 import { FadedHorizontalScrollView } from './FadedHorizontalScrollView'
 
 interface Props {
+  paletteOnly?: boolean
   value: SubBellColorId
   onChange: (value: SubBellColorId) => void
   label?: string
@@ -18,20 +19,20 @@ interface Props {
 }
 
 /** Collapsed color swatch that expands its shared one-line palette in place. */
-export function ColorSelector({ value, onChange, label = 'Color', detail, trailing, accessibilityLabel = 'Color' }: Props) {
+export function ColorSelector({ paletteOnly = false, value, onChange, label = 'Color', detail, trailing, accessibilityLabel = 'Color' }: Props) {
   const { tokens, theme } = useTheme()
   const eink = theme === 'eink'
   const reducedMotion = useAppReducedMotion()
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(paletteOnly)
   const current = SUB_BELL_COLORS.find(option => option.id === value) ?? SUB_BELL_COLORS[0]
   return <Animated.View layout={reducedMotion ? undefined : LinearTransition.duration(170)} style={styles.block}>
-    <View style={styles.summary}>
+    {!paletteOnly ? <View style={styles.summary}>
       <Pressable onPress={() => { setExpanded(open => !open); selectionHaptic() }} style={styles.summaryButton} accessibilityRole="button" accessibilityLabel={`${accessibilityLabel}, ${current.label}`} accessibilityState={{ expanded }}>
         {label ? <View style={styles.copy}><Text style={[styles.label, { color: tokens.text }]}>{label}</Text>{detail ? <Text numberOfLines={1} style={[styles.detail, { color: tokens.textMuted }]}>{detail}</Text> : null}</View> : <View style={styles.copy} />}
         <View style={[styles.currentChoice, { borderColor: eink ? tokens.border : expanded ? current.value : tokens.border }]}><View style={[styles.currentSwatch, { backgroundColor: eink ? subBellColorValue(current.id, 0, true) : current.value }]} /></View>
       </Pressable>
       {trailing}
-    </View>
+    </View> : null}
     {expanded ? <Animated.View entering={reducedMotion ? undefined : FadeIn.duration(130)}>
       <FadedHorizontalScrollView fadeColor={tokens.surface} selectedIndex={SUB_BELL_COLORS.findIndex(option => option.id === value)} itemCount={SUB_BELL_COLORS.length} selectionKey={`${expanded}:${value}`} contentContainerStyle={styles.rail} accessibilityRole="radiogroup" accessibilityLabel={accessibilityLabel}>
       {SUB_BELL_COLORS.map(option => {

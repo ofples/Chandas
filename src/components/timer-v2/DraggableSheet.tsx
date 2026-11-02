@@ -1,5 +1,5 @@
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Animated, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useAppReducedMotion, useTheme } from '../../theme/ThemeContext'
@@ -13,8 +13,11 @@ export interface DraggableSheetProps {
   children: ReactNode
   footer?: ReactNode
   initialSnap?: 'partial' | 'full'
+  partialHeightFraction?: number
+  presentation?: 'bottom' | 'center'
   testID?: string
   showTitle?: boolean
+  titleAction?: ReactNode
   pinnedContent?: ReactNode
   presentationKey?: string
   /** Keeps this content area's position while switching between keyed sections. */
@@ -22,16 +25,18 @@ export interface DraggableSheetProps {
 }
 
 /** Shared production sheet with independent content-scroll and handle-drag ownership. */
-export function DraggableSheet({ visible, title, onClose, onBack, children, footer, initialSnap = 'partial', testID, showTitle = true, pinnedContent, presentationKey, scrollKey }: DraggableSheetProps) {
+export function DraggableSheet({ visible, title, onClose, onBack, children, footer, initialSnap = 'partial', partialHeightFraction = 0.64, presentation = 'bottom', testID, showTitle = true, titleAction, pinnedContent, presentationKey, scrollKey }: DraggableSheetProps) {
   const { tokens } = useTheme()
   const reducedMotion = useAppReducedMotion()
   const { height: windowHeight } = useWindowDimensions()
   const insets = useSafeAreaInsets()
   const scroll = useRef<ScrollView>(null)
+  const [contentHeight, setContentHeight] = useState(0)
+  const fittedFraction = presentation === 'center' && contentHeight > 0 ? Math.min(partialHeightFraction, (contentHeight + (showTitle ? 74 : 30) + Math.max(12, insets.bottom)) / windowHeight) : partialHeightFraction
   const scrollPositions = useRef(new Map<string, number>())
   const activeScrollKey = useRef(scrollKey)
   const resetKey = scrollKey === undefined ? presentationKey : scrollKey
-  const sheet = useSheetSnap({ visible, initialSnap, onClose: onBack ?? onClose, windowHeight, topInset: insets.top, minHeight: 260, partialMinHeight: 340, reducedMotion })
+  const sheet = useSheetSnap({ visible, initialSnap, onClose: onBack ?? onClose, windowHeight, topInset: insets.top, minHeight: presentation === 'center' ? 220 : 260, partialMinHeight: presentation === 'center' ? 220 : 260, partialHeightFraction: fittedFraction, maxHeightFraction: presentation === 'center' ? 0.94 : 1, reducedMotion })
 
   useEffect(() => {
     if (!visible) return
@@ -48,15 +53,15 @@ export function DraggableSheet({ visible, title, onClose, onBack, children, foot
 
   return <Modal visible={visible} transparent animationType="none" onRequestClose={onBack ?? onClose} statusBarTranslucent>
     <GestureHandlerRootView style={styles.fill}><KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}>
-      <View style={styles.backdrop}>
+      <View style={[styles.backdrop, presentation === 'center' && { justifyContent: 'center', paddingHorizontal: 16 }]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onBack ?? onClose} accessibilityLabel="Dismiss editor" />
-        <Animated.View testID={testID} accessibilityViewIsModal style={[styles.sheet, { height: sheet.height, maxHeight: '100%', backgroundColor: tokens.surface, borderColor: tokens.border, paddingBottom: Math.max(12, insets.bottom) }]}>
+        <Animated.View testID={testID} accessibilityViewIsModal style={[styles.sheet, presentation === 'center' && { borderRadius: 24, borderBottomWidth: 1 }, { height: sheet.height, maxHeight: '100%', backgroundColor: tokens.surface, borderColor: tokens.border, paddingBottom: Math.max(12, insets.bottom) }]}>
           <View {...sheet.panHandlers} style={styles.dragArea} accessible accessibilityRole="adjustable" accessibilityLabel={`${title} sheet height`} accessibilityValue={{ text: sheet.snap === 'full' ? 'Expanded' : 'Partial' }} accessibilityActions={[{ name: 'increment', label: 'Expand sheet' }, { name: 'decrement', label: 'Collapse sheet' }, { name: 'escape', label: 'Close sheet' }]} onAccessibilityAction={event => sheet.onAccessibilityAction(event.nativeEvent.actionName)}>
             <View style={[styles.handle, { backgroundColor: tokens.textMuted }]} />
           </View>
-          {showTitle ? <Text accessibilityRole="header" style={[styles.title, { color: tokens.text }]}>{title}</Text> : null}
+          {showTitle ? <View style={{ flexDirection: 'row', alignItems: 'center' }}><View {...sheet.panHandlers} style={{ flex: 1 }}><Text accessibilityRole="header" style={[styles.title, { color: tokens.text }]}>{title}</Text></View>{titleAction ? <View style={{ paddingRight: 22, paddingBottom: 16 }}>{titleAction}</View> : null}</View> : null}
           {pinnedContent ? <View style={{ paddingHorizontal: 22, paddingBottom: 8 }}>{pinnedContent}</View> : null}
-          <ScrollView ref={scroll} style={styles.scroll} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'} showsVerticalScrollIndicator onScroll={rememberScroll} scrollEventThrottle={16}>
+          <ScrollView ref={scroll} onContentSizeChange={(_width, height) => { if (presentation === 'center') setContentHeight(height) }} style={styles.scroll} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'} showsVerticalScrollIndicator onScroll={rememberScroll} scrollEventThrottle={16}>
             {children}
           </ScrollView>
           {footer ? <View style={[styles.footer, { borderTopColor: tokens.border }]}>{footer}</View> : null}

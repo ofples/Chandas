@@ -1,10 +1,8 @@
-import { useAppReducedMotion } from '../../theme/ThemeContext'
 import { useEffect, useMemo, useRef } from 'react'
 import { PanResponder, StyleSheet, Text } from 'react-native'
 import { mediumHaptic, selectionHaptic, tapHaptic } from '../../lib/haptics'
-import Animated, { useAnimatedStyle, useSharedValue, withTiming, type SharedValue } from 'react-native-reanimated'
+import Animated, { useAnimatedStyle, useSharedValue, type SharedValue } from 'react-native-reanimated'
 import { useTheme } from '../../theme/ThemeContext'
-import { scheduleOnRN } from 'react-native-worklets'
 
 interface Props {
   index: number
@@ -27,7 +25,6 @@ interface Props {
  */
 export function ReorderHandle({ index, itemCount, rowHeight = 72, onMove, onPreviewChange, onPreviewEnd, label, rowTranslation, onDragStateChange, onAutoScroll }: Props) {
   const { tokens } = useTheme()
-  const reducedMotion = useAppReducedMotion()
   const internalTranslation = useSharedValue(0)
   const translation = rowTranslation ?? internalTranslation
   const originRef = useRef(index)
@@ -36,6 +33,7 @@ export function ReorderHandle({ index, itemCount, rowHeight = 72, onMove, onPrev
   const latestPageYRef = useRef<number | null>(null)
   const accumulatedScrollRef = useRef(0)
   const autoScrollFrameRef = useRef<number | null>(null)
+  const gestureActiveRef = useRef(false)
 
   const stopAutoScroll = () => {
     if (autoScrollFrameRef.current !== null) cancelAnimationFrame(autoScrollFrameRef.current)
@@ -73,24 +71,20 @@ export function ReorderHandle({ index, itemCount, rowHeight = 72, onMove, onPrev
   }
 
   const finishDrag = (commit: boolean) => {
+    if (!gestureActiveRef.current) return
+    gestureActiveRef.current = false
     stopAutoScroll()
     const origin = originRef.current
     const target = latestTargetRef.current
     const moved = commit && target !== origin
-    // Settle in the hovered slot first; then hand ownership back to list layout.
-    // Resetting to zero before the list moves made a dropped card jump twice.
-    const finish = () => {
-      if (moved) { onMove(origin, target); tapHaptic() }
-      onPreviewEnd?.()
-      onDragStateChange?.(false)
-      // A supplied row translation is ignored once preview ends. Keep it in place
-      // until React commits the new order, avoiding a frame at the old index.
-      if (!rowTranslation) translation.value = 0
-    }
+    // Commit on release. Keep the parent-owned translation at the destination
+    // through the data commit; the card ignores it after preview ends. Resetting
+    // it in this event would briefly put the row back in its old slot.
+    translation.value = moved && rowTranslation ? (target - origin) * rowHeight : 0
     if (!moved) onPreviewChange?.(origin, origin, rowHeight)
-    const destination = moved ? (target - origin) * rowHeight : 0
-    if (reducedMotion) { translation.value = destination; finish() }
-    else translation.value = withTiming(destination, { duration: 120 }, completed => { if (completed) scheduleOnRN(finish) })
+    if (moved) { onMove(origin, target); tapHaptic() }
+    onPreviewEnd?.()
+    onDragStateChange?.(false)
   }
 
   const responder = useMemo(() => PanResponder.create({
@@ -102,6 +96,7 @@ export function ReorderHandle({ index, itemCount, rowHeight = 72, onMove, onPrev
       latestGestureDyRef.current = 0
       latestPageYRef.current = gesture.moveY || null
       accumulatedScrollRef.current = 0
+      gestureActiveRef.current = true
       translation.value = 0
       onPreviewChange?.(index, index, rowHeight)
       onDragStateChange?.(true)
@@ -117,7 +112,7 @@ export function ReorderHandle({ index, itemCount, rowHeight = 72, onMove, onPrev
     onPanResponderTerminate: () => finishDrag(false),
     onPanResponderTerminationRequest: () => false,
     onShouldBlockNativeResponder: () => true,
-  }), [index, itemCount, onAutoScroll, onDragStateChange, onMove, onPreviewChange, onPreviewEnd, reducedMotion, rowHeight, translation])
+  }), [index, itemCount, onAutoScroll, onDragStateChange, onMove, onPreviewChange, onPreviewEnd, rowHeight, translation])
 
   useEffect(() => () => stopAutoScroll(), [])
 

@@ -192,17 +192,12 @@ export function OverflowIcon({ color, size = 18 }: { color: string; size?: numbe
 }
 
 
-export function ConfigurationIcon({ color, size = 18 }: { color: string; size?: number }) {
+export function ConfigurationIcon({ color, size = 20 }: { color: string; size?: number }) {
   return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-    <Path d="M4 5.5h16v5H4zM4 13.5h16v5H4z" stroke={color} strokeWidth={1.7} strokeLinejoin="round" />
-    <Circle cx={8} cy={8} r={0.8} fill={color} />
-    <Circle cx={8} cy={16} r={0.8} fill={color} />
-    <Path d="M11 8h6M11 16h6" stroke={color} strokeWidth={1.5} strokeLinecap="round" />
+    <Path d="M7 3h10M5 7h14M5 11h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2Z" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
   </Svg>
 }
 
 export function CheckIcon({ color, size = 18 }: { color: string; size?: number }) {
-  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-    <Path d="m5 12.5 4.5 4.5L19 7" stroke={color} strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" />
-  </Svg>
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="m5 12.5 4.5 4.5L19 7" stroke={color} strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" /></Svg>
 }

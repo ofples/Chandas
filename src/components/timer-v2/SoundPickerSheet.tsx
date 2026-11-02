@@ -166,7 +166,7 @@ export function SoundPickerSheet({ visible, title, cue, soundLibrary, masterVolu
 
   return (
     <>
-    <BottomSheet visible={visible} title={title} help={advanced ? 'Tap a sound name to hear it and keep only that sound. Use the round selectors to combine sounds. Added Android and device sounds are available to every cue on this device.' : 'Tap a sound to use it and hear it immediately, then set this cue’s own volume below. Added Android and device sounds are available to every cue on this device.'} onClose={close} onBack={onBack ? () => { stopPreview(); onBack() } : undefined} pinnedContent={<SegmentedControl items={SOUND_TABS} value={tab} onChange={value => { stopPreview(); setTab(value) }} accessibilityLabel="Sound source" />} footer={volumeFooter}>
+    <BottomSheet visible={visible} partialHeightFraction={0.50} title={title} help={advanced ? 'Tap a sound name to hear it and keep only that sound. Use the round selectors to combine sounds. Added Android and device sounds are available to every cue on this device.' : 'Tap a sound to use it and hear it immediately, then set this cue’s own volume below. Added Android and device sounds are available to every cue on this device.'} onClose={close} onBack={onBack ? () => { stopPreview(); onBack() } : undefined} pinnedContent={<SegmentedControl items={SOUND_TABS} value={tab} onChange={value => { stopPreview(); setTab(value) }} accessibilityLabel="Sound source" />} footer={volumeFooter}>
       {message ? <GentleNotice title={message.title} message={message.detail} tone="attention" /> : null}
       <Animated.View key={tab} entering={reducedMotion ? undefined : FadeIn.duration(180)} exiting={reducedMotion ? undefined : FadeOut.duration(120)}>
       {tab === 'built-in' ? <View style={styles.list}>{BUILT_IN_SOUNDS.map(sound => {
@@ -203,7 +203,7 @@ export function SoundPickerSheet({ visible, title, cue, soundLibrary, masterVolu
       onClose={() => { stopPreview(); setChoicesOpen(false) }}
       onBack={() => { stopPreview(); setChoicesOpen(false) }}
       initialSnap="partial"
-      partialHeightFraction={0.46}
+      partialHeightFraction={0.36}
       presentationKey="sound-choices"
     >
       <SoundChoicesEditor choices={choices} mode={cue.soundMode === 'random' ? 'random' : 'sequence'} previewing={previewing} onModeChange={soundMode => onChange({ soundMode })} onMove={moveChoice} onRemove={removeChoice} onPreview={sound => preview(sound, false)} />

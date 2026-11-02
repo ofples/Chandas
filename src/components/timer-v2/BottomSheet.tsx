@@ -94,7 +94,7 @@ export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClo
               </View>
             </View> : null}
             <View style={styles.header}>
-              <View style={styles.heading}>
+              <View {...sheet.panHandlers} style={styles.heading}>
                 {presented.eyebrow ? <Text style={[styles.eyebrow, { color: tokens.textMuted }]}>{presented.eyebrow}</Text> : null}
                 {typeof presented.title === 'string' ? <Text style={[styles.title, { color: tokens.text }]}>{presented.title}</Text> : presented.title}
               </View>

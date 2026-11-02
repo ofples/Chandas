@@ -43,11 +43,16 @@ export function useSheetSnap({
     }
   }, [height])
 
+  const wasVisible = useRef(false)
+  const previousInitialSnap = useRef(initialSnap)
   useEffect(() => {
-    if (!visible) return
-    snapRef.current = initialSnap
-    setSnap(initialSnap)
-    const target = initialSnap === 'full' ? fullHeight : partialHeight
+    if (!visible) { wasVisible.current = false; return }
+    const next = !wasVisible.current || previousInitialSnap.current !== initialSnap ? initialSnap : snapRef.current
+    wasVisible.current = true
+    previousInitialSnap.current = initialSnap
+    snapRef.current = next
+    setSnap(next)
+    const target = next === 'full' ? fullHeight : partialHeight
     height.setValue(target)
     dragStart.current = target
   }, [visible, initialSnap, fullHeight, partialHeight, height])
@@ -64,6 +69,7 @@ export function useSheetSnap({
     },
     onPanResponderRelease: (_, gesture) => {
       const settings = latest.current
+      if (Math.abs(gesture.dy) < 7 && Math.abs(gesture.dx) < 7) { moveTo(settings.snap === 'full' ? 'partial' : 'full'); return }
       if (settings.snap === 'partial' && (gesture.dy > 120 || (gesture.dy > 35 && gesture.vy > 0.9))) settings.onClose()
       else if (gesture.dy < -45 || gesture.vy < -0.8) moveTo('full')
       else if (gesture.dy > 55 || gesture.vy > 0.8) moveTo('partial')
