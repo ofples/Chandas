@@ -182,3 +182,27 @@ export function TrashIcon({ color, size = 18 }: { color: string; size?: number }
     </Svg>
   )
 }
+
+export function OverflowIcon({ color, size = 18 }: { color: string; size?: number }) {
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Circle cx={12} cy={5} r={1.6} fill={color} />
+    <Circle cx={12} cy={12} r={1.6} fill={color} />
+    <Circle cx={12} cy={19} r={1.6} fill={color} />
+  </Svg>
+}
+
+
+export function ConfigurationIcon({ color, size = 18 }: { color: string; size?: number }) {
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Path d="M4 5.5h16v5H4zM4 13.5h16v5H4z" stroke={color} strokeWidth={1.7} strokeLinejoin="round" />
+    <Circle cx={8} cy={8} r={0.8} fill={color} />
+    <Circle cx={8} cy={16} r={0.8} fill={color} />
+    <Path d="M11 8h6M11 16h6" stroke={color} strokeWidth={1.5} strokeLinecap="round" />
+  </Svg>
+}
+
+export function CheckIcon({ color, size = 18 }: { color: string; size?: number }) {
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Path d="m5 12.5 4.5 4.5L19 7" stroke={color} strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" />
+  </Svg>
+}

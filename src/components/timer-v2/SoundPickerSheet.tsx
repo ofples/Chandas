@@ -200,7 +200,6 @@ export function SoundPickerSheet({ visible, title, cue, soundLibrary, masterVolu
       visible={visible && choicesOpen}
       title="Sound choices"
       help="Drag the dotted handle to set the order. Swipe left to remove a sound. The first sound is used when only one choice remains."
-      leadingAction={{ label: 'Back', accessibilityLabel: 'Back to cue sound', onPress: () => { stopPreview(); setChoicesOpen(false) } }}
       onClose={() => { stopPreview(); setChoicesOpen(false) }}
       onBack={() => { stopPreview(); setChoicesOpen(false) }}
       initialSnap="partial"

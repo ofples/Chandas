@@ -1,3 +1,4 @@
+import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { useAppReducedMotion } from '../../theme/ThemeContext'
 import { type ReactNode, useEffect, useId, useRef } from 'react'
 import { Animated, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
@@ -74,7 +75,7 @@ export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClo
 
   return (
     <Modal visible={visible} transparent animationType={Platform.OS === 'web' || theme === 'eink' ? 'none' : 'fade'} onRequestClose={presented.onBack ?? presented.onClose} statusBarTranslucent>
-      <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}>
+      <GestureHandlerRootView style={styles.fill}><KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}>
         <View style={[styles.backdrop, theme === 'eink' && { backgroundColor: tokens.bg }]}>
           <Pressable style={StyleSheet.absoluteFill} onPress={presented.onBack ?? presented.onClose} accessible={false} accessibilityRole="button" accessibilityLabel="Close sheet" />
           <Animated.View
@@ -105,7 +106,7 @@ export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClo
           </Animated.View>
           <SheetFeedbackOverlay sheetId={sheetId} />
         </View>
-      </KeyboardAvoidingView>
+      </KeyboardAvoidingView></GestureHandlerRootView>
     </Modal>
   )
 }

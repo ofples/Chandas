@@ -1,3 +1,4 @@
+import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { useEffect, useRef, type ReactNode } from 'react'
 import { Animated, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -46,7 +47,7 @@ export function DraggableSheet({ visible, title, onClose, onBack, children, foot
   }
 
   return <Modal visible={visible} transparent animationType="none" onRequestClose={onBack ?? onClose} statusBarTranslucent>
-    <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}>
+    <GestureHandlerRootView style={styles.fill}><KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}>
       <View style={styles.backdrop}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onBack ?? onClose} accessibilityLabel="Dismiss editor" />
         <Animated.View testID={testID} accessibilityViewIsModal style={[styles.sheet, { height: sheet.height, maxHeight: '100%', backgroundColor: tokens.surface, borderColor: tokens.border, paddingBottom: Math.max(12, insets.bottom) }]}>
@@ -61,7 +62,7 @@ export function DraggableSheet({ visible, title, onClose, onBack, children, foot
           {footer ? <View style={[styles.footer, { borderTopColor: tokens.border }]}>{footer}</View> : null}
         </Animated.View>
       </View>
-    </KeyboardAvoidingView>
+    </KeyboardAvoidingView></GestureHandlerRootView>
   </Modal>
 }
 

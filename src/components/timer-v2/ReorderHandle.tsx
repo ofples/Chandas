@@ -4,7 +4,7 @@ import { PanResponder, StyleSheet, Text } from 'react-native'
 import { mediumHaptic, selectionHaptic, tapHaptic } from '../../lib/haptics'
 import Animated, { useAnimatedStyle, useSharedValue, withTiming, type SharedValue } from 'react-native-reanimated'
 import { useTheme } from '../../theme/ThemeContext'
-import { reorderGestureIntent } from '../../lib/reorder-preview'
+import { scheduleOnRN } from 'react-native-worklets'
 
 interface Props {
   index: number
@@ -22,8 +22,8 @@ interface Props {
 }
 
 /**
- * Delayed drag handle with insertion previews and an accessible increment/decrement fallback.
- * A swipe before the hold delay is deliberately left to the surrounding ScrollView.
+ * Dedicated immediate drag target with insertion previews and accessible movement.
+ * The rest of the card/page remains available to the surrounding ScrollView.
  */
 export function ReorderHandle({ index, itemCount, rowHeight = 72, onMove, onPreviewChange, onPreviewEnd, label, rowTranslation, onDragStateChange, onAutoScroll }: Props) {
   const { tokens } = useTheme()
@@ -32,8 +32,6 @@ export function ReorderHandle({ index, itemCount, rowHeight = 72, onMove, onPrev
   const translation = rowTranslation ?? internalTranslation
   const originRef = useRef(index)
   const latestTargetRef = useRef(index)
-  const pressStartedAtRef = useRef(0)
-  const scrollGestureRef = useRef(false)
   const latestGestureDyRef = useRef(0)
   const latestPageYRef = useRef<number | null>(null)
   const accumulatedScrollRef = useRef(0)
@@ -42,16 +40,6 @@ export function ReorderHandle({ index, itemCount, rowHeight = 72, onMove, onPrev
   const stopAutoScroll = () => {
     if (autoScrollFrameRef.current !== null) cancelAnimationFrame(autoScrollFrameRef.current)
     autoScrollFrameRef.current = null
-  }
-
-  const clearPress = () => {
-    pressStartedAtRef.current = 0
-    scrollGestureRef.current = false
-  }
-
-  const beginPress = () => {
-    pressStartedAtRef.current = Date.now()
-    scrollGestureRef.current = false
   }
 
   const updateDragPosition = () => {
@@ -84,33 +72,30 @@ export function ReorderHandle({ index, itemCount, rowHeight = 72, onMove, onPrev
     autoScrollFrameRef.current = requestAnimationFrame(tick)
   }
 
-  const shouldActivate = (_: unknown, gesture: { dx: number; dy: number }) => {
-    if (pressStartedAtRef.current === 0) beginPress()
-    const distance = Math.hypot(gesture.dx, gesture.dy)
-    const intent = reorderGestureIntent(Date.now() - pressStartedAtRef.current, distance, scrollGestureRef.current, itemCount)
-    if (intent === 'scroll') scrollGestureRef.current = true
-    return intent === 'drag'
-  }
-
   const finishDrag = (commit: boolean) => {
     stopAutoScroll()
     const origin = originRef.current
     const target = latestTargetRef.current
-    translation.value = reducedMotion ? 0 : withTiming(0, { duration: 110 })
-    onPreviewEnd?.()
-    onDragStateChange?.(false)
-    clearPress()
-    if (commit && target !== origin) {
-      onMove(origin, target)
-      tapHaptic()
+    const moved = commit && target !== origin
+    // Settle in the hovered slot first; then hand ownership back to list layout.
+    // Resetting to zero before the list moves made a dropped card jump twice.
+    const finish = () => {
+      if (moved) { onMove(origin, target); tapHaptic() }
+      onPreviewEnd?.()
+      onDragStateChange?.(false)
+      // A supplied row translation is ignored once preview ends. Keep it in place
+      // until React commits the new order, avoiding a frame at the old index.
+      if (!rowTranslation) translation.value = 0
     }
+    if (!moved) onPreviewChange?.(origin, origin, rowHeight)
+    const destination = moved ? (target - origin) * rowHeight : 0
+    if (reducedMotion) { translation.value = destination; finish() }
+    else translation.value = withTiming(destination, { duration: 120 }, completed => { if (completed) scheduleOnRN(finish) })
   }
 
   const responder = useMemo(() => PanResponder.create({
-    onStartShouldSetPanResponder: () => { beginPress(); return false },
-    onStartShouldSetPanResponderCapture: () => { beginPress(); return false },
-    onMoveShouldSetPanResponder: shouldActivate,
-    onMoveShouldSetPanResponderCapture: shouldActivate,
+    onStartShouldSetPanResponder: () => itemCount > 1,
+    onStartShouldSetPanResponderCapture: () => itemCount > 1,
     onPanResponderGrant: (_, gesture) => {
       originRef.current = index
       latestTargetRef.current = index
@@ -149,19 +134,16 @@ export function ReorderHandle({ index, itemCount, rowHeight = 72, onMove, onPrev
   return (
     <Animated.View
       {...responder.panHandlers}
-      onTouchStart={beginPress}
-      onTouchEnd={clearPress}
-      onTouchCancel={clearPress}
       style={[styles.handle, animatedStyle, { backgroundColor: tokens.surfaceHi }]}
       accessible
       accessibilityRole="adjustable"
       accessibilityLabel={label}
-      accessibilityHint="Touch and hold, then drag. Swipe the page normally to scroll."
+      accessibilityHint="Drag this handle to reorder. Swipe elsewhere on the card to scroll."
       accessibilityValue={{ text: `${index + 1} of ${itemCount}` }}
       accessibilityActions={[{ name: 'increment', label: 'Move later' }, { name: 'decrement', label: 'Move earlier' }]}
       onAccessibilityAction={event => adjust(event.nativeEvent.actionName as 'increment' | 'decrement')}
     >
-      <Text style={[styles.glyph, { color: tokens.textMuted }]}>⠿</Text>
+      <Text selectable={false} style={[styles.glyph, { color: tokens.textMuted }]}>⠿</Text>
     </Animated.View>
   )
 }
