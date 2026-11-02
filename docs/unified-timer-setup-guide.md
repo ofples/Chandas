@@ -4,7 +4,7 @@
 
 A new installation opens an unsaved working timer directly. Tap its name to edit it in place. Until you choose a custom name, the name follows the main interval. A single interval shares the configuration name and has no separate step-name field.
 
-Use the familiar duration presets and sound row. The horizontal control row opens focused controls for run length, clock alignment, the full volume mixer, cue vibration and alarm options. Optional editors use smaller centered overlays, with the parent visible behind them. Their summaries show the configured values after you move to another control. Default vibration profiles, alarm defaults, schedules, appearance, Focus and system integrations are in the three-dot Settings menu.
+Use the familiar duration presets and sound row. The horizontal control row opens focused controls for run length, clock alignment, the full volume mixer, cue vibration and alarm options. Optional editors use smaller centered overlays, with the parent visible behind them. Their summaries show the configured values after you move to another control. Volume rows use quiet labels and a right-side play button to audition at the current master/channel level; repeated previews cycle through multiple selected sounds without changing timer playback. Closing the volume view stops its preview. The interval alarm panel contains only its toggle; alarm sound and duration remain in Settings. Default vibration profiles, alarm defaults, schedules, appearance, Focus and system integrations are in the three-dot Settings menu.
 
 ## Add steps and sub-bells
 
