@@ -33,14 +33,14 @@ import { hapticProfileSummary, HAPTIC_PATTERNS, HAPTIC_STRENGTHS } from '../lib/
 import { previewHapticProfile, setAppHapticsEnabled, tapHaptic } from '../lib/haptics'
 import { normalizeSubBellColor, subBellColorValue } from '../lib/subBellColors'
 import { soundTitle } from '../lib/soundLibrary'
-import { BellIcon, ConfigurationIcon, EyeIcon, OverflowIcon, TimerTransportIcon, VolumeIcon, LightbulbIcon, SaveIcon, ChevronIcon, ClockIcon, AlarmIcon, FocusIcon, RestartIcon } from '../components/Icons'
+import { BellIcon, ConfigurationIcon, EyeIcon, OverflowIcon, TimerTransportIcon, VolumeIcon, LightbulbIcon, SaveIcon, ChevronIcon } from '../components/Icons'
 import { parseUnifiedConfigurationTransfer, serializeUnifiedConfiguration } from '../lib/unified-configuration-transfer'
 import { copyConfigurationText, pickConfigurationText, readConfigurationTextFromClipboard, saveConfigurationFile } from '../lib/configuration-transfer-io'
 import { configurationTransferFilename } from '../lib/configuration-transfer'
 import { UNNAMED_DRAFT_KEY, defaultUnifiedTimerName, type ConfigStateCommand, type UnifiedConfigState, type UnifiedTimerConfig, type UnifiedTimerDraft } from '../lib/unified-config-state'
 import { useKeyboardVisible } from '../hooks/use-keyboard-visible'
 import { insertUnifiedStepAfter, unifiedCadenceOffsets, unifiedTrackCadencePatch, unifiedTrackDurationPatch } from '../lib/unified-editing'
-import { enabledRunningControls, RUNNING_CONTROL_DEFINITIONS } from '../lib/running-controls'
+import { RunningControlSettingsList } from '../components/timer-v2/RunningControlSettingsList'
 
 export interface UnifiedTimerConfigScreenProps {
   state: UnifiedConfigState
@@ -430,18 +430,7 @@ function SettingsSection({ action, draft, program, availability, cycleDurationSe
       case 'notifications': return <Panel title="Notifications" tokens={tokens}><View style={styles.row}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Timer notifications</Text><Text style={[styles.helperText, { color: tokens.textMuted }]}>{androidAccess.notifications ? 'Available' : 'Access may be needed.'}</Text></View><Toggle value={draft.settings.notificationsEnabled} onChange={enabled => { onSettings({ notificationsEnabled: enabled }); if (enabled && Platform.OS === 'android' && !androidAccess.notifications) onRequestNotificationAccess() }} accessibilityLabel="Timer notifications" /></View><View style={styles.row}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Upcoming cue countdown</Text><Text style={[styles.helperText, { color: tokens.textMuted }]}>Show the next cue in the running notification.</Text></View><Toggle value={draft.settings.liveCountdownEnabled} onChange={enabled => { onSettings({ liveCountdownEnabled: enabled, ...(enabled ? { notificationsEnabled: true } : {}) }); if (enabled && Platform.OS === 'android' && !androidAccess.notifications) onRequestNotificationAccess() }} accessibilityLabel="Upcoming cue countdown" /></View></Panel>
       case 'calls': return <Panel title="During calls" tokens={tokens}><View style={styles.row}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Mute timer cues during calls</Text><Text style={[styles.helperText, { color: tokens.textMuted }]}>{androidAccess.callMute ? 'Available' : 'Phone access may be needed.'}</Text></View><Toggle value={draft.settings.muteDuringCallsEnabled} onChange={enabled => { onSettings({ muteDuringCallsEnabled: enabled }); if (enabled && Platform.OS === 'android' && !androidAccess.callMute) onRequestCallMuteAccess() }} accessibilityLabel="Mute timer during calls" /></View></Panel>
       case 'precision': return <Panel title="Precision" tokens={tokens}><View style={styles.row}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Edit in seconds</Text><Text style={[styles.helperText, { color: tokens.textMuted }]}>Keep exact seconds visible in duration controls.</Text></View><Toggle value={draft.settings.secondPrecisionEnabled} onChange={secondPrecisionEnabled => onSettings({ secondPrecisionEnabled })} accessibilityLabel="Use exact seconds" /></View></Panel>
-      case 'running-controls': return <Panel title="Running controls" tokens={tokens}>{RUNNING_CONTROL_DEFINITIONS.map(control => {
-        const enabled = enabledRunningControls(draft.settings).has(control.id)
-        return <View key={control.id} style={styles.runningControlRow}>
-          <View style={styles.runningControlIcon}>{runningControlIcon(control.icon, tokens.textMuted)}</View>
-          <View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>{control.title}</Text><Text style={[styles.helperText, { color: tokens.textMuted }]}>{control.description}</Text></View>
-          <Toggle value={enabled} onChange={value => {
-            const current = draft.settings.runningControlIds ?? [...enabledRunningControls(draft.settings)]
-            const next = value ? [...new Set([...current, control.id])] : current.filter(id => id !== control.id)
-            onSettings({ runningControlIds: next })
-          }} accessibilityLabel={`Show ${control.title}`} />
-        </View>
-      })}</Panel>
+      case 'running-controls': return <Panel title="Running controls" tokens={tokens}><RunningControlSettingsList settings={draft.settings} onChange={runningControlIds => onSettings({ runningControlIds })} /></Panel>
       case 'system': return <Panel title="Device access" tokens={tokens}>{!androidAccess.exactAlarms ? <Pressable accessibilityRole="button" accessibilityLabel="Set up exact timing" onPress={onOpenExactAlarmSettings} style={[styles.settingsRow, { borderColor: tokens.border }]}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Exact timing</Text><Text style={[styles.helperText, { color: tokens.warm }]}>Set up</Text></View><Text style={{ color: tokens.accent }}>›</Text></Pressable> : null}{!androidAccess.fullScreenAlarms ? <Pressable accessibilityRole="button" accessibilityLabel="Set up full-screen alarms" onPress={onOpenFullScreenIntentSettings} style={[styles.settingsRow, { borderColor: tokens.border }]}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Full-screen alarms</Text><Text style={[styles.helperText, { color: tokens.warm }]}>Set up</Text></View><Text style={{ color: tokens.accent }}>›</Text></Pressable> : null}<Text style={[styles.helperText, { color: tokens.textMuted }]}>{androidAccess.checking ? 'Checking access…' : androidAccess.pending ? 'Waiting for Android…' : `Notifications ${androidAccess.notifications ? 'available' : 'not granted'} · calls ${androidAccess.callMute ? 'available' : 'not granted'}`}</Text></Panel>
       case 'device': return <Panel title="Appearance and overlay" tokens={tokens}><ColorSelector label="Accent color" detail="Applies across the app." value={accentColor} onChange={setAccentColor} accessibilityLabel="Accent color" trailing={<Pressable onPress={() => { if (themeLongPressed) return; toggleTheme() }} onLongPress={() => { setThemeLongPressed(true); useEinkTheme() }} onPressOut={() => setTimeout(() => setThemeLongPressed(false), 0)} delayLongPress={550} accessibilityRole="button" accessibilityLabel={`Change appearance from ${theme}`} style={[styles.themeButton, { borderColor: tokens.border }]}><LightbulbIcon color={tokens.accent} /></Pressable>} />{floatingAvailable ? <FloatingOverlaySettings state={floatingOverlay} onChange={onFloatingChange} onFeedback={onFeedback} /> : null}</Panel>
       default: return null
@@ -584,7 +573,7 @@ function settingsDetail(action: ExtraAction, settings: AppTimerSettings, program
     case 'notifications': return settings.notificationsEnabled ? 'Enabled' : 'Off'
     case 'calls': return settings.muteDuringCallsEnabled ? 'Mute during calls' : 'Play during calls'
     case 'precision': return settings.secondPrecisionEnabled ? 'Exact seconds' : 'Minute controls'
-    case 'running-controls': return settings.runningControlIds?.length ? `${settings.runningControlIds.length} controls shown` : settings.advancedModeEnabled ? 'Legacy control defaults' : 'Choose running controls'
+    case 'running-controls': return settings.runningControlIds?.length ? `${settings.runningControlIds.length} controls shown` : 'Choose running controls'
     case 'system': return 'Permissions and device access'
     case 'device': return 'Theme and floating timer'
   }
@@ -644,16 +633,6 @@ function ConfigCardTimeline({ program, expanded, inRow = false }: { program: Uni
     </View>
     {expanded ? <ConfigPreview program={program} /> : null}
   </View>
-}
-
-function runningControlIcon(icon: 'restart' | 'clock' | 'alarm' | 'focus' | 'volume', color: string) {
-  switch (icon) {
-    case 'restart': return <RestartIcon color={color} />
-    case 'clock': return <ClockIcon color={color} />
-    case 'alarm': return <AlarmIcon color={color} />
-    case 'focus': return <FocusIcon color={color} />
-    default: return <VolumeIcon muted={false} color={color} />
-  }
 }
 
 function ConfigCard({ config, draft, startDisabled, onSelect, onStart, onDuplicate, onVisibility, onDelete, onExport, transferBusy }: {

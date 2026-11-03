@@ -36,7 +36,7 @@ export function TimerControlButton({ children, label, tooltip, active = false, d
     onLongPress={showLongPress}
     delayLongPress={450}
     onPressOut={() => setTimeout(() => { longPressed.current = false }, 0)}
-    onPress={() => { if (!longPressed.current) { tapHaptic(); onPress() } }}
+    onPress={event => { event.stopPropagation(); if (!longPressed.current) { tapHaptic(); onPress() } }}
     accessibilityRole="button"
     accessibilityLabel={label}
     accessibilityHint={tooltip}

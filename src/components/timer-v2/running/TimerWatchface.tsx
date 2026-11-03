@@ -31,16 +31,18 @@ interface Props {
   presentation?: 'running-screen' | 'floating-overlay'
   flashOnMount?: boolean
   accessibilityLabel: string
+  testID?: string
   onPress?: () => void
   onLongPress?: () => void
 }
 
-export function TimerWatchface({ program, position, progress, eventPulse, size, model, presentation = 'running-screen', flashOnMount = false, accessibilityLabel, onPress, onLongPress }: Props) {
+export function TimerWatchface({ program, position, progress, eventPulse, size, model, presentation = 'running-screen', flashOnMount = false, accessibilityLabel, testID, onPress, onLongPress }: Props) {
   const { tokens, theme } = useTheme()
   const reducedMotion = useAppReducedMotion()
   const compact = presentation === 'floating-overlay'
   return <Pressable
-    onPress={onPress}
+    testID={testID}
+    onPress={event => { event.stopPropagation(); onPress?.() }}
     onLongPress={onLongPress}
     delayLongPress={500}
     style={({ pressed }) => [styles.ringWrap, { width: size, height: size, transform: [{ scale: pressed && !reducedMotion ? 0.985 : 1 }] }]}
