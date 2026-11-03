@@ -256,6 +256,8 @@ export interface AppTimerSettings {
   masterVolume: number
   /** Whether optional setup controls are visible on configuration and running screens. */
   advancedModeEnabled: boolean
+  /** Individually enabled controls on the running timer. Missing means legacy advancedModeEnabled behavior. */
+  runningControlIds?: RunningControlId[]
   /** Reveals seconds in custom interval and bounded-run duration editors. */
   secondPrecisionEnabled: boolean
   /** Global looping sound used by Alarm Once and Alarm Locked. */
@@ -271,6 +273,8 @@ export interface AppTimerSettings {
   focusAutomationEnabled: boolean
   alarmDurationSeconds: number
 }
+
+export type RunningControlId = 'restart' | 'clock' | 'alarm' | 'stepAlarm' | 'focus' | 'sound'
 
 export type AlarmBehavior = 'off' | 'once' | 'locked'
 

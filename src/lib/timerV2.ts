@@ -243,6 +243,7 @@ export function defaultAppTimerSettings(): AppTimerSettings {
   return {
     masterVolume: 0.8,
     advancedModeEnabled: false,
+    runningControlIds: ['restart', 'clock', 'stepAlarm', 'sound'],
     secondPrecisionEnabled: false,
     alarmSound: builtIn('alarm-tone'),
     alarmVolume: 1,
@@ -310,6 +311,7 @@ export function normalizePresetSettings(value: Partial<AppTimerSettings> | undef
   return {
     masterVolume: typeof value.masterVolume === 'number' && Number.isFinite(value.masterVolume) ? Math.max(0, Math.min(1, value.masterVolume)) : defaults.masterVolume,
     advancedModeEnabled: value.advancedModeEnabled === true,
+    ...(Array.isArray(value.runningControlIds) && value.runningControlIds.every(id => ['restart', 'clock', 'alarm', 'stepAlarm', 'focus', 'sound'].includes(String(id))) ? { runningControlIds: [...new Set(value.runningControlIds)] as AppTimerSettings['runningControlIds'] } : {}),
     secondPrecisionEnabled: value.secondPrecisionEnabled === true,
     alarmSound: normalizeSoundRef(value.alarmSound, defaults.alarmSound),
     alarmVolume: typeof value.alarmVolume === 'number' && Number.isFinite(value.alarmVolume) ? Math.max(0, Math.min(1, value.alarmVolume)) : defaults.alarmVolume,

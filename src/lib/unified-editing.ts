@@ -1,5 +1,12 @@
 import type { UnifiedSubBellTrack } from '../types'
 
+/** Insert a duplicated timer step immediately after the step it came from. */
+export function insertUnifiedStepAfter<T extends { id: string }>(steps: readonly T[], sourceId: string, copy: T): T[] {
+  const index = steps.findIndex(step => step.id === sourceId)
+  if (index < 0) return [...steps, copy]
+  return [...steps.slice(0, index + 1), copy, ...steps.slice(index + 1)]
+}
+
 export function unifiedCadenceOffsets(durationSeconds: number, cadenceSeconds: number): number[] {
   return Array.from({ length: Math.max(0, Math.floor((durationSeconds - 1) / cadenceSeconds)) }, (_, index) => (index + 1) * cadenceSeconds)
 }

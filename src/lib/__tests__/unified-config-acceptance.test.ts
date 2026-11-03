@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { createDefaultUnifiedConfigState, parseUnifiedConfigState, reduceUnifiedConfigCommand, UNNAMED_DRAFT_KEY, type ConfigStateCommand, type UnifiedConfigState } from '../unified-config-state'
+import { createDefaultUnifiedConfigState, parseUnifiedConfigState, parseUnifiedTimerSettings, reduceUnifiedConfigCommand, UNNAMED_DRAFT_KEY, type ConfigStateCommand, type UnifiedConfigState } from '../unified-config-state'
+import { enabledRunningControls } from '../running-controls'
+import { defaultAppTimerSettings } from '../timerV2'
 
 function initial() {
   let serial = 0
@@ -18,6 +20,25 @@ function editStep(state: UnifiedConfigState, label: string) {
 }
 
 describe('independent configuration draft journeys', () => {
+  it('persists individually selected running controls and retains legacy advanced-control behavior', () => {
+    const defaults = defaultAppTimerSettings()
+    const explicit = parseUnifiedTimerSettings({ ...defaults, runningControlIds: ['clock', 'sound'] })
+    expect(explicit?.runningControlIds).toEqual(['clock', 'sound'])
+    expect(enabledRunningControls(explicit!)).toEqual(new Set(['clock', 'sound']))
+    expect(enabledRunningControls({ advancedModeEnabled: true })).toEqual(new Set(['restart', 'clock', 'alarm', 'stepAlarm', 'focus', 'sound']))
+    expect(enabledRunningControls({ advancedModeEnabled: false })).toEqual(new Set(['restart', 'clock', 'stepAlarm', 'sound']))
+    const advancedSnapshot = { ...defaults, advancedModeEnabled: true, runningControlIds: [...new Set([...enabledRunningControls(defaults), 'alarm', 'stepAlarm', 'focus'])] }
+    expect(parseUnifiedTimerSettings(advancedSnapshot)?.runningControlIds).toEqual(['restart', 'clock', 'stepAlarm', 'sound', 'alarm', 'focus'])
+    expect(parseUnifiedTimerSettings({ ...defaults, runningControlIds: ['unknown'] })).toBeNull()
+  })
+
+  it('persists running-selector visibility toggles through config serialization', () => {
+    let state = initial()
+    const id = state.selectedConfigId!
+    state = apply(state, { type: 'setVisibility', id, showInRunningSelector: false })
+    const loaded = parseUnifiedConfigState(JSON.stringify(state))
+    expect(loaded.ok && loaded.value.configs[0].showInRunningSelector).toBe(false)
+  })
   it.each(['keep', 'discard', 'save'] as const)('preserves the explicit %s choice across switch and restart', choice => {
     let state = initial()
     const a = state.selectedConfigId!

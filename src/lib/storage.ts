@@ -231,6 +231,7 @@ function normalizeSettings(value: Partial<AppTimerSettings> | null): AppTimerSet
       ? Math.max(0, Math.min(1, value.masterVolume))
       : defaults.masterVolume,
     advancedModeEnabled: value.advancedModeEnabled === true,
+    ...(Array.isArray(value.runningControlIds) && value.runningControlIds.every(id => ['restart', 'clock', 'alarm', 'stepAlarm', 'focus', 'sound'].includes(String(id))) ? { runningControlIds: [...new Set(value.runningControlIds)] as AppTimerSettings['runningControlIds'] } : {}),
     secondPrecisionEnabled: value.secondPrecisionEnabled === true,
     alarmSound: normalizeSoundRef(value.alarmSound, defaults.alarmSound),
     alarmVolume: typeof value.alarmVolume === 'number' && Number.isFinite(value.alarmVolume)

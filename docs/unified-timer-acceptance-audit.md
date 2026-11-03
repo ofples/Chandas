@@ -1,5 +1,11 @@
 # Unified timer — independent acceptance audit
 
+## November 3 configuration cards and running controls
+
+The configurations sheet opens expanded. Compact cards use one cumulative 0-to-total timeline with step-boundary marks and enabled sub-bell cues; expanding a card reveals individual step names, durations and timelines. The current card has a save icon and a play action for the working draft. Saved cards have play and expand actions; saved-snapshot play keeps the setup selection and any dirty draft intact. Card menus are Save as, Export and Delete. Available while running is an inline toggle on saved cards, including the selected saved card; unnamed working copies do not show it. Running Controls lists each optional running-screen control with its matching icon, description and individual toggle. Step duplication uses one helper that inserts immediately after its source for menu and swipe actions.
+
+Evidence: `2026-11-03-config-pass.cjs` and `2026-11-03-config-pass-result.json` in the visualization folder cover expanded sheet geometry, a 20-step timeline at 320px, the one cumulative 2hr 5m axis, inline visibility persistence, 320px menu bounds, expanded details and saved-snapshot play while a dirty draft remains selected and unchanged. Inspected screenshots: `2026-11-03-config-savedcards-320.png`, `2026-11-03-config-menu-320.png` and `2026-11-03-config-details-320.png`. No browser page errors occurred. The focused insertion and config acceptance suites pass (17 tests); TypeScript passes; the running-controls agent reports the full suite passes (298 tests). This is web acceptance, not native-device acceptance.
+
 ## November 3 settings and sheet pass
 
 Schedule is now an app-wide preference shared across timers; config snapshots, drafts and transfers exclude it, while runtime receives the current global policy. Alarm mode is stored on each timer program. Setup restores the schedule timeline and links it to the editor; the cue sheet opens expanded, shorter sound choices remain layered, and shared sheets animate open and close. Default haptic display resolves to the configured pattern/strength, or Off when global haptics are disabled. Focused settings content no longer has an extra padded card, and appearance uses the existing lightbulb icon.

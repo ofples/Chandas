@@ -313,6 +313,7 @@ export function parseUnifiedTimerSettings(input: unknown): AppTimerSettings | nu
     || !boolean(input.advancedModeEnabled) || !boolean(input.secondPrecisionEnabled)
     || !isSupportedSoundRef(input.alarmSound, false)
     || !finite(input.alarmVolume) || input.alarmVolume < 0 || input.alarmVolume > 1
+    || (input.runningControlIds !== undefined && (!Array.isArray(input.runningControlIds) || input.runningControlIds.some(id => !['restart', 'clock', 'alarm', 'stepAlarm', 'focus', 'sound'].includes(String(id))) || new Set(input.runningControlIds).size !== input.runningControlIds.length))
     || !validHaptics(input.haptics) || !boolean(input.notificationsEnabled) || !boolean(input.liveCountdownEnabled)
     || !boolean(input.muteDuringCallsEnabled) || !boolean(input.focusAutomationEnabled)
     || !integer(input.alarmDurationSeconds, 5, 3_600)) return null
@@ -332,6 +333,7 @@ export function convertLegacyTimerSettings(input: unknown, createId: () => strin
   for (const key of ['advancedModeEnabled', 'secondPrecisionEnabled', 'notificationsEnabled', 'liveCountdownEnabled', 'muteDuringCallsEnabled', 'focusAutomationEnabled'] as const) {
     if (input[key] !== undefined && !boolean(input[key])) return null
   }
+  if (input.runningControlIds !== undefined && (!Array.isArray(input.runningControlIds) || input.runningControlIds.some(id => !['restart', 'clock', 'alarm', 'stepAlarm', 'focus', 'sound'].includes(String(id))) || new Set(input.runningControlIds).size !== input.runningControlIds.length)) return null
   const alarmSoundInput = input.alarmSound === undefined ? defaults.alarmSound : input.alarmSound
   if (!isSupportedSoundRef(alarmSoundInput, true)) return null
   const alarmDurationSeconds = input.alarmDurationSeconds === undefined ? defaults.alarmDurationSeconds : input.alarmDurationSeconds
@@ -356,6 +358,7 @@ export function convertLegacyTimerSettings(input: unknown, createId: () => strin
   return {
     masterVolume,
     advancedModeEnabled: input.advancedModeEnabled === true,
+    ...(Array.isArray(input.runningControlIds) && input.runningControlIds.every(id => ['restart', 'clock', 'alarm', 'stepAlarm', 'focus', 'sound'].includes(String(id))) ? { runningControlIds: [...new Set(input.runningControlIds)] as AppTimerSettings['runningControlIds'] } : {}),
     secondPrecisionEnabled: input.secondPrecisionEnabled === true,
     alarmSound: normalizeSoundRef(alarmSoundInput, defaults.alarmSound),
     alarmVolume,

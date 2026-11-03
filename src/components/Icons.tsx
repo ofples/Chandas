@@ -201,3 +201,7 @@ export function ConfigurationIcon({ color, size = 20 }: { color: string; size?: 
 export function CheckIcon({ color, size = 18 }: { color: string; size?: number }) {
   return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="m5 12.5 4.5 4.5L19 7" stroke={color} strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" /></Svg>
 }
+
+export function SaveIcon({ color, size = 18 }: { color: string; size?: number }) {
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M5 3h12l4 4v14H3V3h2Zm2 0v6h10V3M7 21v-8h10v8" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" /></Svg>
+}

@@ -9,7 +9,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { useFonts, JetBrainsMono_300Light, JetBrainsMono_400Regular } from '@expo-google-fonts/jetbrains-mono'
 import Reanimated, { FadeIn, FadeOut } from 'react-native-reanimated'
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext'
-import type { AppState, AppTimerSettings, CueSettings, RuntimeTimerProgram, WorkingProgramState } from './src/types'
+import type { AppState, AppTimerSettings, CueSettings, RuntimeTimerProgram, RunningControlId, WorkingProgramState } from './src/types'
 import { useTimerV2 } from './src/hooks/useTimerV2'
 import { loadTimerV2Session, type TimerV2Session } from './src/lib/storage'
 import { normalizeAvailabilityPolicy } from './src/lib/timerV2'
@@ -30,6 +30,7 @@ import { bootstrapUnifiedConfigState, saveUnifiedConfigState } from './src/lib/u
 import { reduceUnifiedConfigCommand, stableJson, UNNAMED_DRAFT_KEY, type ConfigStateCommand, type UnifiedConfigState, type UnifiedTimerConfig, type UnifiedTimerDraft } from './src/lib/unified-config-state'
 import { clearUnifiedTimerSession, loadUnifiedTimerSession } from './src/lib/unified-session'
 import { parseUnifiedTimerProgram } from './src/lib/unified-timer'
+import { enabledRunningControls } from './src/lib/running-controls'
 import type { TimerRestore } from './src/hooks/useTimerV2'
 
 const FALLBACK_PROGRAM = {
@@ -38,7 +39,7 @@ const FALLBACK_PROGRAM = {
   mainCue: { sound: { kind: 'builtin' as const, id: 'temple-gong' as const }, volume: 1 }, completionCue: null, subBellsEnabled: false, tracks: [], alignment: { kind: 'elapsed' as const },
   runPolicy: { kind: 'continuous' as const, cycleCount: 1, durationSeconds: 30 * 60 },
 }
-const FALLBACK_SETTINGS = { masterVolume: 0.8, advancedModeEnabled: false, secondPrecisionEnabled: false, alarmSound: { kind: 'builtin' as const, id: 'alarm-tone' as const }, alarmVolume: 1, haptics: defaultTimerHapticsSettings(), notificationsEnabled: true, liveCountdownEnabled: false, muteDuringCallsEnabled: true, availability: { enabled: false, weeklyWindows: [], overrides: [] }, focusAutomationEnabled: false, alarmDurationSeconds: 60 }
+const FALLBACK_SETTINGS: AppTimerSettings = { masterVolume: 0.8, advancedModeEnabled: false, runningControlIds: ['restart', 'clock', 'stepAlarm', 'sound'], secondPrecisionEnabled: false, alarmSound: { kind: 'builtin' as const, id: 'alarm-tone' as const }, alarmVolume: 1, haptics: defaultTimerHapticsSettings(), notificationsEnabled: true, liveCountdownEnabled: false, muteDuringCallsEnabled: true, availability: { enabled: false, weeklyWindows: [], overrides: [] }, focusAutomationEnabled: false, alarmDurationSeconds: 60 }
 const DEFAULT_FOCUS_STATE: NativeFocusState = { policyAccess: false, automationEnabled: false, ruleExists: false, ruleEnabled: false, actual: 'unknown', reason: 'off' }
 
 interface PendingRestore {
@@ -734,21 +735,23 @@ function Root() {
     }
   }
 
-  const start = () => {
+  const start = (configurationId?: string | null) => {
     // A fast second tap must not replace the just-created native session with
     // a slightly different anchor or open duplicate permission guidance.
     if (startingRef.current) return
     const state = configStateRef.current
     const key = state?.selectedConfigId ?? UNNAMED_DRAFT_KEY
     const selectedDraft = state && Object.prototype.hasOwnProperty.call(state.drafts, key) ? state.drafts[key] : undefined
-    if (!configWritableRef.current || !selectedDraft || configRecovery || sessionRecovery) {
+    const savedConfig = configurationId ? state?.configs.find(config => config.id === configurationId) : undefined
+    const acceptedDraft = configurationId === undefined ? selectedDraft : configurationId === null ? selectedDraft : savedConfig
+    if (!configWritableRef.current || !acceptedDraft || configRecovery || sessionRecovery) {
       showNotice({ title: 'Timer setup needs recovery', message: 'Chandas kept the saved records unchanged. Retry recovery before starting a new timer.', tone: 'attention', persistent: true })
       return
     }
     const acceptedSnapshot: ActiveRunSnapshot = {
-      program: selectedDraft.program,
-      settings: { ...selectedDraft.settings, availability: state?.globalAvailability ?? selectedDraft.settings.availability },
-      sourcePreset: draftSourcePreset(state, selectedDraft),
+      program: acceptedDraft.program,
+      settings: { ...acceptedDraft.settings, availability: state?.globalAvailability ?? acceptedDraft.settings.availability },
+      sourcePreset: savedConfig ? { id: savedConfig.id, name: savedConfig.name, createdAt: savedConfig.createdAt } : draftSourcePreset(state, selectedDraft),
     }
     // A new explicit start supersedes any delayed verification from a previous
     // Stop press; otherwise that retry could cancel the new session.
@@ -935,9 +938,9 @@ function Root() {
                 <Pressable accessibilityRole="button" onPress={() => setConfigRetry(value => value + 1)} style={{ alignSelf: 'flex-start', paddingVertical: 12, paddingHorizontal: 16, borderRadius: 12, backgroundColor: tokens.surface, borderColor: tokens.border, borderWidth: 1 }}><Text style={{ color: tokens.text, fontWeight: '500' }}>Retry recovery</Text></Pressable>
               </View>
             ) : appState === 'config' ? (
-              configState ? <UnifiedTimerConfigScreen state={configState} onCommand={onConfigCommand} onStart={start} starting={starting} focusState={focusState} onFocusAutomationChange={setFocusAutomation} onOpenFocusSettings={openNotificationPolicySettings} onOpenFocusRuleSettings={openFocusRuleSettings} androidAccess={androidAccess} onOpenExactAlarmSettings={openExactAlarmSettings} onOpenFullScreenIntentSettings={openFullScreenIntentSettings} onRequestCallMuteAccess={() => void requestCallMuteAccess()} onRequestNotificationAccess={() => void requestNotificationAccess()} onFeedback={showNotice} /> : <AppLoadingScreen backgroundColor={tokens.bg} accentColor={tokens.accent} textColor={tokens.text} />
+              configState ? <UnifiedTimerConfigScreen state={configState} onCommand={onConfigCommand} onStart={start} onStartConfiguration={start} starting={starting} focusState={focusState} onFocusAutomationChange={setFocusAutomation} onOpenFocusSettings={openNotificationPolicySettings} onOpenFocusRuleSettings={openFocusRuleSettings} androidAccess={androidAccess} onOpenExactAlarmSettings={openExactAlarmSettings} onOpenFullScreenIntentSettings={openFullScreenIntentSettings} onRequestCallMuteAccess={() => void requestCallMuteAccess()} onRequestNotificationAccess={() => void requestNotificationAccess()} onFeedback={showNotice} /> : <AppLoadingScreen backgroundColor={tokens.bg} accentColor={tokens.accent} textColor={tokens.text} />
             ) : (
-              <TimerV2RunningScreen program={program} configurationName={activeRun?.sourcePreset?.name} mainCountdown={timer.mainCountdown} nextCueCountdown={timer.nextCueCountdown} nextCueLabel={timer.nextCueLabel} progress={timer.progress} position={timer.position} eventPulse={timer.eventPulse} activeHoursPaused={timer.activeHoursPaused} activeHoursResumeAt={timer.activeHoursResumeAt} nextAudibleAt={timer.nextAudibleAt} nextAudibleLabel={timer.nextAudibleLabel} runEndsAt={timer.runEndsAt} runRemainingMs={timer.runRemainingMs} runProgress={timer.runProgress} mute={timer.mute} alarmBehavior={timer.alarmBehavior} realigning={realigning} isPaused={timer.isPaused} isAlarmRinging={timer.isAlarmRinging} onSetPaused={setTimerPaused} onSkipStep={timer.skipSequenceStep} onStop={stop} onRestartUnsynced={() => reanchor(false)} onSnapToClock={offset => reanchor(true, offset)} onPressAlarm={pressAlarm} onToggleCurrentStepAlarm={toggleCurrentStepAlarm} onMuteForIterations={timer.muteForIterations} onMuteForSeconds={timer.muteForSeconds} onClearMute={timer.clearMute} secondPrecision={!isNativeServiceAvailable || ChandasTimerService.getCapabilities()?.supportsSecondPrecision === true} masterVolume={liveSettings.masterVolume} onMasterVolumeChange={masterVolume => { const current = activeRunRef.current; if (current) commitActiveRun({ ...current, settings: { ...current.settings, masterVolume } }) }} onCueVolumeChange={changeCueVolume} showAdvancedControls={liveSettings.advancedModeEnabled} onShowAdvancedControls={() => { const current = activeRunRef.current; if (current) commitActiveRun({ ...current, settings: { ...current.settings, advancedModeEnabled: true } }) }} focusEnabled={liveSettings.focusAutomationEnabled} focusActive={focusState.actual === 'active' && !timer.activeHoursPaused} focusPolicyAccess={focusState.policyAccess} focusReason={focusState.reason} onToggleFocus={focusState.reason === 'paused-by-android' ? resumeFocusAutomation : () => setFocusAutomation(!liveSettings.focusAutomationEnabled)} onOpenFocusSettings={focusState.reason === 'rule-disabled' ? openFocusRuleSettings : openNotificationPolicySettings} configurations={runningConfigurations} activeConfigurationId={activeRun?.sourcePreset?.id} onSelectConfiguration={switchRunningConfiguration} externalPanel={floatingTimerPanel} onExternalPanelConsumed={() => setFloatingTimerPanel(null)} />
+              <TimerV2RunningScreen program={program} configurationName={activeRun?.sourcePreset?.name} mainCountdown={timer.mainCountdown} nextCueCountdown={timer.nextCueCountdown} nextCueLabel={timer.nextCueLabel} progress={timer.progress} position={timer.position} eventPulse={timer.eventPulse} activeHoursPaused={timer.activeHoursPaused} activeHoursResumeAt={timer.activeHoursResumeAt} nextAudibleAt={timer.nextAudibleAt} nextAudibleLabel={timer.nextAudibleLabel} runEndsAt={timer.runEndsAt} runRemainingMs={timer.runRemainingMs} runProgress={timer.runProgress} mute={timer.mute} alarmBehavior={timer.alarmBehavior} realigning={realigning} isPaused={timer.isPaused} isAlarmRinging={timer.isAlarmRinging} onSetPaused={setTimerPaused} onSkipStep={timer.skipSequenceStep} onStop={stop} onRestartUnsynced={() => reanchor(false)} onSnapToClock={offset => reanchor(true, offset)} onPressAlarm={pressAlarm} onToggleCurrentStepAlarm={toggleCurrentStepAlarm} onMuteForIterations={timer.muteForIterations} onMuteForSeconds={timer.muteForSeconds} onClearMute={timer.clearMute} secondPrecision={!isNativeServiceAvailable || ChandasTimerService.getCapabilities()?.supportsSecondPrecision === true} masterVolume={liveSettings.masterVolume} onMasterVolumeChange={masterVolume => { const current = activeRunRef.current; if (current) commitActiveRun({ ...current, settings: { ...current.settings, masterVolume } }) }} onCueVolumeChange={changeCueVolume} showAdvancedControls={liveSettings.advancedModeEnabled} runningControlIds={liveSettings.runningControlIds} onShowAdvancedControls={() => { const current = activeRunRef.current; if (current) { const enabled = enabledRunningControls(current.settings); commitActiveRun({ ...current, settings: { ...current.settings, advancedModeEnabled: true, runningControlIds: [...new Set<RunningControlId>([...enabled, 'alarm', 'stepAlarm', 'focus'])] } }) } }} focusEnabled={liveSettings.focusAutomationEnabled} focusActive={focusState.actual === 'active' && !timer.activeHoursPaused} focusPolicyAccess={focusState.policyAccess} focusReason={focusState.reason} onToggleFocus={focusState.reason === 'paused-by-android' ? resumeFocusAutomation : () => setFocusAutomation(!liveSettings.focusAutomationEnabled)} onOpenFocusSettings={focusState.reason === 'rule-disabled' ? openFocusRuleSettings : openNotificationPolicySettings} configurations={runningConfigurations} activeConfigurationId={activeRun?.sourcePreset?.id} onSelectConfiguration={switchRunningConfiguration} externalPanel={floatingTimerPanel} onExternalPanelConsumed={() => setFloatingTimerPanel(null)} />
             )}
           </Reanimated.View>
         </View>
