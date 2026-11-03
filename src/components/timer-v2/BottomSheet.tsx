@@ -1,6 +1,6 @@
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { useAppReducedMotion } from '../../theme/ThemeContext'
-import { type ReactNode, useEffect, useId, useRef } from 'react'
+import { type ReactNode, useCallback, useEffect, useId, useRef } from 'react'
 import { Animated, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '../../theme/ThemeContext'
@@ -57,7 +57,27 @@ export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClo
   const setupHelp = useSetupHelp()
   const sheetId = useId()
   const setSheetVisible = useFeedbackSheetRegistration()
-  const sheet = useSheetSnap({ visible, initialSnap, onClose: onBack ?? onClose, windowHeight, topInset: insets.top, minHeight: minHeight ?? styles.sheet.minHeight, partialMinHeight: minHeight ?? 220, partialHeightFraction, maxHeightFraction: 0.92, topMargin: 18, reducedMotion })
+  const exitProgress = useRef(new Animated.Value(1)).current
+  const closeRequested = useRef(false)
+  const requestClose = useCallback(() => {
+    if (closeRequested.current) return
+    closeRequested.current = true
+    if (reducedMotion) { (onBack ?? onClose)(); return }
+    Animated.timing(exitProgress, { toValue: 1, duration: 120, useNativeDriver: false }).start(({ finished }) => {
+      if (finished) (onBack ?? onClose)()
+    })
+  }, [exitProgress, onBack, onClose, reducedMotion])
+  useEffect(() => {
+    if (visible) {
+      closeRequested.current = false
+      exitProgress.setValue(reducedMotion ? 0 : 1)
+      if (!reducedMotion) {
+        const frame = requestAnimationFrame(() => Animated.timing(exitProgress, { toValue: 0, duration: 160, useNativeDriver: false }).start())
+        return () => cancelAnimationFrame(frame)
+      }
+    }
+  }, [visible, presentationKey, exitProgress, reducedMotion])
+  const sheet = useSheetSnap({ visible, initialSnap, onClose: requestClose, windowHeight, topInset: insets.top, minHeight: minHeight ?? styles.sheet.minHeight, partialMinHeight: minHeight ?? 220, partialHeightFraction, maxHeightFraction: 0.92, topMargin: 18, reducedMotion })
   useEffect(() => {
     setSheetVisible?.(sheetId, visible)
     return () => setSheetVisible?.(sheetId, false)
@@ -74,12 +94,12 @@ export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClo
     : <View style={styles.body}>{presented.children}</View>
 
   return (
-    <Modal visible={visible} transparent animationType={Platform.OS === 'web' || theme === 'eink' ? 'none' : 'fade'} onRequestClose={presented.onBack ?? presented.onClose} statusBarTranslucent>
+    <Modal visible={visible} transparent animationType="none" onRequestClose={requestClose} statusBarTranslucent>
       <GestureHandlerRootView style={styles.fill}><KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}>
         <View style={[styles.backdrop, theme === 'eink' && { backgroundColor: tokens.bg }]}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={presented.onBack ?? presented.onClose} accessible={false} accessibilityRole="button" accessibilityLabel="Close sheet" />
+          <Pressable style={StyleSheet.absoluteFill} onPress={requestClose} accessible={false} accessibilityRole="button" accessibilityLabel="Close sheet" />
           <Animated.View
-            style={[styles.sheet, { height: sheet.height, maxHeight: '92%', backgroundColor: tokens.surface, borderColor: tokens.border, paddingBottom: keyboardVisible ? 8 : Math.max(insets.bottom, 16), minHeight: presented.minHeight ?? styles.sheet.minHeight }]}
+            style={[styles.sheet, { opacity: exitProgress.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }), transform: [{ translateY: exitProgress.interpolate({ inputRange: [0, 1], outputRange: [0, 22] }) }], height: sheet.height, maxHeight: '92%', backgroundColor: tokens.surface, borderColor: tokens.border, paddingBottom: keyboardVisible ? 8 : Math.max(insets.bottom, 16), minHeight: presented.minHeight ?? styles.sheet.minHeight }]}
             accessible={false}
             accessibilityViewIsModal
           >

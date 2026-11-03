@@ -96,6 +96,7 @@ function validateProgram(value: unknown): string | null {
   if (value.alignment.kind === 'local-clock' && !isIntIn(value.alignment.offsetMinutes, 0, 59)) return 'Invalid clock alignment offset'
   if (value.completionCue !== null && !validCue(value.completionCue)) return 'Invalid completion cue'
   if (!validRunPolicy(value.runPolicy)) return 'Invalid run policy'
+  if (value.alarmBehavior !== undefined && value.alarmBehavior !== 'off' && value.alarmBehavior !== 'once' && value.alarmBehavior !== 'locked') return 'Invalid alarm behavior'
   const stepIds = new Set<string>()
   for (const [index, step] of value.steps.entries()) {
     if (!isRecord(step) || !validId(step.id) || stepIds.has(step.id)) return `Invalid or duplicate step id at index ${index}`
@@ -136,6 +137,7 @@ export function parseUnifiedTimerProgram(input: unknown): UnifiedProgramParseRes
     ok: true,
     value: {
       ...program,
+      alarmBehavior: program.alarmBehavior ?? 'off',
       steps: program.steps.map(step => ({ ...step, endCue: cloneCue(step.endCue), subBellTracks: step.subBellTracks.map(track => ({ ...track, selectedOffsetsSeconds: [...track.selectedOffsetsSeconds], ...(track.randomRepeat ? { randomRepeat: { ...track.randomRepeat } } : {}), ...cloneCue(track) })) })),
       alignment: { ...program.alignment }, completionCue: program.completionCue ? cloneCue(program.completionCue) : null, runPolicy: { ...program.runPolicy },
     },
@@ -176,7 +178,7 @@ export function convertPatternToUnified(pattern: PatternProgram, sourceKey = 'pa
   return normalizeUnifiedTimerProgram({
     schemaVersion: UNIFIED_TIMER_SCHEMA_VERSION, mode: 'unified',
     steps: [{ id: idFor(sourceKey, undefined, 'step'), label: pattern.label, ...(pattern.labelIsCustom !== undefined ? { labelIsCustom: pattern.labelIsCustom } : {}), durationSeconds: secondsFrom(pattern.mainDurationSeconds, pattern.mainMinutes, 30), endCue: cueFrom(pattern.mainCue), endAlarmEnabled: false, subBellsEnabled: pattern.subBellsEnabled, subBellTracks: pattern.tracks.map((track, index) => mapTrack(track, index, sourceKey)) }],
-    alignment: { ...pattern.alignment }, completionCue: pattern.completionCue ? cueFrom(pattern.completionCue) : null, runPolicy: { ...pattern.runPolicy },
+    alignment: { ...pattern.alignment }, completionCue: pattern.completionCue ? cueFrom(pattern.completionCue) : null, runPolicy: { ...pattern.runPolicy }, alarmBehavior: 'off',
   })
 }
 
@@ -185,7 +187,7 @@ export function convertSequenceToUnified(sequence: SequenceProgram, sourceKey = 
   return normalizeUnifiedTimerProgram({
     schemaVersion: UNIFIED_TIMER_SCHEMA_VERSION, mode: 'unified',
     steps: sequence.steps.map((step, index) => ({ id: idFor(sourceKey, step.id, `step-${index + 1}`), label: step.label, durationSeconds: secondsFrom(step.durationSeconds, step.durationMinutes, 5), endCue: cueFrom(step), endAlarmEnabled: step.alarmEnabled === true, subBellsEnabled: false, subBellTracks: [] })),
-    alignment: { ...sequence.alignment }, completionCue: sequence.completionCue ? cueFrom(sequence.completionCue) : null, runPolicy: { ...sequence.runPolicy },
+    alignment: { ...sequence.alignment }, completionCue: sequence.completionCue ? cueFrom(sequence.completionCue) : null, runPolicy: { ...sequence.runPolicy }, alarmBehavior: 'off',
   })
 }
 
@@ -284,7 +286,7 @@ export function convertLegacyConfigStateToUnified(config: Partial<TimerConfig>):
   const settings = structuredCloneSafe(migrated.settings)
   settings.availability.weeklyWindows = settings.availability.weeklyWindows.map((window, index) => ({ ...window, id: `legacy:v1:availability-window-${index + 1}` }))
   return {
-    program: convertPatternToUnified(pattern, 'v1'),
+    program: { ...convertPatternToUnified(pattern, 'v1'), alarmBehavior: config.alarmModeEnabled === true ? 'locked' : 'off' },
     settings,
     soundLibrary: [],
     legacyRuntime: { alarmModeEnabled: config.alarmModeEnabled === true },

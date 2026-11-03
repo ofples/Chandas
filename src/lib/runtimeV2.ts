@@ -30,6 +30,16 @@ export interface AudioGateResult {
 
 export const EVENT_FRESHNESS_WINDOW_MS = 5_000
 
+/** Alignment restarts keep runtime alarm controls; selecting another timer can supply its saved default. */
+export function alarmBehaviorForReanchor(program: RuntimeTimerProgram, current: AlarmBehavior, selectedTimerDefault?: AlarmBehavior): AlarmBehavior {
+  if (program.mode === 'sequence') return 'off'
+  if (program.mode === 'unified') {
+    if (program.steps.length > 1) return 'off'
+    return selectedTimerDefault ?? current
+  }
+  return current
+}
+
 /** A throttled JS timer must not replay an old cue when its tab wakes later. */
 export function isFreshScheduledEvent(eventAt: number, observedAt: number, windowMs = EVENT_FRESHNESS_WINDOW_MS): boolean {
   return Number.isFinite(eventAt) && Number.isFinite(observedAt) && observedAt >= eventAt && observedAt - eventAt <= windowMs

@@ -24,7 +24,7 @@ interface TransferEnvelopeV2 {
   programSchema: 4
   settingsSchema: 1
   exportedAt: string
-  configuration: Pick<UnifiedTimerConfig, 'name' | 'createdAt' | 'showInRunningSelector' | 'program' | 'settings' | 'editorOptions'>
+  configuration: Pick<UnifiedTimerConfig, 'name' | 'createdAt' | 'showInRunningSelector' | 'program' | 'editorOptions'> & { settings: Omit<AppTimerSettings, 'availability'> }
 }
 
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
@@ -41,7 +41,7 @@ export function serializeUnifiedConfiguration(config: UnifiedTimerConfig, now = 
     configuration: {
       name: config.name.trim(), createdAt: config.createdAt,
       showInRunningSelector: config.showInRunningSelector,
-      program: program.value, settings, editorOptions: clone(config.editorOptions),
+      program: program.value, settings: omitAvailability(settings), editorOptions: clone(config.editorOptions),
     },
   }
   return JSON.stringify(envelope, null, 2)
@@ -72,7 +72,7 @@ export function parseUnifiedConfigurationTransfer(text: string, existingNames: s
     let editorOptions = { enabledActionIds: [] as string[] }
     if (parsed.version === 2) {
       const validatedProgram = parseUnifiedTimerProgram(configuration.program)
-      settings = parseUnifiedTimerSettings(configuration.settings)
+      settings = parseTransferSettings(configuration.settings)
       if (!validatedProgram.ok || !settings || (configuration.editorOptions !== undefined && !validEditorOptions(configuration.editorOptions))) return { ok: false, error: 'invalid' }
       program = validatedProgram.value
       if (configuration.editorOptions !== undefined) editorOptions = clone(configuration.editorOptions) as typeof editorOptions
@@ -85,6 +85,7 @@ export function parseUnifiedConfigurationTransfer(text: string, existingNames: s
         ? defaultTransferSettings()
         : convertLegacyTimerSettings(configuration.settings, () => `transfer-v1-${id}:window-${++windowIndex}`)
       if (!settings) return { ok: false, error: 'invalid' }
+      settings.availability = defaultTransferSettings().availability
     }
     const config: UnifiedTimerConfig = {
       id, name, createdAt: now, updatedAt: now, program, settings,
@@ -97,8 +98,19 @@ export function parseUnifiedConfigurationTransfer(text: string, existingNames: s
 
 function defaultTransferSettings(): AppTimerSettings {
   const settings = defaultAppTimerSettings()
-  settings.availability.weeklyWindows = settings.availability.weeklyWindows.map((window, index) => ({ ...window, id: `transfer-v1:window-${index + 1}` }))
+  settings.availability = { enabled: false, weeklyWindows: [], overrides: [] }
   return settings
+}
+
+function omitAvailability(settings: AppTimerSettings): Omit<AppTimerSettings, 'availability'> {
+  const { availability: _deviceSchedule, ...portable } = settings
+  return portable
+}
+
+function parseTransferSettings(value: unknown): AppTimerSettings | null {
+  if (!record(value)) return null
+  const settings = { ...value, availability: defaultTransferSettings().availability }
+  return parseUnifiedTimerSettings(settings)
 }
 
 function validName(value: unknown): value is string {

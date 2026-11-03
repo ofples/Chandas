@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import fixture from '../../../fixtures/timer-unified-timeline.json'
 import type { UnifiedTimerProgram } from '../../types'
 import { currentStepEndAt, hasFollowingStep, nextProgramEvent, programCycleDurationMs, runEndAt, sequenceSkipTarget, timelinePosition } from '../timeline'
-import { emptyRuntimeMute, gateProgramAudio, iterationMuteFor, programEventIsVisible } from '../runtimeV2'
+import { alarmBehaviorForReanchor, emptyRuntimeMute, gateProgramAudio, iterationMuteFor, programEventIsVisible } from '../runtimeV2'
 import { programForVisibleCues } from '../timerV2'
 import { programEventLabel, upcomingProgramEvents } from '../upcoming-events'
 
@@ -10,6 +10,13 @@ const source = fixture.program as UnifiedTimerProgram
 const query = (now: number, program = source) => nextProgramEvent(program, 1000, now)!
 
 describe('unified programs through existing JS runtime contracts', () => {
+  it('keeps current alarm controls on alignment restarts and uses a saved mode when switching timers', () => {
+    const program = { ...structuredClone(source), steps: [structuredClone(source.steps[0])], alarmBehavior: 'once' as const }
+    expect(alarmBehaviorForReanchor(program, 'off')).toBe('off')
+    expect(alarmBehaviorForReanchor(program, 'off', program.alarmBehavior)).toBe('once')
+    expect(alarmBehaviorForReanchor({ ...program, steps: [...program.steps, structuredClone(program.steps[0])] }, 'locked', 'once')).toBe('off')
+  })
+
   it('uses step boundaries rather than interior bells to describe bounded transport', () => {
     const program = structuredClone(source)
     program.runPolicy = { ...program.runPolicy, kind: 'cycles', cycleCount: 1 }

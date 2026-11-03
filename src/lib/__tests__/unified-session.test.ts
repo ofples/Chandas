@@ -8,7 +8,7 @@ import { clearUnifiedTimerSession, loadUnifiedTimerSession, parseUnifiedTimerSes
 import type { AsyncKeyValueStorage } from '../unified-storage'
 
 function session(id = 'accepted'): UnifiedTimerSession {
-  return { schemaVersion: 3, sessionId: id, randomAlgorithmVersion: 1, anchor: 1000, startedAt: 1000, randomSeed: 1000, program: structuredClone(fixture.program) as UnifiedTimerProgram, settings: defaultAppTimerSettings(), mute: { mutedUntil: 0 }, alarmBehavior: 'off', soundState: { sequence: {}, randomPrevious: {} } }
+  return { schemaVersion: 3, sessionId: id, randomAlgorithmVersion: 1, anchor: 1000, startedAt: 1000, randomSeed: 1000, program: { ...structuredClone(fixture.program), alarmBehavior: 'off' } as UnifiedTimerProgram, settings: defaultAppTimerSettings(), mute: { mutedUntil: 0 }, alarmBehavior: 'off', soundState: { sequence: {}, randomPrevious: {} } }
 }
 class Store implements AsyncKeyValueStorage {
   records = new Map<string, string>()

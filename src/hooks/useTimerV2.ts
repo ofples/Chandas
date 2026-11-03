@@ -8,7 +8,7 @@ import { effectiveAvailabilityForProgram, hasAvailableTime, isCueAllowedByActive
 import { formatCountdown } from '../lib/snapLogic'
 import { sourceForSound, soundTitle } from '../lib/soundLibrary'
 import { boundedRunProgress, currentStepEndAt, nextProgramEvent, programCycleDurationMs, runEndAt, sequenceSkipTarget, timelinePosition, type TimelinePosition } from '../lib/timeline'
-import { alarmBehaviorAfterGesture, emptyRuntimeMute, gateProgramAudio, isFreshScheduledEvent, iterationMuteFor, muteAfterScheduleChange, programEventIsVisible, shouldSurfaceTimerSignal, timestampMuteForSeconds, type RuntimeMuteState } from '../lib/runtimeV2'
+import { alarmBehaviorAfterGesture, alarmBehaviorForReanchor, emptyRuntimeMute, gateProgramAudio, isFreshScheduledEvent, iterationMuteFor, muteAfterScheduleChange, programEventIsVisible, shouldSurfaceTimerSignal, timestampMuteForSeconds, type RuntimeMuteState } from '../lib/runtimeV2'
 import { clearTimerV2Session, saveTimerV2Session } from '../lib/storage'
 import { ChandasTimerService, isNativeServiceAvailable, type NativeTimerConfig } from '../native/ChandasTimerService'
 import { cueHapticProfile, selectionHaptic, setAppHapticsEnabled, startRepeatingAlarmHaptic, stopRepeatingAlarmHaptic, tapHaptic, timerCueHaptic } from '../lib/haptics'
@@ -109,7 +109,7 @@ export interface UseTimerV2Return extends TimerV2Display {
   clearRuntimeInterruption: () => void
   setPaused: (paused: boolean) => boolean
   skipSequenceStep: (direction: 'next' | 'previous') => boolean
-  reanchor: (nextProgram: TimerProgram, alignToClock: boolean, nextSettings?: AppTimerSettings, nextSourcePreset?: WorkingProgramState['sourcePreset']) => Promise<boolean>
+  reanchor: (nextProgram: TimerProgram, alignToClock: boolean, nextSettings?: AppTimerSettings, nextSourcePreset?: WorkingProgramState['sourcePreset'], alarmBehaviorForNewTimer?: AlarmBehavior) => Promise<boolean>
 }
 
 export function timerV2DisplayFor(program: TimerProgram, settings: AppTimerSettings, mute: RuntimeMuteState, anchor: number, startedAt: number, terminalAt: number | null, now: number, randomSeed = anchor): TimerV2Display {
@@ -515,6 +515,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings, so
     const randomSeed = restored?.randomSeed ?? acceptedAt
     const startedAt = restored?.startedAt ?? (typeof restore === 'number' ? restore : acceptedAt)
     const endsAt = restored?.endsAt && restored.endsAt > 0 ? restored.endsAt : runEndAt(acceptedProgram, anchor, startedAt)
+    const acceptedAlarmBehavior: AlarmBehavior = restored?.alarmBehavior ?? (acceptedProgram.mode === 'unified' ? acceptedProgram.alarmBehavior : 'off')
     if (!hasAvailableTime(effectiveAvailabilityForProgram(acceptedProgram, acceptedSettings.availability), acceptedAt)) return false
     if (nextProgramEvent(acceptedProgram, anchor, restored?.pausedAt ?? acceptedAt, startedAt, endsAt, randomSeed) === null) return false
     if (isNativeServiceAvailable && (!ChandasTimerService.canScheduleExactAlarms() || !supportsProgram(acceptedProgram))) return false
@@ -524,10 +525,10 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings, so
     await setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: false })
     await activateDisplayWakeLock()
     if (request !== reanchorRequestRef.current) return false
-    const nativeConfig = nativeConfigFor(acceptedProgram, acceptedSettings, anchor, startedAt, endsAt, restored?.alarmBehavior === 'locked' || (!restored && alarmBehaviorRef.current === 'locked'), randomSeed)
+    const nativeConfig = nativeConfigFor(acceptedProgram, acceptedSettings, anchor, startedAt, endsAt, acceptedAlarmBehavior === 'locked', randomSeed)
     nativeConfig.timerV2PausedAt = restored?.pausedAt ?? 0
+    nativeConfig.alarmOnceArmed = acceptedAlarmBehavior === 'once'
     if (restored) {
-      nativeConfig.alarmOnceArmed = restored.alarmBehavior === 'once'
       nativeConfig.mutedUntil = restored.mute.mutedUntil
       nativeConfig.mutedIterationEndId = restored.mute.iteration?.endsAtLogicalId
       nativeConfig.mutedIterationEndAt = restored.mute.iteration?.endsAt
@@ -550,12 +551,12 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings, so
     setIsPaused(pausedAtRef.current !== null)
     cueSoundCursorRef.current = new Map(Object.entries(restored?.soundState?.sequence ?? {}))
     previousCueSoundRef.current = new Map(Object.entries(restored?.soundState?.randomPrevious ?? {}))
-    if (restored) updateRuntimeState(restored.mute, restored.alarmBehavior)
+    updateRuntimeState(restored?.mute ?? emptyRuntimeMute(), acceptedAlarmBehavior)
     runningRef.current = true
     setIsRunning(true)
     refreshDisplay()
     scheduleDisplayTick()
-    const persisted = await persistSession(restored?.mute ?? muteRef.current, restored?.alarmBehavior ?? alarmBehaviorRef.current)
+    const persisted = await persistSession(restored?.mute ?? muteRef.current, acceptedAlarmBehavior)
     if (request !== reanchorRequestRef.current || !runningRef.current) return false
     if (!persisted && !isNativeServiceAvailable) {
       runningRef.current = false
@@ -785,7 +786,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings, so
   }, [finishJsRun, persistSession, refreshDisplay, scheduleNext, syncNativeClock, updateRuntimeState])
 
   /** Restarts the live timeline without stopping the session or losing runtime controls. */
-  const reanchor = useCallback(async (nextProgram: TimerProgram, alignToClock: boolean, nextSettings = settingsRef.current, nextSourcePreset = sourcePresetRef.current) => {
+  const reanchor = useCallback(async (nextProgram: TimerProgram, alignToClock: boolean, nextSettings = settingsRef.current, nextSourcePreset = sourcePresetRef.current, alarmBehaviorForNewTimer?: AlarmBehavior) => {
     if (!runningRef.current) return false
     const request = ++reanchorRequestRef.current
     nativeUpdateGenerationRef.current += 1
@@ -806,7 +807,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings, so
     // Reanchoring changes cycle identities. Preserve timestamp mute, but clear
     // cycle mute so its promised final boundary cannot silently move.
     const nextMute = muteAfterScheduleChange(currentMute)
-    const nextAlarm: AlarmBehavior = nextProgram.mode === 'sequence' || (nextProgram.mode === 'unified' && nextProgram.steps.length > 1) ? 'off' : alarmBehaviorRef.current
+    const nextAlarm = alarmBehaviorForReanchor(nextProgram, alarmBehaviorRef.current, alarmBehaviorForNewTimer)
     const config = nativeConfigFor(nextProgram, nextSettings, anchor, startedAt, endsAt, nextAlarm === 'locked', randomSeed)
     config.alarmOnceArmed = nextAlarm === 'once'
     config.mutedUntil = nextMute.mutedUntil

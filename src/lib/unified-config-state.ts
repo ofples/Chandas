@@ -54,6 +54,8 @@ export interface UnifiedConfigState {
   drafts: Record<string, UnifiedTimerDraft>
   legacyRecoveries: UnifiedLegacyRecovery[]
   soundLibrary: SoundRef[]
+  /** Device-wide schedule shared by every timer and runtime session. */
+  globalAvailability: AvailabilityPolicy
   legacyRuntimeMetadata?: { alarmModeEnabled: boolean }
 }
 
@@ -73,11 +75,12 @@ export type ConfigStateCommand =
   | { type: 'importConfig'; config: UnifiedTimerConfig; select?: boolean; now?: number }
   | { type: 'switch'; configId: string | null; choice: 'save' | 'save-as' | 'keep' | 'discard' | 'cancel'; saveAsName?: string; saveAsId?: string; now?: number }
   | { type: 'setSoundLibrary'; sounds: SoundRef[] }
+  | { type: 'setGlobalAvailability'; availability: AvailabilityPolicy }
 
 export interface ConfigCommandResult {
   state: UnifiedConfigState
   status: 'applied' | 'blocked'
-  reason?: 'missing-config' | 'duplicate-id' | 'dirty-draft' | 'unnamed-needs-save-as' | 'invalid-name' | 'invalid-sounds'
+  reason?: 'missing-config' | 'duplicate-id' | 'dirty-draft' | 'unnamed-needs-save-as' | 'invalid-name' | 'invalid-sounds' | 'invalid-availability'
   createdConfigId?: string
 }
 
@@ -129,11 +132,21 @@ function mergeSharedSounds(current: SoundRef[], added: SoundRef[]): SoundRef[] {
 }
 
 function snapshotOf(value: Pick<UnifiedTimerConfig | UnifiedTimerDraft, 'name' | 'program' | 'settings' | 'editorOptions'>) {
-  return { name: value.name, program: value.program, settings: value.settings, editorOptions: value.editorOptions }
+  return { name: value.name, program: value.program, settings: timerSettingsWithoutGlobalSchedule(value.settings), editorOptions: value.editorOptions }
+}
+
+function timerSettingsWithoutGlobalSchedule(settings: AppTimerSettings): AppTimerSettings {
+  return { ...clone(settings), availability: { enabled: false, weeklyWindows: [], overrides: [] } }
 }
 
 export function isUnifiedDraftDirty(draft: UnifiedTimerDraft, config: UnifiedTimerConfig | undefined): boolean {
-  return !config || stableJson(snapshotOf(draft)) !== stableJson(snapshotOf(config))
+  if (!config) return true
+  const comparable = (value: UnifiedTimerConfig | UnifiedTimerDraft) => {
+    const snapshot = snapshotOf(value)
+    const { availability: _globalSchedule, ...settings } = snapshot.settings
+    return { ...snapshot, settings }
+  }
+  return stableJson(comparable(draft)) !== stableJson(comparable(config))
 }
 
 function draftKey(configId: string | undefined): string {
@@ -164,7 +177,7 @@ function copyConfigAsDraft(config: UnifiedTimerConfig, now: number): UnifiedTime
     baseConfigId: config.id,
     name: config.name,
     program: clone(config.program),
-    settings: clone(config.settings),
+    settings: timerSettingsWithoutGlobalSchedule(config.settings),
     editorOptions: clone(config.editorOptions),
     updatedAt: now,
     dirty: false,
@@ -220,6 +233,7 @@ export function createDefaultUnifiedConfigState(deps: ConfigStateDependencies = 
     drafts: { [id]: copyDraft(copyConfigAsDraft(config, now)) },
     legacyRecoveries: [],
     soundLibrary: [],
+    globalAvailability: clone(settings.availability),
   }
 }
 
@@ -421,6 +435,13 @@ export function parseUnifiedConfigState(input: unknown): UnifiedConfigParseResul
     setDraft(drafts, key, draft)
   }
   if (raw.selectedConfigId !== null && !getDraft(drafts, raw.selectedConfigId)) return fail('Selected config draft is missing')
+  const legacySchedule = raw.selectedConfigId !== null
+    ? getDraft(drafts, raw.selectedConfigId)?.settings.availability
+    : getDraft(drafts, UNNAMED_DRAFT_KEY)?.settings.availability ?? configs[0]?.settings.availability
+  const globalAvailability = raw.globalAvailability === undefined
+    ? clone(legacySchedule ?? defaultAppTimerSettings().availability)
+    : parseAvailability(raw.globalAvailability, () => '', false)
+  if (!globalAvailability) return fail('Invalid global availability policy')
   const legacyRecoveries: UnifiedLegacyRecovery[] = []
   for (const value of raw.legacyRecoveries) {
     if (!record(value) || !idValid(value.id) || (value.sourceMode !== 'pattern' && value.sourceMode !== 'sequence')) return fail('Invalid legacy recovery')
@@ -428,6 +449,9 @@ export function parseUnifiedConfigState(input: unknown): UnifiedConfigParseResul
     if (!draft) return fail('Invalid legacy recovery draft')
     legacyRecoveries.push({ id: value.id, sourceMode: value.sourceMode, draft })
   }
+  for (const config of configs) config.settings = timerSettingsWithoutGlobalSchedule(config.settings)
+  for (const draft of Object.values(drafts)) draft.settings = timerSettingsWithoutGlobalSchedule(draft.settings)
+  for (const recovery of legacyRecoveries) recovery.draft.settings = timerSettingsWithoutGlobalSchedule(recovery.draft.settings)
   if (raw.soundLibrary.some(sound => !isSupportedSoundRef(sound, false) || !record(sound) || sound.kind === 'builtin')) return fail('Invalid shared sound library')
   if (raw.legacyRuntimeMetadata !== undefined && (!record(raw.legacyRuntimeMetadata) || !boolean(raw.legacyRuntimeMetadata.alarmModeEnabled))) return fail('Invalid legacy runtime metadata')
   return {
@@ -436,7 +460,7 @@ export function parseUnifiedConfigState(input: unknown): UnifiedConfigParseResul
       ...clone(raw),
       schemaVersion: UNIFIED_CONFIG_STATE_SCHEMA_VERSION,
       selectedConfigId: raw.selectedConfigId as string | null,
-      configs, drafts, legacyRecoveries, soundLibrary: clone(raw.soundLibrary) as SoundRef[],
+      configs, drafts, legacyRecoveries, soundLibrary: clone(raw.soundLibrary) as SoundRef[], globalAvailability,
     } as UnifiedConfigState,
   }
 }
@@ -450,8 +474,14 @@ export function reduceUnifiedConfigCommand(
   command: ConfigStateCommand,
   deps: ConfigStateDependencies = {},
 ): ConfigCommandResult {
-  const now = command.type === 'setSoundLibrary' ? deps.now?.() ?? Date.now() : command.now ?? deps.now?.() ?? Date.now()
+  const now = 'now' in command ? command.now ?? deps.now?.() ?? Date.now() : deps.now?.() ?? Date.now()
   const state = clone(input)
+  if (command.type === 'setGlobalAvailability') {
+    const availability = parseAvailability(command.availability, () => '', false)
+    if (!availability) return result(input, 'blocked', 'invalid-availability')
+    state.globalAvailability = clone(availability)
+    return result(state, 'applied')
+  }
   const currentConfig = state.configs.find(config => config.id === state.selectedConfigId)
   const currentKey = draftKey(state.selectedConfigId ?? undefined)
   let draft = getDraft(state.drafts, currentKey)
@@ -477,7 +507,7 @@ export function reduceUnifiedConfigCommand(
     const settings = parseUnifiedTimerSettings(updated.settings)
     if (!parse.ok || !settings || !configName(updated.name) || !validEditorOptions(updated.editorOptions)) return result(input, 'blocked', 'invalid-name')
     updated.program = parse.value
-    updated.settings = settings
+    updated.settings = timerSettingsWithoutGlobalSchedule(settings)
     setDraft(state.drafts, currentKey, recomputeDraft(updated, currentConfig))
     state.soundLibrary = mergeSharedSounds(state.soundLibrary, soundsUsedByDraft(updated))
     return result(state, 'applied')
@@ -498,7 +528,7 @@ export function reduceUnifiedConfigCommand(
     if (state.configs.some(config => config.id === id)) return result(input, 'blocked', 'duplicate-id')
     const saved: UnifiedTimerConfig = {
       id, name, createdAt: now, updatedAt: now,
-      program: clone(draft!.program), settings: clone(draft!.settings), editorOptions: { ...clone(draft!.editorOptions), configurationNameIsCustom: draft!.editorOptions.configurationNameIsCustom === false && name === draft!.name ? false : true },
+      program: clone(draft!.program), settings: timerSettingsWithoutGlobalSchedule(draft!.settings), editorOptions: { ...clone(draft!.editorOptions), configurationNameIsCustom: draft!.editorOptions.configurationNameIsCustom === false && name === draft!.name ? false : true },
       showInRunningSelector: true,
     }
     if (draft!.editorOptions.configurationNameIsCustom !== undefined) saved.program = nameSingleStep(saved.program, saved.name, saved.editorOptions.configurationNameIsCustom !== false)
@@ -535,7 +565,7 @@ export function reduceUnifiedConfigCommand(
     if (!configName(config.name) || !finite(config.createdAt) || !finite(config.updatedAt)
       || typeof config.showInRunningSelector !== 'boolean' || !validEditorOptions(config.editorOptions)
       || !parsedProgram.ok || !parsedSettings) return result(input, 'blocked', 'invalid-name')
-    const imported = { ...clone(config), name: configName(config.name)!, program: parsedProgram.value, settings: parsedSettings }
+    const imported = { ...clone(config), name: configName(config.name)!, program: parsedProgram.value, settings: timerSettingsWithoutGlobalSchedule(parsedSettings) }
     state.configs.push(imported)
     setDraft(state.drafts, imported.id, copyConfigAsDraft(imported, now))
     const importedSounds: SoundRef[] = []
@@ -602,7 +632,7 @@ export function reduceUnifiedConfigCommand(
         if (!configIdValid(id) || state.configs.some(config => config.id === id)) return result(input, 'blocked', 'duplicate-id')
         const saved: UnifiedTimerConfig = {
           id, name, createdAt: now, updatedAt: now,
-          program: clone(draft.program), settings: clone(draft.settings), editorOptions: { ...clone(draft.editorOptions), configurationNameIsCustom: draft.editorOptions.configurationNameIsCustom === false && name === draft.name ? false : true }, showInRunningSelector: true,
+          program: clone(draft.program), settings: timerSettingsWithoutGlobalSchedule(draft.settings), editorOptions: { ...clone(draft.editorOptions), configurationNameIsCustom: draft.editorOptions.configurationNameIsCustom === false && name === draft.name ? false : true }, showInRunningSelector: true,
         }
         if (draft.editorOptions.configurationNameIsCustom !== undefined) saved.program = nameSingleStep(saved.program, name, saved.editorOptions.configurationNameIsCustom !== false)
         state.configs.push(saved)

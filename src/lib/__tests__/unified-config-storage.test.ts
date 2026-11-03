@@ -61,6 +61,59 @@ describe('unified config drafts', () => {
     expect(parseUnifiedConfigState(bad).ok).toBe(false)
   })
 
+  it('keeps schedule global across timer switching without dirtying a timer draft', () => {
+    const initial = createDefaultUnifiedConfigState({ now: () => 100, createId: () => 'first' })
+    const second = reduceUnifiedConfigCommand(initial, { type: 'saveAs', name: 'Second', id: 'second' }).state
+    const firstDraft = second.drafts.first!
+    const availability = {
+      enabled: true,
+      weeklyWindows: [{ id: 'global-window', enabled: true, startMinutes: 540, endMinutes: 1020, days: 31 }],
+      overrides: [],
+    }
+    const changed = reduceUnifiedConfigCommand(second, { type: 'setGlobalAvailability', availability })
+    expect(changed.state.globalAvailability).toEqual(availability)
+    expect(changed.state.drafts.second).toEqual(second.drafts.second)
+    expect(changed.state.drafts.first).toEqual(firstDraft)
+    const switched = reduceUnifiedConfigCommand(changed.state, { type: 'switch', configId: 'first', choice: 'keep' })
+    expect(switched.state.globalAvailability).toEqual(availability)
+    expect(switched.state.drafts.first?.dirty).toBe(false)
+  })
+
+  it('does not attach an imported timer schedule to its saved config', () => {
+    const state = createDefaultUnifiedConfigState({ now: () => 100, createId: () => 'first' })
+    const imported = structuredClone(state.configs[0]!)
+    imported.id = 'imported'
+    imported.settings.availability = {
+      enabled: true,
+      weeklyWindows: [{ id: 'portable-window', enabled: true, startMinutes: 600, endMinutes: 900, days: 127 }],
+      overrides: [],
+    }
+    const result = reduceUnifiedConfigCommand(state, { type: 'importConfig', config: imported })
+    expect(result.status).toBe('applied')
+    expect(result.state.globalAvailability).toEqual(state.globalAvailability)
+    expect(result.state.configs.find(config => config.id === 'imported')?.settings.availability).toEqual({ enabled: false, weeklyWindows: [], overrides: [] })
+  })
+
+  it('recovers the active schedule when loading a pre-global state', () => {
+    const legacy = createDefaultUnifiedConfigState({ now: () => 100, createId: () => 'first' }) as unknown as Record<string, unknown>
+    const schedule = {
+      enabled: true,
+      weeklyWindows: [{ id: 'legacy-active-window', enabled: true, startMinutes: 480, endMinutes: 1200, days: 127 }],
+      overrides: [],
+    }
+    const configs = legacy.configs as Array<{ settings: { availability: unknown } }>
+    const drafts = legacy.drafts as Record<string, { settings: { availability: unknown } }>
+    configs[0]!.settings.availability = schedule
+    drafts.first!.settings.availability = schedule
+    delete legacy.globalAvailability
+    const parsed = parseUnifiedConfigState(legacy)
+    expect(parsed.ok).toBe(true)
+    if (parsed.ok) {
+      expect(parsed.value.globalAvailability).toEqual(schedule)
+      expect(parsed.value.drafts.first?.settings.availability).toEqual({ enabled: false, weeklyWindows: [], overrides: [] })
+    }
+  })
+
   it('Save as activates a clean snapshot while retaining the outgoing dirty draft', () => {
     const initial = createDefaultUnifiedConfigState({ now: () => 100, createId: () => 'first' })
     const edited = reduceUnifiedConfigCommand(initial, { type: 'edit', changes: { name: 'Unsaved name' }, now: 101 }).state
@@ -267,7 +320,9 @@ describe('unified config storage migration', () => {
     expect(result.state.configs).toEqual([])
     expect(result.state.selectedConfigId).toBeNull()
     expect(result.state.drafts[UNNAMED_DRAFT_KEY]?.settings.masterVolume).toBe(0.42)
-    expect(result.state.drafts[UNNAMED_DRAFT_KEY]?.settings.availability.weeklyWindows[0]?.id).toBe('legacy:v1:availability-window-1')
+    expect(result.state.drafts[UNNAMED_DRAFT_KEY]?.program.alarmBehavior).toBe('locked')
+    expect(result.state.globalAvailability.weeklyWindows[0]?.id).toBe('legacy:v1:availability-window-1')
+    expect(result.state.drafts[UNNAMED_DRAFT_KEY]?.settings.availability).toEqual({ enabled: false, weeklyWindows: [], overrides: [] })
     expect(result.state.legacyRuntimeMetadata?.alarmModeEnabled).toBe(true)
   })
 

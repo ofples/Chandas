@@ -21,7 +21,7 @@ describe('unified program acceptance boundaries', () => {
     const result = parseUnifiedTimerProgram(source)
     expect(result.ok).toBe(true)
     if (!result.ok) throw new Error(result.reason)
-    expect(result.value).toEqual(fixture.program)
+    expect(result.value).toEqual({ ...fixture.program, alarmBehavior: 'off' })
     result.value.steps[1].subBellTracks[0].randomRepeat!.minSeconds = 12
     result.value.steps[0].endCue.sound = { kind: 'builtin', id: 'bloom' }
     expect(source.steps[1].subBellTracks[0].randomRepeat!.minSeconds).toBe(10)

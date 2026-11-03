@@ -1,5 +1,11 @@
 # Unified timer — independent acceptance audit
 
+## November 3 settings and sheet pass
+
+Schedule is now an app-wide preference shared across timers; config snapshots, drafts and transfers exclude it, while runtime receives the current global policy. Alarm mode is stored on each timer program. Setup restores the schedule timeline and links it to the editor; the cue sheet opens expanded, shorter sound choices remain layered, and shared sheets animate open and close. Default haptic display resolves to the configured pattern/strength, or Off when global haptics are disabled. Focused settings content no longer has an extra padded card, and appearance uses the existing lightbulb icon.
+
+Checks: TypeScript passes; the global schedule/timer adapter work reports 294 passing tests, and a focused rerun passed 32 tests across config storage, configuration transfer and unified timer files. Fresh Edge Playwright validation passed seven grouped checks: global visualizer and editor copy; settings close/reopen; effective default haptic profile; alarm mode persisted on the timer draft; expanded ending-cue sheet with source and volume controls; sound sheet close/reopen; zero page errors. The 844px sheet filled the viewport. The harness and result are in `C:/Users/pless/.codex/visualizations/2026/09/29/01a0eca8-b56d-76e3-a15a-15e81cdf6272/2026-11-03-settings-ui.cjs` and `2026-11-03-settings-ui-result.json`; inspected screenshot: `2026-11-03-sound-expanded.png`. `adb devices` showed no attached Android device, so native visual/gesture verification is unavailable. No build, deployment or publication was performed.
+
 Authority: `unified-timer-goal-prompt-2026-10-31.md`. Parent review is independent of Luna's implementation coverage ledger. Evidence below concerns the actual normal application, not the former experimental entry.
 
 ## November 2 volume mixer refinement

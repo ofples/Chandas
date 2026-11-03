@@ -181,6 +181,8 @@ export interface UnifiedTimerProgram {
   alignment: TimerAlignment
   completionCue: CueSettings | null
   runPolicy: RunPolicy
+  /** Alarm mode selected for each new run of this saved timer. */
+  alarmBehavior: 'off' | 'once' | 'locked'
 }
 
 /** Legacy snapshots remain runnable until explicitly stopped or safely upgraded. */

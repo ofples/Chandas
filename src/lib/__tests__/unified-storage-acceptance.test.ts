@@ -52,9 +52,10 @@ describe('independent unified persistence acceptance', () => {
     const original = new Map(store.records)
     const result = await bootstrapUnifiedConfigState(store, { now: () => 200 })
     if (result.status !== 'loaded') throw new Error(result.message)
-    expect(result.state.drafts.saved.settings).toEqual(legacy.settings)
+    expect(result.state.drafts.saved.settings).toMatchObject({ ...legacy.settings, availability: { enabled: false, weeklyWindows: [], overrides: [] } })
+    expect(result.state.globalAvailability).toEqual(legacy.settings.availability)
     expect(result.state.drafts.saved.dirty).toBe(true)
-    expect(result.state.configs[0].settings).toEqual(legacy.presets[0].settings)
+    expect(result.state.configs[0].settings).toMatchObject({ ...legacy.presets[0].settings, availability: { enabled: false, weeklyWindows: [], overrides: [] } })
     for (const [key, value] of original) expect(store.records.get(key)).toBe(value)
   })
 

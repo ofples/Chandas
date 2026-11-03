@@ -1,5 +1,5 @@
 import { useAppReducedMotion } from './src/theme/ThemeContext'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { StatusBar } from 'expo-status-bar'
 import * as Updates from 'expo-updates'
 import AsyncStorage from '@react-native-async-storage/async-storage'
@@ -173,7 +173,11 @@ function Root() {
       ? configState.drafts[configState.selectedConfigId ?? UNNAMED_DRAFT_KEY]
       : undefined
     : undefined
-  const liveSettings = activeRun?.settings ?? currentDraft?.settings ?? FALLBACK_SETTINGS
+  const baseSettings = activeRun?.settings ?? currentDraft?.settings ?? FALLBACK_SETTINGS
+  const liveSettings = useMemo(
+    () => configState ? { ...baseSettings, availability: configState.globalAvailability } : baseSettings,
+    [baseSettings, configState?.globalAvailability],
+  )
   const program: RuntimeTimerProgram = activeRun?.program ?? currentDraft?.program ?? FALLBACK_PROGRAM
   const sourcePreset = activeRun ? activeRun.sourcePreset : draftSourcePreset(configState, currentDraft)
   useEffect(() => {
@@ -743,7 +747,7 @@ function Root() {
     }
     const acceptedSnapshot: ActiveRunSnapshot = {
       program: selectedDraft.program,
-      settings: selectedDraft.settings,
+      settings: { ...selectedDraft.settings, availability: state?.globalAvailability ?? selectedDraft.settings.availability },
       sourcePreset: draftSourcePreset(state, selectedDraft),
     }
     // A new explicit start supersedes any delayed verification from a previous
@@ -800,7 +804,8 @@ function Root() {
       ? { ...current.program, alignment }
       : { ...current.program, alignment }
     try {
-      const started = await timer.reanchor(nextProgram, alignToClock, current.settings, current.sourcePreset)
+      const globalAvailability = configStateRef.current?.globalAvailability ?? current.settings.availability
+      const started = await timer.reanchor(nextProgram, alignToClock, { ...current.settings, availability: globalAvailability }, current.sourcePreset)
       if (generation !== reanchorAttemptGeneration.current) return false
       if (!started) {
         showNotice({ title: 'Alignment stayed unchanged', message: 'Exact timing is needed before Chandas can move this live pattern.', tone: 'attention', actionLabel: 'Open settings', onAction: openExactAlarmSettings })
@@ -832,7 +837,7 @@ function Root() {
     const generation = ++reanchorAttemptGeneration.current
     setRealigning(true)
     try {
-      const started = await timer.reanchor(config.program, config.program.alignment.kind === 'local-clock', config.settings, source)
+      const started = await timer.reanchor(config.program, config.program.alignment.kind === 'local-clock', { ...config.settings, availability: state?.globalAvailability ?? config.settings.availability }, source, config.program.alarmBehavior)
       if (generation !== reanchorAttemptGeneration.current) return false
       if (!started) {
         showNotice({ title: timer.isAlarmRinging ? 'Dismiss the alarm first' : 'Configuration stayed unchanged', message: timer.isAlarmRinging ? 'The ringing alarm must be dismissed before changing configuration.' : 'The timer kept its existing schedule. You can try again.', tone: 'attention' })

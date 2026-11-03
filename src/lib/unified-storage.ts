@@ -171,6 +171,7 @@ function migrateV2(legacy: Record<string, string | null>, now: number): UnifiedC
   return {
     schemaVersion: 3, selectedConfigId, configs, drafts,
     legacyRecoveries: [otherRecovery], soundLibrary: uniqueSounds(soundRefs),
+    globalAvailability: clone(settings.availability),
   }
 }
 
@@ -190,7 +191,8 @@ function migrateV1(raw: string, now: number): UnifiedConfigState | null {
     }
     return {
       schemaVersion: 3, selectedConfigId: null, configs: [], drafts: { [UNNAMED_DRAFT_KEY]: draft }, legacyRecoveries: [],
-      soundLibrary: uniqueSounds(migrated.soundLibrary), legacyRuntimeMetadata: { alarmModeEnabled: migrated.legacyRuntime.alarmModeEnabled },
+      soundLibrary: uniqueSounds(migrated.soundLibrary), globalAvailability: clone(migrated.settings.availability),
+      legacyRuntimeMetadata: { alarmModeEnabled: migrated.legacyRuntime.alarmModeEnabled },
     }
   } catch { return null }
 }

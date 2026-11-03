@@ -7,11 +7,12 @@ import {
 } from '../unified-configuration-transfer'
 
 describe('unified configuration transfer', () => {
-  it('roundtrips schema 4 program, full settings, selector metadata and editor options', () => {
+  it('roundtrips timer settings and alarm mode while excluding the device-wide schedule', () => {
     const state = createDefaultUnifiedConfigState({ now: () => 123, createId: () => 'fixture-id' })
     const config = { ...state.configs[0]!, editorOptions: { enabledActionIds: ['haptics', 'schedule'] }, showInRunningSelector: false }
     config.settings.masterVolume = 0.37
     config.settings.availability.enabled = true
+    config.program.alarmBehavior = 'locked'
     const text = serializeUnifiedConfiguration(config, 1_700_000_000_000)
     const envelope = JSON.parse(text)
     expect(envelope.format).toBe(UNIFIED_CONFIGURATION_TRANSFER_FORMAT)
@@ -24,7 +25,9 @@ describe('unified configuration transfer', () => {
     expect(imported.config.id).toBe('imported-id')
     expect(imported.config.name).toBe('Timer')
     expect(imported.config.settings.masterVolume).toBe(0.37)
-    expect(imported.config.settings.availability.enabled).toBe(true)
+    expect(imported.config.program.alarmBehavior).toBe('locked')
+    expect(envelope.configuration.settings.availability).toBeUndefined()
+    expect(imported.config.settings.availability.enabled).toBe(false)
     expect(imported.config.showInRunningSelector).toBe(false)
     expect(imported.config.editorOptions.enabledActionIds).toEqual(['haptics', 'schedule'])
   })
@@ -42,12 +45,13 @@ describe('unified configuration transfer', () => {
     if (!imported.ok) return
     expect(imported.sourceVersion).toBe(1)
     expect(imported.config.program.schemaVersion).toBe(4)
+    expect(imported.config.program.alarmBehavior).toBe('off')
     expect(imported.config.name).toBe('Legacy Cycle')
     expect(imported.config.createdAt).toBe(999)
     expect(imported.config.settings.masterVolume).toBe(old.settings.masterVolume)
   })
 
-  it('assigns distinct deterministic IDs to multiple legacy schedule windows with omitted IDs', () => {
+  it('ignores legacy schedule data when importing a timer', () => {
     const old = defaultTimerV2State()
     const text = JSON.stringify({
       format: UNIFIED_CONFIGURATION_TRANSFER_FORMAT, version: 1,
@@ -62,9 +66,7 @@ describe('unified configuration transfer', () => {
     const imported = parseUnifiedConfigurationTransfer(text, [], { now: 10, createId: () => 'window-import' })
     expect(imported.ok).toBe(true)
     if (!imported.ok) return
-    expect(imported.config.settings.availability.weeklyWindows.map(window => window.id)).toEqual([
-      'transfer-v1-window-import:window-1', 'transfer-v1-window-import:window-2',
-    ])
+    expect(imported.config.settings.availability).toEqual({ enabled: false, weeklyWindows: [], overrides: [] })
   })
 
   it('rejects future envelope/program versions and malformed present fields', () => {

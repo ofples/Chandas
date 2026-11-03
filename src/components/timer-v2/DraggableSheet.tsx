@@ -1,5 +1,5 @@
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Animated, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useAppReducedMotion, useTheme } from '../../theme/ThemeContext'
@@ -32,11 +32,30 @@ export function DraggableSheet({ visible, title, onClose, onBack, children, foot
   const insets = useSafeAreaInsets()
   const scroll = useRef<ScrollView>(null)
   const [contentHeight, setContentHeight] = useState(0)
+  const exitProgress = useRef(new Animated.Value(1)).current
+  const closeRequested = useRef(false)
+  const requestClose = useCallback(() => {
+    if (closeRequested.current) return
+    closeRequested.current = true
+    if (reducedMotion) { (onBack ?? onClose)(); return }
+    Animated.timing(exitProgress, { toValue: 1, duration: 120, useNativeDriver: false }).start(({ finished }) => {
+      if (finished) (onBack ?? onClose)()
+    })
+  }, [exitProgress, onBack, onClose, reducedMotion])
+  useEffect(() => {
+    if (!visible) return
+    closeRequested.current = false
+    exitProgress.setValue(reducedMotion ? 0 : 1)
+    if (!reducedMotion) {
+      const frame = requestAnimationFrame(() => Animated.timing(exitProgress, { toValue: 0, duration: 160, useNativeDriver: false }).start())
+      return () => cancelAnimationFrame(frame)
+    }
+  }, [visible, presentationKey, scrollKey, exitProgress, reducedMotion])
   const fittedFraction = presentation === 'center' && contentHeight > 0 ? Math.min(partialHeightFraction, (contentHeight + (showTitle ? 74 : 30) + Math.max(12, insets.bottom)) / windowHeight) : partialHeightFraction
   const scrollPositions = useRef(new Map<string, number>())
   const activeScrollKey = useRef(scrollKey)
   const resetKey = scrollKey === undefined ? presentationKey : scrollKey
-  const sheet = useSheetSnap({ visible, initialSnap, onClose: onBack ?? onClose, windowHeight, topInset: insets.top, minHeight: presentation === 'center' ? 220 : 260, partialMinHeight: presentation === 'center' ? 220 : 260, partialHeightFraction: fittedFraction, maxHeightFraction: presentation === 'center' ? 0.94 : 1, reducedMotion })
+  const sheet = useSheetSnap({ visible, initialSnap, onClose: requestClose, windowHeight, topInset: insets.top, minHeight: presentation === 'center' ? 220 : 260, partialMinHeight: presentation === 'center' ? 220 : 260, partialHeightFraction: fittedFraction, maxHeightFraction: presentation === 'center' ? 0.94 : 1, reducedMotion })
 
   useEffect(() => {
     if (!visible) return
@@ -51,11 +70,11 @@ export function DraggableSheet({ visible, title, onClose, onBack, children, foot
     if (key !== undefined) scrollPositions.current.set(key, Math.max(0, event.nativeEvent.contentOffset.y))
   }
 
-  return <Modal visible={visible} transparent animationType="none" onRequestClose={onBack ?? onClose} statusBarTranslucent>
+  return <Modal visible={visible} transparent animationType="none" onRequestClose={requestClose} statusBarTranslucent>
     <GestureHandlerRootView style={styles.fill}><KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}>
       <View style={[styles.backdrop, presentation === 'center' && { justifyContent: 'center', paddingHorizontal: 16 }]}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onBack ?? onClose} accessibilityLabel="Dismiss editor" />
-        <Animated.View testID={testID} accessibilityViewIsModal style={[styles.sheet, presentation === 'center' && { borderRadius: 24, borderBottomWidth: 1 }, { height: sheet.height, maxHeight: '100%', backgroundColor: tokens.surface, borderColor: tokens.border, paddingBottom: Math.max(12, insets.bottom) }]}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={requestClose} accessibilityLabel="Dismiss editor" />
+        <Animated.View testID={testID} accessibilityViewIsModal style={[styles.sheet, presentation === 'center' && { borderRadius: 24, borderBottomWidth: 1 }, { opacity: exitProgress.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }), transform: [{ translateY: exitProgress.interpolate({ inputRange: [0, 1], outputRange: [0, 22] }) }], height: sheet.height, maxHeight: '100%', backgroundColor: tokens.surface, borderColor: tokens.border, paddingBottom: Math.max(12, insets.bottom) }]}>
           <View {...sheet.panHandlers} style={styles.dragArea} accessible accessibilityRole="adjustable" accessibilityLabel={`${title} sheet height`} accessibilityValue={{ text: sheet.snap === 'full' ? 'Expanded' : 'Partial' }} accessibilityActions={[{ name: 'increment', label: 'Expand sheet' }, { name: 'decrement', label: 'Collapse sheet' }, { name: 'escape', label: 'Close sheet' }]} onAccessibilityAction={event => sheet.onAccessibilityAction(event.nativeEvent.actionName)}>
             <View style={[styles.handle, { backgroundColor: tokens.textMuted }]} />
           </View>
