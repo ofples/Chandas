@@ -6,7 +6,6 @@ import Animated, { FadeIn, LinearTransition } from 'react-native-reanimated'
 import type { SubBellColorId } from '../../types'
 import { SUB_BELL_COLORS, subBellColorValue } from '../../lib/subBellColors'
 import { useTheme } from '../../theme/ThemeContext'
-import { FadedHorizontalScrollView } from './FadedHorizontalScrollView'
 
 interface Props {
   paletteOnly?: boolean
@@ -34,7 +33,7 @@ export function ColorSelector({ paletteOnly = false, value, onChange, label = 'C
       {trailing}
     </View> : null}
     {expanded ? <Animated.View entering={reducedMotion ? undefined : FadeIn.duration(130)}>
-      <FadedHorizontalScrollView fadeColor={tokens.surface} selectedIndex={SUB_BELL_COLORS.findIndex(option => option.id === value)} itemCount={SUB_BELL_COLORS.length} selectionKey={`${expanded}:${value}`} contentContainerStyle={styles.rail} accessibilityRole="radiogroup" accessibilityLabel={accessibilityLabel}>
+      <View style={styles.palette} accessibilityRole="radiogroup" accessibilityLabel={accessibilityLabel}>
       {SUB_BELL_COLORS.map(option => {
         const selected = value === option.id
         const swatchColor = eink ? subBellColorValue(option.id, 0, true) : option.value
@@ -44,7 +43,7 @@ export function ColorSelector({ paletteOnly = false, value, onChange, label = 'C
           {selected ? <Text style={[styles.check, { color: checkColor }]}>✓</Text> : null}
         </Pressable>
       })}
-      </FadedHorizontalScrollView>
+      </View>
     </Animated.View> : null}
   </Animated.View>
 }
@@ -58,7 +57,7 @@ const styles = StyleSheet.create({
   detail: { fontSize: 12, lineHeight: 17 },
   currentChoice: { width: 36, height: 36, borderWidth: 1.5, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   currentSwatch: { width: 22, height: 22, borderRadius: 11 },
-  rail: { gap: 8, paddingRight: 20, paddingVertical: 2 },
+  palette: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8, paddingVertical: 2 },
   choice: { width: 42, height: 42, borderWidth: 1.5, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
   swatch: { width: 24, height: 24, borderRadius: 12 },
   check: { position: 'absolute', color: '#fff', fontSize: 13, fontWeight: '900' },

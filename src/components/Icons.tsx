@@ -183,6 +183,13 @@ export function TrashIcon({ color, size = 18 }: { color: string; size?: number }
   )
 }
 
+export function DuplicateIcon({ color, size = 18 }: { color: string; size?: number }) {
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Path d="M8 8V5.5A1.5 1.5 0 0 1 9.5 4h9A1.5 1.5 0 0 1 20 5.5v9a1.5 1.5 0 0 1-1.5 1.5H16" stroke={color} strokeWidth={1.8} strokeLinejoin="round" />
+    <Path d="M5.5 8h9A1.5 1.5 0 0 1 16 9.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 4 18.5v-9A1.5 1.5 0 0 1 5.5 8Z" stroke={color} strokeWidth={1.8} strokeLinejoin="round" />
+  </Svg>
+}
+
 export function OverflowIcon({ color, size = 18 }: { color: string; size?: number }) {
   return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
     <Circle cx={12} cy={5} r={1.6} fill={color} />
