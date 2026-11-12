@@ -7,7 +7,7 @@ import { useTheme } from '../../theme/ThemeContext'
 
 export function RunningControlSettingsList({ settings, onChange }: {
   settings: Pick<AppTimerSettings, 'advancedModeEnabled' | 'runningControlIds'>
-  onChange: (ids: RunningControlId[]) => void
+  onChange: (id: RunningControlId, enabled: boolean) => void
 }) {
   const { tokens } = useTheme()
   const selected = enabledRunningControls(settings)
@@ -22,10 +22,7 @@ export function RunningControlSettingsList({ settings, onChange }: {
     return <View key={control.id} style={styles.row}>
       <View style={[styles.icon, { borderColor: tokens.border }]}>{icon}</View>
       <View style={styles.copy}><Text style={[styles.title, { color: tokens.text }]}>{control.title}</Text><Text style={[styles.description, { color: tokens.textMuted }]}>{control.description}</Text></View>
-      <Toggle value={enabled} onChange={value => {
-        const current = settings.runningControlIds ?? [...selected]
-        onChange(value ? [...new Set([...current, control.id])] : current.filter(id => id !== control.id))
-      }} accessibilityLabel={`Show ${control.title}`} />
+      <Toggle value={enabled} onChange={value => onChange(control.id, value)} accessibilityLabel={`Show ${control.title}`} />
     </View>
   })}</View>
 }

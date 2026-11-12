@@ -19,7 +19,7 @@ object TimerNotifications {
   internal const val EVENT_ID = 1003
 
   const val RUNNING_CHANNEL = "chandas-running"
-  const val EVENT_CHANNEL = "chandas-events"
+  private const val PLAYBACK_CHANNEL = "chandas-cue-playback"
   const val ALARM_CHANNEL = "chandas-alarm"
 
   /** Shared compact status contract for promoted notifications and the overlay pill. */
@@ -69,11 +69,11 @@ object TimerNotifications {
       setShowBadge(false)
     })
     manager.createNotificationChannel(NotificationChannel(
-      EVENT_CHANNEL,
-      "Chandas chimes",
-      NotificationManager.IMPORTANCE_DEFAULT,
+      PLAYBACK_CHANNEL,
+      "Chandas cue playback",
+      NotificationManager.IMPORTANCE_LOW,
     ).apply {
-      description = "Shows bell and gong events"
+      description = "Supports cue playback in the background"
       setSound(null, null)
       enableVibration(false)
       setShowBadge(false)
@@ -90,31 +90,33 @@ object TimerNotifications {
     })
   }
 
-  fun postRunning(context: Context, config: TimerConfig) {
+  fun postRunning(context: Context, @Suppress("UNUSED_PARAMETER") config: TimerConfig) = refreshRunning(context)
+
+  fun refreshRunning(base: Context) {
+    val context = TimerRuns.presentation(base)
+    val config = TimerRuns.presentationConfig(context)
+    if (config == null) {
+      ChandasCountdownService.stop(base, removeNotification = true)
+      (base.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(RUNNING_ID)
+      return
+    }
     val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     if (!config.notificationsEnabled) {
       if (FloatingTimerOverlay.needsService(context)) {
         ensureChannels(context)
         ChandasCountdownService.reconcile(context)
       }
-      else { ChandasCountdownService.stop(context); manager.cancel(RUNNING_ID) }
+      else { ChandasCountdownService.stop(context, removeNotification = true); manager.cancel(RUNNING_ID) }
       return
     }
     ensureChannels(context)
-    val now = System.currentTimeMillis()
-    // Keep the platform chronometer as the no-service fallback. The live
-    // updater adds context-aware compact text once it is foreground.
-    val notification = buildRunning(context, config, now, includeCompactStatus = false)
-    runCatching { manager.notify(RUNNING_ID, notification) }
-    if (
-      config.liveCountdownEnabled &&
+    val promotedAvailable = config.liveCountdownEnabled &&
       Build.VERSION.SDK_INT >= 36 &&
       NotificationManagerCompat.from(context).areNotificationsEnabled() &&
-      manager.canPostPromotedNotifications() &&
-      NotificationCompat.getUsesChronometer(notification)
-    ) {
-      ChandasCountdownService.reconcile(context)
-    } else if (FloatingTimerOverlay.needsService(context)) {
+      manager.canPostPromotedNotifications()
+    val notification = buildRunning(context, config, includeCompactStatus = promotedAvailable)
+    runCatching { manager.notify(RUNNING_ID, notification) }
+    if (promotedAvailable || FloatingTimerOverlay.needsService(context)) {
       ChandasCountdownService.reconcile(context)
     } else {
       ChandasCountdownService.stop(context)
@@ -154,9 +156,12 @@ object TimerNotifications {
       activeNow && activeAtNext -> notificationContext?.label ?: copy.nextCue(formatTime(next))
       else -> if (resumesAt > 0L) copy.resumes(formatTime(resumesAt)) else "No active time"
     }
-    val title = program?.let(TimerV2Timeline::notificationTitle) ?: copy.runningTitle
+    val title = TimerRuns.name(context) ?: program?.let(TimerV2Timeline::notificationTitle) ?: copy.runningTitle
     val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
     val contentIntent = launchIntent?.let {
+      it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+      TimerRuns.id(context)?.let { id -> it.putExtra(TimerRuns.EXTRA_RUN_ID, id) }
+      TimerRuns.route(it, context)
       PendingIntent.getActivity(
         context,
         8101,
@@ -167,13 +172,24 @@ object TimerNotifications {
     val stopIntent = PendingIntent.getBroadcast(
       context,
       8102,
-      Intent(context, TimerEventReceiver::class.java).setAction(TimerEventReceiver.ACTION_STOP),
+      TimerRuns.route(Intent(context, TimerEventReceiver::class.java), context).setAction(TimerEventReceiver.ACTION_STOP),
       PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
-    val expandedContent = if (config.timerV2PausedAt == 0L && config.timerV2EndsAt > now && event?.completesRun != true) "$content\n${copy.sessionEnds(formatTime(config.timerV2EndsAt))}" else content
+    val activeRuns = TimerRuns.contexts(context).filter { TimerStateStore.load(it) != null }
+    val activeCount = activeRuns.size
+    val summary = if (activeCount > 1) "$content · $activeCount active timers" else content
+    val expandedContent = buildString {
+      append(summary)
+      if (config.timerV2PausedAt == 0L && config.timerV2EndsAt > now && event?.completesRun != true) append("\n").append(copy.sessionEnds(formatTime(config.timerV2EndsAt)))
+      for (peer in activeRuns.filter { TimerRuns.id(it) != TimerRuns.id(context) }) {
+        val peerConfig = TimerStateStore.load(peer) ?: continue
+        val peerName = TimerRuns.name(peer) ?: peerConfig.timerV2Program?.let(TimerV2Timeline::notificationTitle) ?: "Timer"
+        append("\n").append(peerName).append(" · ").append(compactStatus(peerConfig, now) ?: "Running")
+      }
+    }
     val builder = NotificationCompat.Builder(context, RUNNING_CHANNEL)
         .setContentTitle(title)
-        .setContentText(content)
+        .setContentText(summary)
         .setStyle(NotificationCompat.BigTextStyle().setBigContentTitle(title).bigText(expandedContent))
         .setSmallIcon(smallIcon())
         .setOngoing(true)
@@ -184,8 +200,12 @@ object TimerNotifications {
         .setCategory(NotificationCompat.CATEGORY_STOPWATCH)
         .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
         .setPriority(NotificationCompat.PRIORITY_LOW)
+    if (config.liveCountdownEnabled) {
+      builder.setRequestPromotedOngoing(true)
+      val compact = compactStatus(config, now) ?: "Running"
+      if (includeCompactStatus || countdownAt <= now || config.timerV2PausedAt > 0L) builder.setShortCriticalText(compact)
+    }
     if (config.liveCountdownEnabled && config.timerV2PausedAt == 0L && countdownAt > now) {
-      val compactCountdown = compactStatus(config, now)
       builder
         .setWhen(countdownAt)
         .setShowWhen(true)
@@ -195,29 +215,21 @@ object TimerNotifications {
         // status-bar chip. The notification countdown remains useful when the
         // OS or OEM chooses standard presentation instead.
         .setRequestPromotedOngoing(true)
-      if (includeCompactStatus) compactCountdown?.let(builder::setShortCriticalText)
     }
     return builder.build()
   }
 
-  fun postEvent(context: Context, config: TimerConfig, type: TimerEventType) {
-    if (type == TimerEventType.ACTIVE_START || type == TimerEventType.ACTIVE_END || type == TimerEventType.REALIGN) return
-    if (!config.notificationsEnabled) return
-    ensureChannels(context)
-    val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-    runCatching { manager.notify(EVENT_ID, buildEvent(context, config.notificationPresentation, type)) }
-  }
-
-  internal fun buildEvent(
+  internal fun buildCuePlayback(
     context: Context,
     notificationPresentation: String?,
-    type: TimerEventType,
-    playbackOngoing: Boolean = false,
-    completion: Boolean = false,
+    completion: Boolean,
   ): Notification {
     val copy = TimerNotificationCopy.from(notificationPresentation)
     val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
     val contentIntent = launchIntent?.let {
+      it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+      TimerRuns.id(context)?.let { id -> it.putExtra(TimerRuns.EXTRA_RUN_ID, id) }
+      TimerRuns.route(it, context)
       PendingIntent.getActivity(
         context,
         8103,
@@ -225,26 +237,21 @@ object TimerNotifications {
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
       )
     }
-    val title = if (completion) copy.completionEventTitle else if (type == TimerEventType.MAIN) copy.mainEventTitle else if (type == TimerEventType.V2) copy.cueEventTitle else copy.bellEventTitle
-    val body = if (completion) copy.completionEventBody else copy.eventBody
-    val builder = NotificationCompat.Builder(context, EVENT_CHANNEL)
+    val title = if (completion) copy.completionEventTitle else "Playing timer sound"
+    return NotificationCompat.Builder(context, PLAYBACK_CHANNEL)
       .setContentTitle(title)
-      .setContentText(body)
+      .setContentText(if (completion) copy.completionEventBody else null)
       .setSmallIcon(smallIcon())
       .setContentIntent(contentIntent)
-      .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-      .setVibrate(longArrayOf(0L))
-    if (playbackOngoing) builder.setOngoing(true)
-    else builder.setAutoCancel(true).setTimeoutAfter(8_000L)
-    return builder.build()
+      .setPriority(NotificationCompat.PRIORITY_LOW)
+      .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_DEFERRED)
+      .setSilent(true)
+      .setOnlyAlertOnce(true)
+      .setOngoing(true)
+      .build()
   }
 
-  fun cancelRunning(context: Context) {
-    ChandasCountdownService.stop(context)
-    val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-    manager.cancel(RUNNING_ID)
-    manager.cancel(EVENT_ID)
-  }
+  fun cancelRunning(context: Context) = refreshRunning(context)
 
   fun cancelAlarm(context: Context) {
     val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

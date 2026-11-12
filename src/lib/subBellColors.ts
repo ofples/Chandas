@@ -29,6 +29,15 @@ export function defaultSubBellColor(index: number): SubBellColorId {
   return SUB_BELL_COLORS[Math.abs(index) % SUB_BELL_COLORS.length].id
 }
 
+export function timerIdentityColor(id: string, occupied: readonly SubBellColorId[] = []): SubBellColorId {
+  const index = [...id].reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 0)
+  for (let offset = 0; offset < SUB_BELL_COLORS.length; offset++) {
+    const color = defaultSubBellColor(index + offset)
+    if (!occupied.includes(color)) return color
+  }
+  return defaultSubBellColor(index)
+}
+
 export function normalizeSubBellColor(value: unknown, index: number): SubBellColorId {
   return typeof value === 'string' && IDS.has(value as SubBellColorId)
     ? value as SubBellColorId

@@ -17,8 +17,9 @@ class TimerEventReceiver : BroadcastReceiver() {
   }
 
   override fun onReceive(context: Context, intent: Intent) {
+    val run = TimerRuns.fromIntent(context, intent) ?: return
     when (intent.action) {
-      ACTION_STOP -> TimerScheduler.stop(context)
+      ACTION_STOP -> TimerScheduler.stop(run)
       ACTION_FOCUS_END -> TimerScheduler.reconcileFocus(context)
       ACTION_FIRE -> {
         val type = TimerEventType.fromValue(intent.getStringExtra(EXTRA_EVENT_TYPE)) ?: return
@@ -30,12 +31,12 @@ class TimerEventReceiver : BroadcastReceiver() {
         val finished = AtomicBoolean(false)
         val finishOnce = { if (finished.compareAndSet(false, true)) pendingResult.finish() }
         try {
-          TimerScheduler.handleTriggered(context, triggerAt, type, logicalId, generation, finishOnce)
+          TimerScheduler.handleTriggered(run, triggerAt, type, logicalId, generation, finishOnce)
         } catch (_: Exception) {
           // A receiver must always release goAsync. Attempt to reconstruct the
           // one-future-event invariant before yielding; restore itself fails
           // closed if the persisted program or exact-alarm access is invalid.
-          runCatching { TimerScheduler.restore(context, resetRinging = false) }
+          runCatching { TimerScheduler.restore(run, resetRinging = false) }
           finishOnce()
         }
       }

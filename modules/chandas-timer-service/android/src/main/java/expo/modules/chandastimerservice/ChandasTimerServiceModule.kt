@@ -67,13 +67,13 @@ class TimerConfigRecord : Record {
 class ChandasTimerServiceModule : Module() {
   private lateinit var soundPickerLauncher: AppContextActivityResultLauncher<SoundPickerRequest, SoundPickerResult>
   private val soundPickerMutex = Mutex()
-  private val ringingListener: (Boolean) -> Unit = { ringing ->
-    if (!ringing) {
+  private val ringingListener: (AlarmStateSignal) -> Unit = { (ringing, runId) ->
+    if (!ringing && appContext.reactContext?.let { context -> TimerRuns.contexts(context).none(TimerStateStore::isAlarmVisible) } == true) {
       appContext.activityProvider?.currentActivity?.let { activity ->
         activity.runOnUiThread { AlarmWindowHelper.clearAlarmWindowFlags(activity) }
       }
     }
-    sendEvent("onAlarmStateChanged", bundleOf("ringing" to ringing))
+    sendEvent("onAlarmStateChanged", bundleOf("ringing" to ringing, "runId" to runId))
     appContext.reactContext?.let(FloatingTimerOverlay::reconcile)
   }
   private val controlListener: (TimerControlState) -> Unit = { state ->
@@ -81,6 +81,7 @@ class ChandasTimerServiceModule : Module() {
   }
   private val timerEventListener: (TimerEventSignal) -> Unit = { event ->
     sendEvent("onTimerEventFired", bundleOf(
+      "runId" to event.runId,
       "at" to event.at,
       "firedAt" to event.firedAt,
       "logicalId" to event.logicalId,
@@ -97,6 +98,7 @@ class ChandasTimerServiceModule : Module() {
   }
   private val stateListener: (TimerScheduleState) -> Unit = { state ->
     sendEvent("onTimerStateChanged", bundleOf(
+      "runId" to state.runId,
       "active" to state.active,
       "timerV2Anchor" to state.timerV2Anchor,
       "nextEventAt" to state.nextEventAt,
@@ -110,7 +112,7 @@ class ChandasTimerServiceModule : Module() {
 
   override fun definition() = ModuleDefinition {
     Name("ChandasTimerService")
-    Events("onAlarmStateChanged", "onControlStateChanged", "onTimerEventFired", "onFocusStateChanged", "onTimerStateChanged", "onFloatingOverlayStateChanged", "onFloatingOverlaySnapshot")
+    Events("onAlarmStateChanged", "onControlStateChanged", "onTimerEventFired", "onFocusStateChanged", "onTimerStateChanged", "onFloatingOverlayStateChanged", "onFloatingOverlaySnapshot", "onSoundPreviewFinished")
 
     OnCreate {
       appContext.reactContext?.let { context ->
@@ -142,6 +144,7 @@ class ChandasTimerServiceModule : Module() {
         "supportsHapticProfiles" to true,
         "supportsSecondPrecision" to true,
         "supportsSubBellSecondPrecision" to true,
+        "supportsUntilRunLength" to true,
         "supportsMuteSecondPrecision" to true,
         "supportsDualLiveCountdown" to true,
         "supportsProgramClockAlignment" to true,
@@ -201,30 +204,15 @@ class ChandasTimerServiceModule : Module() {
 
     Function("floatingOverlayAction") { action: String ->
       val context = appContext.reactContext ?: return@Function bundleOf("success" to false, "error" to "unavailable")
-      TimerScheduler.floatingOverlayAction(context, action)
+      TimerScheduler.floatingOverlayAction(TimerRuns.presentation(context), action)
     }
 
     Function("start") { record: TimerConfigRecord ->
-      val context = appContext.reactContext ?: return@Function false
-      val config = merge(record, null) ?: return@Function false
-      TimerScheduler.start(
-        context,
-        config,
-        TimerControlState(
-          alarmOnceArmed = record.alarmOnceArmed == true,
-          mutedUntil = record.mutedUntil ?: 0L,
-          mutedIterationsRemaining = record.mutedIterationCount ?: 0,
-          mutedIterationEndId = record.mutedIterationEndId,
-          mutedIterationEndAt = record.mutedIterationEndAt ?: 0L,
-        ),
-      )
+      appContext.reactContext?.let { startTimer(it, record) } ?: false
     }
 
     Function("update") { record: TimerConfigRecord ->
-      val context = appContext.reactContext ?: return@Function
-      val previous = TimerStateStore.load(context) ?: return@Function
-      val config = merge(record, previous) ?: return@Function
-      TimerScheduler.update(context, config)
+      appContext.reactContext?.let { updateTimer(it, record) }
     }
 
     Function("stop") {
@@ -234,90 +222,60 @@ class ChandasTimerServiceModule : Module() {
     }
 
     Function("stopAlarm") {
-      val context = appContext.reactContext
-      if (context != null) {
-        // Cancel vibration synchronously so the tap-anywhere dismiss surface
-        // feels immediate even if service teardown takes another main-loop turn.
-        TimerHaptics.stop(context)
-        if (TimerStateStore.isRinging(context)) {
-          context.startService(Intent(context, ChandasAlarmService::class.java).apply {
-            action = ChandasAlarmService.ACTION_STOP
-          })
-        } else {
-          TimerStateStore.setAlarmVisible(context, false)
-          AlarmStateRegistry.notify(false)
-        }
-      }
-      appContext.activityProvider?.currentActivity?.let(AlarmWindowHelper::clearAlarmWindowFlags)
+      appContext.reactContext?.let(ChandasAlarmService::dismiss) ?: false
     }
 
     Function("isRinging") {
-      val context = appContext.reactContext
-      context != null && TimerStateStore.isAlarmVisible(context)
+      appContext.reactContext?.let(TimerStateStore::isAlarmVisible) == true
     }
 
-    Function("getState") {
-      val context = appContext.reactContext
-      val config = context?.let { TimerStateStore.load(it) }
-      if (config == null) {
-        bundleOf(
-          "active" to false,
-          "ringing" to false,
-          "alarmOnceArmed" to false,
-          "mutedUntil" to 0L,
-          "mutedIterationsRemaining" to 0,
-        )
-      } else {
-        if (TimerStateStore.isRinging(context) && TimerStateStore.isAlarmVisible(context)) {
-          ChandasAlarmService.ensureRunning(context, config)
-        }
-        val controls = TimerStateStore.getControlState(context)
-        bundleOf(
-          "active" to true,
-          "ringing" to TimerStateStore.isAlarmVisible(context),
-          "mainMs" to config.mainMs,
-          "subMs" to config.subMs,
-          "phase" to config.phase,
-          "subEnabled" to config.subEnabled,
-          "volume" to config.volume,
-          "alarmSoundId" to config.alarmSoundId,
-          "alarmVolume" to config.alarmVolume,
-          "hapticsEnabled" to config.haptics.enabled,
-          "mainHapticPattern" to config.haptics.main.pattern,
-          "mainHapticStrength" to config.haptics.main.strength,
-          "subHapticPattern" to config.haptics.subBell.pattern,
-          "subHapticStrength" to config.haptics.subBell.strength,
-          "alarmHapticPattern" to config.haptics.alarm.pattern,
-          "alarmHapticStrength" to config.haptics.alarm.strength,
-          "notificationsEnabled" to config.notificationsEnabled,
-          "liveCountdownEnabled" to config.liveCountdownEnabled,
-          "notificationPresentation" to config.notificationPresentation,
-          "muteDuringCallsEnabled" to config.muteDuringCallsEnabled,
-          "focusModeEnabled" to config.focusModeEnabled,
-          "alarmModeEnabled" to config.alarmModeEnabled,
-          "activeHoursEnabled" to config.activeHoursEnabled,
-          "activeHoursStart" to config.activeHoursStart,
-          "activeHoursEnd" to config.activeHoursEnd,
-          "activeHoursDays" to config.activeHoursDays,
-          "availabilityPolicy" to config.availabilityPolicy,
-          "alarmDurationSeconds" to config.alarmDurationSeconds,
-          "timerV2Program" to config.timerV2Program,
-          "timerV2Anchor" to config.timerV2Anchor,
-          "timerV2StartedAt" to config.timerV2StartedAt,
-          "timerV2EndsAt" to config.timerV2EndsAt,
-          "timerV2RandomSeed" to config.timerV2RandomSeed,
-          "timerV2PausedAt" to config.timerV2PausedAt,
-          "timerV2ClockRejoinAt" to config.timerV2ClockRejoinAt,
-          "alarmOnceArmed" to controls.alarmOnceArmed,
-          "mutedUntil" to controls.mutedUntil,
-          "mutedIterationsRemaining" to controls.mutedIterationsRemaining,
-          "mutedIterationEndId" to controls.mutedIterationEndId,
-          "mutedIterationEndAt" to controls.mutedIterationEndAt,
-          "nextEventAt" to TimerStateStore.nextAt(context),
-          "nextLogicalId" to TimerStateStore.nextLogicalId(context),
-          "sessionGeneration" to TimerStateStore.sessionGeneration(context),
-        )
+    Function("getState") { timerState(appContext.reactContext) }
+
+    Function("consumeRunDestination") {
+      val intent = appContext.activityProvider?.currentActivity?.intent ?: return@Function null
+      val id = intent.getStringExtra(TimerRuns.EXTRA_RUN_ID) ?: return@Function null
+      val panel = intent.getStringExtra(TimerRuns.EXTRA_RUN_PANEL)
+      intent.removeExtra(TimerRuns.EXTRA_RUN_ID)
+      intent.removeExtra(TimerRuns.EXTRA_RUN_PANEL)
+      bundleOf("id" to id, "panel" to panel)
+    }
+
+    Function("getRunIds") {
+      appContext.reactContext?.let { TimerRuns.ids(it).sorted() }.orEmpty()
+    }
+
+    Function("focusRun") { id: String ->
+      appContext.reactContext?.let {
+        TimerRuns.focus(it, id)
+        TimerNotifications.refreshRunning(it)
+        FloatingTimerOverlay.reconcile(it)
       }
+    }
+
+    Function("startRun") { id: String, name: String, record: TimerConfigRecord ->
+      val run = runContext(id) ?: return@Function false
+      TimerRuns.setName(run, name)
+      startTimer(run, record)
+    }
+
+    Function("updateRun") { id: String, record: TimerConfigRecord ->
+      runContext(id)?.let { updateTimer(it, record) }
+    }
+
+    Function("getRunState") { id: String -> timerState(runContext(id)) }
+
+    Function("runAction") { id: String, action: String, amount: Int ->
+      val run = runContext(id) ?: return@Function bundleOf("success" to false)
+      when (action) {
+        "stop" -> TimerScheduler.stop(run)
+        "dismiss" -> return@Function bundleOf("success" to ChandasAlarmService.dismiss(run))
+        "alarm-once" -> TimerScheduler.toggleAlarmOnce(run)
+        "mute-iterations" -> TimerScheduler.muteForIterations(run, amount)
+        "mute-seconds" -> TimerScheduler.muteForSeconds(run, amount)
+        "clear-mute" -> TimerScheduler.clearMute(run)
+        else -> return@Function TimerScheduler.floatingOverlayAction(run, action)
+      }
+      bundleOf("success" to true)
     }
 
     Function("toggleAlarmOnce") {
@@ -338,6 +296,14 @@ class ChandasTimerServiceModule : Module() {
     Function("muteForSeconds") { seconds: Int ->
       val context = appContext.reactContext ?: return@Function
       TimerScheduler.muteForSeconds(context, seconds)
+    }
+
+    Function("setMuteUntil") { id: String?, deadline: Double ->
+      val context = (if (id == null) appContext.reactContext else runContext(id)) ?: return@Function
+      val now = System.currentTimeMillis()
+      if (deadline.isFinite() && deadline > now && deadline <= now + 26L * 3_600_000L) {
+        TimerScheduler.muteUntil(context, deadline.toLong())
+      }
     }
 
     Function("clearMute") {
@@ -362,12 +328,32 @@ class ChandasTimerServiceModule : Module() {
       launchSoundPicker(SoundPickerRequest(SOUND_SOURCE_DOCUMENT))?.let(::resolvePickedSound)
     }
 
+    Function("getAudioOutputs") {
+      appContext.reactContext?.let(TimerAudioOutput::get)
+    }
+
+    Function("setAudioOutputs") { outputs: List<String> ->
+      val context = appContext.reactContext ?: return@Function false
+      TimerAudioOutput.set(context, outputs)
+    }
+
     AsyncFunction("previewSound") { soundId: String, fallbackSoundId: String, volume: Float ->
       val context = appContext.reactContext ?: return@AsyncFunction false
       if (!volume.isFinite() || !TimerSoundSource.isRuntimeSoundId(soundId)) return@AsyncFunction false
       val available = TimerSoundPlayer.canOpen(context, soundId)
       val fallback = TimerSoundPlayer.builtInResource(fallbackSoundId) ?: R.raw.bell
       TimerSoundPlayer.preview(context, soundId, fallback, volume.coerceIn(0f, 1f))
+      available
+    }
+
+    AsyncFunction("previewSoundForUse") { soundId: String, fallbackSoundId: String, volume: Float, alarm: Boolean, request: Int ->
+      val context = appContext.reactContext ?: return@AsyncFunction false
+      if (!volume.isFinite() || !TimerSoundSource.isRuntimeSoundId(soundId)) return@AsyncFunction false
+      val available = TimerSoundPlayer.canOpen(context, soundId)
+      val fallback = TimerSoundPlayer.builtInResource(fallbackSoundId) ?: R.raw.bell
+      TimerSoundPlayer.preview(context, soundId, fallback, volume.coerceIn(0f, 1f), shortenLooping = !alarm) {
+        sendEvent("onSoundPreviewFinished", bundleOf("request" to request))
+      }
       available
     }
 
@@ -537,6 +523,92 @@ class ChandasTimerServiceModule : Module() {
     }
   }
 
+  private fun runContext(id: String) = appContext.reactContext?.let { TimerRuns.scope(it, id) }
+
+  private fun startTimer(context: android.content.Context, record: TimerConfigRecord): Boolean {
+    val config = merge(record, null) ?: return false
+    return TimerScheduler.start(
+      context,
+      config,
+      TimerControlState(
+        alarmOnceArmed = record.alarmOnceArmed == true,
+        mutedUntil = record.mutedUntil ?: 0L,
+        mutedIterationsRemaining = record.mutedIterationCount ?: 0,
+        mutedIterationEndId = record.mutedIterationEndId,
+        mutedIterationEndAt = record.mutedIterationEndAt ?: 0L,
+      ),
+    )
+  }
+
+  private fun updateTimer(context: android.content.Context, record: TimerConfigRecord) {
+    val previous = TimerStateStore.load(context) ?: return
+    val config = merge(record, previous) ?: return
+    TimerScheduler.update(context, config)
+  }
+
+  private fun timerState(context: android.content.Context?): Bundle {
+    val config = context?.let { TimerStateStore.load(it) }
+    return if (config == null) {
+      bundleOf(
+        "active" to false,
+        "ringing" to false,
+        "alarmOnceArmed" to false,
+        "mutedUntil" to 0L,
+        "mutedIterationsRemaining" to 0,
+      )
+    } else {
+      if (TimerStateStore.isRinging(context) && TimerStateStore.isAlarmVisible(context)) {
+        ChandasAlarmService.ensureRunning(context, config)
+      }
+      val controls = TimerStateStore.getControlState(context)
+      bundleOf(
+        "active" to true,
+        "ringing" to TimerStateStore.isAlarmVisible(context),
+        "mainMs" to config.mainMs,
+        "subMs" to config.subMs,
+        "phase" to config.phase,
+        "subEnabled" to config.subEnabled,
+        "volume" to config.volume,
+        "alarmSoundId" to config.alarmSoundId,
+        "alarmVolume" to config.alarmVolume,
+        "hapticsEnabled" to config.haptics.enabled,
+        "mainHapticPattern" to config.haptics.main.pattern,
+        "mainHapticStrength" to config.haptics.main.strength,
+        "subHapticPattern" to config.haptics.subBell.pattern,
+        "subHapticStrength" to config.haptics.subBell.strength,
+        "alarmHapticPattern" to config.haptics.alarm.pattern,
+        "alarmHapticStrength" to config.haptics.alarm.strength,
+        "notificationsEnabled" to config.notificationsEnabled,
+        "liveCountdownEnabled" to config.liveCountdownEnabled,
+        "notificationPresentation" to config.notificationPresentation,
+        "muteDuringCallsEnabled" to config.muteDuringCallsEnabled,
+        "focusModeEnabled" to config.focusModeEnabled,
+        "alarmModeEnabled" to config.alarmModeEnabled,
+        "activeHoursEnabled" to config.activeHoursEnabled,
+        "activeHoursStart" to config.activeHoursStart,
+        "activeHoursEnd" to config.activeHoursEnd,
+        "activeHoursDays" to config.activeHoursDays,
+        "availabilityPolicy" to config.availabilityPolicy,
+        "alarmDurationSeconds" to config.alarmDurationSeconds,
+        "timerV2Program" to config.timerV2Program,
+        "timerV2Anchor" to config.timerV2Anchor,
+        "timerV2StartedAt" to config.timerV2StartedAt,
+        "timerV2EndsAt" to config.timerV2EndsAt,
+        "timerV2RandomSeed" to config.timerV2RandomSeed,
+        "timerV2PausedAt" to config.timerV2PausedAt,
+        "timerV2ClockRejoinAt" to config.timerV2ClockRejoinAt,
+        "alarmOnceArmed" to controls.alarmOnceArmed,
+        "mutedUntil" to controls.mutedUntil,
+        "mutedIterationsRemaining" to controls.mutedIterationsRemaining,
+        "mutedIterationEndId" to controls.mutedIterationEndId,
+        "mutedIterationEndAt" to controls.mutedIterationEndAt,
+        "nextEventAt" to TimerStateStore.nextAt(context),
+        "nextLogicalId" to TimerStateStore.nextLogicalId(context),
+        "sessionGeneration" to TimerStateStore.sessionGeneration(context),
+      )
+    }
+  }
+
   private suspend fun launchSoundPicker(request: SoundPickerRequest): SoundPickerResult? {
     if (!::soundPickerLauncher.isInitialized || appContext.activityProvider?.currentActivity == null) return null
     // Ignore an accidental second tap instead of queuing a picker that appears
@@ -626,6 +698,7 @@ class ChandasTimerServiceModule : Module() {
   }
 
   private fun controlBundle(state: TimerControlState) = bundleOf(
+    "runId" to state.runId,
     "alarmOnceArmed" to state.alarmOnceArmed,
     "mutedUntil" to state.mutedUntil,
     "mutedIterationsRemaining" to state.mutedIterationsRemaining,

@@ -51,6 +51,7 @@ export type SoundRef =
 export interface CueSettings {
   sound: SoundRef
   volume: number
+  soundMuted?: boolean
   /** Additive v2.1 list; legacy sound remains the first/fallback selection. */
   sounds?: SoundRef[]
   soundMode?: 'single' | 'sequence' | 'random'
@@ -59,7 +60,9 @@ export interface CueSettings {
 }
 
 export interface RunPolicy {
-  kind: 'continuous' | 'cycles' | 'duration'
+  kind: 'continuous' | 'cycles' | 'duration' | 'until'
+  /** Local time of day. A run resolves this to its next occurrence at Start. */
+  untilMinutes?: number
   /** Preserved even while another kind is selected. */
   cycleCount: number
   /** Preserved even while another kind is selected. */
@@ -183,6 +186,7 @@ export interface UnifiedTimerProgram {
   runPolicy: RunPolicy
   /** Alarm mode selected for each new run of this saved timer. */
   alarmBehavior: 'off' | 'once' | 'locked'
+  alarmOverrides?: { sound?: SoundRef | null; durationSeconds?: number | null }
 }
 
 /** Legacy snapshots remain runnable until explicitly stopped or safely upgraded. */

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { defaultTimerV2State } from '../timerV2'
 import {
-  createDefaultUnifiedConfigState, createUnsavedUnifiedConfigState, parseUnifiedConfigState, reduceUnifiedConfigCommand, UNNAMED_DRAFT_KEY,
+  createDefaultUnifiedConfigState, createUnsavedUnifiedConfigState, effectiveAlarmSettings, hasUnifiedDraftChanges, parseUnifiedConfigState, reduceUnifiedConfigCommand, UNNAMED_DRAFT_KEY,
 } from '../unified-config-state'
 import {
   bootstrapUnifiedConfigState, LEGACY_TIMER_STORAGE_KEYS, saveUnifiedConfigState,
@@ -36,6 +36,19 @@ function setV2(storage: MemoryStorage) {
 }
 
 describe('unified config drafts', () => {
+  it('keeps alarm defaults global and preserves an independent timer override', () => {
+    const initial = createUnsavedUnifiedConfigState({ now: () => 100, createId: () => 'first' })
+    const working = initial.drafts[UNNAMED_DRAFT_KEY]!
+    const sound = { kind: 'builtin' as const, id: 'handpan' as const }
+    const state = reduceUnifiedConfigCommand(initial, { type: 'setAlarmDefaults', changes: { sound, durationSeconds: 90 } }).state
+    expect(state.drafts[UNNAMED_DRAFT_KEY]).toEqual(working)
+    expect(effectiveAlarmSettings(working.program, working.settings, state.alarmDefaults)).toEqual({ alarmSound: sound, alarmDurationSeconds: 90 })
+    const edited = reduceUnifiedConfigCommand(state, { type: 'edit', changes: { program: { ...working.program, alarmOverrides: { durationSeconds: 5 } } } }).state
+    const saved = reduceUnifiedConfigCommand(edited, { type: 'saveAs', id: 'saved', name: 'Custom alarm' }).state
+    expect(parseUnifiedConfigState(JSON.stringify(saved))).toMatchObject({ ok: true })
+    expect(effectiveAlarmSettings(saved.configs[0].program, saved.configs[0].settings, saved.alarmDefaults)).toEqual({ alarmSound: sound, alarmDurationSeconds: 5 })
+  })
+
   it('starts with a durable working copy and only creates a saved card on explicit Save as', () => {
     const initial = createUnsavedUnifiedConfigState({ now: () => 100, createId: () => 'first' })
     expect(initial.configs).toEqual([])
@@ -46,7 +59,8 @@ describe('unified config drafts', () => {
     const saved = reduceUnifiedConfigCommand(initial, { type: 'saveAs', name: working.name, id: 'saved' }).state
     expect(saved.configs).toHaveLength(1)
     expect(saved.configs[0].editorOptions.configurationNameIsCustom).toBe(false)
-    expect(saved.drafts[UNNAMED_DRAFT_KEY]).toEqual(working)
+    expect(saved.drafts[UNNAMED_DRAFT_KEY]).toBeUndefined()
+    expect(saved.drafts.saved).toMatchObject({ baseConfigId: "saved", name: working.name, dirty: false })
     const renamed = reduceUnifiedConfigCommand(saved, { type: 'rename', id: 'saved', name: 'Meditation' }).state
     expect(renamed.configs[0].editorOptions.configurationNameIsCustom).toBe(true)
     expect(renamed.drafts.saved?.name).toBe('Meditation')
@@ -125,6 +139,29 @@ describe('unified config drafts', () => {
     expect(savedAs.state.configs.find(item => item.id === 'first')?.name).toBe('Timer')
   })
 
+  it('discards the confirmed saved draft without changing selection or other drafts', () => {
+    const initial = createDefaultUnifiedConfigState({ createId: () => 'first' })
+    const edited = reduceUnifiedConfigCommand(initial, { type: 'edit', changes: { name: 'Working title' } }).state
+    const copied = reduceUnifiedConfigCommand(edited, { type: 'saveAs', id: 'second', name: 'Copy' }).state
+    const discarded = reduceUnifiedConfigCommand(copied, { type: 'discardDraft', configId: 'first' }).state
+    expect(discarded.selectedConfigId).toBe('second')
+    expect(discarded.configs).toEqual(copied.configs)
+    expect(discarded.drafts.second).toEqual(copied.drafts.second)
+    expect(discarded.drafts.first).toMatchObject({ name: initial.configs[0].name, dirty: false })
+  })
+
+  it('offers unnamed reset only for edits and restores a pristine setup', () => {
+    const initial = createUnsavedUnifiedConfigState()
+    expect(hasUnifiedDraftChanges(initial.drafts[UNNAMED_DRAFT_KEY]!)).toBe(false)
+    const edited = reduceUnifiedConfigCommand(initial, { type: 'edit', changes: { name: 'Working title' } }).state
+    expect(hasUnifiedDraftChanges(edited.drafts[UNNAMED_DRAFT_KEY]!)).toBe(true)
+    const reset = reduceUnifiedConfigCommand(edited, { type: 'discardDraft', configId: null }).state
+    expect(reset.selectedConfigId).toBeNull()
+    expect(reset.drafts[UNNAMED_DRAFT_KEY]?.name).toBe(initial.drafts[UNNAMED_DRAFT_KEY]?.name)
+    expect(hasUnifiedDraftChanges(reset.drafts[UNNAMED_DRAFT_KEY]!)).toBe(false)
+    expect(parseUnifiedConfigState(reset).ok).toBe(true)
+  })
+
   it('keeps the selected saved config when duplicating and does not lose dirty edits on library changes', () => {
     const state = createDefaultUnifiedConfigState({ now: () => 100, createId: () => 'first' })
     const edited = reduceUnifiedConfigCommand(state, { type: 'edit', changes: { name: 'Draft title' } }).state
@@ -166,6 +203,22 @@ describe('unified config drafts', () => {
     expect(deleted.state.drafts['draft:unnamed']?.program).toEqual(initial.configs[0]?.program)
     expect(deleted.state.drafts['draft:unnamed']?.dirty).toBe(true)
     expect(deleted.state.drafts['draft:unnamed']?.baseConfigId).toBeUndefined()
+  })
+
+  it('keeps draft identity through reordering and preserves other drafts on confirmed deletion', () => {
+    const initial = createDefaultUnifiedConfigState({ now: () => 100, createId: () => 'one' })
+    const added = reduceUnifiedConfigCommand(initial, { type: 'saveAs', id: 'two', name: 'Two' }).state
+    const edited = reduceUnifiedConfigCommand(added, { type: 'edit', changes: { name: 'Two draft' } }).state
+    const reordered = reduceUnifiedConfigCommand(edited, { type: 'moveConfig', id: 'two', targetId: 'one' }).state
+    expect(reordered.configs.map(config => config.id)).toEqual(['two', 'one'])
+    expect(reordered.selectedConfigId).toBe('two')
+    expect(reordered.drafts.two?.name).toBe('Two draft')
+    expect(reduceUnifiedConfigCommand(reordered, { type: 'delete', id: 'two' }).status).toBe('blocked')
+    const deleted = reduceUnifiedConfigCommand(reordered, { type: 'delete', id: 'two', discardDraft: true }).state
+    expect(deleted.configs.map(config => config.id)).toEqual(['one'])
+    expect(deleted.drafts.two).toBeUndefined()
+    expect(deleted.drafts.one).toEqual(reordered.drafts.one)
+    expect(deleted.drafts['draft:unnamed']?.name).not.toBe('Two draft')
   })
 
   it('supports prototype-named config IDs safely and reserves the unnamed draft key', () => {

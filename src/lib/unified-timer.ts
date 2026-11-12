@@ -77,6 +77,7 @@ function validSound(value: unknown): value is SoundRef {
 
 function validCue(value: unknown): value is CueSettings {
   if (!isRecord(value) || !validSound(value.sound) || typeof value.volume !== 'number' || !Number.isFinite(value.volume) || value.volume < 0 || value.volume > 1) return false
+  if (value.soundMuted !== undefined && typeof value.soundMuted !== 'boolean') return false
   if (value.sounds !== undefined && (!Array.isArray(value.sounds) || value.sounds.length < 1 || !value.sounds.every(validSound))) return false
   if (value.soundMode !== undefined && value.soundMode !== 'single' && value.soundMode !== 'sequence' && value.soundMode !== 'random') return false
   if (value.hapticOverride !== undefined && value.hapticOverride !== 'off' && (!isRecord(value.hapticOverride) || !['single', 'double', 'triple'].includes(String(value.hapticOverride.pattern)) || !['gentle', 'balanced', 'strong'].includes(String(value.hapticOverride.strength)))) return false
@@ -84,7 +85,11 @@ function validCue(value: unknown): value is CueSettings {
 }
 
 function validRunPolicy(value: unknown): value is RunPolicy {
-  return isRecord(value) && (value.kind === 'continuous' || value.kind === 'cycles' || value.kind === 'duration') && isIntIn(value.cycleCount, 1, MAX_RUN_CYCLES) && isIntIn(value.durationSeconds, 1, MAX_RUN_DURATION_SECONDS)
+  return isRecord(value)
+    && (value.kind === 'continuous' || value.kind === 'cycles' || value.kind === 'duration' || value.kind === 'until')
+    && (value.kind !== 'until' && value.untilMinutes === undefined || isIntIn(value.untilMinutes, 0, 1439))
+    && isIntIn(value.cycleCount, 1, MAX_RUN_CYCLES)
+    && isIntIn(value.durationSeconds, 1, MAX_RUN_DURATION_SECONDS)
 }
 
 function validateProgram(value: unknown): string | null {
@@ -97,6 +102,11 @@ function validateProgram(value: unknown): string | null {
   if (value.completionCue !== null && !validCue(value.completionCue)) return 'Invalid completion cue'
   if (!validRunPolicy(value.runPolicy)) return 'Invalid run policy'
   if (value.alarmBehavior !== undefined && value.alarmBehavior !== 'off' && value.alarmBehavior !== 'once' && value.alarmBehavior !== 'locked') return 'Invalid alarm behavior'
+  if (value.alarmOverrides !== undefined) {
+    const overrides = value.alarmOverrides
+    if (!isRecord(overrides) || (overrides.sound != null && !isSupportedSoundRef(overrides.sound, false))
+      || (overrides.durationSeconds != null && !isIntIn(overrides.durationSeconds, 5, 3600))) return 'Invalid alarm overrides'
+  }
   const stepIds = new Set<string>()
   for (const [index, step] of value.steps.entries()) {
     if (!isRecord(step) || !validId(step.id) || stepIds.has(step.id)) return `Invalid or duplicate step id at index ${index}`
@@ -151,7 +161,7 @@ export function normalizeUnifiedTimerProgram(input: unknown): UnifiedTimerProgra
 }
 
 function cloneCue(cue: CueSettings): CueSettings {
-  return { sound: { ...cue.sound }, volume: cue.volume, ...(cue.sounds ? { sounds: cue.sounds.map(sound => ({ ...sound })) } : {}), ...(cue.soundMode ? { soundMode: cue.soundMode } : {}), ...(cue.hapticOverride ? { hapticOverride: cue.hapticOverride === 'off' ? 'off' : { ...cue.hapticOverride } } : {}) }
+  return { sound: { ...cue.sound }, volume: cue.volume, ...(cue.soundMuted ? { soundMuted: true } : {}), ...(cue.sounds ? { sounds: cue.sounds.map(sound => ({ ...sound })) } : {}), ...(cue.soundMode ? { soundMode: cue.soundMode } : {}), ...(cue.hapticOverride ? { hapticOverride: cue.hapticOverride === 'off' ? 'off' : { ...cue.hapticOverride } } : {}) }
 }
 
 function cueFrom(value: CueSettings): CueSettings {

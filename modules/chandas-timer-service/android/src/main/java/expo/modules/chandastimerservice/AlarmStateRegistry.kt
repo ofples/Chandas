@@ -1,9 +1,13 @@
 package expo.modules.chandastimerservice
 
-object AlarmStateRegistry {
-  private val listeners = NativeListenerRegistry<Boolean>()
+import android.content.Context
 
-  fun add(listener: (Boolean) -> Unit) = listeners.add(listener)
-  fun remove(listener: (Boolean) -> Unit) = listeners.remove(listener)
-  fun notify(ringing: Boolean) = listeners.notify(ringing)
+data class AlarmStateSignal(val ringing: Boolean, val runId: String?)
+
+object AlarmStateRegistry {
+  private val listeners = NativeListenerRegistry<AlarmStateSignal>()
+
+  fun add(listener: (AlarmStateSignal) -> Unit) = listeners.add(listener)
+  fun remove(listener: (AlarmStateSignal) -> Unit) = listeners.remove(listener)
+  fun notify(context: Context, ringing: Boolean) = listeners.notify(AlarmStateSignal(ringing, TimerRuns.id(context)))
 }

@@ -9,7 +9,7 @@ import { useTheme } from '../../../theme/ThemeContext'
 interface Props {
   children: ReactNode
   label: string
-  tooltip: string
+  tooltip?: string
   active?: boolean
   disabled?: boolean
   badge?: string
@@ -20,7 +20,7 @@ interface Props {
   onTooltip?: (message: string) => void
 }
 
-export function TimerControlButton({ children, label, tooltip, active = false, disabled = false, badge, size = 40, filled = false, onPress, onLongPress, onTooltip }: Props) {
+export function TimerControlButton({ children, label, tooltip = label, active = false, disabled = false, badge, size = 40, filled = false, onPress, onLongPress, onTooltip }: Props) {
   const { tokens, theme } = useTheme()
   const reducedMotion = useAppReducedMotion()
   const longPressed = useRef(false)

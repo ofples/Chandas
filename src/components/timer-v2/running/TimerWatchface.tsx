@@ -1,12 +1,12 @@
 import { useAppReducedMotion } from '../../../theme/ThemeContext'
 import { Fragment, useEffect, useMemo, useRef } from 'react'
-import { Animated as RNAnimated, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Animated as RNAnimated, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import Svg, { Circle } from 'react-native-svg'
 import Animated, { FadeIn } from 'react-native-reanimated'
 import type { RuntimeTimerProgram, UnifiedSubBellTrack } from '../../../types'
 import type { TimelinePosition } from '../../../lib/timeline'
 import { cueSegmentProgress } from '../../../lib/timeline'
-import { subBellColorValue } from '../../../lib/subBellColors'
+import { subBellColorValue, timerIdentityColor } from '../../../lib/subBellColors'
 import { patternDurationSeconds, randomTrackOffsetsSeconds, trackEventOffsetsSeconds } from '../../../lib/timerV2'
 import { useTheme } from '../../../theme/ThemeContext'
 
@@ -38,6 +38,7 @@ interface Props {
 
 export function TimerWatchface({ program, position, progress, eventPulse, size, model, presentation = 'running-screen', flashOnMount = false, accessibilityLabel, testID, onPress, onLongPress }: Props) {
   const { tokens, theme } = useTheme()
+  const accent = program.mode === 'unified' && theme !== 'eink' ? subBellColorValue(timerIdentityColor(program.steps[0].id), 0) : tokens.accent
   const reducedMotion = useAppReducedMotion()
   const compact = presentation === 'floating-overlay'
   return <Pressable
@@ -59,12 +60,13 @@ export function TimerWatchface({ program, position, progress, eventPulse, size, 
         {model.nextTime ? <Text style={[styles.nextCueTime, compact && styles.nextCueTimeCompact, { color: tokens.textMuted }]}>{model.nextTime}</Text> : null}
       </Animated.View> : null}
     </View>
-    {model.muted ? <View style={[styles.slash, { width: size * 0.72, backgroundColor: tokens.accent, pointerEvents: 'none' }]} /> : null}
+    {model.muted ? <View style={[styles.slash, { width: size * 0.72, backgroundColor: accent, pointerEvents: 'none' }]} /> : null}
   </Pressable>
 }
 
-export function TimerWatchfaceRings({ size, progress, position, program, muted, eventPulse, edgeToEdge = false, flashOnMount = false }: { size: number; progress: number; position: TimelinePosition | null; program: RuntimeTimerProgram; muted: boolean; eventPulse: number; edgeToEdge?: boolean; flashOnMount?: boolean }) {
+export function TimerWatchfaceRings({ size, progress, position, program, muted, eventPulse, edgeToEdge = false, flashOnMount = false, card = false, trackColor }: { size: number; progress: number; position: TimelinePosition | null; program: RuntimeTimerProgram; muted: boolean; eventPulse: number; edgeToEdge?: boolean; flashOnMount?: boolean; card?: boolean; trackColor?: string }) {
   const { tokens, theme } = useTheme()
+  const accent = program.mode === 'unified' && theme !== 'eink' ? subBellColorValue(timerIdentityColor(program.steps[0].id), 0) : tokens.accent
   const reducedMotion = useAppReducedMotion()
   const flash = useRef(new RNAnimated.Value(0)).current
   const lastPulse = useRef(eventPulse)
@@ -72,12 +74,12 @@ export function TimerWatchfaceRings({ size, progress, position, program, muted, 
     if (reducedMotion || eventPulse <= 0 || eventPulse === lastPulse.current) return
     lastPulse.current = eventPulse
     flash.setValue(0.7)
-    RNAnimated.timing(flash, { toValue: 0, duration: 650, useNativeDriver: true }).start()
+    RNAnimated.timing(flash, { toValue: 0, duration: 650, useNativeDriver: Platform.OS !== 'web' }).start()
   }, [eventPulse, flash, reducedMotion])
   useEffect(() => {
     if (reducedMotion || !flashOnMount) return
     flash.setValue(0.7)
-    RNAnimated.timing(flash, { toValue: 0, duration: 650, useNativeDriver: true }).start()
+    RNAnimated.timing(flash, { toValue: 0, duration: 650, useNativeDriver: Platform.OS !== 'web' }).start()
   }, [flash, flashOnMount, reducedMotion])
   // Cue positions change with the program or cycle, but not with each visible
   // countdown second. Keep random offset generation out of the display tick.
@@ -102,24 +104,25 @@ export function TimerWatchfaceRings({ size, progress, position, program, muted, 
     })
   }, [program, position?.cycleIndex, position?.currentStepIndex, position?.randomSeed])
   const rings = useMemo(() => {
-    if (program.mode === 'sequence') return [{ progress: position?.stepProgress ?? progress, stroke: tokens.accent, background: tokens.surfaceHi, backgroundOpacity: 1 }]
+    if (program.mode === 'sequence') return [{ progress: position?.stepProgress ?? progress, stroke: accent, background: trackColor ?? tokens.surfaceHi, backgroundOpacity: 1 }]
     const mainSeconds = program.mode === 'pattern' ? patternDurationSeconds(program) : program.steps[position?.currentStepIndex ?? 0]?.durationSeconds ?? 1
     const stepProgress = program.mode === 'unified' ? position?.stepProgress ?? progress : progress
     const elapsedSeconds = Math.max(0, Math.min(mainSeconds, stepProgress * mainSeconds))
     return [
-      { progress: stepProgress, stroke: tokens.accent, background: tokens.surfaceHi, backgroundOpacity: 1 },
+      { progress: stepProgress, stroke: accent, background: trackColor ?? tokens.surfaceHi, backgroundOpacity: 1 },
       ...patternTracks.map(({ track, index, offsets }) => {
         const stroke = subBellColorValue(track.color, index, theme === 'eink')
         return { progress: cueSegmentProgress(offsets, mainSeconds, elapsedSeconds), stroke, background: stroke, backgroundOpacity: 0.17 }
       }),
     ]
-  }, [position?.currentStepIndex, position?.stepProgress, program, progress, theme, tokens.accent, tokens.surfaceHi, patternTracks])
+  }, [position?.currentStepIndex, position?.stepProgress, program, progress, accent, trackColor, tokens.surfaceHi, patternTracks])
   return <View style={StyleSheet.absoluteFill}>
-    {theme !== 'eink' ? <RNAnimated.View style={[styles.flash, { width: size, height: size, borderRadius: size / 2, backgroundColor: tokens.accent, opacity: flash, pointerEvents: 'none' }]} /> : null}
+    {theme !== 'eink' ? <RNAnimated.View style={[styles.flash, { width: size, height: size, borderRadius: size / 2, backgroundColor: accent, opacity: flash, pointerEvents: 'none' }]} /> : null}
     <Svg width={size} height={size} viewBox="0 0 200 200" style={styles.svg}>
       {rings.map((ring, index) => {
-        const radius = (edgeToEdge ? 96 : 83) - index * 7
-        return <Fragment key={index}><Circle cx={100} cy={100} r={radius} fill="none" stroke={ring.background} strokeOpacity={theme === 'eink' ? 1 : ring.backgroundOpacity} strokeWidth={3} /><SmoothProgressCircle radius={radius} progress={ring.progress} stroke={ring.stroke} strokeWidth={3} opacity={theme === 'eink' ? 1 : muted ? 0.3 : Math.max(0.52, 1 - index * 0.08)} reducedMotion={reducedMotion} /></Fragment>
+        const radius = (card ? 44 * 200 / 112 : edgeToEdge ? 96 : 83) - index * 7
+        const strokeWidth = card ? 3 * 200 / 112 : 3
+        return <Fragment key={index}><Circle cx={100} cy={100} r={radius} fill="none" stroke={ring.background} strokeOpacity={theme === 'eink' ? 1 : ring.backgroundOpacity} strokeWidth={strokeWidth} /><SmoothProgressCircle radius={radius} progress={ring.progress} stroke={ring.stroke} strokeWidth={strokeWidth} opacity={theme === 'eink' ? 1 : muted ? 0.3 : Math.max(0.52, 1 - index * 0.08)} reducedMotion={reducedMotion} /></Fragment>
       })}
     </Svg>
   </View>
@@ -153,14 +156,14 @@ const styles = StyleSheet.create({
   centerCompact: { maxWidth: '72%', gap: 3 },
   mainTime: { width: '100%', textAlign: 'center', fontFamily: 'JetBrainsMono-Light', fontSize: 55, fontVariant: ['tabular-nums'] },
   mainTimeCompact: { fontSize: 42 },
-  mainCaption: { fontSize: 10, letterSpacing: 1.05, textTransform: 'uppercase' },
+  mainCaption: { fontSize: 13 },
   mainCaptionCompact: { fontSize: 8 },
   nextCue: { marginTop: 11, alignItems: 'center', gap: 2, maxWidth: '100%' },
   nextCueCompact: { marginTop: 6 },
-  nextCueName: { fontSize: 13, fontWeight: '700' },
+  nextCueName: { fontSize: 13 },
   nextCueNameCompact: { fontSize: 11 },
-  nextCueTime: { fontFamily: 'JetBrainsMono-Regular', fontSize: 12 },
+  nextCueTime: { fontVariant: ['tabular-nums'], fontSize: 13 },
   nextCueTimeCompact: { fontSize: 10 },
-  nextLabel: { fontSize: 8, letterSpacing: 1.1, fontWeight: '800' },
+  nextLabel: { fontSize: 13 },
   slash: { position: 'absolute', height: 4, borderRadius: 3, transform: [{ rotate: '-45deg' }] },
 })

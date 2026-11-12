@@ -1,5 +1,7 @@
 package expo.modules.chandastimerservice
 
+import android.content.Context
+
 data class TimerEventSignal(
   val at: Long,
   /** Wall-clock time at which native actually handled and emitted the event. */
@@ -11,6 +13,7 @@ data class TimerEventSignal(
   val suppressed: Boolean,
   val suppressionReason: String,
   val completesRun: Boolean,
+  val runId: String? = null,
 )
 
 object TimerEventRegistry {
@@ -18,5 +21,5 @@ object TimerEventRegistry {
 
   fun add(listener: (TimerEventSignal) -> Unit) = listeners.add(listener)
   fun remove(listener: (TimerEventSignal) -> Unit) = listeners.remove(listener)
-  fun notify(event: TimerEventSignal) = listeners.notify(event)
+  fun notify(context: Context, event: TimerEventSignal) = listeners.notify(event.copy(runId = TimerRuns.id(context)))
 }

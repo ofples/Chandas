@@ -14,11 +14,11 @@ import androidx.core.content.ContextCompat
 /** Keeps one-shot cue playback alive after the exact-alarm receiver returns. */
 class ChandasCueService : Service() {
   companion object {
+    @Volatile private var instance: ChandasCueService? = null
     private const val ACTION_PLAY = "expo.modules.chandastimerservice.action.PLAY_CUE"
     private const val EXTRA_SOUND_ID = "soundId"
     private const val EXTRA_FALLBACK_RES_ID = "fallbackResId"
     private const val EXTRA_VOLUME = "volume"
-    private const val EXTRA_EVENT_TYPE = "eventType"
     private const val EXTRA_PRESENTATION = "notificationPresentation"
     private const val EXTRA_COMPLETION = "completion"
 
@@ -27,18 +27,16 @@ class ChandasCueService : Service() {
       soundId: String,
       fallbackResId: Int,
       volume: Float,
-      type: TimerEventType,
       notificationPresentation: String?,
       completion: Boolean = false,
     ): Boolean = runCatching {
       ContextCompat.startForegroundService(
         context,
-        Intent(context, ChandasCueService::class.java).apply {
+        TimerRuns.route(Intent(context, ChandasCueService::class.java), context).apply {
           action = ACTION_PLAY
           putExtra(EXTRA_SOUND_ID, soundId)
           putExtra(EXTRA_FALLBACK_RES_ID, fallbackResId)
           putExtra(EXTRA_VOLUME, volume)
-          putExtra(EXTRA_EVENT_TYPE, type.value)
           putExtra(EXTRA_PRESENTATION, notificationPresentation)
           putExtra(EXTRA_COMPLETION, completion)
         },
@@ -47,11 +45,24 @@ class ChandasCueService : Service() {
     }.getOrDefault(false)
 
     fun stop(context: Context) {
-      runCatching { context.stopService(Intent(context, ChandasCueService::class.java)) }
+      instance?.cancel(TimerRuns.id(context))
     }
   }
 
-  private val players = linkedSetOf<MediaPlayer>()
+  private val players = linkedMapOf<MediaPlayer, String?>()
+  private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+
+  override fun onCreate() {
+    super.onCreate()
+    instance = this
+  }
+
+  private fun cancel(runId: String?) {
+    handler.post {
+      players.filterValues { it == runId }.keys.toList().forEach(::release)
+      if (!destroyed) finishIfIdle()
+    }
+  }
   private var destroyed = false
   private var latestStartId = 0
 
@@ -60,10 +71,6 @@ class ChandasCueService : Service() {
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     latestStartId = startId
     if (intent?.action != ACTION_PLAY) {
-      finishService()
-      return START_NOT_STICKY
-    }
-    val type = TimerEventType.fromValue(intent.getStringExtra(EXTRA_EVENT_TYPE)) ?: run {
       finishService()
       return START_NOT_STICKY
     }
@@ -76,11 +83,9 @@ class ChandasCueService : Service() {
     }
 
     TimerNotifications.ensureChannels(this)
-    val notification = TimerNotifications.buildEvent(
+    val notification = TimerNotifications.buildCuePlayback(
       this,
       intent.getStringExtra(EXTRA_PRESENTATION),
-      type,
-      playbackOngoing = true,
       completion = intent.getBooleanExtra(EXTRA_COMPLETION, false),
     )
     val promoted = runCatching {
@@ -100,19 +105,21 @@ class ChandasCueService : Service() {
       return START_NOT_STICKY
     }
 
-    startPlayback(soundId, fallbackResId, volume.coerceIn(0f, 1f), mayFallback = true)
+    val run = TimerRuns.fromIntent(this, intent) ?: this
+    startPlayback(run, soundId, fallbackResId, volume.coerceIn(0f, 1f), mayFallback = true)
     return START_NOT_STICKY
   }
 
-  private fun startPlayback(source: String, fallbackResId: Int, volume: Float, mayFallback: Boolean) {
+  private fun startPlayback(run: Context, source: String, fallbackResId: Int, volume: Float, mayFallback: Boolean) {
     if (destroyed) return
     val player = MediaPlayer()
-    players.add(player)
+    players[player] = TimerRuns.id(run)
 
     fun fail() {
+      if (player !in players) return
       release(player)
       if (!destroyed && mayFallback) {
-        startPlayback("builtin:$fallbackResId", fallbackResId, volume, mayFallback = false)
+        startPlayback(run, "builtin:$fallbackResId", fallbackResId, volume, mayFallback = false)
       } else {
         finishIfIdle()
       }
@@ -121,12 +128,18 @@ class ChandasCueService : Service() {
     try {
       player.setAudioAttributes(TimerSoundPlayer.alarmAttributes())
       player.setWakeMode(applicationContext, PowerManager.PARTIAL_WAKE_LOCK)
-      TimerSoundPlayer.setDataSource(this, player, source)
-      player.setVolume(volume, volume)
+      val wasLooping = TimerSoundPlayer.setDataSource(run, player, source, oneShot = true)
+      val output = TimerAudioOutput.Playback(this, player, volume)
       player.setOnPreparedListener { prepared ->
-        if (destroyed) release(prepared) else prepared.start()
+        if (!destroyed && prepared in players) runCatching {
+          TimerSoundPlayer.startOneShot(run, prepared, output, source, "one-shot", wasLooping) {
+            release(prepared)
+            finishIfIdle()
+          }
+        }.onFailure { fail() }
       }
       player.setOnCompletionListener { completed ->
+        TimerPlaybackTrace.record(run) { "stop one-shot reason=completed sound=${TimerPlaybackTrace.sound(source)}" }
         release(completed)
         finishIfIdle()
       }
@@ -139,7 +152,7 @@ class ChandasCueService : Service() {
 
   private fun release(player: MediaPlayer) {
     players.remove(player)
-    runCatching { player.release() }
+    TimerSoundPlayer.releaseOneShot(player)
   }
 
   private fun finishIfIdle() {
@@ -153,7 +166,8 @@ class ChandasCueService : Service() {
 
   override fun onDestroy() {
     destroyed = true
-    players.toList().forEach(::release)
+    instance = null
+    players.keys.toList().forEach(::release)
     ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
     super.onDestroy()
   }

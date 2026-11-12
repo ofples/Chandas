@@ -15,6 +15,8 @@ import type { BuiltInSoundId, HapticPattern, HapticProfile, HapticStrength, Soun
 import { BUILT_IN_SOUNDS, sourceForSound } from '../lib/soundLibrary'
 import { normalizeNativeFocusState } from '../lib/focusState'
 
+export type TimerAudioOutput = 'phone' | 'external' | 'headphones'
+
 export interface NativeTimerConfig {
   mainMs: number
   subMs: number
@@ -63,10 +65,12 @@ export interface NativeTimerConfig {
 }
 
 interface AlarmStateEvent {
+  runId?: string | null
   ringing: boolean
 }
 
 export interface NativeControlState {
+  runId?: string | null
   alarmOnceArmed: boolean
   mutedUntil: number
   mutedIterationsRemaining: number
@@ -120,6 +124,7 @@ export interface NativeTimerState {
 }
 
 export interface NativeTimerEvent {
+  runId?: string | null
   at: number
   firedAt?: number
   logicalId: string
@@ -132,6 +137,7 @@ export interface NativeTimerEvent {
 }
 
 export interface NativeScheduleState {
+  runId?: string | null
   active: boolean
   timerV2Anchor: number
   nextEventAt: number
@@ -161,6 +167,7 @@ export interface NativeTimerCapabilities {
   supportsHapticProfiles?: boolean
   supportsSecondPrecision?: boolean
   supportsSubBellSecondPrecision?: boolean
+  supportsUntilRunLength?: boolean
   supportsMuteSecondPrecision?: boolean
   supportsDualLiveCountdown?: boolean
   supportsProgramClockAlignment?: boolean
@@ -186,6 +193,9 @@ export interface NativeFloatingOverlayState {
 }
 
 export interface NativeFloatingOverlaySnapshot extends NativeTimerState {
+  runId?: string
+  runName?: string
+  activeCount?: number
   now: number
   screenInteractive?: boolean
   expanded?: boolean
@@ -221,10 +231,17 @@ interface EventSubscription {
 
 interface ChandasTimerServiceModule {
   getCapabilities?(): NativeTimerCapabilities
+  getRunIds?(): string[]
+  consumeRunDestination?(): { id: string; panel?: 'clock' | 'sound' } | null
+  focusRun?(id: string): void
+  startRun?(id: string, name: string, config: NativeTimerConfig): boolean
+  updateRun?(id: string, config: Partial<NativeTimerConfig>): void
+  getRunState?(id: string): NativeTimerState
+  runAction?(id: string, action: string, amount: number): NativeFloatingOverlayActionResult
   start(config: NativeTimerConfig): boolean
   update(config: Partial<NativeTimerConfig>): void
   stop(): void
-  stopAlarm(): void
+  stopAlarm(): boolean | void
   isRinging(): boolean
   getState(): NativeTimerState
   canScheduleExactAlarms(): boolean
@@ -244,6 +261,7 @@ interface ChandasTimerServiceModule {
   muteForIterations(count: number): void
   muteForMinutes(minutes: number): void
   muteForSeconds?(seconds: number): void
+  setMuteUntil?(id: string | null, deadline: number): void
   clearMute(): void
   getFloatingOverlayState?(): NativeFloatingOverlayState
   getFloatingOverlaySnapshot?(): NativeFloatingOverlaySnapshot
@@ -257,6 +275,9 @@ interface ChandasTimerServiceModule {
   pickDeviceSound(kind: 'alarm' | 'notification' | 'unknown'): Promise<{ uri: string; title: string } | null>
   pickAudioDocument(): Promise<{ uri: string; title: string; mimeType?: string } | null>
   previewSound(soundId: string, fallbackSoundId: BuiltInSoundId, volume: number): Promise<boolean>
+  previewSoundForUse?(soundId: string, fallbackSoundId: BuiltInSoundId, volume: number, alarm: boolean, request: number): Promise<boolean>
+  getAudioOutputs?(): TimerAudioOutput[] | null
+  setAudioOutputs?(outputs: TimerAudioOutput[]): boolean
   previewHaptic?(pattern: HapticPattern, strength: HapticStrength): boolean
   cacheBuiltInSound?(id: string, sourceUri: string, revision: string): Promise<boolean>
   stopSoundPreview(): void
@@ -268,6 +289,7 @@ interface ChandasTimerServiceModule {
   addListener(eventName: 'onTimerStateChanged', listener: (event: NativeScheduleState) => void): EventSubscription
   addListener(eventName: 'onFloatingOverlayStateChanged', listener: (event: NativeFloatingOverlayState) => void): EventSubscription
   addListener(eventName: 'onFloatingOverlaySnapshot', listener: (event: NativeFloatingOverlaySnapshot) => void): EventSubscription
+  addListener(eventName: 'onSoundPreviewFinished', listener: (event: { request: number }) => void): EventSubscription
 }
 
 const native = Platform.OS === 'android'
@@ -275,6 +297,7 @@ const native = Platform.OS === 'android'
   : null
 
 export const isNativeServiceAvailable = native !== null
+export const supportsNativeTimerRuns = Boolean(native?.startRun)
 let fallbackPreview: AudioPlayer | null = null
 let soundPreviewGeneration = 0
 const nativeResourceSounds = new Set<BuiltInSoundId>(['alarm-tone', 'temple-gong', 'clear-bell'])
@@ -325,6 +348,12 @@ AppState.addEventListener('change', state => {
 })
 
 export const ChandasTimerService = {
+  getAudioOutputs(): TimerAudioOutput[] | null {
+    return native?.getAudioOutputs?.() ?? null
+  },
+  setAudioOutputs(outputs: TimerAudioOutput[]): boolean {
+    return native?.setAudioOutputs?.(outputs) ?? false
+  },
   getCapabilities(): NativeTimerCapabilities | null {
     try {
       return native?.getCapabilities?.() ?? null
@@ -350,8 +379,7 @@ export const ChandasTimerService = {
   // normal tick scheduling resumes for the next interval.
   stopAlarm() {
     try {
-      native?.stopAlarm()
-      return true
+      return native?.stopAlarm() !== false
     } catch (error) {
       if (__DEV__) console.warn('Native alarm cleanup failed', error)
       return false
@@ -419,6 +447,10 @@ export const ChandasTimerService = {
     if (native?.muteForSeconds) native.muteForSeconds(normalized)
     else native?.muteForMinutes(Math.ceil(normalized / 60))
   },
+  muteUntil(deadline: number) {
+    if (native?.setMuteUntil) native.setMuteUntil(null, deadline)
+    else this.muteForSeconds(Math.ceil((deadline - Date.now()) / 1_000))
+  },
   clearMute() {
     native?.clearMute()
   },
@@ -452,7 +484,7 @@ export const ChandasTimerService = {
   async pickAudioDocument(): Promise<{ uri: string; title: string; mimeType?: string } | null> {
     return native?.pickAudioDocument() ?? null
   },
-  async previewSound(sound: SoundRef, volume: number, fallbackSoundId: BuiltInSoundId = 'clear-bell'): Promise<boolean> {
+  async previewSound(sound: SoundRef, volume: number, { alarm = false, onFinished }: { alarm?: boolean; onFinished?: () => void } = {}): Promise<boolean> {
     const request = ++soundPreviewGeneration
     native?.stopSoundPreview()
     fallbackPreview?.remove()
@@ -461,7 +493,19 @@ export const ChandasTimerService = {
     if (native) {
       if (sound.kind === 'builtin') await cacheBuiltInSound(sound.id)
       if (request !== soundPreviewGeneration || AppState.currentState !== 'active') return false
-      const started = await native.previewSound(soundId, fallbackSoundId, volume)
+      const subscription = native.previewSoundForUse && onFinished ? native.addListener('onSoundPreviewFinished', event => {
+        if (event.request !== request) return
+        subscription?.remove()
+        onFinished()
+      }) : undefined
+      let started = false
+      try {
+        started = native.previewSoundForUse
+          ? await native.previewSoundForUse(soundId, 'clear-bell', volume, alarm, request)
+          : await native.previewSound(soundId, 'clear-bell', volume)
+      } finally {
+        if (!started) subscription?.remove()
+      }
       if (request === soundPreviewGeneration && AppState.currentState === 'active') return started
       native.stopSoundPreview()
       return false
@@ -500,19 +544,19 @@ export const ChandasTimerService = {
   },
   // Live updates while the app is open — the counterpart to isRinging() above.
   addAlarmListener(listener: (ringing: boolean) => void): EventSubscription | null {
-    return native?.addListener('onAlarmStateChanged', e => listener(e.ringing)) ?? null
+    return native?.addListener('onAlarmStateChanged', e => { if (!e.runId) listener(e.ringing) }) ?? null
   },
   addControlListener(listener: (state: NativeControlState) => void): EventSubscription | null {
-    return native?.addListener('onControlStateChanged', listener) ?? null
+    return native?.addListener('onControlStateChanged', e => { if (!e.runId) listener(e) }) ?? null
   },
   addTimerEventListener(listener: (event: NativeTimerEvent) => void): EventSubscription | null {
-    return native?.addListener('onTimerEventFired', listener) ?? null
+    return native?.addListener('onTimerEventFired', e => { if (!e.runId) listener(e) }) ?? null
   },
   addFocusListener(listener: (state: NativeFocusState) => void): EventSubscription | null {
     return native?.addListener('onFocusStateChanged', state => listener(normalizeNativeFocusState(state))) ?? null
   },
   addTimerStateListener(listener: (state: NativeScheduleState) => void): EventSubscription | null {
-    return native?.addListener('onTimerStateChanged', listener) ?? null
+    return native?.addListener('onTimerStateChanged', e => { if (!e.runId) listener(e) }) ?? null
   },
   addFloatingOverlayStateListener(listener: (state: NativeFloatingOverlayState) => void): EventSubscription | null {
     return native?.addListener('onFloatingOverlayStateChanged', listener) ?? null
@@ -520,4 +564,51 @@ export const ChandasTimerService = {
   addFloatingOverlaySnapshotListener(listener: (state: NativeFloatingOverlaySnapshot) => void): EventSubscription | null {
     return native?.addListener('onFloatingOverlaySnapshot', listener) ?? null
   },
+}
+
+
+export function nativeTimerRunIds(): string[] {
+  return native?.getRunIds?.() ?? []
+}
+
+export function consumeNativeRunDestination() {
+  return native?.consumeRunDestination?.() ?? null
+}
+
+export function focusNativeTimerRun(id: string) {
+  native?.focusRun?.(id)
+}
+
+export function nativeTimerRun(id: string, name = 'Current timer'): typeof ChandasTimerService | null {
+  if (!supportsNativeTimerRuns || !native) return null
+  const getState = () => native.getRunState?.(id) ?? { active: false, ringing: false }
+  const action = (name: string, amount = 0) => native.runAction?.(id, name, amount) ?? { success: false }
+  return {
+    ...ChandasTimerService,
+    start(config) {
+      ChandasTimerService.stopSoundPreview()
+      return native.startRun?.(id, name, config) ?? false
+    },
+    update(config) { native.updateRun?.(id, config) },
+    stop() { return stopAndVerifyNativeTimer({ stop: () => { if (getState().active) action('stop') }, getState }) },
+    getState,
+    isRinging() { return getState().ringing },
+    stopAlarm() {
+      try { return action('dismiss').success } catch { return false }
+    },
+    toggleAlarmOnce() { action('alarm-once') },
+    muteForIterations(count) { action('mute-iterations', count) },
+    muteForMinutes(minutes) { action('mute-seconds', Math.round(minutes * 60)) },
+    muteForSeconds(seconds) { action('mute-seconds', Math.max(1, Math.min(86_400, Math.round(seconds)))) },
+    muteUntil(deadline) {
+      if (native.setMuteUntil) native.setMuteUntil(id, deadline)
+      else this.muteForSeconds(Math.ceil((deadline - Date.now()) / 1_000))
+    },
+    clearMute() { action('clear-mute') },
+    floatingOverlayAction(name) { return action(name) },
+    addAlarmListener(listener) { return native.addListener('onAlarmStateChanged', event => { if (event.runId === id) listener(event.ringing) }) },
+    addControlListener(listener) { return native.addListener('onControlStateChanged', event => { if (event.runId === id) listener(event) }) },
+    addTimerEventListener(listener) { return native.addListener('onTimerEventFired', event => { if (event.runId === id) listener(event) }) },
+    addTimerStateListener(listener) { return native.addListener('onTimerStateChanged', event => { if (event.runId === id) listener(event) }) },
+  }
 }

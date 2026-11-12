@@ -1,6 +1,6 @@
 {
   "name": "chandas",
-  "version": "2.2.4",
+  "version": "2.3.0",
   "main": "index.ts",
   "dependencies": {
     "@expo-google-fonts/jetbrains-mono": "^0.4.1",

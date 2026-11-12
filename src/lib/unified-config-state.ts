@@ -1,7 +1,7 @@
 import type {
   AppTimerSettings, AvailabilityOverride, AvailabilityPolicy,
   SoundRef, TimerHapticsSettings, TimerMode, TimerV2State, UnifiedTimerProgram, WeeklyAvailabilityWindow,
-  WorkingProgramState,
+  WorkingProgramState, RunningControlId,
 } from '../types'
 import {
   MAX_AVAILABILITY_OVERRIDES, MAX_WEEKLY_WINDOWS, defaultAppTimerSettings, defaultPatternProgram,
@@ -9,6 +9,7 @@ import {
   cueSounds, soundRefKey,
 } from './timerV2'
 import { normalizeTimerHapticsSettings } from './haptic-profiles'
+import { enabledRunningControls, RUNNING_CONTROL_DEFINITIONS } from './running-controls'
 import { defaultUnifiedStepLabel, parseUnifiedTimerProgram, type LegacyWorkingRecovery } from './unified-timer'
 
 export const UNIFIED_CONFIG_STATE_SCHEMA_VERSION = 3 as const
@@ -47,6 +48,18 @@ export interface UnifiedLegacyRecovery {
   draft: UnifiedTimerDraft
 }
 
+export interface AlarmDefaults { sound: SoundRef; durationSeconds: number }
+
+export function effectiveAlarmSettings(program: UnifiedTimerProgram, settings: AppTimerSettings, defaults?: AlarmDefaults) {
+  const factory = defaultAppTimerSettings()
+  const alarmSound = program.alarmOverrides?.sound
+  const alarmDuration = program.alarmOverrides?.durationSeconds
+  return {
+    alarmSound: alarmSound ?? (alarmSound === undefined && soundRefKey(settings.alarmSound) !== soundRefKey(factory.alarmSound) ? settings.alarmSound : defaults?.sound ?? settings.alarmSound),
+    alarmDurationSeconds: alarmDuration ?? (alarmDuration === undefined && settings.alarmDurationSeconds !== factory.alarmDurationSeconds ? settings.alarmDurationSeconds : defaults?.durationSeconds ?? settings.alarmDurationSeconds),
+  }
+}
+
 export interface UnifiedConfigState {
   schemaVersion: 3
   selectedConfigId: string | null
@@ -56,6 +69,9 @@ export interface UnifiedConfigState {
   soundLibrary: SoundRef[]
   /** Device-wide schedule shared by every timer and runtime session. */
   globalAvailability: AvailabilityPolicy
+  globalRunningControlIds?: RunningControlId[]
+  globalSecondPrecision?: boolean
+  alarmDefaults?: AlarmDefaults
   legacyRuntimeMetadata?: { alarmModeEnabled: boolean }
 }
 
@@ -65,17 +81,22 @@ export interface ConfigStateDependencies {
 }
 
 export type ConfigStateCommand =
-  | { type: 'edit'; changes: Partial<Pick<UnifiedTimerDraft, 'name' | 'program' | 'settings' | 'editorOptions'>>; now?: number }
+  | { type: 'edit'; configId?: string | null; changes: Partial<Pick<UnifiedTimerDraft, 'name' | 'program' | 'settings' | 'editorOptions'>>; now?: number }
   | { type: 'save'; now?: number }
   | { type: 'saveAs'; name: string; id?: string; now?: number }
+  | { type: 'discardDraft'; configId: string | null; now?: number }
   | { type: 'rename'; id: string; name: string; now?: number }
   | { type: 'duplicate'; id: string; newId?: string; now?: number }
-  | { type: 'delete'; id: string; now?: number }
+  | { type: 'moveConfig'; id: string; targetId: string }
+  | { type: 'delete'; id: string; discardDraft?: boolean; now?: number }
   | { type: 'setVisibility'; id: string; showInRunningSelector: boolean; now?: number }
   | { type: 'importConfig'; config: UnifiedTimerConfig; select?: boolean; now?: number }
-  | { type: 'switch'; configId: string | null; choice: 'save' | 'save-as' | 'keep' | 'discard' | 'cancel'; saveAsName?: string; saveAsId?: string; now?: number }
+  | { type: 'switch'; configId: string | null; choice: 'save' | 'save-as' | 'keep' | 'discard' | 'cancel'; fresh?: boolean; saveAsName?: string; saveAsId?: string; now?: number }
   | { type: 'setSoundLibrary'; sounds: SoundRef[] }
+  | { type: 'setAlarmDefaults'; changes: Partial<AlarmDefaults> }
   | { type: 'setGlobalAvailability'; availability: AvailabilityPolicy }
+  | { type: 'setGlobalRunningControl'; id: RunningControlId; enabled: boolean }
+  | { type: 'setGlobalSecondPrecision'; enabled: boolean }
 
 export interface ConfigCommandResult {
   state: UnifiedConfigState
@@ -115,6 +136,7 @@ function soundsUsedByDraft(draft: UnifiedTimerDraft): SoundRef[] {
   })
   if (draft.program.completionCue) sounds.push(...cueSounds(draft.program.completionCue))
   sounds.push(draft.settings.alarmSound)
+  if (draft.program.alarmOverrides?.sound) sounds.push(draft.program.alarmOverrides.sound)
   return sounds.filter(sound => sound.kind !== 'builtin')
 }
 
@@ -250,6 +272,24 @@ export function createUnsavedUnifiedConfigState(deps: ConfigStateDependencies = 
   state.selectedConfigId = null
   state.drafts = { [UNNAMED_DRAFT_KEY]: initial }
   return state
+}
+
+/** An unnamed working copy can be saved even when its setup is still pristine. */
+export function hasUnifiedDraftChanges(draft: UnifiedTimerDraft): boolean {
+  if (draft.baseConfigId) return draft.dirty
+  let nextId = 0
+  const defaults = createUnsavedUnifiedConfigState({ now: () => 0, createId: () => `baseline-${++nextId}` }).drafts[UNNAMED_DRAFT_KEY]!
+  const comparable = (value: UnifiedTimerDraft) => ({
+    ...snapshotOf(value),
+    program: {
+      ...value.program,
+      steps: value.program.steps.map(({ id: _stepId, subBellTracks, ...step }) => ({
+        ...step,
+        subBellTracks: subBellTracks.map(({ id: _trackId, ...track }) => track),
+      })),
+    },
+  })
+  return stableJson(comparable(draft)) !== stableJson(comparable(defaults))
 }
 
 export function defaultUnifiedTimerName(durationSeconds: number): string {
@@ -445,6 +485,11 @@ export function parseUnifiedConfigState(input: unknown): UnifiedConfigParseResul
     ? clone(legacySchedule ?? defaultAppTimerSettings().availability)
     : parseAvailability(raw.globalAvailability, () => '', false)
   if (!globalAvailability) return fail('Invalid global availability policy')
+  const legacyControls = getDraft(drafts, draftKey(raw.selectedConfigId ?? undefined))?.settings ?? defaultAppTimerSettings()
+  if (raw.globalRunningControlIds !== undefined && !validGlobalRunningControls(raw.globalRunningControlIds)) return fail('Invalid global running controls')
+  const globalRunningControlIds = raw.globalRunningControlIds ?? [...enabledRunningControls(legacyControls)]
+  if (raw.globalSecondPrecision !== undefined && !boolean(raw.globalSecondPrecision)) return fail('Invalid global seconds preference')
+  const globalSecondPrecision = raw.globalSecondPrecision ?? legacyControls.secondPrecisionEnabled
   const legacyRecoveries: UnifiedLegacyRecovery[] = []
   for (const value of raw.legacyRecoveries) {
     if (!record(value) || !idValid(value.id) || (value.sourceMode !== 'pattern' && value.sourceMode !== 'sequence')) return fail('Invalid legacy recovery')
@@ -456,6 +501,7 @@ export function parseUnifiedConfigState(input: unknown): UnifiedConfigParseResul
   for (const draft of Object.values(drafts)) draft.settings = timerSettingsWithoutGlobalSchedule(draft.settings)
   for (const recovery of legacyRecoveries) recovery.draft.settings = timerSettingsWithoutGlobalSchedule(recovery.draft.settings)
   if (raw.soundLibrary.some(sound => !isSupportedSoundRef(sound, false) || !record(sound) || sound.kind === 'builtin')) return fail('Invalid shared sound library')
+  if (raw.alarmDefaults !== undefined && (!record(raw.alarmDefaults) || !isSupportedSoundRef(raw.alarmDefaults.sound, false) || !integer(raw.alarmDefaults.durationSeconds, 5, 3600))) return fail('Invalid alarm defaults')
   if (raw.legacyRuntimeMetadata !== undefined && (!record(raw.legacyRuntimeMetadata) || !boolean(raw.legacyRuntimeMetadata.alarmModeEnabled))) return fail('Invalid legacy runtime metadata')
   return {
     ok: true,
@@ -463,9 +509,14 @@ export function parseUnifiedConfigState(input: unknown): UnifiedConfigParseResul
       ...clone(raw),
       schemaVersion: UNIFIED_CONFIG_STATE_SCHEMA_VERSION,
       selectedConfigId: raw.selectedConfigId as string | null,
-      configs, drafts, legacyRecoveries, soundLibrary: clone(raw.soundLibrary) as SoundRef[], globalAvailability,
+      configs, drafts, legacyRecoveries, soundLibrary: clone(raw.soundLibrary) as SoundRef[], globalAvailability, globalRunningControlIds, globalSecondPrecision,
     } as UnifiedConfigState,
   }
+}
+
+function validGlobalRunningControls(ids: unknown): ids is RunningControlId[] {
+  return Array.isArray(ids) && new Set(ids).size === ids.length
+    && ids.every(id => RUNNING_CONTROL_DEFINITIONS.some(control => control.id === id))
 }
 
 function result(state: UnifiedConfigState, status: 'applied' | 'blocked', reason?: ConfigCommandResult['reason'], createdConfigId?: string): ConfigCommandResult {
@@ -479,15 +530,38 @@ export function reduceUnifiedConfigCommand(
 ): ConfigCommandResult {
   const now = 'now' in command ? command.now ?? deps.now?.() ?? Date.now() : deps.now?.() ?? Date.now()
   const state = clone(input)
+  if (command.type === 'setGlobalSecondPrecision') {
+    state.globalSecondPrecision = command.enabled
+    return result(state, 'applied')
+  }
+  if (command.type === 'setGlobalRunningControl') {
+    if (!RUNNING_CONTROL_DEFINITIONS.some(control => control.id === command.id)) return result(input, 'blocked', 'invalid-name')
+    const controls = new Set(state.globalRunningControlIds ?? enabledRunningControls(defaultAppTimerSettings()))
+    if (command.enabled) controls.add(command.id)
+    else controls.delete(command.id)
+    state.globalRunningControlIds = [...controls]
+    return result(state, 'applied')
+  }
+  if (command.type === 'setAlarmDefaults') {
+    const factory = defaultAppTimerSettings()
+    const defaults = { ...(state.alarmDefaults ?? { sound: factory.alarmSound, durationSeconds: factory.alarmDurationSeconds }), ...command.changes }
+    if (!isSupportedSoundRef(defaults.sound, false) || !integer(defaults.durationSeconds, 5, 3600)) return result(input, 'blocked', 'invalid-sounds')
+    state.alarmDefaults = clone(defaults)
+    state.soundLibrary = mergeSharedSounds(state.soundLibrary, defaults.sound.kind === 'builtin' ? [] : [defaults.sound])
+    return result(state, 'applied')
+  }
   if (command.type === 'setGlobalAvailability') {
     const availability = parseAvailability(command.availability, () => '', false)
     if (!availability) return result(input, 'blocked', 'invalid-availability')
     state.globalAvailability = clone(availability)
     return result(state, 'applied')
   }
-  const currentConfig = state.configs.find(config => config.id === state.selectedConfigId)
-  const currentKey = draftKey(state.selectedConfigId ?? undefined)
+  const editorConfigId = command.type === 'discardDraft' || (command.type === 'edit' && command.configId !== undefined)
+    ? command.configId : state.selectedConfigId
+  const currentConfig = state.configs.find(config => config.id === editorConfigId)
+  const currentKey = draftKey(editorConfigId ?? undefined)
   let draft = getDraft(state.drafts, currentKey)
+  if (!draft && currentConfig && command.type === 'edit') draft = copyConfigAsDraft(currentConfig, now)
   if (!draft && command.type !== 'setSoundLibrary') {
     if (command.type === 'switch' && command.configId === null) {
       const defaults = createUnsavedUnifiedConfigState({ now: () => now, createId: deps.createId })
@@ -515,6 +589,14 @@ export function reduceUnifiedConfigCommand(
     state.soundLibrary = mergeSharedSounds(state.soundLibrary, soundsUsedByDraft(updated))
     return result(state, 'applied')
   }
+  if (command.type === 'discardDraft') {
+    if (!draft || !hasUnifiedDraftChanges(draft)) return result(input, 'applied')
+    const restored = currentConfig
+      ? copyConfigAsDraft(currentConfig, now)
+      : createUnsavedUnifiedConfigState({ now: () => now, createId: deps.createId }).drafts[UNNAMED_DRAFT_KEY]!
+    setDraft(state.drafts, currentKey, restored)
+    return result(state, 'applied')
+  }
   if (command.type === 'save') {
     if (!currentConfig || !draft?.baseConfigId) return result(input, 'blocked', 'unnamed-needs-save-as')
     const index = state.configs.findIndex(config => config.id === currentConfig.id)
@@ -536,6 +618,7 @@ export function reduceUnifiedConfigCommand(
     }
     if (draft!.editorOptions.configurationNameIsCustom !== undefined) saved.program = nameSingleStep(saved.program, saved.name, saved.editorOptions.configurationNameIsCustom !== false)
     state.configs.push(saved)
+    if (!draft!.baseConfigId) delete state.drafts[UNNAMED_DRAFT_KEY]
     setDraft(state.drafts, id, { ...copyConfigAsDraft(saved, now), dirty: false })
     state.selectedConfigId = id
     return result(state, 'applied', undefined, id)
@@ -578,6 +661,7 @@ export function reduceUnifiedConfigCommand(
     })
     if (imported.program.completionCue) importedSounds.push(...cueSounds(imported.program.completionCue))
     importedSounds.push(clone(imported.settings.alarmSound))
+    if (imported.program.alarmOverrides?.sound) importedSounds.push(clone(imported.program.alarmOverrides.sound))
     const library = [...state.soundLibrary]
     const keys = new Set(library.map(soundRefKey))
     importedSounds.forEach(sound => {
@@ -602,26 +686,40 @@ export function reduceUnifiedConfigCommand(
     setDraft(state.drafts, id, { ...copyConfigAsDraft(copyConfig, now), dirty: false })
     return result(state, 'applied', undefined, id)
   }
+  if (command.type === 'moveConfig') {
+    const from = state.configs.findIndex(config => config.id === command.id)
+    const to = state.configs.findIndex(config => config.id === command.targetId)
+    if (from < 0 || to < 0) return result(input, 'blocked', 'missing-config')
+    const [moved] = state.configs.splice(from, 1)
+    state.configs.splice(to, 0, moved)
+    return result(state, 'applied')
+  }
   if (command.type === 'delete') {
     const target = state.configs.find(config => config.id === command.id)
     if (!target) return result(input, 'blocked', 'missing-config')
     const targetDraft = getDraft(state.drafts, target.id)
-    if (targetDraft?.dirty) return result(input, 'blocked', 'dirty-draft')
+    if (targetDraft?.dirty && !command.discardDraft) return result(input, 'blocked', 'dirty-draft')
     state.configs = state.configs.filter(config => config.id !== target.id)
     delete state.drafts[target.id]
     if (state.selectedConfigId === target.id) {
       state.selectedConfigId = null
       if (!getDraft(state.drafts, UNNAMED_DRAFT_KEY)) {
-        const unnamed = copyConfigAsDraft(target, now)
-        delete unnamed.baseConfigId
-        setDraft(state.drafts, UNNAMED_DRAFT_KEY, { ...unnamed, dirty: true })
+        if (command.discardDraft) {
+          const defaults = createUnsavedUnifiedConfigState({ now: () => now, createId: deps.createId })
+          setDraft(state.drafts, UNNAMED_DRAFT_KEY, defaults.drafts[UNNAMED_DRAFT_KEY]!)
+        } else {
+          const { baseConfigId, ...unnamed } = targetDraft ?? copyConfigAsDraft(target, now)
+          setDraft(state.drafts, UNNAMED_DRAFT_KEY, { ...unnamed, dirty: true, updatedAt: now })
+        }
       }
     }
     return result(state, 'applied')
   }
   if (command.type === 'switch') {
+    const fresh = command.fresh === true && command.configId === null
     if (command.configId !== null && !state.configs.some(config => config.id === command.configId)) return result(input, 'blocked', 'missing-config')
-    if (command.configId === state.selectedConfigId || command.choice === 'cancel') return result(input, 'applied')
+    if ((!fresh && command.configId === state.selectedConfigId) || command.choice === 'cancel') return result(input, 'applied')
+    if (fresh && state.selectedConfigId === null && draft?.dirty && command.choice === 'keep') return result(input, 'blocked', 'dirty-draft')
     if (draft?.dirty) {
       if (command.choice === 'save') {
         if (!currentConfig || !draft.baseConfigId) return result(input, 'blocked', 'unnamed-needs-save-as')
@@ -652,7 +750,7 @@ export function reduceUnifiedConfigCommand(
       const target = state.configs.find(config => config.id === command.configId)!
       setDraft(state.drafts, command.configId, copyConfigAsDraft(target, now))
     }
-    if (command.configId === null && !getDraft(state.drafts, UNNAMED_DRAFT_KEY)) {
+    if (command.configId === null && (fresh || !getDraft(state.drafts, UNNAMED_DRAFT_KEY))) {
       const defaults = createUnsavedUnifiedConfigState({ now: () => now, createId: deps.createId })
       const unnamed = defaults.drafts[UNNAMED_DRAFT_KEY]!
       setDraft(state.drafts, UNNAMED_DRAFT_KEY, { ...unnamed, dirty: true })

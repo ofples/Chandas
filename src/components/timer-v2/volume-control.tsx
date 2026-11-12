@@ -8,9 +8,9 @@ import { useTheme } from '../../theme/ThemeContext'
 import { TimerTransportIcon } from '../Icons'
 
 /** A channel level and an audition at its effective volume, independent of timer playback. */
-export function VolumeControl({ label, value, onChange, cue, masterVolume, masterControl = false, accessibilityLabel = label }: {
+export function VolumeControl({ label, value, onChange, cue, masterVolume, masterControl = false, alarmPreview = false, accessibilityLabel = label }: {
   label: string; value: number; onChange: (value: number) => void; cue: CueSettings;
-  masterVolume: number; masterControl?: boolean; accessibilityLabel?: string
+  masterVolume: number; masterControl?: boolean; alarmPreview?: boolean; accessibilityLabel?: string
 }) {
   const { tokens } = useTheme()
   const choiceIndex = useRef(0)
@@ -25,7 +25,7 @@ export function VolumeControl({ label, value, onChange, cue, masterVolume, maste
     const sound = choices[choiceIndex.current++ % choices.length]
     const volume = masterControl ? value * cue.volume : masterVolume * value
     try {
-      const started = await ChandasTimerService.previewSound(sound, volume)
+      const started = await ChandasTimerService.previewSound(sound, volume, { alarm: alarmPreview })
       if (mounted.current && request === previewRequest.current) setUnavailable(!started)
     } catch { if (mounted.current && request === previewRequest.current) setUnavailable(true) }
   }

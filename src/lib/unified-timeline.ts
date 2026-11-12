@@ -1,6 +1,7 @@
 import type { CueSettings, SoundRef, UnifiedSubBellTrack, UnifiedTimerProgram, UnifiedTimerStep } from '../types'
 import { alignedClockAnchor } from './clockAlignment'
 import { randomTrackOffsetsSeconds } from './timerV2'
+import { nextLocalClockTime } from './time-inputs'
 
 const SECOND_MS = 1_000
 const MAX_MUTE_ITERATIONS = 99
@@ -15,6 +16,8 @@ export interface UnifiedCueCandidate {
   trackId?: string
   kind: 'step-end' | 'sub-bell' | 'run-complete'
   alarmEnabled?: boolean
+  explicitMarker?: boolean
+  occurrencesPerRound?: number
   sound: SoundRef
   volume: number
   sounds?: SoundRef[]
@@ -85,6 +88,7 @@ export function unifiedRunEndAt(program: UnifiedTimerProgram, anchor: number, st
   const policy = program.runPolicy
   if (policy.kind === 'continuous') return null
   if (policy.kind === 'duration') return startedAt + policy.durationSeconds * SECOND_MS
+  if (policy.kind === 'until') return nextLocalClockTime(policy.untilMinutes ?? 0, startedAt)
   const duration = unifiedProgramDurationMs(program)
   const firstBoundary = anchor + (Math.floor((startedAt - anchor) / duration) + 1) * duration
   return firstBoundary + (policy.cycleCount - 1) * duration
@@ -104,7 +108,7 @@ function cueCandidate(cue: CueSettings, step: UnifiedTimerStep, stepIndex: numbe
     kind: isTrack ? 'sub-bell' : 'step-end',
     ...(!isTrack && step.endAlarmEnabled ? { alarmEnabled: true } : {}),
     sound: cue.sound,
-    volume: cue.volume,
+    volume: cue.soundMuted ? 0 : cue.volume,
     ...(cue.sounds ? { sounds: cue.sounds } : {}),
     ...(cue.soundMode ? { soundMode: cue.soundMode } : {}),
     ...(cue.hapticOverride ? { hapticOverride: cue.hapticOverride } : {}),
@@ -126,7 +130,9 @@ function offsetsForTrack(track: UnifiedSubBellTrack, durationSeconds: number, ro
 }
 
 function winnerFor(candidates: UnifiedCueCandidate[]): UnifiedCueCandidate {
-  return candidates.slice().sort((a, b) => b.cadencePriority - a.cadencePriority || (a.trackOrder ?? Number.MAX_SAFE_INTEGER) - (b.trackOrder ?? Number.MAX_SAFE_INTEGER))[0]
+  return candidates.slice().sort((a, b) => Number(!!b.explicitMarker) - Number(!!a.explicitMarker)
+    || b.cadencePriority - a.cadencePriority
+    || (a.trackOrder ?? Number.MAX_SAFE_INTEGER) - (b.trackOrder ?? Number.MAX_SAFE_INTEGER))[0]
 }
 
 function candidateGroups(program: UnifiedTimerProgram, roundIndex: number, stepIndex: number, stepStart: number, randomSeed: number, visibleOnly: boolean): Map<number, UnifiedCueCandidate[]> {
@@ -138,10 +144,16 @@ function candidateGroups(program: UnifiedTimerProgram, roundIndex: number, stepI
   if (!step.subBellsEnabled) return result
   step.subBellTracks.forEach((track, trackOrder) => {
     if (!track.enabled || (visibleOnly && !track.showOnWatchFace)) return
-    offsetsForTrack(track, durationSeconds, roundIndex, randomSeed).forEach(offsetSeconds => {
+    const offsets = offsetsForTrack(track, durationSeconds, roundIndex, randomSeed)
+    offsets.forEach(offsetSeconds => {
       const at = stepStart + offsetSeconds * SECOND_MS
       const candidates = result.get(at) ?? []
-      candidates.push(cueCandidate(track, step, stepIndex, track, trackOrder))
+      const candidate = cueCandidate(track, step, stepIndex, track, trackOrder)
+      candidate.occurrencesPerRound = offsets.length
+      if (offsetSeconds === track.afterStartSeconds || offsetSeconds === durationSeconds - (track.beforeEndSeconds ?? 0)) {
+        candidate.explicitMarker = true
+      }
+      candidates.push(candidate)
       result.set(at, candidates)
     })
   })
@@ -153,7 +165,7 @@ function completionCandidate(program: UnifiedTimerProgram): UnifiedCueCandidate 
   const cue = program.completionCue ?? last.endCue
   return {
     cueId: 'run-complete', sourceCueId: 'run-complete', stepId: last.id, kind: 'run-complete',
-    sound: cue.sound, volume: cue.volume, ...(cue.sounds ? { sounds: cue.sounds } : {}),
+    sound: cue.sound, volume: cue.soundMuted ? 0 : cue.volume, ...(cue.sounds ? { sounds: cue.sounds } : {}),
     ...(cue.soundMode ? { soundMode: cue.soundMode } : {}), ...(cue.hapticOverride ? { hapticOverride: cue.hapticOverride } : {}),
     showOnWatchFace: true, cadencePriority: 0,
   }

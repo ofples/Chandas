@@ -44,6 +44,7 @@ data class TimerV2Candidate(
   /** Null inherits the main/sub-bell profile; false explicitly silences vibration. */
   val hapticOverride: HapticProfileConfig? = null,
   val hapticsOff: Boolean = false,
+  val occurrencesPerRound: Int? = null,
   val cadenceMinutes: Int? = null,
   val cadenceSeconds: Long? = null,
   val trackOrder: Int? = null,
@@ -128,8 +129,14 @@ object TimerV2Timeline {
   }.getOrNull()
 
   /** Persisted deadlines must be exactly the deadline implied by the run policy. */
+  fun isUntil(serialized: String?): Boolean = runCatching {
+    val root = JSONObject(serialized ?: return false)
+    root.optString("mode") == "unified" && root.optJSONObject("runPolicy")?.optString("kind") == "until"
+  }.getOrDefault(false)
+
   fun hasMatchingRunEnd(serialized: String, anchor: Long, startedAt: Long, fixedEndsAt: Long): Boolean =
-    runEndAt(serialized, anchor, startedAt) == fixedEndsAt.takeIf { it > 0L }
+    if (isUntil(serialized)) fixedEndsAt - startedAt in 1L..(26L * 60 * 60 * 1_000)
+    else runEndAt(serialized, anchor, startedAt) == fixedEndsAt.takeIf { it > 0L }
 
   fun iterationEnd(serialized: String, anchor: Long, now: Long, count: Int): TimerV2IterationEnd? = runCatching {
     val root = JSONObject(serialized)
@@ -231,6 +238,28 @@ object TimerV2Timeline {
     else -> 0L
   }
 
+  fun seekStepTarget(serialized: String, anchor: Long, now: Long, startedAt: Long, endsAt: Long, fraction: Int): TimerV2SkipTarget? = runCatching {
+    val root = JSONObject(serialized)
+    val total = cycleDuration(root)
+    if (total <= 0L || (endsAt > 0L && now >= endsAt)) return@runCatching null
+    val elapsed = Math.floorMod(now - anchor, total)
+    var before = 0L
+    val duration = if (root.optString("mode") == "pattern") total else {
+      val steps = root.getJSONArray("steps")
+      var match = 0L
+      for (i in 0 until steps.length()) {
+        val length = stepDuration(steps.getJSONObject(i))
+        if (elapsed < before + length) { match = length; break }
+        before += length
+      }
+      match
+    }
+    if (duration <= 0L) return@runCatching null
+    val delta = elapsed - before - duration * fraction / 10_000L
+    val cycleBounded = root.optJSONObject("runPolicy")?.optString("kind") == "cycles"
+    TimerV2SkipTarget(anchor + delta, if (cycleBounded) startedAt + delta else startedAt, if (cycleBounded && endsAt > 0L) endsAt + delta else endsAt, false)
+  }.getOrNull()
+
   /** Keep the scheduler's alarm/haptic contract while the authored program uses steps. */
   private fun schedulerEvent(event: UnifiedTimelineEvent, singleStep: Boolean): TimerV2Event {
     val boundary = when (event.boundary) {
@@ -254,6 +283,7 @@ object TimerV2Timeline {
         soundMode = candidate.soundMode,
         hapticOverride = candidate.hapticOverride,
         hapticsOff = candidate.hapticsOff,
+        occurrencesPerRound = candidate.occurrencesPerRound,
         cadenceSeconds = candidate.cadenceSeconds.takeIf { candidate.cadencePriority > 0L },
         trackOrder = candidate.trackOrder,
         showOnWatchFace = candidate.showOnWatchFace,
@@ -307,6 +337,13 @@ object TimerV2Timeline {
       else -> null
     }
   }.getOrNull()
+
+  /** A step alarm belongs to its own boundary, even when delivery waits behind another timer. */
+  fun stepAlarmExpiresAt(program: String, anchor: Long, event: TimerV2Event, terminalAt: Long): Long {
+    if (event.boundary != TimerV2Boundary.SEQUENCE_STEP && event.boundary != TimerV2Boundary.SEQUENCE_CYCLE) return 0L
+    val nextBoundary = notificationContext(program, anchor, event.at)?.currentEndsAt ?: return event.at
+    return if (terminalAt > 0L) minOf(terminalAt, nextBoundary) else nextBoundary
+  }
 
   /** Exact seasonal-offset boundary so local-clock patterns can realign even on pre-API 37 Android. */
   fun nextTimezoneTransition(now: Long, horizon: Long = now + TIMEZONE_TRANSITION_LOOKAHEAD_MS): Long? {

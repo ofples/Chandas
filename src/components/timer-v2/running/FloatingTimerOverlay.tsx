@@ -4,7 +4,7 @@ import { ThemeProvider, useTheme } from '../../../theme/ThemeContext'
 import { AlarmIcon, ClockIcon, RestartIcon, TimerTransportIcon, VolumeIcon } from '../../Icons'
 import { TimerControlButton } from './TimerControlButton'
 import { TimerWatchface, type TimerWatchfaceModel } from './TimerWatchface'
-import { ChandasTimerService, type NativeFloatingOverlaySnapshot, type NativeTimerState } from '../../../native/ChandasTimerService'
+import { nativeTimerRun, ChandasTimerService, type NativeFloatingOverlaySnapshot, type NativeTimerState } from '../../../native/ChandasTimerService'
 import { defaultTimerHapticsSettings } from '../../../lib/haptic-profiles'
 import { formatCompactDurationSeconds, normalizeAvailabilityPolicy, parseTimerProgram, sequenceStepDurationSeconds } from '../../../lib/timerV2'
 import { timerV2DisplayFor } from '../../../hooks/useTimerV2'
@@ -105,10 +105,37 @@ function Content({ incoming }: { incoming: NativeFloatingOverlaySnapshot }) {
   const mute = useMemo(() => muteFromSnapshot(snapshot), [snapshot.mutedUntil, snapshot.mutedIterationEndId, snapshot.mutedIterationEndAt, snapshot.mutedIterationsRemaining])
   const effectiveNow = snapshot.timerV2PausedAt && snapshot.timerV2PausedAt > 0 ? snapshot.timerV2PausedAt : snapshot.now
   const display = useMemo(() => program ? timerV2DisplayFor(program, settings, mute, snapshot.timerV2Anchor ?? effectiveNow, snapshot.timerV2StartedAt ?? effectiveNow, snapshot.timerV2EndsAt && snapshot.timerV2EndsAt > 0 ? snapshot.timerV2EndsAt : null, effectiveNow, snapshot.timerV2RandomSeed || snapshot.timerV2Anchor || effectiveNow) : null, [mute, program, settings, effectiveNow, snapshot.timerV2Anchor, snapshot.timerV2EndsAt, snapshot.timerV2StartedAt, snapshot.timerV2RandomSeed])
-  useEffect(() => () => { if (stopTimer.current) clearTimeout(stopTimer.current); if (alarmTap.current) clearTimeout(alarmTap.current) }, [])
+  useEffect(() => {
+    setStopArmed(false)
+    return () => {
+      if (stopTimer.current) clearTimeout(stopTimer.current)
+      if (alarmTap.current) clearTimeout(alarmTap.current)
+      stopTimer.current = null
+      alarmTap.current = null
+    }
+  }, [snapshot.runId])
   if (!program || !display || !snapshot.active) return <View style={styles.empty} />
-  const collapsed = snapshot.timerV2PausedAt ? `Paused • ${display.nextCueCountdown}` : collapsedText(program, display, snapshot.timerV2Anchor ?? snapshot.now, snapshot.now)
-  if (!snapshot.expanded) return <View style={styles.compactTarget}><Pressable onPress={() => ChandasTimerService.floatingOverlayAction('expand')} style={({ pressed }) => [styles.pill, { backgroundColor: tokens.surface, borderColor: tokens.border, opacity: pressed && theme !== 'eink' ? 0.76 : 1 }]} accessibilityRole="button" accessibilityLabel={`${collapsed}. Expand floating timer.`}><Text numberOfLines={1} style={[styles.pillText, { color: tokens.text }]}>{collapsed}</Text></Pressable></View>
+  const compactStatus = snapshot.timerV2PausedAt ? `Paused • ${display.nextCueCountdown}` : collapsedText(program, display, snapshot.timerV2Anchor ?? snapshot.now, snapshot.now)
+  const activeCount = snapshot.activeCount ?? 0
+  const activeStepIndex = display.position?.currentStepIndex ?? 0
+  const programName = program.mode === 'pattern' ? program.label : program.steps[activeStepIndex]?.label
+  const compactName = activeCount > 1 ? snapshot.runName || programName || 'Timer' : null
+  const compactDetail = compactName
+    ? `${snapshot.timerV2PausedAt ? 'Paused' : display.nextCueCountdown} · ${activeCount} timers`
+    : compactStatus
+  if (!snapshot.expanded) return (
+    <View style={styles.compactTarget}>
+      <Pressable
+        onPress={() => ChandasTimerService.floatingOverlayAction('expand')}
+        style={({ pressed }) => [styles.pill, { backgroundColor: tokens.surface, borderColor: tokens.border, opacity: pressed && theme !== 'eink' ? 0.76 : 1 }]}
+        accessibilityRole="button"
+        accessibilityLabel={`${compactName ? compactName + '. ' : ''}${compactDetail}. Expand floating timer.`}
+      >
+        {compactName && <Text numberOfLines={1} style={[styles.pillName, { color: tokens.text }]}>{compactName}</Text>}
+        <Text numberOfLines={1} style={[compactName ? styles.pillDetail : styles.pillText, { color: tokens.text }]}>{compactDetail}</Text>
+      </Pressable>
+    </View>
+  )
 
   const multiStep = program.mode === 'sequence' || (program.mode === 'unified' && program.steps.length > 1)
   const oneStepUnified = program.mode === 'unified' && program.steps.length === 1
@@ -136,7 +163,10 @@ function Content({ incoming }: { incoming: NativeFloatingOverlaySnapshot }) {
     nextTime: (program.mode === 'pattern' || oneStepUnified) && display.position?.nextEvent?.boundary !== 'pattern-main' ? display.nextCueCountdown : undefined,
     nextColor: nextCueColor, muted: runtimeMuted || settings.masterVolume <= 0, runtimeMuted,
   }
-  const action = (name: string) => ChandasTimerService.floatingOverlayAction(name)
+  const action = (name: string) => {
+    const service = snapshot.runId ? nativeTimerRun(snapshot.runId) : ChandasTimerService
+    return service?.floatingOverlayAction(name)
+  }
   const alarmPress = () => {
     if (alarmTap.current) { clearTimeout(alarmTap.current); alarmTap.current = null; action('alarm-double'); return }
     alarmTap.current = setTimeout(() => { alarmTap.current = null; action('alarm-single') }, 230)
@@ -174,6 +204,8 @@ const styles = StyleSheet.create({
   compactTarget: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   pill: { width: 124, height: 40, borderWidth: 1, borderRadius: 999, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
   pillText: { fontFamily: 'JetBrainsMono-Regular', fontSize: 13, fontVariant: ['tabular-nums'], fontWeight: '700' },
+  pillName: { maxWidth: '100%', fontSize: 13, fontWeight: '500' },
+  pillDetail: { maxWidth: '100%', fontSize: 11, fontVariant: ['tabular-nums'] },
   expanded: { flex: 1, alignItems: 'center', justifyContent: 'flex-start', paddingTop: 66 },
   faceShell: { width: 220, height: 220, borderRadius: 110, alignItems: 'center', justifyContent: 'center', elevation: 8, zIndex: 1 },
   einkFaceShell: { elevation: 0 },

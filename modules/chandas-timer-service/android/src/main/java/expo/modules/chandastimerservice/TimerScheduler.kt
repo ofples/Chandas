@@ -36,15 +36,19 @@ object TimerScheduler {
     // Validate before cancelling the currently authoritative alarm. A running
     // configuration switch must leave the old timer intact when the incoming
     // program cannot be scheduled (for example, after a capability change).
+    if (!TimerRuns.register(context)) return false
     val previous = TimerStateStore.load(context)
     val previousControls = previous?.let { TimerStateStore.getControlState(context) }
     val previousGeneration = TimerStateStore.currentSessionGeneration(context)
     ChandasCueService.stop(context)
-    TimerSoundPlayer.stopAll()
-    TimerHaptics.stop(context)
+    if (TimerRuns.id(context) == null) {
+      TimerSoundPlayer.stopAll()
+      TimerHaptics.stop(context)
+    }
     cancelScheduledEvent(context)
     TimerStateStore.save(context, config)
     TimerStateStore.beginSession(context)
+    TimerStateStore.clearQueuedAlarm(context)
     TimerStateStore.restoreControls(
       context,
       initialControls.alarmOnceArmed,
@@ -56,10 +60,10 @@ object TimerScheduler {
     TimerStateStore.setRinging(context, false)
     TimerStateStore.setAlarmVisible(context, false)
     TimerNotifications.ensureChannels(context)
-    FocusModeController.reconcile(context, config)
+    TimerRuns.reconcileFocus(context)
     val scheduled = scheduleNext(context)
     if (!scheduled) {
-      if (previous != null && previousControls != null && isValidConfig(previous)) {
+      if (previous != null && previousControls != null && isValidConfig(previous) && TimerRuns.register(context)) {
         TimerStateStore.save(context, previous)
         TimerStateStore.restoreControls(
           context,
@@ -70,11 +74,12 @@ object TimerScheduler {
           previousControls.mutedIterationsRemaining.coerceAtLeast(1),
         )
         TimerStateStore.restoreSessionGeneration(context, previousGeneration)
-        FocusModeController.reconcile(context, previous)
+        TimerRuns.reconcileFocus(context)
         scheduleNext(context, previous)
       } else {
         TimerStateStore.clear(context)
-        FocusModeController.deactivate(context)
+        TimerRuns.unregister(context)
+        TimerRuns.reconcileFocus(context)
         TimerNotifications.cancelRunning(context)
       }
     }
@@ -89,11 +94,9 @@ object TimerScheduler {
     // authority and must defend its own recovery state.
     if (!isValidConfig(config)) return
     TimerStateStore.save(context, config)
-    FocusModeController.reconcile(context, config)
+    TimerRuns.reconcileFocus(context)
     if (TimerStateStore.isRinging(context)) {
-      context.startService(Intent(context, ChandasAlarmService::class.java).apply {
-        action = ChandasAlarmService.ACTION_UPDATE_VOLUME
-      })
+      ChandasAlarmService.updateVolume(context)
     }
     cancelScheduledEvent(context)
     scheduleNext(context)
@@ -114,12 +117,13 @@ object TimerScheduler {
         phase = current.phase + delta,
         timerV2Anchor = current.timerV2Anchor + delta,
         timerV2StartedAt = current.timerV2StartedAt + delta,
-        timerV2EndsAt = if (current.timerV2EndsAt > 0L) current.timerV2EndsAt + delta else 0L,
+        timerV2EndsAt = if (current.timerV2EndsAt > 0L && !TimerV2Timeline.isUntil(current.timerV2Program)) current.timerV2EndsAt + delta else current.timerV2EndsAt,
         timerV2PausedAt = 0L,
         timerV2Program = elapsedProgram,
         timerV2ClockRejoinAt = 0L,
       )
     }
+    if (paused) TimerStateStore.clearQueuedAlarm(context)
     cancelScheduledEvent(context)
     TimerStateStore.clearNext(context)
     TimerStateStore.save(context, updated)
@@ -131,27 +135,46 @@ object TimerScheduler {
       TimerStateStore.restoreControls(
         context,
         controls.alarmOnceArmed,
-        if (controls.mutedUntil > current.timerV2PausedAt) controls.mutedUntil + delta else 0L,
+        if (controls.mutedUntil > now) controls.mutedUntil else 0L,
         iteration?.logicalId,
         iteration?.at ?: 0L,
         controls.mutedIterationsRemaining,
       )
     }
-    FocusModeController.reconcile(context, updated)
+    TimerRuns.reconcileFocus(context)
     return scheduleNext(context, updated)
   }
 
   @Synchronized
-  fun skipSequence(context: Context, direction: Int): Boolean {
+  fun skipSequence(context: Context, distance: Int): Boolean {
+    if (distance == 0 || distance !in -64..64) return false
     val current = TimerStateStore.load(context) ?: return false
     if (TimerStateStore.isRinging(context)) return false
     val program = current.timerV2Program ?: return false
     val now = current.timerV2PausedAt.takeIf { it > 0L } ?: System.currentTimeMillis()
-    val target = TimerV2Timeline.skipSequenceTarget(program, current.timerV2Anchor, now, current.timerV2StartedAt, current.timerV2EndsAt, direction) ?: return false
+    var target = TimerV2SkipTarget(current.timerV2Anchor, current.timerV2StartedAt, current.timerV2EndsAt, false)
+    repeat(kotlin.math.abs(distance)) {
+      target = TimerV2Timeline.skipSequenceTarget(program, target.anchor, now, target.startedAt, target.endsAt, distance) ?: return false
+      if (target.completesRun && it < kotlin.math.abs(distance) - 1) return false
+    }
     if (target.completesRun) {
       completeSession(context)
       return true
     }
+    return applyManualPosition(context, current, program, now, target)
+  }
+
+  @Synchronized
+  fun seekStep(context: Context, fraction: Int): Boolean {
+    if (fraction !in 0..9999 || TimerStateStore.isRinging(context)) return false
+    val current = TimerStateStore.load(context) ?: return false
+    val program = current.timerV2Program ?: return false
+    val now = current.timerV2PausedAt.takeIf { it > 0L } ?: System.currentTimeMillis()
+    val target = TimerV2Timeline.seekStepTarget(program, current.timerV2Anchor, now, current.timerV2StartedAt, current.timerV2EndsAt, fraction) ?: return false
+    return applyManualPosition(context, current, program, now, target)
+  }
+
+  private fun applyManualPosition(context: Context, current: TimerConfig, program: String, now: Long, target: TimerV2SkipTarget): Boolean {
     val total = TimerV2Timeline.cycleDuration(program) ?: return false
     val updated = current.copy(
       phase = target.anchor,
@@ -160,6 +183,7 @@ object TimerScheduler {
       timerV2EndsAt = target.endsAt,
       timerV2ClockRejoinAt = if (TimerV2Timeline.isLocalClock(program)) target.anchor + (Math.floorDiv(now - target.anchor, total) + 1L) * total else 0L,
     )
+    TimerStateStore.clearQueuedAlarm(context)
     cancelScheduledEvent(context)
     TimerStateStore.clearNext(context)
     TimerStateStore.save(context, updated)
@@ -192,6 +216,11 @@ object TimerScheduler {
   }
 
   @Synchronized
+  fun muteUntil(context: Context, until: Long) {
+    if (TimerStateStore.load(context) != null && until > System.currentTimeMillis()) TimerStateStore.muteUntil(context, until)
+  }
+
+  @Synchronized
   fun clearMute(context: Context) {
     TimerStateStore.clearMute(context)
   }
@@ -209,7 +238,7 @@ object TimerScheduler {
 
   @Synchronized
   fun reconcileFocus(context: Context, forceApply: Boolean = false) {
-    FocusModeController.reconcile(context, forceApply = forceApply)
+    TimerRuns.reconcileFocus(context, forceApply)
   }
 
   @Synchronized
@@ -221,20 +250,22 @@ object TimerScheduler {
   fun stop(context: Context) {
     cancelScheduledEvent(context)
     ChandasCueService.stop(context)
-    TimerSoundPlayer.stopAll()
-    TimerHaptics.stop(context)
+    if (TimerRuns.id(context) == null) {
+      TimerSoundPlayer.stopAll()
+      TimerHaptics.stop(context)
+    }
+    ChandasAlarmService.cancel(context)
     TimerStateStore.clear(context)
-    FocusModeController.deactivate(context)
+    TimerRuns.unregister(context)
+    TimerRuns.reconcileFocus(context)
     TimerNotifications.cancelRunning(context)
-    TimerNotifications.cancelAlarm(context)
-    context.stopService(Intent(context, ChandasAlarmService::class.java))
-    AlarmStateRegistry.notify(false)
-    TimerStateRegistry.notify(TimerScheduleState(false, 0L, 0L, null, canScheduleExactAlarms(context)))
+    AlarmStateRegistry.notify(context, false)
+    TimerStateRegistry.notify(context, TimerScheduleState(false, 0L, 0L, null, canScheduleExactAlarms(context)))
   }
 
   @Synchronized
   fun restore(context: Context, resetRinging: Boolean, wallClockChanged: Boolean = false) {
-    var stored = TimerStateStore.load(context) ?: return
+    var stored = TimerStateStore.load(context) ?: run { TimerRuns.unregister(context); return }
     if (!isValidConfig(stored)) {
       stop(context)
       return
@@ -247,7 +278,7 @@ object TimerScheduler {
           phase = if (elapsedProgram || stored.timerV2PausedAt > 0L) stored.phase + delta else stored.phase,
           timerV2Anchor = if (elapsedProgram || stored.timerV2PausedAt > 0L) stored.timerV2Anchor + delta else stored.timerV2Anchor,
           timerV2StartedAt = stored.timerV2StartedAt + delta,
-          timerV2EndsAt = if (stored.timerV2EndsAt > 0L) stored.timerV2EndsAt + delta else 0L,
+          timerV2EndsAt = if (stored.timerV2EndsAt > 0L && !TimerV2Timeline.isUntil(stored.timerV2Program)) stored.timerV2EndsAt + delta else stored.timerV2EndsAt,
           timerV2PausedAt = if (stored.timerV2PausedAt > 0L) stored.timerV2PausedAt + delta else 0L,
           timerV2ClockRejoinAt = if (stored.timerV2ClockRejoinAt > 0L) stored.timerV2ClockRejoinAt + delta else 0L,
         )
@@ -255,13 +286,14 @@ object TimerScheduler {
       }
     }
     if (resetRinging) {
+      TimerStateStore.clearQueuedAlarm(context)
       TimerStateStore.setRinging(context, false)
       TimerStateStore.setAlarmVisible(context, false)
-      AlarmStateRegistry.notify(false)
+      AlarmStateRegistry.notify(context, false)
     }
     cancelScheduledEvent(context)
     TimerNotifications.ensureChannels(context)
-    FocusModeController.reconcile(context, stored)
+    TimerRuns.reconcileFocus(context)
     scheduleNext(context, stored)
   }
 
@@ -269,9 +301,10 @@ object TimerScheduler {
   fun scheduleNext(context: Context, config: TimerConfig? = TimerStateStore.load(context)): Boolean {
     val initial = config ?: return false
     if (!isValidConfig(initial)) return false
-    if (initial.timerV2PausedAt > 0L) {
+    val pausedUntil = initial.timerV2PausedAt > 0L && TimerV2Timeline.isUntil(initial.timerV2Program)
+    if (initial.timerV2PausedAt > 0L && !pausedUntil) {
       TimerNotifications.postRunning(context, initial)
-      TimerStateRegistry.notify(TimerScheduleState(true, initial.timerV2Anchor, 0L, null, canScheduleExactAlarms(context)))
+      TimerStateRegistry.notify(context, TimerScheduleState(true, initial.timerV2Anchor, 0L, null, canScheduleExactAlarms(context)))
       return true
     }
     if (!canScheduleExactAlarms(context)) {
@@ -281,7 +314,8 @@ object TimerScheduler {
 
     val now = System.currentTimeMillis()
     val active = reconcileLocalClock(context, initial, now).config
-    var v2Event = active.timerV2Program?.let { TimerV2Timeline.next(it, active.timerV2Anchor, now, active.timerV2StartedAt, active.timerV2EndsAt, active.timerV2RandomSeed.takeIf { seed -> seed != 0L } ?: active.timerV2Anchor) }
+    val searchFrom = if (pausedUntil && now < active.timerV2EndsAt) active.timerV2EndsAt - 1L else now
+    var v2Event = active.timerV2Program?.let { TimerV2Timeline.next(it, active.timerV2Anchor, searchFrom, active.timerV2StartedAt, active.timerV2EndsAt, active.timerV2RandomSeed.takeIf { seed -> seed != 0L } ?: active.timerV2Anchor) }
     if (active.timerV2Program != null && v2Event == null) {
       completeSession(context)
       return false
@@ -315,7 +349,7 @@ object TimerScheduler {
       logicalId = "active-start:$triggerAt"
     }
     val activeEndsAt = ActiveHours.currentWindowEnd(active, now)
-    if (activeEndsAt != null && activeEndsAt > now && activeEndsAt < triggerAt) {
+    if (!pausedUntil && activeEndsAt != null && activeEndsAt > now && activeEndsAt < triggerAt) {
       triggerAt = activeEndsAt
       type = TimerEventType.ACTIVE_END
       logicalId = "active-end:$triggerAt"
@@ -336,7 +370,7 @@ object TimerScheduler {
     val operation = PendingIntent.getBroadcast(
       context,
       TIMER_REQUEST,
-      Intent(context, TimerEventReceiver::class.java).apply {
+      TimerRuns.route(Intent(context, TimerEventReceiver::class.java), context).apply {
         action = TimerEventReceiver.ACTION_FIRE
         putExtra(TimerEventReceiver.EXTRA_TRIGGER_AT, triggerAt)
         putExtra(TimerEventReceiver.EXTRA_EVENT_TYPE, type.value)
@@ -377,7 +411,7 @@ object TimerScheduler {
       return false
     }
     TimerNotifications.postRunning(context, active)
-    TimerStateRegistry.notify(TimerScheduleState(true, active.timerV2Anchor, triggerAt, logicalId, true))
+    TimerStateRegistry.notify(context, TimerScheduleState(true, active.timerV2Anchor, triggerAt, logicalId, true))
     return true
   }
 
@@ -396,6 +430,7 @@ object TimerScheduler {
       return
     }
 
+    ChandasAlarmService.expireAtBoundary(context, triggerAt)
     TimerStateStore.clearNext(context)
     val realignment = reconcileLocalClock(context, stored, System.currentTimeMillis())
     if (type == TimerEventType.REALIGN) {
@@ -407,14 +442,14 @@ object TimerScheduler {
     val now = System.currentTimeMillis()
     // Every authoritative event also reconciles Focus. This covers a cue that
     // lands exactly on the closing boundary and backs up the dedicated end PI.
-    FocusModeController.reconcile(context, config)
+    TimerRuns.reconcileFocus(context)
     if (type == TimerEventType.ACTIVE_START || type == TimerEventType.ACTIVE_END) {
       scheduleNext(context, config)
       onFinished()
       return
     }
     if (type == TimerEventType.V2) {
-      handleV2Triggered(context, config, triggerAt, onFinished)
+      handleV2Batch(context, config, triggerAt, onFinished)
       return
     }
     if (!ActiveHours.allowsCueDelivery(config, triggerAt, now)) {
@@ -443,9 +478,9 @@ object TimerScheduler {
 
     val alarmOnce = type == TimerEventType.MAIN && TimerStateStore.consumeAlarmOnce(context)
 
-    if (type == TimerEventType.MAIN && (config.alarmModeEnabled || alarmOnce)) {
+    if (type == TimerEventType.MAIN && (config.alarmModeEnabled || alarmOnce) && ChandasAlarmService.start(context, config)) {
       scheduleNext(context, config)
-      launchAlarmOrFallback(context, config, type, onFinished)
+      onFinished()
       return
     }
 
@@ -455,7 +490,6 @@ object TimerScheduler {
     playCue(
       context,
       config,
-      type,
       if (type == TimerEventType.MAIN) "temple-gong" else "clear-bell",
       sound,
       config.volume,
@@ -463,20 +497,73 @@ object TimerScheduler {
     )
   }
 
-  private fun handleV2Triggered(context: Context, config: TimerConfig, triggerAt: Long, onFinished: () -> Unit) {
-    val event = config.timerV2Program?.let { TimerV2Timeline.next(it, config.timerV2Anchor, triggerAt - 1L, config.timerV2StartedAt, config.timerV2EndsAt, config.timerV2RandomSeed.takeIf { seed -> seed != 0L } ?: config.timerV2Anchor) }
-    if (event == null || event.at != triggerAt) {
+  private data class V2Delivery(
+    val context: Context,
+    val config: TimerConfig,
+    val event: TimerV2Event,
+    val alarm: Boolean,
+    val alarmExpiresAt: Long,
+    val sound: SelectedCueSound?,
+    val rarity: Double,
+  )
+
+  /** Claim simultaneous scheduled boundaries before Android delivers their individual broadcasts. */
+  private fun handleV2Batch(context: Context, config: TimerConfig, triggerAt: Long, onFinished: () -> Unit) {
+    val id = TimerRuns.id(context)
+    val candidates = mutableListOf<V2Delivery>()
+    prepareV2Delivery(context, config, triggerAt)?.let(candidates::add)
+    if (id != null) {
+      TimerRuns.contexts(context).filter { TimerRuns.id(it)?.let { other -> other != id } == true }.forEach { peer ->
+        val generation = TimerStateStore.currentSessionGeneration(peer)
+        val logicalId = TimerStateStore.nextLogicalId(peer)
+        val stored = TimerStateStore.load(peer)
+        if (generation != null && logicalId != null && stored != null &&
+          TimerStateStore.matchesNext(peer, triggerAt, TimerEventType.V2, logicalId, generation)) {
+          ChandasAlarmService.expireAtBoundary(peer, triggerAt)
+          TimerStateStore.clearNext(peer)
+          val peerConfig = reconcileLocalClock(peer, stored, System.currentTimeMillis()).config
+          prepareV2Delivery(peer, peerConfig, triggerAt)?.let(candidates::add)
+        }
+      }
+    }
+    val winner = candidates.filter { it.alarm || it.sound != null }.sortedWith(
+      compareByDescending<V2Delivery> { it.alarm }.thenByDescending { it.rarity }.thenBy { TimerRuns.id(it.context).orEmpty() }
+    ).firstOrNull()
+    for (cue in candidates) {
+      val audible = cue === winner
+      val suppressed = !audible && (cue.alarm || cue.sound != null)
+      val ringing = audible && cue.alarm && ChandasAlarmService.start(cue.context, cue.config, cue.alarmExpiresAt)
+      if (!ringing && !suppressed) playV2Haptics(cue.context, cue.config, cue.event)
+      if (cue.event.completesRun) completeSession(cue.context) else scheduleNext(cue.context, cue.config)
+      emitV2Event(cue.context, cue.event, suppressed, if (suppressed) "overlapping-cue" else "none")
+      val sound = cue.sound
+      if (!ringing && audible && sound != null) {
+        val accepted = playCue(cue.context, cue.config, sound.soundId, resourceForV2Sound(sound.soundId),
+          (cue.config.volume * cue.event.winner.volume).coerceIn(0f, 1f), {}, cue.event.completesRun)
+        if (accepted && !cue.event.completesRun) TimerStateStore.commitCueSoundIndex(cue.context, cue.event.winner.cueId, sound.index)
+      }
+    }
+    onFinished()
+  }
+
+  private fun prepareV2Delivery(context: Context, config: TimerConfig, triggerAt: Long): V2Delivery? {
+    val program = config.timerV2Program
+    val event = program?.let { TimerV2Timeline.next(it, config.timerV2Anchor, triggerAt - 1L, config.timerV2StartedAt, config.timerV2EndsAt, config.timerV2RandomSeed.takeIf { seed -> seed != 0L } ?: config.timerV2Anchor) }
+    if (program == null || event == null || event.at != triggerAt) {
       scheduleNext(context, config)
-      onFinished()
-      return
+      return null
     }
     val now = System.currentTimeMillis()
     val isPatternMain = event.boundary == TimerV2Boundary.PATTERN_MAIN
+    if (config.timerV2PausedAt > 0L && event.completesRun && TimerV2Timeline.isUntil(config.timerV2Program)) {
+      completeSession(context)
+      emitV2Event(context, event, suppressed = true, reason = "user-mute")
+      return null
+    }
     if (!ActiveHours.allowsCueDelivery(config, event.at, now)) {
       if (event.completesRun) completeSession(context) else scheduleNext(context, config)
-      emitV2Event(event, suppressed = true, reason = "outside-active-hours")
-      onFinished()
-      return
+      emitV2Event(context, event, suppressed = true, reason = "outside-active-hours")
+      return null
     }
     val controls = TimerStateStore.getControlState(context, now)
     val continuousAlarmRequested = !event.completesRun &&
@@ -485,46 +572,33 @@ object TimerScheduler {
     // one-shot alarm or timed/cycle mute state, and no missed cue is replayed.
     if (config.muteDuringCallsEnabled && CallState.isActive(context) && !continuousAlarmRequested) {
       if (event.completesRun) completeSession(context) else scheduleNext(context, config)
-      emitV2Event(event, suppressed = true, reason = "call-active")
-      onFinished()
-      return
+      emitV2Event(context, event, suppressed = true, reason = "call-active")
+      return null
     }
     val temporarilyMuted = TimerStateStore.consumeMuteForEvent(context, TimerEventType.V2, now, event.logicalId)
     val muted = config.volume <= 0f || temporarilyMuted
     if (muted) {
       if (event.completesRun) completeSession(context) else scheduleNext(context, config)
-      emitV2Event(event, suppressed = true, reason = if (config.volume <= 0f) "master-muted" else "user-mute")
-      onFinished()
-      return
+      emitV2Event(context, event, suppressed = true, reason = if (config.volume <= 0f) "master-muted" else "user-mute")
+      return null
     }
     val alarmOnce = isPatternMain && !event.completesRun && TimerStateStore.consumeAlarmOnce(context)
-    if (!event.completesRun && (event.winner.alarmEnabled || (isPatternMain && (config.alarmModeEnabled || alarmOnce)))) {
-      if (event.showOnWatchFace) FloatingTimerOverlay.onCue(context)
-      scheduleNext(context, config)
-      emitV2Event(event, suppressed = false, reason = "none")
-      launchAlarmOrFallback(context, config, TimerEventType.V2, onFinished)
-      return
+    val ringAlarm = !event.completesRun && (event.winner.alarmEnabled || (isPatternMain && (config.alarmModeEnabled || alarmOnce)))
+    val stepDeadline = if (ringAlarm) TimerV2Timeline.stepAlarmExpiresAt(program, config.timerV2Anchor, event, config.timerV2EndsAt) else 0L
+    val ringDeadline = event.at + config.alarmDurationSeconds.coerceIn(5, 3_600) * 1_000L
+    val alarmExpiresAt = if (stepDeadline > 0L) minOf(stepDeadline, ringDeadline) else ringDeadline
+    val selectedSound = if (event.winner.soundEnabled && event.winner.volume > 0f) selectedCueSound(context, event) else null
+    val canRing = ringAlarm && alarmExpiresAt > now
+    val round = TimerV2Timeline.cycleDuration(program) ?: config.mainMs
+    // Use occurrences in the whole round so sparse selections and random
+    // tracks are ranked by how often they actually contribute a cue.
+    val rarity = when {
+      event.completesRun -> Double.POSITIVE_INFINITY
+      event.winner.occurrencesPerRound != null -> round.toDouble() / event.winner.occurrencesPerRound
+      else -> event.winner.cadenceSeconds?.times(1_000.0) ?: round.toDouble()
     }
     if (event.showOnWatchFace) FloatingTimerOverlay.onCue(context)
-    playV2Haptics(context, config, event)
-    val selectedSound = if (event.winner.soundEnabled) selectedCueSound(context, event) else null
-    if (event.completesRun) completeSession(context) else scheduleNext(context, config)
-    emitV2Event(event, suppressed = false, reason = "none")
-    if (selectedSound == null) {
-      onFinished()
-      return
-    }
-    val accepted = playCue(
-      context,
-      config,
-      TimerEventType.V2,
-      selectedSound.soundId,
-      resourceForV2Sound(selectedSound.soundId),
-      (config.volume * event.winner.volume).coerceIn(0f, 1f),
-      onFinished,
-      event.completesRun,
-    )
-    if (accepted && !event.completesRun) TimerStateStore.commitCueSoundIndex(context, event.winner.cueId, selectedSound.index)
+    return V2Delivery(context, config, event, canRing, alarmExpiresAt, selectedSound, rarity)
   }
 
   private data class SelectedCueSound(val soundId: String, val index: Int)
@@ -545,7 +619,6 @@ object TimerScheduler {
   private fun playCue(
     context: Context,
     config: TimerConfig,
-    type: TimerEventType,
     soundId: String,
     fallbackResId: Int,
     volume: Float,
@@ -557,51 +630,21 @@ object TimerScheduler {
       soundId,
       fallbackResId,
       volume,
-      type,
       config.notificationPresentation,
       completion,
     )
     if (handedOff) onReceiverFinished()
-    else TimerSoundPlayer.play(context, soundId, fallbackResId, volume, onReceiverFinished)
+    else TimerSoundPlayer.play(context, soundId, fallbackResId, volume, onLaunched = onReceiverFinished)
     return true
   }
 
-  private fun launchAlarmOrFallback(
-    context: Context,
-    config: TimerConfig,
-    type: TimerEventType,
-    onReceiverFinished: () -> Unit,
-  ) {
-    TimerStateStore.setRinging(context, true)
-    TimerStateStore.setAlarmVisible(context, true)
-    AlarmStateRegistry.notify(true)
-    TimerNotifications.cancelRunning(context)
-    if (ChandasAlarmService.start(context, config)) {
-      onReceiverFinished()
-      return
+  private fun emitV2Event(context: Context, event: TimerV2Event, suppressed: Boolean, reason: String) {
+    TimerPlaybackTrace.record(context) {
+      "boundary=${event.boundary.value} scheduled=${event.at} stepAlarm=${event.winner.alarmEnabled} " +
+        "suppressed=$suppressed reason=$reason completion=${event.completesRun}"
     }
-
-    // Never leave an alarm overlay/state behind when Android rejects the
-    // foreground launch. Restore the running surface and preserve one audible
-    // alarm cue through the ordinary cue service.
-    TimerStateStore.setRinging(context, false)
-    TimerStateStore.setAlarmVisible(context, false)
-    AlarmStateRegistry.notify(false)
-    TimerNotifications.postRunning(context, config)
-    TimerHaptics.cue(context, config.haptics, primary = true)
-    playCue(
-      context,
-      config,
-      type,
-      config.alarmSoundId,
-      R.raw.alarm,
-      (config.volume * config.alarmVolume).coerceIn(0f, 1f),
-      onReceiverFinished,
-    )
-  }
-
-  private fun emitV2Event(event: TimerV2Event, suppressed: Boolean, reason: String) {
     TimerEventRegistry.notify(
+      context,
       TimerEventSignal(
         at = event.at,
         firedAt = System.currentTimeMillis(),
@@ -670,14 +713,14 @@ object TimerScheduler {
   private fun completeSession(context: Context) {
     cancelScheduledEvent(context)
     ChandasCueService.stop(context)
-    TimerSoundPlayer.stopAll()
+    if (TimerRuns.id(context) == null) TimerSoundPlayer.stopAll()
+    ChandasAlarmService.cancel(context)
     TimerStateStore.clear(context)
-    FocusModeController.deactivate(context)
+    TimerRuns.unregister(context)
+    TimerRuns.reconcileFocus(context)
     TimerNotifications.cancelRunning(context)
-    TimerNotifications.cancelAlarm(context)
-    context.stopService(Intent(context, ChandasAlarmService::class.java))
-    AlarmStateRegistry.notify(false)
-    TimerStateRegistry.notify(TimerScheduleState(false, 0L, 0L, null, canScheduleExactAlarms(context)))
+    AlarmStateRegistry.notify(context, false)
+    TimerStateRegistry.notify(context, TimerScheduleState(false, 0L, 0L, null, canScheduleExactAlarms(context)))
   }
 
   private fun stopForExactAccess(context: Context) {
@@ -687,15 +730,17 @@ object TimerScheduler {
     // closed and make the inactive state authoritative everywhere.
     cancelScheduledEvent(context)
     ChandasCueService.stop(context)
-    TimerSoundPlayer.stopAll()
-    TimerHaptics.stop(context)
+    if (TimerRuns.id(context) == null) {
+      TimerSoundPlayer.stopAll()
+      TimerHaptics.stop(context)
+    }
+    ChandasAlarmService.cancel(context)
     TimerStateStore.clear(context)
-    FocusModeController.deactivate(context)
+    TimerRuns.unregister(context)
+    TimerRuns.reconcileFocus(context)
     TimerNotifications.cancelRunning(context)
-    TimerNotifications.cancelAlarm(context)
-    context.stopService(Intent(context, ChandasAlarmService::class.java))
-    AlarmStateRegistry.notify(false)
-    TimerStateRegistry.notify(TimerScheduleState(false, 0L, 0L, null, false))
+    AlarmStateRegistry.notify(context, false)
+    TimerStateRegistry.notify(context, TimerScheduleState(false, 0L, 0L, null, false))
   }
 
   @Synchronized
@@ -703,7 +748,7 @@ object TimerScheduler {
     val operation = PendingIntent.getBroadcast(
       context,
       TIMER_REQUEST,
-      Intent(context, TimerEventReceiver::class.java).setAction(TimerEventReceiver.ACTION_FIRE),
+      TimerRuns.route(Intent(context, TimerEventReceiver::class.java), context).setAction(TimerEventReceiver.ACTION_FIRE),
       PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE,
     )
     if (operation != null) {

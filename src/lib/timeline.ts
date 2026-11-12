@@ -10,6 +10,7 @@ export interface TimelineCueCandidate {
   showOnWatchFace?: boolean
   kind: 'pattern-main' | 'pattern-track' | 'sequence-step' | 'run-complete'
   alarmEnabled?: boolean
+  occurrencesPerRound?: number
   sound: SoundRef
   volume: number
   sounds?: SoundRef[]
@@ -81,6 +82,7 @@ function unifiedRuntimeEvent(event: UnifiedScheduledEvent, singleStep: boolean):
     showOnWatchFace: candidate.showOnWatchFace,
     kind: candidate.kind === 'sub-bell' ? 'pattern-track' : candidate.kind === 'step-end' ? (singleStep ? 'pattern-main' : 'sequence-step') : 'run-complete',
     alarmEnabled: candidate.alarmEnabled,
+    occurrencesPerRound: candidate.occurrencesPerRound,
     sound: candidate.sound, volume: candidate.volume, sounds: candidate.sounds, soundMode: candidate.soundMode, hapticOverride: candidate.hapticOverride,
     cadenceSeconds: candidate.cadencePriority > 0 ? candidate.cadenceSeconds : undefined,
     trackOrder: candidate.trackOrder,
@@ -189,6 +191,29 @@ export function currentStepEndAt(program: RuntimeTimerProgram, position: Timelin
 
 export function hasFollowingStep(program: RuntimeTimerProgram, position: TimelinePosition | null, runEndsAt: number): boolean {
   return !!position && (runEndsAt <= 0 || currentStepEndAt(program, position) < runEndsAt)
+}
+
+export function currentStepDurationMs(program: RuntimeTimerProgram, index: number): number {
+  if (program.mode === 'pattern') return patternDurationSeconds(program) * 1_000
+  if (program.mode === 'unified') return (program.steps[index]?.durationSeconds ?? 0) * 1_000
+  const step = program.steps[index]
+  return step ? sequenceStepDurationSeconds(step) * 1_000 : 0
+}
+
+export function seekStepTarget(program: RuntimeTimerProgram, anchor: number, now: number, startedAt: number, terminalAt: number | null, fraction: number): SequenceSkipTarget | null {
+  if (!Number.isFinite(fraction) || fraction < 0 || fraction >= 1 || terminalAt !== null && now >= terminalAt) return null
+  const position = timelinePosition(program, anchor, now, startedAt, terminalAt)
+  const duration = currentStepDurationMs(program, position.currentStepIndex ?? 0)
+  if (!duration) return null
+  const stepStart = currentStepEndAt(program, position) - duration
+  const delta = now - stepStart - Math.floor(duration * fraction)
+  const cycleBounded = program.runPolicy.kind === 'cycles'
+  return {
+    anchor: anchor + delta,
+    startedAt: cycleBounded ? startedAt + delta : startedAt,
+    terminalAt: cycleBounded && terminalAt !== null ? terminalAt + delta : terminalAt,
+    completesRun: false,
+  }
 }
 
 export function runEndAt(program: RuntimeTimerProgram, anchor: number, startedAt: number): number | null {

@@ -22,7 +22,7 @@ export function useSheetSnap({
   visible, initialSnap, onClose, windowHeight, topInset, minHeight, partialMinHeight,
   partialHeightFraction = 0.64, maxHeightFraction = 1, topMargin = 18, reducedMotion,
 }: UseSheetSnapOptions) {
-  const fullHeight = Math.max(minHeight, Math.min(windowHeight * maxHeightFraction, windowHeight - topInset - topMargin))
+  const fullHeight = Math.max(0, Math.min(Math.max(minHeight, windowHeight * maxHeightFraction), windowHeight - topInset - topMargin))
   const partialHeight = Math.min(fullHeight, Math.max(minHeight, partialMinHeight, Math.round(windowHeight * partialHeightFraction)))
   const [snap, setSnap] = useState<SheetSnap>(initialSnap)
   const snapRef = useRef<SheetSnap>(initialSnap)

@@ -7,19 +7,20 @@ import { AppState as NativeAppState, Linking, PermissionsAndroid, Platform, Pres
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { useFonts, JetBrainsMono_300Light, JetBrainsMono_400Regular } from '@expo-google-fonts/jetbrains-mono'
-import Reanimated, { FadeIn, FadeOut } from 'react-native-reanimated'
+import Reanimated, { FadeIn } from 'react-native-reanimated'
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext'
-import type { AppState, AppTimerSettings, CueSettings, RuntimeTimerProgram, WorkingProgramState } from './src/types'
+import type { AppState, AppTimerSettings, CueSettings, RuntimeTimerProgram, UnifiedTimerProgram, WorkingProgramState } from './src/types'
 import { useTimerV2 } from './src/hooks/useTimerV2'
+import { useTimerRunPool } from './src/hooks/useTimerRunPool'
 import { loadTimerV2Session, type TimerV2Session } from './src/lib/storage'
 import { normalizeAvailabilityPolicy } from './src/lib/timerV2'
 import { legacySessionProgram } from './src/lib/legacy-session-program'
 import { defaultTimerHapticsSettings, normalizeTimerHapticsSettings } from './src/lib/haptic-profiles'
 import { setAppHapticsEnabled, successHaptic, tapHaptic } from './src/lib/haptics'
-import { UnifiedTimerConfigScreen } from './src/screens/UnifiedTimerConfigScreen'
+import { UnifiedTimerConfigScreen, type GroupMuteAction } from './src/screens/UnifiedTimerConfigScreen'
 import { TimerV2RunningScreen } from './src/screens/TimerV2RunningScreen'
 import { AlarmRingingScreen } from './src/screens/AlarmRingingScreen'
-import { ChandasTimerService, isNativeServiceAvailable, type NativeFocusState } from './src/native/ChandasTimerService'
+import { ChandasTimerService, consumeNativeRunDestination, focusNativeTimerRun, isNativeServiceAvailable, nativeTimerRun, nativeTimerRunIds, supportsNativeTimerRuns, type NativeFocusState } from './src/native/ChandasTimerService'
 import { AppLoadingScreen, type AppNotice } from './src/components/timer-v2/experience-feedback'
 import { FeedbackLayerProvider, RootFeedbackOverlay } from './src/components/timer-v2/feedback-layer'
 import { AppErrorBoundary } from './src/components/timer-v2/app-error-boundary'
@@ -27,8 +28,8 @@ import { ConfirmationProvider } from './src/components/timer-v2/ConfirmationDial
 import { clockOffsetLabel } from './src/lib/clockAlignment'
 import { unifiedCueIdentity } from './src/lib/unified-timeline'
 import { bootstrapUnifiedConfigState, saveUnifiedConfigState } from './src/lib/unified-storage'
-import { reduceUnifiedConfigCommand, stableJson, UNNAMED_DRAFT_KEY, type ConfigStateCommand, type UnifiedConfigState, type UnifiedTimerConfig, type UnifiedTimerDraft } from './src/lib/unified-config-state'
-import { clearUnifiedTimerSession, loadUnifiedTimerSession } from './src/lib/unified-session'
+import { effectiveAlarmSettings, reduceUnifiedConfigCommand, stableJson, UNNAMED_DRAFT_KEY, type ConfigStateCommand, type UnifiedConfigState, type UnifiedTimerConfig, type UnifiedTimerDraft } from './src/lib/unified-config-state'
+import { clearUnifiedTimerRun, clearUnifiedTimerSession, loadUnifiedTimerRuns, loadUnifiedTimerSession } from './src/lib/unified-session'
 import { parseUnifiedTimerProgram } from './src/lib/unified-timer'
 import type { TimerRestore } from './src/hooks/useTimerV2'
 
@@ -163,11 +164,25 @@ function Root() {
   const sessionWarningShown = useRef<string | null>(null)
   const fullScreenGuidanceShown = useRef(false)
   const handledCompletionPulse = useRef(0)
+  const [focusedRunId, setFocusedRunId] = useState<string | null>(null)
+  const [runEnterDirection, setRunEnterDirection] = useState(0)
+  const focusedRunRef = useRef<string | null>(null)
+  const pendingFocusRef = useRef<string | null>(null)
+  const libraryOriginRun = useRef<string | null>(null)
+  const [openLibraryOnMount, setOpenLibraryOnMount] = useState(false)
+  const poolEndRef = useRef<(id: string, completed: boolean) => void>(() => undefined)
+  const pool = useTimerRunPool((id, completed) => poolEndRef.current(id, completed))
+  const { entriesRef: runEntriesRef, viewsRef: runViewsRef, patch: patchRun, remove: removeRun, launch: launchRun } = pool
+  const deletingConfiguration = useRef<string | null>(null)
 
   const commitActiveRun = useCallback((next: ActiveRunSnapshot | null) => {
+    if (next && configStateRef.current) next = { ...next, settings: { ...next.settings, availability: configStateRef.current.globalAvailability } }
     activeRunRef.current = next
     setActiveRun(next)
-  }, [])
+    if (focusedRunRef.current && next?.program.mode === 'unified') {
+      patchRun(focusedRunRef.current, { program: next.program, settings: next.settings, sourcePreset: next.sourcePreset })
+    }
+  }, [patchRun])
   const currentDraft = configState
     ? Object.prototype.hasOwnProperty.call(configState.drafts, configState.selectedConfigId ?? UNNAMED_DRAFT_KEY)
       ? configState.drafts[configState.selectedConfigId ?? UNNAMED_DRAFT_KEY]
@@ -189,8 +204,10 @@ function Root() {
   const stopAttemptGeneration = useRef(0)
   const stopRetryTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
   const stopNeedsAttention = useRef(false)
+  const returningToSetup = useRef(false)
   const restoreAttempt = useRef<PendingRestore | null>(null)
-  const timer = useTimerV2(program, liveSettings, sourcePreset)
+  const legacyTimer = useTimerV2(program, liveSettings, sourcePreset)
+  const timer = (focusedRunId ? pool.views.get(focusedRunId) : undefined) ?? legacyTimer
 
   const showNotice = useCallback((next: Omit<AppNotice, 'id'>) => {
     noticeSequence.current += 1
@@ -255,6 +272,145 @@ function Root() {
     configSemanticQueue.current = queued.then(() => undefined, () => undefined)
     return queued
   }, [persistConfigSnapshot, showNotice])
+  const returnToRunSetup = useCallback(() => {
+    if (returningToSetup.current) return
+    const sourceId = activeRunRef.current?.sourcePreset?.id ?? null
+    const state = configStateRef.current
+    const openSetup = () => {
+      const runId = focusedRunRef.current
+      focusedRunRef.current = null
+      setFocusedRunId(null)
+      if (runId) removeRun(runId)
+      commitActiveRun(null)
+      libraryOriginRun.current = null
+      setOpenLibraryOnMount(false)
+      setAppState('config')
+      returningToSetup.current = false
+    }
+    if (!state || state.selectedConfigId === sourceId || (sourceId === null ? !focusedRunRef.current : !state.configs.some(config => config.id === sourceId))) {
+      openSetup()
+      return
+    }
+    returningToSetup.current = true
+    // The running snapshot and the editable draft are separate. Select the
+    // run's source without replacing either configuration's working copy.
+    void onConfigCommand({ type: 'switch', configId: sourceId, choice: 'keep' }).then(openSetup, openSetup)
+  }, [commitActiveRun, onConfigCommand, removeRun])
+  poolEndRef.current = (id, completed) => {
+    if (focusedRunRef.current === id) returnToRunSetup()
+    else removeRun(id)
+    if (completed) {
+      const name = runEntriesRef.current.find(entry => entry.id === id)?.input.sourcePreset?.name
+      showNotice({ title: name ? `${name} finished` : 'Timer finished', tone: 'success' })
+    }
+  }
+
+  const focusRun = (id: string, direction = 0) => {
+    const entry = runEntriesRef.current.find(run => run.id === id)
+    if (!entry || !runViewsRef.current.get(id)?.isRunning || returningToSetup.current) return false
+    reanchorAttemptGeneration.current += 1
+    realigningRef.current = false
+    setRealigning(false)
+    pendingFocusRef.current = null
+    focusedRunRef.current = id
+    setRunEnterDirection(direction)
+    setFocusedRunId(id)
+    focusNativeTimerRun(id)
+    activeRunRef.current = { ...entry.input, sessionId: id }
+    setActiveRun(activeRunRef.current)
+    setAppState('running')
+    return true
+  }
+
+  const pausePooledRun = (id: string, paused: boolean) => {
+    const entry = runEntriesRef.current.find(run => run.id === id)
+    const view = runViewsRef.current.get(id)
+    if (!entry || !view?.isRunning || view.isPaused === paused || !view.setPaused(paused)) return
+    if (paused && entry.input.program.alignment.kind === 'local-clock') {
+      patchRun(id, { ...entry.input, program: { ...entry.input.program, alignment: { kind: 'elapsed' } } })
+    }
+  }
+
+  const nativeDestination = useRef<ReturnType<typeof consumeNativeRunDestination>>(null)
+  const focusRunRef = useRef(focusRun)
+  focusRunRef.current = focusRun
+  useEffect(() => {
+    if (pendingFocusRef.current) focusRunRef.current(pendingFocusRef.current)
+  }, [pool.views])
+  const openNativeDestination = useCallback(() => {
+    nativeDestination.current = consumeNativeRunDestination() ?? nativeDestination.current
+    const target = nativeDestination.current
+    if (!target || !runViewsRef.current.get(target.id)?.isRunning) return
+    nativeDestination.current = null
+    focusRunRef.current(target.id)
+    if (target.panel) setFloatingTimerPanel(target.panel)
+  }, [runViewsRef])
+  useEffect(() => {
+    if (!ready || !supportsNativeTimerRuns) return
+    openNativeDestination()
+  }, [openNativeDestination, pool.views, ready])
+  useEffect(() => {
+    if (!supportsNativeTimerRuns) return
+    const subscription = NativeAppState.addEventListener('change', next => {
+      if (next !== 'active') return
+      for (const entry of runEntriesRef.current) {
+        const native = nativeTimerRun(entry.id)?.getState()
+        const program = native?.active ? parseRuntimeProgram(native.timerV2Program) : null
+        if (program?.mode !== 'unified' || stableJson(program) === stableJson(entry.input.program)) continue
+        const changed = { ...entry.input, program }
+        if (focusedRunRef.current === entry.id) commitActiveRun({ ...changed, sessionId: entry.id })
+        else patchRun(entry.id, changed)
+        if (program.steps.some((step, index) => step.endAlarmEnabled !== entry.input.program.steps[index]?.endAlarmEnabled)) {
+          const configId = entry.input.sourcePreset?.id ?? null
+          const state = configStateRef.current
+          const draft = state?.drafts[configId ?? UNNAMED_DRAFT_KEY] ?? state?.configs.find(config => config.id === configId)
+          if (draft) void onConfigCommand({ type: 'edit', configId, changes: { program: {
+            ...draft.program,
+            steps: draft.program.steps.map(step => {
+              const current = program.steps.find(value => value.id === step.id)
+              return current ? { ...step, endAlarmEnabled: current.endAlarmEnabled } : step
+            }),
+          } } })
+        }
+      }
+      openNativeDestination()
+    })
+    return () => subscription.remove()
+  }, [commitActiveRun, onConfigCommand, openNativeDestination, patchRun, runEntriesRef])
+
+  const openRunLibrary = () => {
+    libraryOriginRun.current = focusedRunRef.current
+    focusedRunRef.current = null
+    setFocusedRunId(null)
+    commitActiveRun(null)
+    setOpenLibraryOnMount(true)
+    setAppState('config')
+  }
+
+  const deleteConfiguration = async (id: string) => {
+    if (deletingConfiguration.current) return
+    deletingConfiguration.current = id
+    try {
+      const entry = runEntriesRef.current.find(run => run.input.sourcePreset?.id === id)
+      const run = entry && runViewsRef.current.get(entry.id)
+      if (entry && (!run?.isRunning || !run.stop())) {
+        showNotice({ title: 'Timer could not stop', message: 'Try again before deleting its configuration.', tone: 'attention' })
+        return
+      }
+      await onConfigCommand({ type: 'delete', id, discardDraft: true })
+    } finally {
+      deletingConfiguration.current = null
+    }
+  }
+
+  useEffect(() => {
+    if (!configState) return
+    for (const { id, input } of runEntriesRef.current) {
+      if (stableJson(input.settings.availability) !== stableJson(configState.globalAvailability)) {
+        patchRun(id, { ...input, settings: { ...input.settings, availability: configState.globalAvailability } })
+      }
+    }
+  }, [configState?.globalAvailability, patchRun, runEntriesRef])
   const applyDownloadedUpdate = useCallback(() => {
     showNotice({ title: 'Opening the latest Chandas…', message: 'Your timer setup is already saved.', tone: 'info', persistent: true })
     void Updates.reloadAsync().catch(() => {
@@ -288,7 +444,7 @@ function Root() {
       }
       return
     }
-  }, [appState, commitActiveRun])
+  }, [appState, commitActiveRun, focusedRunId])
 
   const refreshAndroidAccess = useCallback(async () => {
     if (Platform.OS !== 'android') return
@@ -347,7 +503,7 @@ function Root() {
   }, [appState, applyDownloadedUpdate, ready, showNotice, updateState.currentlyRunning.isEmergencyLaunch, updateState.isUpdatePending])
 
   useEffect(() => {
-    if (Platform.OS !== 'android' || appState !== 'running') return
+    if (Platform.OS !== 'android' || appState !== 'running' || focusedRunId) return
     const subscription = NativeAppState.addEventListener('change', state => {
       if (state !== 'active' || !isNativeServiceAvailable || ChandasTimerService.canScheduleExactAlarms()) return
       if (timer.stop()) {
@@ -359,10 +515,10 @@ function Root() {
       }
     })
     return () => subscription.remove()
-  }, [appState, commitActiveRun, openExactAlarmSettings, showNotice, timer.stop])
+  }, [appState, commitActiveRun, focusedRunId, openExactAlarmSettings, showNotice, timer.stop])
 
   useEffect(() => {
-    if (Platform.OS !== 'android' || !isNativeServiceAvailable || appState !== 'running') return
+    if (Platform.OS !== 'android' || !isNativeServiceAvailable || appState !== 'running' || focusedRunId) return
     const reconcileOverlayChanges = () => {
       const destination = ChandasTimerService.consumeFloatingOverlayDestination()
       if (destination) setFloatingTimerPanel(destination)
@@ -404,6 +560,61 @@ function Root() {
       const initialDraft = Object.prototype.hasOwnProperty.call(loaded.state.drafts, loaded.state.selectedConfigId ?? UNNAMED_DRAFT_KEY)
         ? loaded.state.drafts[loaded.state.selectedConfigId ?? UNNAMED_DRAFT_KEY]
         : undefined
+      if (Platform.OS === 'web' || (supportsNativeTimerRuns && !ChandasTimerService.getState().active)) {
+        const nativeIds = new Set(nativeTimerRunIds())
+        const collection = await loadUnifiedTimerRuns(AsyncStorage)
+        if (collection.status === 'recovery-required') {
+          setSessionRecovery({ reason: collection.reason, raw: collection.raw })
+          setReady(true)
+          showNotice({ title: 'Timer sessions need recovery', message: collection.reason, tone: 'attention', persistent: true })
+          return
+        }
+        if (collection.sessions.length || nativeIds.size) {
+          for (const session of collection.sessions) {
+            const scopedNative = nativeIds.delete(session.sessionId) ? nativeTimerRun(session.sessionId)?.getState() : null
+            const expiredWeb = !supportsNativeTimerRuns && session.endsAt && session.endsAt <= Date.now() && (!session.pausedAt || session.program.runPolicy.kind === 'until')
+            if (expiredWeb || (supportsNativeTimerRuns && !scopedNative?.active)) {
+              await clearUnifiedTimerRun(AsyncStorage, session.sessionId)
+              continue
+            }
+            const nativeProgram = scopedNative ? parseRuntimeProgram(scopedNative.timerV2Program) : null
+            if (scopedNative && (nativeProgram?.mode !== 'unified' || !scopedNative.timerV2Anchor)) {
+              showNotice({ title: 'A running timer needs recovery', message: session.sourcePreset?.name ?? 'Unnamed timer', tone: 'attention', persistent: true })
+              continue
+            }
+            const restore: TimerRestore = scopedNative ? {
+              ...session,
+              anchor: scopedNative.timerV2Anchor!,
+              startedAt: scopedNative.timerV2StartedAt,
+              endsAt: scopedNative.timerV2EndsAt || undefined,
+              pausedAt: scopedNative.timerV2PausedAt || undefined,
+              randomSeed: scopedNative.timerV2RandomSeed || session.randomSeed,
+              nativeGeneration: scopedNative.sessionGeneration,
+              mute: scopedNative.mutedIterationEndId && scopedNative.mutedIterationEndAt
+                ? { mutedUntil: scopedNative.mutedUntil ?? 0, iteration: { endsAtLogicalId: scopedNative.mutedIterationEndId, endsAt: scopedNative.mutedIterationEndAt, iterations: Math.max(1, scopedNative.mutedIterationsRemaining ?? 1) } }
+                : { mutedUntil: scopedNative.mutedUntil ?? 0 },
+              alarmBehavior: scopedNative.alarmModeEnabled ? 'locked' : scopedNative.alarmOnceArmed ? 'once' : 'off',
+            } : session
+            const settings = scopedNative ? settingsFromNative(session.settings, scopedNative) : session.settings
+            void launchRun({
+              program: nativeProgram?.mode === 'unified' ? nativeProgram : session.program,
+              settings: { ...settings, availability: loaded.state.globalAvailability },
+              sourcePreset: session.sourcePreset,
+            }, restore).then(id => {
+              if (!id) showNotice({ title: 'A timer could not reopen', message: session.sourcePreset?.name ?? 'Unnamed timer', tone: 'attention' })
+            })
+          }
+          if (nativeIds.size) {
+            setSessionRecovery({ reason: 'Android has an active timer without its saved working copy.' })
+            showNotice({ title: 'A running timer needs recovery', message: 'Android kept its active schedule.', tone: 'attention', persistent: true })
+          } else {
+            setSessionRecovery(null)
+          }
+          setOpenLibraryOnMount(true)
+          setReady(true)
+          return
+        }
+      }
       let pending: PendingRestore | null = null
       let recovery: { reason: string; raw?: string } | null = null
 
@@ -480,7 +691,7 @@ function Root() {
         } else if (unifiedSession.status === 'recovery-required') {
           recovery = { reason: unifiedSession.reason, ...(unifiedSession.raw ? { raw: unifiedSession.raw } : {}) }
         }
-      } else if (unifiedSession.status === 'loaded') {
+      } else if (unifiedSession.status === 'loaded' && Platform.OS !== 'web') {
         const session = unifiedSession.session
         const frozen = { program: session.program, settings: session.settings, sourcePreset: session.sourcePreset, sessionId: session.sessionId, nativeGeneration: session.nativeGeneration }
         commitActiveRun(frozen)
@@ -489,7 +700,7 @@ function Root() {
           randomSeed: session.randomSeed, mute: session.mute, alarmBehavior: session.alarmBehavior,
           soundState: session.soundState, sessionId: session.sessionId, nativeGeneration: session.nativeGeneration,
         }, attachNative: false }
-      } else if (unifiedSession.status === 'recovery-required') {
+      } else if (unifiedSession.status === 'recovery-required' && Platform.OS !== 'web') {
         recovery = { reason: unifiedSession.reason, ...(unifiedSession.raw ? { raw: unifiedSession.raw } : {}) }
       } else if (legacySession) {
         const frozen = { program: legacySession.program, settings: legacySession.settings ?? initialDraft?.settings ?? FALLBACK_SETTINGS, sourcePreset: legacySession.sourcePreset }
@@ -518,7 +729,7 @@ function Root() {
       setReady(true)
       showNotice({ title: 'Saved timer data needs recovery', message: 'Chandas preserved the source records and did not create replacement data.', tone: 'attention', persistent: true })
     })
-  }, [commitActiveRun, configRetry, showNotice])
+  }, [commitActiveRun, configRetry, launchRun, showNotice])
 
   useEffect(() => {
     if (!restoreSession || !configState) return
@@ -553,6 +764,7 @@ function Root() {
   }, [restoreSession, showNotice, timer.attachNativeSession, timer.start, configState, commitActiveRun])
 
   const stop = useCallback(() => {
+    if (returningToSetup.current) return
     // Keep the active run visible until the timer runtime confirms it stopped.
     reanchorAttemptGeneration.current += 1
     realigningRef.current = false
@@ -568,8 +780,7 @@ function Root() {
       if (timer.stop()) {
         stopRetryTimeout.current = null
         stopNeedsAttention.current = false
-        commitActiveRun(null)
-        setAppState('config')
+        returnToRunSetup()
         if (clearStopWarningOnSuccess) dismissNotice()
         refreshFocusState()
         return
@@ -593,7 +804,7 @@ function Root() {
     }
 
     attempt(0)
-  }, [commitActiveRun, dismissNotice, refreshFocusState, showNotice, timer.stop])
+  }, [returnToRunSetup, dismissNotice, refreshFocusState, showNotice, timer.stop])
 
   useEffect(() => {
     if (!ready || appState !== 'running' || restoreSession || timer.isRunning) return
@@ -608,9 +819,8 @@ function Root() {
         return
       }
     }
-    commitActiveRun(null)
-    setAppState('config')
-  }, [appState, commitActiveRun, ready, restoreSession, timer.isRunning])
+    returnToRunSetup()
+  }, [appState, returnToRunSetup, ready, restoreSession, timer.isRunning])
 
   useEffect(() => {
     if (!ready || restoreSession || appState !== 'config' || Platform.OS !== 'android' || !isNativeServiceAvailable) return
@@ -628,13 +838,12 @@ function Root() {
   }, [])
 
   useEffect(() => {
-    if (timer.completionPulse <= handledCompletionPulse.current) return
+    if (focusedRunId || timer.completionPulse <= handledCompletionPulse.current) return
     handledCompletionPulse.current = timer.completionPulse
-    commitActiveRun(null)
-    setAppState('config')
+    returnToRunSetup()
     showNotice({ title: 'Session complete', message: 'Your timer finished exactly where you asked. The setup is ready whenever you want another round.', tone: 'success' })
     successHaptic()
-  }, [commitActiveRun, showNotice, timer.completionPulse])
+  }, [focusedRunId, returnToRunSetup, showNotice, timer.completionPulse])
 
   useEffect(() => {
     if (timer.runtimeInterruption !== 'exact-alarm-access') return
@@ -734,23 +943,49 @@ function Root() {
     }
   }
 
-  const start = (configurationId?: string | null) => {
+  const start = (configurationId?: string | null, fromLibrary = false) => {
     // A fast second tap must not replace the just-created native session with
     // a slightly different anchor or open duplicate permission guidance.
     if (startingRef.current) return
     const state = configStateRef.current
     const key = state?.selectedConfigId ?? UNNAMED_DRAFT_KEY
     const selectedDraft = state && Object.prototype.hasOwnProperty.call(state.drafts, key) ? state.drafts[key] : undefined
-    const savedConfig = configurationId ? state?.configs.find(config => config.id === configurationId) : undefined
-    const acceptedDraft = configurationId === undefined ? selectedDraft : configurationId === null ? selectedDraft : savedConfig
+    const unnamedCard = configurationId === UNNAMED_DRAFT_KEY
+    const savedConfig = configurationId && !unnamedCard ? state?.configs.find(config => config.id === configurationId) : undefined
+    const acceptedDraft = unnamedCard ? state?.drafts[UNNAMED_DRAFT_KEY] : configurationId == null ? selectedDraft : savedConfig
     if (!configWritableRef.current || !acceptedDraft || configRecovery || sessionRecovery) {
       showNotice({ title: 'Timer setup needs recovery', message: 'Chandas kept the saved records unchanged. Retry recovery before starting a new timer.', tone: 'attention', persistent: true })
       return
     }
     const acceptedSnapshot: ActiveRunSnapshot = {
       program: acceptedDraft.program,
-      settings: { ...acceptedDraft.settings, availability: state?.globalAvailability ?? acceptedDraft.settings.availability },
-      sourcePreset: savedConfig ? { id: savedConfig.id, name: savedConfig.name, createdAt: savedConfig.createdAt } : draftSourcePreset(state, selectedDraft),
+      settings: { ...acceptedDraft.settings, ...effectiveAlarmSettings(acceptedDraft.program, acceptedDraft.settings, state?.alarmDefaults), availability: state?.globalAvailability ?? acceptedDraft.settings.availability },
+      sourcePreset: savedConfig ? { id: savedConfig.id, name: savedConfig.name, createdAt: savedConfig.createdAt } : unnamedCard ? undefined : draftSourcePreset(state, selectedDraft),
+    }
+    if (deletingConfiguration.current && acceptedSnapshot.sourcePreset?.id === deletingConfiguration.current) return
+    if ((Platform.OS === 'web' || supportsNativeTimerRuns) && acceptedSnapshot.program.mode === 'unified' && !legacyTimer.isRunning) {
+      if (supportsNativeTimerRuns && !ChandasTimerService.canScheduleExactAlarms()) {
+        showNotice({ title: 'Exact timing needs one setting', message: 'Allow Alarms & reminders so bells stay precise when the screen is off.', tone: 'attention', actionLabel: 'Open settings', onAction: openExactAlarmSettings })
+        return
+      }
+      const existing = runEntriesRef.current.find(entry => entry.input.sourcePreset?.id === acceptedSnapshot.sourcePreset?.id)
+      if (existing) {
+        const view = runViewsRef.current.get(existing.id)
+        if (fromLibrary && view?.isRunning) pausePooledRun(existing.id, !view.isPaused)
+        else if (!fromLibrary) {
+          pendingFocusRef.current = existing.id
+          focusRun(existing.id)
+        }
+        return
+      }
+      void launchRun({ ...acceptedSnapshot, program: acceptedSnapshot.program }).then(id => {
+        if (!id) showNotice({ title: 'The timer did not start', message: 'Check its timing settings and try again.', tone: 'attention' })
+        else if (!fromLibrary) {
+          pendingFocusRef.current = id
+          focusRun(id)
+        }
+      })
+      return
     }
     // A new explicit start supersedes any delayed verification from a previous
     // Stop press; otherwise that retry could cancel the new session.
@@ -766,7 +1001,7 @@ function Root() {
     // Hold the accepted inputs throughout preparation and persistence. The
     // editor may keep changing its draft while Start awaits device/storage work.
     commitActiveRun(acceptedSnapshot)
-    void timer.start().then(started => {
+    void timer.start(undefined, acceptedSnapshot).then(started => {
       if (started) {
         const identity = timer.getSessionIdentity()
         commitActiveRun({ ...acceptedSnapshot, sessionId: identity.sessionId ?? undefined, nativeGeneration: identity.nativeGeneration })
@@ -778,11 +1013,11 @@ function Root() {
       if (Platform.OS === 'android' && isNativeServiceAvailable && !ChandasTimerService.canScheduleExactAlarms()) {
         showNotice({ title: 'Exact timing needs one setting', message: 'Allow Alarms & reminders so bells stay precise when the screen is off.', tone: 'attention', actionLabel: 'Open settings', onAction: openExactAlarmSettings, persistent: true })
       } else {
-        showNotice({ title: 'The timer did not start yet', message: 'Your saved setup is unchanged. Check the timer settings or try again.', tone: 'attention', actionLabel: 'Try again', onAction: start })
+        showNotice({ title: 'The timer did not start yet', message: 'Check the timer settings or try again.', tone: 'attention', actionLabel: 'Try again', onAction: () => start(configurationId) })
       }
     }).catch(() => {
       commitActiveRun(null)
-      showNotice({ title: 'The timer did not start yet', message: 'Your setup is safe. Please check Android access or try once more.', tone: 'attention', actionLabel: 'Try again', onAction: start })
+      showNotice({ title: 'The timer did not start yet', message: 'Check Android access or try once more.', tone: 'attention', actionLabel: 'Try again', onAction: () => start(configurationId) })
     })
       .finally(() => {
         startingRef.current = false
@@ -815,7 +1050,10 @@ function Root() {
       }
       const identity = timer.getSessionIdentity()
       commitActiveRun({ ...current, program: nextProgram, sessionId: identity.sessionId ?? undefined, nativeGeneration: identity.nativeGeneration })
-      if (alignToClock) showNotice({ title: `Aligned to ${clockOffsetLabel(offsetMinutes)}`, message: 'The countdown and upcoming bells now follow that clock rhythm.', tone: 'success' })
+      if (alignToClock) {
+        updateRunDraft(current, draft => ({ program: { ...draft.program, alignment } }))
+        showNotice({ title: `Aligned to ${clockOffsetLabel(offsetMinutes)}`, message: 'The countdown and upcoming bells now follow that clock rhythm.', tone: 'success' })
+      }
       return true
     } catch {
       if (generation !== reanchorAttemptGeneration.current) return false
@@ -857,18 +1095,40 @@ function Root() {
     }
   }
 
+  const updateRunDraft = (run: ActiveRunSnapshot, change: (draft: Pick<UnifiedTimerDraft, 'program' | 'settings'>) => Extract<ConfigStateCommand, { type: 'edit' }>['changes']) => {
+    if (run.program.mode !== 'unified') return
+    const state = configStateRef.current
+    const configId = run.sourcePreset?.id ?? null
+    const target = state?.drafts[configId ?? UNNAMED_DRAFT_KEY] ?? state?.configs.find(config => config.id === configId)
+    if (target) void onConfigCommand({ type: 'edit', configId, changes: change(target) })
+  }
+
+  const changeMasterVolume = (masterVolume: number) => {
+    const current = activeRunRef.current
+    if (!current || realigningRef.current) return
+    commitActiveRun({ ...current, settings: { ...current.settings, masterVolume } })
+    updateRunDraft(current, draft => ({ settings: { ...draft.settings, masterVolume } }))
+  }
+
   const changeCueVolume = (cueId: string, volume: number) => {
     const current = activeRunRef.current
-    if (!current) return
+    if (!current || realigningRef.current) return
     const patchCue = (cue: CueSettings): CueSettings => ({ ...cue, volume })
+    if (current.program.mode === 'unified') {
+      const change = (program: UnifiedTimerProgram): UnifiedTimerProgram => {
+        if (cueId === '__chandas_completion__') return { ...program, completionCue: program.completionCue ? patchCue(program.completionCue) : null }
+        return { ...program, steps: program.steps.map(step => {
+          if (cueId === unifiedCueIdentity(step.id)) return { ...step, endCue: patchCue(step.endCue) }
+          return { ...step, subBellTracks: step.subBellTracks.map(track => cueId === unifiedCueIdentity(step.id, track.id) ? { ...track, ...patchCue(track) } : track) }
+        }) }
+      }
+      commitActiveRun({ ...current, program: change(current.program) })
+      updateRunDraft(current, draft => ({ program: change(draft.program) }))
+      return
+    }
     let nextProgram: RuntimeTimerProgram = current.program
     if (cueId === '__chandas_completion__') {
       nextProgram = { ...current.program, completionCue: current.program.completionCue ? patchCue(current.program.completionCue) : null }
-    } else if (current.program.mode === 'unified') {
-      nextProgram = { ...current.program, steps: current.program.steps.map(step => {
-        if (cueId === unifiedCueIdentity(step.id)) return { ...step, endCue: patchCue(step.endCue) }
-        return { ...step, subBellTracks: step.subBellTracks.map(track => cueId === unifiedCueIdentity(step.id, track.id) ? { ...track, ...patchCue(track) } : track) }
-      }) }
     } else if (current.program.mode === 'sequence') {
       nextProgram = { ...current.program, steps: current.program.steps.map(step => step.id === cueId ? { ...step, ...patchCue(step) } : step) }
     } else if (cueId === 'main') {
@@ -881,27 +1141,45 @@ function Root() {
 
   const pressAlarm = () => {
     const wasOff = timer.alarmBehavior === 'off'
-    timer.pressAlarm()
+    const wasLocked = timer.alarmBehavior === 'locked'
+    const next = timer.pressAlarm()
+    const current = activeRunRef.current
+    if (current?.program.mode === 'unified' && (wasLocked || next === 'locked')) {
+      const alarmBehavior = next === 'locked' ? 'locked' : 'off'
+      if (current.program.alarmBehavior !== alarmBehavior) {
+        commitActiveRun({ ...current, program: { ...current.program, alarmBehavior } })
+        updateRunDraft(current, draft => ({ program: { ...draft.program, alarmBehavior } }))
+      }
+    }
     if (wasOff && !fullScreenGuidanceShown.current && Platform.OS === 'android' && isNativeServiceAvailable && !ChandasTimerService.canUseFullScreenIntent()) {
       fullScreenGuidanceShown.current = true
       // Wait beyond the double-tap window so this guidance never interrupts
       // the one-tap-then-lock gesture.
       setTimeout(() => {
-        const native = ChandasTimerService.getState()
-        if (!native.alarmModeEnabled && !native.alarmOnceArmed) return
+        const service = focusedRunRef.current ? nativeTimerRun(focusedRunRef.current) : ChandasTimerService
+        const native = service?.getState()
+        if (!native || !native.alarmModeEnabled && !native.alarmOnceArmed) return
         showNotice({ title: 'Alarm sound is armed', message: 'To also show its dismiss screen over the lock screen, allow full-screen alarms.', actionLabel: 'Open settings', onAction: openFullScreenIntentSettings })
       }, 550)
     }
   }
 
-  const toggleCurrentStepAlarm = () => {
+  const toggleCurrentStepAlarm = (stepId: string) => {
     const current = activeRunRef.current
-    if (!current || !timer.position) return
-    const index = timer.position.currentStepIndex ?? 0
+    if (!current || realigningRef.current) return
+    const service = focusedRunRef.current ? nativeTimerRun(focusedRunRef.current) : isNativeServiceAvailable ? ChandasTimerService : null
+    if (service && !service.floatingOverlayAction(`toggle-step-alarm:${stepId}`).success) return
     if (current.program.mode === 'unified') {
-      commitActiveRun({ ...current, program: { ...current.program, steps: current.program.steps.map((step, i) => i === index ? { ...step, endAlarmEnabled: !step.endAlarmEnabled } : step) } })
+      const step = current.program.steps.find(value => value.id === stepId)
+      if (!step) return
+      const change = (program: UnifiedTimerProgram): UnifiedTimerProgram => ({
+        ...program,
+        steps: program.steps.map(value => value.id === stepId ? { ...value, endAlarmEnabled: !step.endAlarmEnabled } : value),
+      })
+      commitActiveRun({ ...current, program: change(current.program) })
+      updateRunDraft(current, draft => ({ program: change(draft.program) }))
     } else if (current.program.mode === 'sequence') {
-      commitActiveRun({ ...current, program: { ...current.program, steps: current.program.steps.map((step, i) => i === index ? { ...step, alarmEnabled: step.alarmEnabled === true ? undefined : true } : step) } })
+      commitActiveRun({ ...current, program: { ...current.program, steps: current.program.steps.map(step => step.id === stepId ? { ...step, alarmEnabled: step.alarmEnabled === true ? undefined : true } : step) } })
     }
   }
 
@@ -918,17 +1196,83 @@ function Root() {
 
   const blockingRecovery = Boolean(configRecovery || (sessionRecovery && Platform.OS === 'android' && isNativeServiceAvailable && ChandasTimerService.getState().active))
   const runningConfigurations = (configState?.configs ?? []).filter(config => config.showInRunningSelector)
+  const liveRuns = pool.entries.flatMap(entry => {
+    const view = pool.views.get(entry.id)
+    if (!view?.isRunning) return []
+    return [{
+      id: entry.id,
+      configurationId: entry.input.sourcePreset?.id ?? null,
+      program: entry.input.program,
+      position: view.position,
+      eventPulse: view.eventPulse,
+      muted: view.mute.mutedUntil > Date.now() || !!view.mute.iteration || entry.input.settings.masterVolume <= 0,
+      paused: view.isPaused,
+      countdown: view.mainCountdown,
+      progress: view.progress,
+    }]
+  })
+  const focusedIndex = liveRuns.findIndex(run => run.id === focusedRunId)
+  const adjacentRuns = liveRuns.slice(Math.max(0, focusedIndex - 1), focusedIndex + 2)
+    .filter(run => run.id !== focusedRunId)
+    .map(run => ({ ...run, direction: liveRuns.indexOf(run) - focusedIndex }))
+  const moveRun = (delta: number) => {
+    const target = liveRuns[focusedIndex + delta]
+    return target ? focusRun(target.id, delta) : false
+  }
+  const ringingRun = [...pool.views.entries()].find(([, view]) => view.isAlarmRinging)
+  const ringingTimer = ringingRun?.[1] ?? (legacyTimer.isAlarmRinging ? legacyTimer : null)
+  const ringingName = ringingRun && pool.entries.find(entry => entry.id === ringingRun[0])?.input.sourcePreset?.name
+  const groupPause = (paused: boolean) => {
+    for (const run of liveRuns) pausePooledRun(run.id, paused)
+  }
+  const groupReanchor = async (align: boolean, offsetMinutes = 0, onlyId?: string) => {
+    const entries = runEntriesRef.current.filter(entry => !onlyId || entry.id === onlyId)
+    const alignment = align ? { kind: 'local-clock' as const, offsetMinutes } : { kind: 'elapsed' as const }
+    const results = await Promise.allSettled(entries.map(async entry => {
+      const view = runViewsRef.current.get(entry.id)
+      if (!view?.isRunning) return true
+      const wasPaused = view.isPaused
+      if (!onlyId && align && entry.input.program.alignment.kind === 'local-clock' && entry.input.program.alignment.offsetMinutes === offsetMinutes) return true
+      const program = { ...entry.input.program, alignment }
+      const updated = await view.reanchor(program, align, entry.input.settings, entry.input.sourcePreset)
+      if (updated) {
+        patchRun(entry.id, { ...entry.input, program })
+        if (align) updateRunDraft(entry.input, draft => ({ program: { ...draft.program, alignment } }))
+        else if (wasPaused) return view.setPaused(true)
+      }
+      return updated
+    }))
+    if (results.some(result => result.status === 'rejected' || !result.value)) {
+      showNotice({ title: align ? 'Some timers could not align' : 'Some timers could not reset', message: 'Dismiss any ringing alarm and try again.', tone: 'attention' })
+    }
+  }
+  const stopLibraryRuns = (ids: string[]) => {
+    const views = ids.map(id => runViewsRef.current.get(id))
+    if (views.map(view => !view?.isRunning || view.stop()).some(stopped => !stopped)) {
+      showNotice({ title: 'Some timers could not stop', message: 'Try stopping the timers that are still active.', tone: 'attention' })
+    }
+  }
+  const muteLibraryRuns = (action: GroupMuteAction) => {
+    for (const run of liveRuns) {
+      const view = runViewsRef.current.get(run.id)
+      if (action.kind === 'clear') view?.clearMute()
+      else if (action.kind === 'iterations') view?.muteForIterations(action.value)
+      else if (action.kind === 'until') view?.muteUntil(action.value)
+      else view?.muteForSeconds(action.value)
+    }
+  }
 
   return (
     <FeedbackLayerProvider notice={notice} onDismiss={dismissNotice}>
       <View style={{ flex: 1, backgroundColor: tokens.bg }}>
-        <StatusBar style={theme === 'dark' ? 'light' : 'dark'} hidden={appState === 'running'} animated={theme !== 'eink'} />
+        {pool.hosts}
+        <StatusBar style={theme === 'dark' ? 'light' : 'dark'} animated={theme !== 'eink'} />
         <View
-          style={{ flex: 1, pointerEvents: timer.isAlarmRinging ? 'none' : 'auto' }}
-          importantForAccessibility={timer.isAlarmRinging ? 'no-hide-descendants' : 'auto'}
-          accessibilityElementsHidden={timer.isAlarmRinging}
+          style={{ flex: 1, pointerEvents: ringingTimer ? 'none' : 'auto' }}
+          importantForAccessibility={ringingTimer ? 'no-hide-descendants' : 'auto'}
+          accessibilityElementsHidden={!!ringingTimer}
         >
-          <Reanimated.View key={appState} style={{ flex: 1 }} entering={reducedMotion ? undefined : FadeIn.duration(220)} exiting={reducedMotion ? undefined : FadeOut.duration(150)}>
+          <Reanimated.View key={appState} style={{ flex: 1 }} entering={reducedMotion ? undefined : FadeIn.duration(180)}>
             {blockingRecovery ? (
               <View style={{ flex: 1, justifyContent: 'center', paddingHorizontal: 28, gap: 16 }}>
                 <Text style={{ color: tokens.text, fontSize: 22, fontWeight: '500' }}>Timer data needs recovery</Text>
@@ -937,14 +1281,14 @@ function Root() {
                 <Pressable accessibilityRole="button" onPress={() => setConfigRetry(value => value + 1)} style={{ alignSelf: 'flex-start', paddingVertical: 12, paddingHorizontal: 16, borderRadius: 12, backgroundColor: tokens.surface, borderColor: tokens.border, borderWidth: 1 }}><Text style={{ color: tokens.text, fontWeight: '500' }}>Retry recovery</Text></Pressable>
               </View>
             ) : appState === 'config' ? (
-              configState ? <UnifiedTimerConfigScreen state={configState} onCommand={onConfigCommand} onStart={start} onStartConfiguration={start} starting={starting} focusState={focusState} onFocusAutomationChange={setFocusAutomation} onOpenFocusSettings={openNotificationPolicySettings} onOpenFocusRuleSettings={openFocusRuleSettings} androidAccess={androidAccess} onOpenExactAlarmSettings={openExactAlarmSettings} onOpenFullScreenIntentSettings={openFullScreenIntentSettings} onRequestCallMuteAccess={() => void requestCallMuteAccess()} onRequestNotificationAccess={() => void requestNotificationAccess()} onFeedback={showNotice} /> : <AppLoadingScreen backgroundColor={tokens.bg} accentColor={tokens.accent} textColor={tokens.text} />
+              configState ? <UnifiedTimerConfigScreen state={configState} onCommand={onConfigCommand} onStart={start} onStartConfiguration={id => start(id, true)} onDeleteConfiguration={deleteConfiguration} liveRuns={liveRuns} onOpenRun={Platform.OS === 'web' || supportsNativeTimerRuns ? focusRun : undefined} onGroupPause={groupPause} onGroupReset={() => void groupReanchor(false)} onRunReset={id => void groupReanchor(false, 0, id)} onRunSnap={(id, offset) => void groupReanchor(true, offset, id)} onGroupAlign={offset => groupReanchor(true, offset)} onGroupMute={muteLibraryRuns} onStopRuns={stopLibraryRuns} openLibraryOnMount={openLibraryOnMount} libraryOriginRunId={openLibraryOnMount ? libraryOriginRun.current : null} starting={starting} focusState={focusState} onFocusAutomationChange={setFocusAutomation} onOpenFocusSettings={openNotificationPolicySettings} onOpenFocusRuleSettings={openFocusRuleSettings} androidAccess={androidAccess} onOpenExactAlarmSettings={openExactAlarmSettings} onOpenFullScreenIntentSettings={openFullScreenIntentSettings} onRequestCallMuteAccess={() => void requestCallMuteAccess()} onRequestNotificationAccess={() => void requestNotificationAccess()} onFeedback={showNotice} /> : <AppLoadingScreen backgroundColor={tokens.bg} accentColor={tokens.accent} textColor={tokens.text} />
             ) : (
-              <TimerV2RunningScreen program={program} configurationName={activeRun?.sourcePreset?.name} mainCountdown={timer.mainCountdown} nextCueCountdown={timer.nextCueCountdown} nextCueLabel={timer.nextCueLabel} progress={timer.progress} position={timer.position} eventPulse={timer.eventPulse} activeHoursPaused={timer.activeHoursPaused} activeHoursResumeAt={timer.activeHoursResumeAt} nextAudibleAt={timer.nextAudibleAt} nextAudibleLabel={timer.nextAudibleLabel} runEndsAt={timer.runEndsAt} runRemainingMs={timer.runRemainingMs} runProgress={timer.runProgress} mute={timer.mute} alarmBehavior={timer.alarmBehavior} realigning={realigning} isPaused={timer.isPaused} isAlarmRinging={timer.isAlarmRinging} onSetPaused={setTimerPaused} onSkipStep={timer.skipSequenceStep} onStop={stop} onRestartUnsynced={() => reanchor(false)} onSnapToClock={offset => reanchor(true, offset)} onPressAlarm={pressAlarm} onToggleCurrentStepAlarm={toggleCurrentStepAlarm} onMuteForIterations={timer.muteForIterations} onMuteForSeconds={timer.muteForSeconds} onClearMute={timer.clearMute} secondPrecision={!isNativeServiceAvailable || ChandasTimerService.getCapabilities()?.supportsSecondPrecision === true} masterVolume={liveSettings.masterVolume} onMasterVolumeChange={masterVolume => { const current = activeRunRef.current; if (current) commitActiveRun({ ...current, settings: { ...current.settings, masterVolume } }) }} onCueVolumeChange={changeCueVolume} controlSettings={{ advancedModeEnabled: liveSettings.advancedModeEnabled, runningControlIds: liveSettings.runningControlIds }} onChangeRunningControlIds={runningControlIds => { const current = activeRunRef.current; if (current) commitActiveRun({ ...current, settings: { ...current.settings, runningControlIds } }) }} focusEnabled={liveSettings.focusAutomationEnabled} focusActive={focusState.actual === 'active' && !timer.activeHoursPaused} focusPolicyAccess={focusState.policyAccess} focusReason={focusState.reason} onToggleFocus={focusState.reason === 'paused-by-android' ? resumeFocusAutomation : () => setFocusAutomation(!liveSettings.focusAutomationEnabled)} onOpenFocusSettings={focusState.reason === 'rule-disabled' ? openFocusRuleSettings : openNotificationPolicySettings} configurations={runningConfigurations} activeConfigurationId={activeRun?.sourcePreset?.id} onSelectConfiguration={switchRunningConfiguration} externalPanel={floatingTimerPanel} onExternalPanelConsumed={() => setFloatingTimerPanel(null)} />
+              <TimerV2RunningScreen runId={focusedRunId ?? 'legacy'} enterDirection={focusedRunId ? runEnterDirection : 0} onOpenConfigurations={focusedRunId ? openRunLibrary : undefined} runPage={focusedIndex >= 0 && liveRuns.length > 1 ? { index: focusedIndex, count: liveRuns.length, move: moveRun, adjacent: adjacentRuns } : undefined} program={program} configurationName={activeRun?.sourcePreset?.name ?? (focusedRunId ? configState?.drafts[UNNAMED_DRAFT_KEY]?.name : undefined)} mainCountdown={timer.mainCountdown} nextCueCountdown={timer.nextCueCountdown} nextCueLabel={timer.nextCueLabel} progress={timer.progress} position={timer.position} eventPulse={timer.eventPulse} activeHoursPaused={timer.activeHoursPaused} activeHoursResumeAt={timer.activeHoursResumeAt} nextAudibleAt={timer.nextAudibleAt} nextAudibleLabel={timer.nextAudibleLabel} runEndsAt={timer.runEndsAt} runRemainingMs={timer.runRemainingMs} runProgress={timer.runProgress} mute={timer.mute} alarmBehavior={timer.alarmBehavior} realigning={realigning} isPaused={timer.isPaused} isAlarmRinging={timer.isAlarmRinging} onSetPaused={setTimerPaused} onSkipStep={timer.skipSequenceStep} onSeekStep={timer.seekStep} onStop={stop} onRestartUnsynced={() => reanchor(false)} onSnapToClock={offset => reanchor(true, offset)} onPressAlarm={pressAlarm} onToggleCurrentStepAlarm={toggleCurrentStepAlarm} onMuteForIterations={timer.muteForIterations} onMuteForSeconds={timer.muteForSeconds} onMuteUntil={timer.muteUntil} onClearMute={timer.clearMute} secondPrecision={configState?.globalSecondPrecision ?? liveSettings.secondPrecisionEnabled} masterVolume={liveSettings.masterVolume} onMasterVolumeChange={changeMasterVolume} onCueVolumeChange={changeCueVolume} controlSettings={{ advancedModeEnabled: false, runningControlIds: configState?.globalRunningControlIds }} onChangeRunningControlIds={(id, enabled) => { void onConfigCommand({ type: 'setGlobalRunningControl', id, enabled }) }} focusEnabled={liveSettings.focusAutomationEnabled} focusActive={focusState.actual === 'active' && !timer.activeHoursPaused} focusPolicyAccess={focusState.policyAccess} focusReason={focusState.reason} onToggleFocus={focusState.reason === 'paused-by-android' ? resumeFocusAutomation : () => setFocusAutomation(!liveSettings.focusAutomationEnabled)} onOpenFocusSettings={focusState.reason === 'rule-disabled' ? openFocusRuleSettings : openNotificationPolicySettings} configurations={runningConfigurations} activeConfigurationId={activeRun?.sourcePreset?.id} onSelectConfiguration={switchRunningConfiguration} externalPanel={floatingTimerPanel} onExternalPanelConsumed={() => setFloatingTimerPanel(null)} />
             )}
           </Reanimated.View>
         </View>
-        {timer.isAlarmRinging && <AlarmRingingScreen onDismiss={timer.dismissAlarm} />}
-        <RootFeedbackOverlay hidden={timer.isAlarmRinging} />
+        {ringingTimer && <AlarmRingingScreen key={ringingRun?.[0] ?? 'legacy'} name={ringingName} onDismiss={ringingTimer.dismissAlarm} />}
+        <RootFeedbackOverlay hidden={!!ringingTimer} />
       </View>
     </FeedbackLayerProvider>
   )

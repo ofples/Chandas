@@ -12,6 +12,84 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class UnifiedTimerTimelineTest {
+  @Test fun seekWithinStepKeepsFixedEndTime() {
+    val program = fixtures.getJSONObject("fixture").getJSONObject("program")
+    program.put("runPolicy", JSONObject().put("kind", "duration").put("durationSeconds", 130))
+    val encoded = program.toString()
+    val target = requireNotNull(TimerV2Timeline.seekStepTarget(encoded, 1_000L, 71_000L, 1_000L, 130_000L, 5000))
+    val position = requireNotNull(UnifiedTimerTimeline.position(encoded, target.anchor, 71_000L, target.startedAt, target.endsAt))
+    assertEquals(130_000L, target.endsAt)
+    assertEquals(1, position.currentStepIndex)
+    assertEquals(0.5f, position.stepProgress, 0.001f)
+  }
+
+  @Test fun explicitMarkersWinAtBothOffsets() {
+    val program = fixtures.getJSONObject("fixture").getJSONObject("program")
+    val step = program.getJSONArray("steps").getJSONObject(0).put("durationSeconds", 300)
+    val tracks = step.getJSONArray("subBellTracks")
+    tracks.getJSONObject(0).put("repeatEnabled", true).put("selectedOffsetsSeconds", JSONArray(listOf(120, 180)))
+    val marker = tracks.getJSONObject(1).put("repeatEnabled", false).put("afterStartSeconds", 120).put("beforeEndSeconds", 120)
+    for (offset in listOf(120_000L, 180_000L)) {
+      val at = 1_000L + offset
+      val event = requireNotNull(UnifiedTimerTimeline.next(program.toString(), 1_000L, at - 1L, 1_000L, null, 1_000L))
+      assertEquals(at, event.at)
+      assertEquals(2, event.candidates.size)
+      assertEquals(marker.getString("id"), event.winner.trackId)
+    }
+  }
+
+  @Test fun shortStepsDoNotShareAlarmFlags() {
+    val program = fixtures.getJSONObject("fixture").getJSONObject("program")
+    val steps = program.getJSONArray("steps")
+    steps.getJSONObject(0).put("durationSeconds", 10).put("subBellsEnabled", false).put("endAlarmEnabled", true)
+    steps.getJSONObject(1).put("durationSeconds", 5).put("subBellsEnabled", false).put("endAlarmEnabled", false)
+    val encoded = program.toString()
+    val first = requireNotNull(UnifiedTimerTimeline.next(encoded, 1_000L, 1_000L, 1_000L, null, 1_000L))
+    val second = requireNotNull(UnifiedTimerTimeline.next(encoded, 1_000L, 11_000L, 1_000L, null, 1_000L))
+    assertEquals(11_000L, first.at)
+    assertTrue(first.winner.alarmEnabled)
+    assertEquals(16_000L, second.at)
+    assertFalse(second.winner.alarmEnabled)
+  }
+
+  @Test fun queuedAndRingingStepAlarmsExpireByTheFollowingBoundary() {
+    val program = fixtures.getJSONObject("fixture").getJSONObject("program")
+    val steps = program.getJSONArray("steps")
+    steps.getJSONObject(0).put("durationSeconds", 10).put("subBellsEnabled", false).put("endAlarmEnabled", true)
+    steps.getJSONObject(1).put("durationSeconds", 5).put("subBellsEnabled", false).put("endAlarmEnabled", false)
+    val encoded = program.toString()
+    val alarm = requireNotNull(TimerV2Timeline.next(encoded, 1_000L, 1_000L, 1_000L, 0L))
+    val expiresAt = TimerV2Timeline.stepAlarmExpiresAt(encoded, 1_000L, alarm, 0L)
+    assertEquals(16_000L, expiresAt)
+    assertFalse(alarmExpired(expiresAt, 15_999L))
+    assertTrue(alarmExpired(expiresAt, 16_000L))
+    assertEquals(13_000L, TimerV2Timeline.stepAlarmExpiresAt(encoded, 1_000L, alarm, 13_000L))
+    val single = JSONObject(encoded).put("steps", JSONArray().put(steps.getJSONObject(0))).toString()
+    val cycle = requireNotNull(TimerV2Timeline.next(single, 1_000L, 1_000L, 1_000L, 0L))
+    assertEquals(0L, TimerV2Timeline.stepAlarmExpiresAt(single, 1_000L, cycle, 0L))
+  }
+
+  @Test fun unarmedStepStaysUnarmedInLongRunningFiveTwoTimer() {
+    val program = fixtures.getJSONObject("fixture").getJSONObject("program")
+    program.put("runPolicy", JSONObject().put("kind", "continuous"))
+    val steps = program.getJSONArray("steps")
+    steps.getJSONObject(0).put("durationSeconds", 300).put("subBellsEnabled", false).put("endAlarmEnabled", true)
+    steps.getJSONObject(1).put("durationSeconds", 120).put("subBellsEnabled", false).put("endAlarmEnabled", false)
+    val encoded = program.toString()
+    val anchor = 1_000L
+
+    for (round in listOf(0L, 10L, 100L, 10_000L)) {
+      val roundStart = anchor + round * 420_000L
+      val armed = requireNotNull(TimerV2Timeline.next(encoded, anchor, roundStart, anchor, 0L))
+      val ordinary = requireNotNull(TimerV2Timeline.next(encoded, anchor, armed.at, anchor, 0L))
+      assertEquals(roundStart + 300_000L, armed.at)
+      assertEquals(roundStart + 420_000L, ordinary.at)
+      assertTrue(armed.winner.alarmEnabled)
+      assertFalse(ordinary.winner.alarmEnabled)
+      assertEquals(ordinary.at, TimerV2Timeline.stepAlarmExpiresAt(encoded, anchor, armed, 0L))
+    }
+  }
+
   @Test fun independentFixtureMatchesStepBoundariesCollisionsAndVisibility() {
     val fixture = fixtures.getJSONObject("fixture")
     val program = fixture.getJSONObject("program").toString()

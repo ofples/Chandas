@@ -30,7 +30,7 @@ interface TransferEnvelopeV2 {
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
 const clone = <T>(value: T): T => typeof structuredClone === 'function' ? structuredClone(value) : JSON.parse(JSON.stringify(value)) as T
 
-export function serializeUnifiedConfiguration(config: UnifiedTimerConfig, now = Date.now()): string {
+export function serializeUnifiedConfiguration(config: Pick<UnifiedTimerConfig, keyof TransferEnvelopeV2['configuration']>, now = Date.now()): string {
   const program = parseUnifiedTimerProgram(config.program)
   const settings = parseUnifiedTimerSettings(config.settings)
   if (!program.ok || !settings || !validName(config.name) || !validEditorOptions(config.editorOptions)) throw new Error('Cannot export an invalid timer configuration.')
@@ -138,7 +138,7 @@ function hasDeviceSpecificSounds(config: UnifiedTimerConfig): boolean {
   const cues: Array<Pick<CueSettings, 'sound' | 'sounds'>> = []
   config.program.steps.forEach(step => { cues.push(step.endCue, ...step.subBellTracks) })
   if (config.program.completionCue) cues.push(config.program.completionCue)
-  const sounds: SoundRef[] = [...cues.flatMap(cueSounds), config.settings.alarmSound]
+  const sounds: SoundRef[] = [...cues.flatMap(cueSounds), config.settings.alarmSound, ...(config.program.alarmOverrides?.sound ? [config.program.alarmOverrides.sound] : [])]
   return sounds.some(sound => sound.kind !== 'builtin')
 }
 

@@ -2,14 +2,25 @@ package expo.modules.chandastimerservice
 
 import android.content.Context
 import android.media.AudioAttributes
+import android.media.MediaDataSource
 import android.media.MediaPlayer
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
+import android.os.SystemClock
+import java.io.FileInputStream
+import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 /** Single alarm-routed one-shot and preview player with safe URI fallback. */
 object TimerSoundPlayer {
+  private const val SHORT_CUE_MS = 2_000L
+  private const val FADE_MS = 250L
+  private const val FADE_FRAME_MS = 25L
+  private const val COMPLETION_GRACE_MS = 750L
+  private val completionHandler by lazy { Handler(Looper.getMainLooper()) }
   private val players = mutableSetOf<MediaPlayer>()
   private val cancellationGeneration = AtomicLong(0L)
   private var stopPreviewPlayback: (() -> Unit)? = null
@@ -19,10 +30,14 @@ object TimerSoundPlayer {
     soundId: String,
     fallbackResId: Int,
     volume: Float,
+    playbackKind: String = "one-shot-fallback",
+    shortenLooping: Boolean = true,
+    onFinished: () -> Unit = {},
     onLaunched: () -> Unit,
   ): () -> Unit {
     if (volume <= 0f) {
       onLaunched()
+      onFinished()
       return {}
     }
 
@@ -41,9 +56,10 @@ object TimerSoundPlayer {
       current = null
       if (player != null) {
         synchronized(players) { players.remove(player) }
-        runCatching { player.release() }
+        releaseOneShot(player)
       }
       signalLaunched()
+      onFinished()
     }
 
     fun start(source: String, mayFallback: Boolean) {
@@ -54,7 +70,7 @@ object TimerSoundPlayer {
 
       fun fail() {
         synchronized(players) { players.remove(player) }
-        runCatching { player.release() }
+        releaseOneShot(player)
         if (current === player) current = null
         if (mayFallback && cancellationGeneration.get() == generation) start("builtin:$fallbackResId", false) else finish()
       }
@@ -62,12 +78,18 @@ object TimerSoundPlayer {
       try {
         player.setAudioAttributes(alarmAttributes())
         player.setWakeMode(context.applicationContext, PowerManager.PARTIAL_WAKE_LOCK)
-        setDataSource(context, player, source)
+        val wasLooping = setDataSource(context, player, source, oneShot = true)
         val level = volume.coerceIn(0f, 1f)
-        player.setVolume(level, level)
+        val output = TimerAudioOutput.Playback(context, player, level)
         player.setOnCompletionListener { finish() }
         player.setOnErrorListener { _, _, _ -> fail(); true }
-        player.setOnPreparedListener { it.start() }
+        player.setOnPreparedListener {
+          if (finished.get() || cancellationGeneration.get() != generation) {
+            finish()
+          } else runCatching {
+            startOneShot(context, player, output, source, playbackKind, wasLooping && shortenLooping, ::finish)
+          }.onFailure { fail() }
+        }
         player.prepareAsync()
         // BroadcastReceiver.goAsync must finish promptly even when the chosen
         // document is long or its provider prepares slowly. MediaPlayer's own
@@ -85,9 +107,9 @@ object TimerSoundPlayer {
   }
 
   @Synchronized
-  fun preview(context: Context, soundId: String, fallbackResId: Int, volume: Float) {
+  fun preview(context: Context, soundId: String, fallbackResId: Int, volume: Float, shortenLooping: Boolean = true, onFinished: () -> Unit = {}) {
     stopPreviewPlayback?.invoke()
-    stopPreviewPlayback = play(context, soundId, fallbackResId, volume) {}
+    stopPreviewPlayback = play(context, soundId, fallbackResId, volume, "preview", shortenLooping, onFinished) {}
   }
 
   @Synchronized
@@ -100,7 +122,53 @@ object TimerSoundPlayer {
     cancellationGeneration.incrementAndGet()
     stopPreview()
     val snapshot = synchronized(players) { players.toList().also { players.clear() } }
-    snapshot.forEach { player -> runCatching { player.release() } }
+    snapshot.forEach(::releaseOneShot)
+  }
+
+  internal fun startOneShot(
+    context: Context,
+    player: MediaPlayer,
+    output: TimerAudioOutput.Playback,
+    soundId: String,
+    playbackKind: String,
+    shorten: Boolean,
+    finish: () -> Unit,
+  ) {
+    val duration = runCatching { player.duration }.getOrDefault(-1)
+    val clip = if (shorten) minOf(SHORT_CUE_MS, duration.takeIf { it > 0 }?.toLong() ?: SHORT_CUE_MS) else 0L
+    output.start()
+    val startedAt = SystemClock.uptimeMillis()
+    TimerPlaybackTrace.record(context) {
+      "start $playbackKind sound=${TimerPlaybackTrace.sound(soundId)} durationMs=$duration clipMs=$clip"
+    }
+    if (clip > 0L) {
+      val endsAt = startedAt + clip
+      val fade = minOf(FADE_MS, clip)
+      val fadeOut = object : Runnable {
+        override fun run() {
+          val remaining = (endsAt - SystemClock.uptimeMillis()).coerceIn(0L, fade)
+          output.setFadeGain(remaining.toFloat() / fade)
+          if (remaining > 0L) {
+            completionHandler.postAtTime(this, player, minOf(endsAt, SystemClock.uptimeMillis() + FADE_FRAME_MS))
+          } else {
+            TimerPlaybackTrace.record(context) { "stop $playbackKind reason=cue-fade clipMs=$clip" }
+            finish()
+          }
+        }
+      }
+      completionHandler.postAtTime(fadeOut, player, endsAt - fade)
+    } else if (duration > 0) {
+      // Some Android sources loop internally and never deliver onCompletion.
+      completionHandler.postAtTime({
+        TimerPlaybackTrace.record(context) { "stop $playbackKind reason=deadline sound=${TimerPlaybackTrace.sound(soundId)} durationMs=$duration" }
+        finish()
+      }, player, startedAt + duration + COMPLETION_GRACE_MS)
+    }
+  }
+
+  internal fun releaseOneShot(player: MediaPlayer) {
+    completionHandler.removeCallbacksAndMessages(player)
+    runCatching { player.release() }
   }
 
   fun canOpen(context: Context, soundId: String): Boolean = runCatching {
@@ -123,7 +191,8 @@ object TimerSoundPlayer {
     .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
     .build()
 
-  fun setDataSource(context: Context, player: MediaPlayer, soundId: String) {
+  /** Returns true if an embedded loop flag was stripped for one-shot playback. */
+  fun setDataSource(context: Context, player: MediaPlayer, soundId: String, oneShot: Boolean = false): Boolean {
     val resource = builtInResource(soundId)
     if (resource != null) {
       context.resources.openRawResourceFd(resource).use { descriptor ->
@@ -134,9 +203,64 @@ object TimerSoundPlayer {
       // App-private files are not guaranteed to be readable by the media
       // process when passed as paths. MediaPlayer duplicates the descriptor,
       // so it is safe to close our stream as soon as setDataSource returns.
-      java.io.FileInputStream(cached).use { stream -> player.setDataSource(stream.fd) }
+      FileInputStream(cached).use { stream -> player.setDataSource(stream.fd) }
     } else {
-      player.setDataSource(context, Uri.parse(soundId))
+      val uri = Uri.parse(soundId)
+      if (oneShot) setOneShotUri(context, player, uri)?.let { return it }
+      player.setDataSource(context, uri)
+    }
+    return false
+  }
+
+  private fun setOneShotUri(context: Context, player: MediaPlayer, uri: Uri): Boolean? {
+    val descriptor = context.contentResolver.openAssetFileDescriptor(uri, "r") ?: return null
+    val start = descriptor.startOffset
+    val length = descriptor.length
+    val stream = try {
+      descriptor.createInputStream()
+    } catch (error: Exception) {
+      descriptor.close()
+      throw error
+    }
+    var transferred = false
+    try {
+      val channel = stream.channel
+      val prefix = if (length > 0L) OneShotOgg.rewrite { position, size ->
+        if (position.toLong() + size > length) return@rewrite null
+        val target = ByteBuffer.allocate(size)
+        while (target.hasRemaining()) {
+          if (channel.read(target, start + position + target.position()) <= 0) return@rewrite null
+        }
+        target.array()
+      } else null
+      if (prefix == null) {
+        if (length < 0L) return null
+        player.setDataSource(stream.fd, start, length)
+      } else {
+        // Android honors ANDROID_LOOP even with MediaPlayer.isLooping=false on STREAM_ALARM.
+        // Give it amended headers while keeping the original file, alarm routing and cue audio.
+        player.setDataSource(object : MediaDataSource() {
+          override fun getSize(): Long = length
+
+          override fun readAt(position: Long, buffer: ByteArray, offset: Int, size: Int): Int {
+            if (size == 0) return 0
+            if (position >= length) return -1
+            val fromPrefix = if (position < prefix.size) minOf(size, prefix.size - position.toInt()) else 0
+            if (fromPrefix > 0) prefix.copyInto(buffer, offset, position.toInt(), position.toInt() + fromPrefix)
+            val count = minOf(size.toLong(), length - position).toInt() - fromPrefix
+            if (count == 0) return fromPrefix
+            val read = channel.read(ByteBuffer.wrap(buffer, offset + fromPrefix, count), start + position + fromPrefix)
+            return if (fromPrefix == 0) read else fromPrefix + read.coerceAtLeast(0)
+          }
+
+          override fun close() = stream.close()
+        })
+        transferred = true
+        TimerPlaybackTrace.record(context) { "removed embedded one-shot loop flag" }
+      }
+      return transferred
+    } finally {
+      if (!transferred) stream.close()
     }
   }
 }

@@ -4,8 +4,12 @@ import android.content.Context
 import android.os.SystemClock
 
 object TimerStateStore {
-  private const val PREFS = "chandas-native-state"
+  internal const val PREFS = "chandas-native-state"
   private const val ACTIVE = "active"
+  private const val ALARM_QUEUED_AT = "alarmQueuedAt"
+  private const val ALARM_QUEUED_UNTIL = "alarmQueuedUntil"
+  private const val ALARM_EXPIRES_AT = "alarmExpiresAt"
+  private const val ALARM_LEASE = "alarmLease"
   private const val RINGING = "ringing"
   private const val ALARM_VISIBLE = "alarmVisible"
   private const val NEXT_AT = "nextAt"
@@ -165,9 +169,37 @@ object TimerStateStore {
     edit.commit()
   }
 
-  fun setRinging(context: Context, ringing: Boolean) {
+  fun alarmQueuedAt(context: Context): Long =
+    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong(ALARM_QUEUED_AT, 0L)
+
+  fun queuedAlarmExpiresAt(context: Context): Long =
+    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong(ALARM_QUEUED_UNTIL, 0L)
+
+  fun enqueueAlarm(context: Context, expiresAt: Long) {
+    if (alarmQueuedAt(context) == 0L || alarmExpired(queuedAlarmExpiresAt(context))) {
+      context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+        .putLong(ALARM_QUEUED_AT, System.currentTimeMillis())
+        .putLong(ALARM_QUEUED_UNTIL, expiresAt).commit()
+    }
+  }
+
+  fun clearQueuedAlarm(context: Context) {
+    if (alarmQueuedAt(context) > 0L) {
+      context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+        .remove(ALARM_QUEUED_AT).remove(ALARM_QUEUED_UNTIL).commit()
+    }
+  }
+
+  fun alarmExpiresAt(context: Context): Long =
+    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong(ALARM_EXPIRES_AT, 0L)
+
+  fun alarmLease(context: Context): String? = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(ALARM_LEASE, null)
+
+  fun setRinging(context: Context, ringing: Boolean, expiresAt: Long = 0L) {
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
       .putBoolean(RINGING, ringing)
+      .putString(ALARM_LEASE, if (ringing) java.util.UUID.randomUUID().toString() else null)
+      .putLong(ALARM_EXPIRES_AT, if (ringing) expiresAt else 0L)
       .commit()
   }
 
@@ -242,14 +274,14 @@ object TimerStateStore {
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
       .putBoolean(ALARM_ONCE, !current.alarmOnceArmed)
       .commit()
-    return getControlState(context).also(TimerControlRegistry::notify)
+    return getControlState(context).also { TimerControlRegistry.notify(context, it) }
   }
 
   fun consumeAlarmOnce(context: Context): Boolean {
     val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     if (!prefs.getBoolean(ALARM_ONCE, false)) return false
     prefs.edit().putBoolean(ALARM_ONCE, false).commit()
-    TimerControlRegistry.notify(getControlState(context))
+    TimerControlRegistry.notify(context, getControlState(context))
     return true
   }
 
@@ -266,7 +298,7 @@ object TimerStateStore {
         .putInt(MUTED_ITERATIONS, count.coerceIn(1, NativeTimerContract.MAX_MUTE_ITERATIONS))
     }
     editor.commit()
-    return getControlState(context).also(TimerControlRegistry::notify)
+    return getControlState(context).also { TimerControlRegistry.notify(context, it) }
   }
 
   fun muteForMinutes(context: Context, minutes: Int): TimerControlState {
@@ -275,13 +307,17 @@ object TimerStateStore {
 
   fun muteForSeconds(context: Context, seconds: Int): TimerControlState {
     val until = System.currentTimeMillis() + seconds.coerceIn(1, NativeTimerContract.MAX_MUTE_MINUTES * 60) * 1_000L
+    return muteUntil(context, until)
+  }
+
+  fun muteUntil(context: Context, until: Long): TimerControlState {
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
       .putLong(MUTED_UNTIL, until)
       .remove(MUTED_ITERATIONS)
       .remove(MUTED_ITERATION_END_ID)
       .remove(MUTED_ITERATION_END_AT)
       .commit()
-    return getControlState(context).also(TimerControlRegistry::notify)
+    return getControlState(context).also { TimerControlRegistry.notify(context, it) }
   }
 
   fun clearMute(context: Context): TimerControlState {
@@ -291,7 +327,7 @@ object TimerStateStore {
       .remove(MUTED_ITERATION_END_ID)
       .remove(MUTED_ITERATION_END_AT)
       .commit()
-    return getControlState(context).also(TimerControlRegistry::notify)
+    return getControlState(context).also { TimerControlRegistry.notify(context, it) }
   }
 
   fun restoreControls(
@@ -315,7 +351,7 @@ object TimerStateStore {
         .putInt(MUTED_ITERATIONS, mutedIterationCount.coerceIn(1, NativeTimerContract.MAX_MUTE_ITERATIONS))
     }
     editor.commit()
-    return getControlState(context).also(TimerControlRegistry::notify)
+    return getControlState(context).also { TimerControlRegistry.notify(context, it) }
   }
 
   fun consumeMuteForEvent(context: Context, type: TimerEventType, now: Long, logicalId: String? = null): Boolean {
@@ -328,7 +364,7 @@ object TimerStateStore {
       if (endId != null) {
         if (logicalId == endId || now > endAt) {
           prefs.edit().remove(MUTED_ITERATIONS).remove(MUTED_ITERATION_END_ID).remove(MUTED_ITERATION_END_AT).commit()
-          TimerControlRegistry.notify(getControlState(context, now))
+          TimerControlRegistry.notify(context, getControlState(context, now))
           return false
         }
         return true
@@ -341,7 +377,7 @@ object TimerStateStore {
       context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
         .putInt(MUTED_ITERATIONS, remaining)
         .commit()
-      TimerControlRegistry.notify(getControlState(context, now))
+      TimerControlRegistry.notify(context, getControlState(context, now))
       // The boundary that closes the final muted iteration remains audible.
       // For count=1 this means all intervening sub-cues are quiet and the next
       // main gong is heard, matching Timer v2's logical-boundary behavior.
@@ -350,3 +386,6 @@ object TimerStateStore {
     return state.mutedIterationsRemaining > 0
   }
 }
+
+internal fun alarmExpired(expiresAt: Long, now: Long = System.currentTimeMillis()): Boolean =
+  expiresAt > 0L && now >= expiresAt

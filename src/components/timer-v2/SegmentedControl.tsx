@@ -6,6 +6,7 @@ import { selectionHaptic } from '../../lib/haptics'
 interface Segment<T extends string> {
   value: T
   label: string
+  weight?: number
 }
 
 export function SegmentedControl<T extends string>({ items, value, onChange, accessibilityLabel, style, feedback = true }: {
@@ -26,7 +27,7 @@ export function SegmentedControl<T extends string>({ items, value, onChange, acc
         onPress={() => { if (!selected && feedback) selectionHaptic(); onChange(item.value) }}
         accessibilityRole="tab"
         accessibilityState={{ selected }}
-        style={({ pressed }) => [styles.segment, selected && { backgroundColor: tokens.accent }, theme === 'eink' && { borderWidth: 1, borderColor: tokens.border }, { opacity: pressed && theme !== 'eink' ? 0.78 : 1, transform: [{ scale: pressed && !reducedMotion ? 0.985 : 1 }] }]}
+        style={({ pressed }) => [styles.segment, { flex: item.weight ?? 1 }, selected && { backgroundColor: tokens.accent }, theme === 'eink' && { borderWidth: 1, borderColor: tokens.border }, { opacity: pressed && theme !== 'eink' ? 0.78 : 1, transform: [{ scale: pressed && !reducedMotion ? 0.985 : 1 }] }]}
       ><Text style={[styles.label, { color: selected ? '#fff' : tokens.textMuted }]}>{item.label}</Text></Pressable>
     })}
   </View>
@@ -34,6 +35,6 @@ export function SegmentedControl<T extends string>({ items, value, onChange, acc
 
 const styles = StyleSheet.create({
   control: { flexDirection: 'row', borderWidth: 1.5, borderRadius: 14, padding: 3, gap: 3 },
-  segment: { flex: 1, minHeight: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
-  label: { fontSize: 12, fontWeight: '700' },
+  segment: { minWidth: 0, minHeight: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
+  label: { fontSize: 12, fontWeight: '700', textAlign: 'center' },
 })

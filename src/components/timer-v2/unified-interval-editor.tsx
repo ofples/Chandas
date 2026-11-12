@@ -10,18 +10,23 @@ import { SoundName } from './SoundName'
 import { PatternTimelinePreview } from './PatternTimelinePreview'
 
 /** The same interval controls, whether edited on the page or inside a step sheet. */
-export function UnifiedIntervalEditor({ step, secondPrecision, onDuration, onSound, onSubBells, onSubBellsEnabled, controls }: {
+export function UnifiedIntervalEditor({ step, secondPrecision, onDuration, onSound, onToggleSound, onSubBells, onSubBellsEnabled, controls }: {
   step: UnifiedTimerStep; secondPrecision: boolean; onDuration: (seconds: number) => void;
-  onSound: () => void; onSubBells: () => void; onSubBellsEnabled: (enabled: boolean) => void; controls: ReactNode
+  onSound: () => void; onToggleSound: () => void; onSubBells: () => void; onSubBellsEnabled: (enabled: boolean) => void; controls: ReactNode
 }) {
   const { tokens } = useTheme()
   const tracks = (step.subBellsEnabled ? step.subBellTracks : []).map(track => ({ ...track, cadenceMinutes: Math.max(1, Math.ceil(track.cadenceSeconds / 60)), selectedOffsetsMinutes: track.selectedOffsetsSeconds.map(offset => Math.ceil(offset / 60)) }))
   return <View style={styles.editor}>
     <Text style={[styles.label, { color: tokens.text }]}>Main interval</Text>
-    <View testID="unified-main-duration"><DurationSelector value={Math.ceil(step.durationSeconds / 60)} valueSeconds={step.durationSeconds} secondPrecision={secondPrecision || step.durationSeconds % 60 !== 0} presets={[5, 10, 15, 30, 45, 60]} minSeconds={1} maxSeconds={MAX_CUE_DURATION_SECONDS} onChange={minutes => onDuration(Math.min(MAX_CUE_DURATION_SECONDS, minutes * 60))} onChangeSeconds={onDuration} /></View>
-    <Pressable testID="unified-main-sound" accessibilityRole="button" accessibilityLabel="Choose main interval sound" onPress={onSound} style={styles.sound}>
-      <BellIcon on color={tokens.accent} /><View style={styles.flex}><Text style={[styles.label, { color: tokens.text }]}>At the end</Text><SoundName cue={step.endCue} style={styles.detail} /></View><VolumeIcon level={step.endCue.volume} color={tokens.textMuted} /><Text style={{ color: tokens.textMuted }}>›</Text>
-    </Pressable>
+    <View testID="unified-main-duration"><DurationSelector value={Math.ceil(step.durationSeconds / 60)} valueSeconds={step.durationSeconds} secondPrecision={secondPrecision} presets={[5, 10, 15, 30, 45, 60]} minSeconds={1} maxSeconds={MAX_CUE_DURATION_SECONDS} onChange={minutes => onDuration(Math.min(MAX_CUE_DURATION_SECONDS, minutes * 60))} onChangeSeconds={onDuration} /></View>
+    <View style={styles.sound}>
+      <Pressable testID="unified-main-sound" accessibilityRole="button" accessibilityLabel="Choose main interval sound" onPress={onSound} style={[styles.sound, styles.flex]}>
+        <BellIcon on color={tokens.accent} /><View style={styles.flex}><Text style={[styles.label, { color: tokens.text }]}>At the end</Text><SoundName cue={step.endCue} style={styles.detail} /></View><Text style={{ color: tokens.textMuted }}>›</Text>
+      </Pressable>
+      <Pressable accessibilityRole="switch" accessibilityLabel="Mute main interval sound" accessibilityState={{ checked: !!step.endCue.soundMuted }} onPress={onToggleSound} style={styles.muteSound}>
+        <VolumeIcon muted={step.endCue.soundMuted} level={step.endCue.volume} color={step.endCue.soundMuted ? tokens.accent : tokens.textMuted} />
+      </Pressable>
+    </View>
     {controls}
     <View style={[styles.card, { backgroundColor: tokens.surface, borderColor: tokens.border }]}>
       <Pressable testID="unified-open-subbells" accessibilityRole="button" accessibilityLabel="Configure sub-bells" onPress={onSubBells} style={StyleSheet.absoluteFill} />
@@ -37,5 +42,6 @@ export function UnifiedIntervalEditor({ step, secondPrecision, onDuration, onSou
 const styles = StyleSheet.create({
   editor: { gap: 14 }, label: { fontSize: 14, fontWeight: '600' }, detail: { fontSize: 12, lineHeight: 17 }, flex: { flex: 1, minWidth: 0 },
   sound: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  muteSound: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   card: { borderWidth: 1, borderRadius: 16, padding: 12, gap: 10 }, header: { minHeight: 42, flexDirection: 'row', alignItems: 'center', gap: 10 },
 })

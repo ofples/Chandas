@@ -3,6 +3,19 @@ export function formatClockTime(minutes: number): string {
   return `${String(Math.floor(value / 60)).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`
 }
 
+export function nextLocalClockTime(minutes: number, now: number): number {
+  const deadline = new Date(now)
+  const hour = Math.floor(minutes / 60)
+  const minute = minutes % 60
+  deadline.setHours(hour, minute, 0, 0)
+  if (deadline.getTime() <= now) {
+    deadline.setTime(now)
+    deadline.setDate(deadline.getDate() + 1)
+    deadline.setHours(hour, minute, 0, 0)
+  }
+  return deadline.getTime()
+}
+
 /** Right-filled clock entry: 2, 22, 2:20, 22:00. */
 export function formatClockDraft(value: string): string {
   const digits = value.replace(/\D/g, '').slice(0, 4)

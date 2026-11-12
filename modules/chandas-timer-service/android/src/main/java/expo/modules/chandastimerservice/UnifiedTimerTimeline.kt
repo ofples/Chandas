@@ -22,6 +22,8 @@ data class UnifiedTimelineCandidate(
   val cadenceSeconds: Long?,
   val cadencePriority: Long,
   val trackOrder: Int?,
+  val explicitMarker: Boolean = false,
+  val occurrencesPerRound: Int? = null,
 )
 
 data class UnifiedTimelineEvent(
@@ -135,6 +137,18 @@ object UnifiedTimerTimeline {
     val length = duration(root)
     when (policy.optString("kind")) {
       "duration" -> (exactLong(policy, "durationSeconds") ?: return@runCatching null).let { startedAt + it * SECOND }
+      "until" -> {
+        val minutes = exactLong(policy, "untilMinutes") ?: return@runCatching null
+        val deadline = Calendar.getInstance().apply {
+          timeInMillis = startedAt
+          set(Calendar.HOUR_OF_DAY, (minutes / 60).toInt())
+          set(Calendar.MINUTE, (minutes % 60).toInt())
+          set(Calendar.SECOND, 0)
+          set(Calendar.MILLISECOND, 0)
+        }
+        if (deadline.timeInMillis <= startedAt) deadline.add(Calendar.DAY_OF_YEAR, 1)
+        deadline.timeInMillis
+      }
       "cycles" -> {
         val count = (exactLong(policy, "cycleCount") ?: return@runCatching null).toInt()
         if (count !in 1..MAX_RUN_CYCLES || length <= 0L) return@runCatching null
@@ -229,7 +243,8 @@ object UnifiedTimerTimeline {
         val at = groups.keys.filter { it > now }.minOrNull()
         if (at != null) {
           val items = groups.getValue(at)
-          val winner = items.sortedWith(compareByDescending<UnifiedTimelineCandidate> { it.cadencePriority }.thenBy { it.trackOrder ?: Int.MAX_VALUE }).first()
+          val winner = items.sortedWith(compareByDescending<UnifiedTimelineCandidate> { it.explicitMarker }
+            .thenByDescending { it.cadencePriority }.thenBy { it.trackOrder ?: Int.MAX_VALUE }).first()
           val stepId = step.getString("id")
           val isEnd = at == stepStart + duration
           val isRoundEnd = isEnd && stepIndex == steps.length() - 1
@@ -266,7 +281,10 @@ object UnifiedTimerTimeline {
       val cadence = track.optLong("cadenceSeconds")
       for (offset in offsets) {
         val at = start + offset * SECOND
-        groups.getOrPut(at) { mutableListOf() }.add(candidate(track, track.getString("id"), step.getString("id"), track.getString("id"), "sub-bell", false, visible, cadence, if (track.optBoolean("repeatEnabled", true)) cadence else 0L, trackOrder))
+        val explicitMarker = offset == track.optLong("afterStartSeconds", -1L) || offset == durationSeconds - track.optLong("beforeEndSeconds", -1L)
+        val priority = if (track.optBoolean("repeatEnabled", true)) cadence else 0L
+        val bell = candidate(track, track.getString("id"), step.getString("id"), track.getString("id"), "sub-bell", false, visible, cadence, priority, trackOrder)
+        groups.getOrPut(at) { mutableListOf() }.add(bell.copy(explicitMarker = explicitMarker, occurrencesPerRound = offsets.size))
       }
     }
     return groups
@@ -283,7 +301,8 @@ object UnifiedTimerTimeline {
       trackId == null -> stepIdentity(stepId)
       else -> trackIdentity(stepId, trackId)
     }
-    return UnifiedTimelineCandidate(cueId, sourceCueId, stepId, trackId, kind, alarm, cueSound(cue), cue?.optDouble("volume", 1.0)?.toFloat()?.coerceIn(0f, 1f) ?: 1f, soundIds, mode, haptic, off, visible, cadence, priority, order)
+    val volume = if (cue?.optBoolean("soundMuted") == true) 0f else cue?.optDouble("volume", 1.0)?.toFloat()?.coerceIn(0f, 1f) ?: 1f
+    return UnifiedTimelineCandidate(cueId, sourceCueId, stepId, trackId, kind, alarm, cueSound(cue), volume, soundIds, mode, haptic, off, visible, cadence, priority, order)
   }
 
   private fun completionCandidate(root: JSONObject): UnifiedTimelineCandidate? {
@@ -338,6 +357,7 @@ object UnifiedTimerTimeline {
     if (cycles !in 1L..MAX_RUN_CYCLES.toLong() || seconds !in 1L..MAX_RUN_DURATION_SECONDS) return false
     return when (policy.opt("kind")) {
       "continuous", "cycles", "duration" -> true
+      "until" -> exactLong(policy, "untilMinutes")?.let { it in 0L..1439L } == true
       else -> false
     }
   }

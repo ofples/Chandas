@@ -28,12 +28,16 @@ internal object FloatingTimerActions {
       }
       val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
         ?: return result(context, false, "open-app")
-      intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+      intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP or android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP)
+      TimerRuns.id(context)?.let {
+        intent.putExtra(TimerRuns.EXTRA_RUN_ID, it)
+        intent.putExtra(TimerRuns.EXTRA_RUN_PANEL, destination)
+      }
       val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-      if (destination != null) prefs.edit().putString(PENDING_DESTINATION, destination).apply()
+      if (destination != null && TimerRuns.id(context) == null) prefs.edit().putString(PENDING_DESTINATION, destination).apply()
       return if (runCatching { context.startActivity(intent) }.isSuccess) result(context, true)
       else {
-        if (destination != null) prefs.edit().remove(PENDING_DESTINATION).apply()
+        if (destination != null && TimerRuns.id(context) == null) prefs.edit().remove(PENDING_DESTINATION).apply()
         result(context, false, "open-app")
       }
     }
@@ -50,7 +54,12 @@ internal object FloatingTimerActions {
       "mute" -> { TimerScheduler.muteForIterations(context, 1); true }
       "clear-mute" -> { TimerScheduler.clearMute(context); true }
       "stop" -> { TimerScheduler.stop(context); TimerStateStore.load(context) == null }
-      else -> if (action.startsWith("toggle-step-alarm:")) toggleStepAlarm(context, current, action.removePrefix("toggle-step-alarm:")) else false
+      else -> when {
+        action.startsWith("toggle-step-alarm:") -> toggleStepAlarm(context, current, action.removePrefix("toggle-step-alarm:"))
+        action.startsWith("skip-steps:") -> action.substringAfter(':').toIntOrNull()?.let { TimerScheduler.skipSequence(context, it) } == true
+        action.startsWith("seek-step:") -> action.substringAfter(':').toIntOrNull()?.let { TimerScheduler.seekStep(context, it) } == true
+        else -> false
+      }
     }
     FloatingTimerOverlay.reconcile(context)
     FloatingTimerOverlay.emitSnapshot(context)
@@ -62,7 +71,7 @@ internal object FloatingTimerActions {
     val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     val destination = prefs.getString(PENDING_DESTINATION, null)
       ?.takeIf { it == "clock" || it == "sound" }
-    if (destination != null) prefs.edit().remove(PENDING_DESTINATION).apply()
+    if (destination != null && TimerRuns.id(context) == null) prefs.edit().remove(PENDING_DESTINATION).apply()
     return destination
   }
 
@@ -115,7 +124,11 @@ internal object FloatingTimerActions {
       ?: return false
     val now = System.currentTimeMillis()
     val anchor = if (align) TimerV2Timeline.alignedAnchor(program, now) ?: return false else now
-    val endsAt = TimerV2Timeline.runEndAt(program, anchor, now) ?: 0L
+    val endsAt = if (TimerV2Timeline.isUntil(program)) {
+      config.timerV2EndsAt.takeIf { it > now } ?: return false
+    } else {
+      TimerV2Timeline.runEndAt(program, anchor, now) ?: 0L
+    }
     val controls = TimerStateStore.getControlState(context)
     val replacement = config.copy(
       phase = anchor,

@@ -103,7 +103,8 @@ internal object FloatingTimerOverlay {
       }
     }
     override fun onActivityPaused(activity: Activity) {
-      if (resumedActivity === activity) {
+      // The module can initialize after the first Activity has already resumed.
+      if (resumedActivity == null || resumedActivity === activity) {
         resumedActivity = null
         foreground = false
         reconcile(application ?: return)
@@ -147,7 +148,7 @@ internal object FloatingTimerOverlay {
 
   private fun screenInteractive(context: Context): Boolean =
     (context.getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive
-  fun needsService(context: Context): Boolean = requested(context) && permitted(context) && TimerStateStore.load(context) != null
+  fun needsService(context: Context): Boolean = requested(context) && permitted(context) && TimerStateStore.load(TimerRuns.presentation(context)) != null
 
   fun setRequested(context: Context, value: Boolean) {
     initialize(context)
@@ -169,7 +170,7 @@ internal object FloatingTimerOverlay {
 
   fun preview(context: Context): Boolean {
     initialize(context)
-    if (!permitted(context) || TimerStateStore.load(context) != null) return false
+    if (!permitted(context) || TimerStateStore.load(TimerRuns.presentation(context)) != null) return false
     main.post {
       preview = true
       previewStartedAt = System.currentTimeMillis()
@@ -214,7 +215,7 @@ internal object FloatingTimerOverlay {
     initialize(context)
     main.post {
       val shouldShow = screenInteractive(context) && (preview || (owner != null && requested(context) && permitted(context) &&
-        TimerStateStore.load(context) != null && !foreground && !TimerStateStore.isAlarmVisible(context)))
+        TimerStateStore.load(TimerRuns.presentation(context)) != null && !foreground && !TimerRuns.contexts(context).any(TimerStateStore::isAlarmVisible)))
       if (shouldShow) show(context) else removeWindow()
       emit(context)
     }
@@ -252,7 +253,8 @@ internal object FloatingTimerOverlay {
     emit(context)
   }
 
-  fun snapshot(context: Context): Bundle {
+  fun snapshot(base: Context): Bundle {
+    val context = if (TimerRuns.id(base) != null) base else TimerRuns.presentation(base)
     val config = TimerStateStore.load(context)
     val controls = TimerStateStore.getControlState(context)
     if (config == null && preview) return bundleOf(
@@ -279,6 +281,9 @@ internal object FloatingTimerOverlay {
       "screenInteractive" to screenInteractive(context),
       "active" to (config != null),
       "preview" to false,
+      "runId" to TimerRuns.id(context),
+      "runName" to TimerRuns.name(context),
+      "activeCount" to TimerRuns.contexts(context).count { TimerStateStore.load(it) != null },
       "expanded" to expanded,
       "cueAttention" to cueAttention,
       "cuePulse" to cuePulse,
@@ -344,6 +349,7 @@ internal object FloatingTimerOverlay {
 
   /** Shows a short visual acknowledgement for an audible timer cue. */
   fun onCue(context: Context) {
+    if (TimerRuns.id(context) != TimerRuns.id(TimerRuns.presentation(context))) return
     main.post {
       if (!visible || preview || foreground) return@post
       expanded = true
@@ -467,7 +473,7 @@ internal object FloatingTimerOverlay {
               }
             } else if (!expandedWindow()) setExpanded(context, true)
             else if (cueAttention) setExpanded(context, false)
-            else FloatingTimerActions.perform(context, "open-running")
+            else FloatingTimerActions.perform(TimerRuns.presentation(context), "open-running")
             if (expandedWindow() && dragging) scheduleCollapse(context)
             return true
           }

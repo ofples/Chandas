@@ -14,6 +14,8 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import java.io.FileDescriptor
+import java.io.PrintWriter
 
 /**
  * Owns continuous timer presentation: optional promoted copy and floating surface.
@@ -35,14 +37,15 @@ class ChandasCountdownService : Service() {
     }
 
     fun reconcile(context: Context) {
-      val config = TimerStateStore.load(context)
+      val config = TimerRuns.presentationConfig(TimerRuns.presentation(context))
       val overlay = FloatingTimerOverlay.needsService(context)
       val promoted = promotedAvailable(context, config)
       if (live) {
         if (!overlay && !promoted) { stop(context); return }
         instance?.let { service ->
-          FloatingTimerOverlay.reconcile(service)
-          service.refreshTicker()
+          service.handler.post {
+            if (service.render(promote = false, forceUpdate = true)) service.refreshTicker()
+          }
         }
         return
       }
@@ -58,9 +61,16 @@ class ChandasCountdownService : Service() {
 
     fun ensureRunning(context: Context) = reconcile(context)
 
-    fun stop(context: Context) {
-      instance?.fallbackOnDestroy = false
-      runCatching { context.stopService(Intent(context, ChandasCountdownService::class.java)) }
+    fun stop(context: Context, removeNotification: Boolean = false) {
+      val service = instance
+      if (service != null) {
+        service.handler.post {
+          service.fallbackOnDestroy = false
+          service.finish(removeNotification)
+        }
+      } else {
+        runCatching { context.stopService(Intent(context, ChandasCountdownService::class.java)) }
+      }
     }
   }
 
@@ -76,7 +86,7 @@ class ChandasCountdownService : Service() {
 
   private fun refreshTicker() {
     handler.removeCallbacks(refresh)
-    val config = TimerStateStore.load(this)
+    val config = TimerRuns.presentationConfig(TimerRuns.presentation(this))
     // A paused compact status has no changing time. Resume reconciles the
     // service and restarts its display ticker when a countdown exists again.
     if (config?.timerV2PausedAt != 0L || !promotedAvailable(this, config)) return
@@ -85,6 +95,11 @@ class ChandasCountdownService : Service() {
   }
 
   override fun onBind(intent: Intent?): IBinder? = null
+
+  override fun dump(fd: FileDescriptor, writer: PrintWriter, args: Array<out String>?) {
+    if (args?.contentEquals(arrayOf("playback")) == true) TimerPlaybackTrace.dump(this, writer)
+    else super.dump(fd, writer, args)
+  }
 
   override fun onConfigurationChanged(newConfig: Configuration) {
     super.onConfigurationChanged(newConfig)
@@ -112,8 +127,9 @@ class ChandasCountdownService : Service() {
     return START_STICKY
   }
 
-  private fun render(promote: Boolean): Boolean {
-    val config = TimerStateStore.load(this)
+  private fun render(promote: Boolean, forceUpdate: Boolean = false): Boolean {
+    val run = TimerRuns.presentation(this)
+    val config = TimerRuns.presentationConfig(run)
     val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     val overlay = FloatingTimerOverlay.needsService(this)
     val promotedAvailable = promotedAvailable(this, config)
@@ -125,15 +141,9 @@ class ChandasCountdownService : Service() {
       return false
     }
     FloatingTimerOverlay.reconcile(this)
-    val compactText = if (promotedAvailable) TimerNotifications.compactStatus(config) else null
-    val updateNotification = promote || (promotedAvailable && compactText != lastCompactText)
-    val notification = if (updateNotification) TimerNotifications.buildRunning(this, config, includeCompactStatus = promotedAvailable) else null
-    // Paused schedules intentionally have no ticking target. Drop the updater
-    // until the exact resume event posts the notification and starts it again.
-    if (!overlay && notification != null && NotificationCompat.getShortCriticalText(notification) == null) {
-      finish(removeNotification = false)
-      return false
-    }
+    val compactText = if (promotedAvailable) TimerNotifications.compactStatus(config) ?: "Running" else null
+    val updateNotification = promote || forceUpdate || (promotedAvailable && compactText != lastCompactText)
+    val notification = if (updateNotification) TimerNotifications.buildRunning(run, config, includeCompactStatus = promotedAvailable) else null
     if (promote) {
       if (notification == null) return false
       val promoted = runCatching {
@@ -176,7 +186,7 @@ class ChandasCountdownService : Service() {
     ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_DETACH)
     // If Android tears down this presentation helper, immediately replace a
     // potentially frozen custom label with the OS-owned single chronometer.
-    TimerStateStore.load(this)
+    TimerRuns.presentationConfig(TimerRuns.presentation(this))
       ?.takeIf { fallbackOnDestroy }
       ?.takeIf { it.notificationsEnabled && it.liveCountdownEnabled }
       ?.let { config ->
@@ -184,7 +194,7 @@ class ChandasCountdownService : Service() {
         runCatching {
           manager.notify(
             TimerNotifications.RUNNING_ID,
-            TimerNotifications.buildRunning(this, config, includeCompactStatus = false),
+            TimerNotifications.buildRunning(TimerRuns.presentation(this), config, includeCompactStatus = false),
           )
         }
       }

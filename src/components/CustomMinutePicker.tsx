@@ -2,13 +2,14 @@ import { useRef, useState } from 'react'
 import { Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native'
 import { useTheme } from '../theme/ThemeContext'
 import { BottomSheet } from './timer-v2/BottomSheet'
-import { formatDurationDraft, parseDurationDigits } from '../lib/time-inputs'
+import { formatClockTime, formatDurationDraft, parseClockDraft, parseDurationDigits } from '../lib/time-inputs'
 
 interface Props {
   title: string
   initial: number
   initialSeconds?: number
   secondPrecision?: boolean
+  clockTime?: boolean
   min?: number
   max?: number
   minSeconds?: number
@@ -18,12 +19,12 @@ interface Props {
   onClose: () => void
 }
 
-/** Elapsed-duration editor. Deliberately not a clock picker: durations may exceed 24 hours. */
-export function CustomMinutePicker({ title, initial, initialSeconds, secondPrecision = false, min = 1, max = 59, minSeconds = min * 60, maxSeconds = max * 60, onConfirm, onConfirmSeconds, onClose }: Props) {
+/** Shared keypad for elapsed durations and 24-hour clock times. */
+export function CustomMinutePicker({ title, initial, initialSeconds, secondPrecision = false, clockTime = false, min = 1, max = 59, minSeconds = min * 60, maxSeconds = max * 60, onConfirm, onConfirmSeconds, onClose }: Props) {
   const { tokens } = useTheme()
   const { height: windowHeight } = useWindowDimensions()
   const exact = initialSeconds ?? initial * 60
-  const [digits, setDigits] = useState(durationDigits(exact, secondPrecision))
+  const [digits, setDigits] = useState(clockTime ? formatClockTime(initial).replace(':', '') : durationDigits(exact, secondPrecision))
   const [error, setError] = useState<string | null>(null)
   const firstKeyRef = useRef(true)
   const confirmingRef = useRef(false)
@@ -32,7 +33,10 @@ export function CustomMinutePicker({ title, initial, initialSeconds, secondPreci
     setError(null)
     const replace = firstKeyRef.current
     firstKeyRef.current = false
-    setDigits(current => `${replace ? '' : current}${key}`.replace(/^0+(?=\d)/, '').slice(0, 7))
+    setDigits(current => {
+      const next = `${replace ? '' : current}${key}`
+      return clockTime ? next.slice(0, 4) : next.replace(/^0+(?=\d)/, '').slice(0, 7)
+    })
   }
   const backspace = () => {
     setError(null)
@@ -48,6 +52,13 @@ export function CustomMinutePicker({ title, initial, initialSeconds, secondPreci
 
   const handleConfirm = () => {
     if (confirmingRef.current) return
+    if (clockTime) {
+      const minutes = parseClockDraft(digits)
+      if (minutes === null) { setError('Enter a time from 00:00 to 23:59.'); return }
+      confirmingRef.current = true
+      onConfirm(minutes)
+      return
+    }
     const parsedSeconds = parseDurationDigits(digits, secondPrecision)
     const totalSeconds = parsedSeconds === null ? null : parsedSeconds + (!secondPrecision && onConfirmSeconds ? exact % 60 : 0)
     if (totalSeconds === null || totalSeconds < minSeconds || totalSeconds > maxSeconds) {
@@ -63,14 +74,15 @@ export function CustomMinutePicker({ title, initial, initialSeconds, secondPreci
     onConfirm(Math.max(min, Math.min(max, totalMinutes)))
   }
 
-  return <BottomSheet visible title={title} help={`Enter digits from right to left${secondPrecision ? ': seconds, then minutes, then hours' : ': minutes, then hours'}.`} onClose={onClose} initialSnap="full">
+  const display = clockTime ? digits.padStart(4, '0').replace(/^(..)/, '$1:') : formatDurationDraft(digits, secondPrecision)
+  return <BottomSheet visible title={title} help={clockTime ? 'Enter a 24-hour time.' : `Enter digits from right to left${secondPrecision ? ': seconds, then minutes, then hours' : ': minutes, then hours'}.`} onClose={onClose} initialSnap="full">
     <View style={styles.fieldWrap}>
-      <TextInput testID="duration-keypad-value" value={formatDurationDraft(digits, secondPrecision)} onChangeText={() => undefined} showSoftInputOnFocus={false} inputMode="none" autoFocus blurOnSubmit={false} onKeyPress={handleHardwareKey} caretHidden style={[styles.input, { backgroundColor: tokens.surfaceHi, borderColor: error ? tokens.warm : tokens.border, color: tokens.text }]} accessibilityLabel={secondPrecision ? 'Duration in hours minutes and seconds' : 'Duration in hours and minutes'} />
+      <TextInput testID={clockTime ? 'clock-keypad-value' : 'duration-keypad-value'} value={display} onChangeText={() => undefined} showSoftInputOnFocus={false} inputMode="none" autoFocus blurOnSubmit={false} onKeyPress={handleHardwareKey} caretHidden style={[styles.input, { backgroundColor: tokens.surfaceHi, borderColor: error ? tokens.warm : tokens.border, color: tokens.text }]} accessibilityLabel={clockTime ? '24-hour time' : secondPrecision ? 'Duration in hours minutes and seconds' : 'Duration in hours and minutes'} />
       <Text style={[styles.label, { color: tokens.textMuted }]}>{secondPrecision ? 'HOURS : MINUTES : SECONDS' : 'HOURS : MINUTES'}</Text>
     </View>
     {error ? <Text accessibilityRole="alert" style={[styles.error, { color: tokens.warm }]}>{error}</Text> : null}
     <View testID="duration-keypad" style={styles.keypad} accessibilityRole="none">{[['1','2','3'],['4','5','6'],['7','8','9'],['00','0','⌫']].map((row, rowIndex) => <View key={rowIndex} style={styles.keyRow}>{row.map(key => <Pressable key={key} testID={`duration-key-${key === '⌫' ? 'backspace' : key}`} onPress={() => key === '⌫' ? backspace() : pressDigit(key)} accessibilityRole="button" accessibilityLabel={key === '⌫' ? 'Backspace' : key === '00' ? 'Double zero' : key} style={({ pressed }) => [styles.key, { height: Math.max(44, Math.min(58, (windowHeight - 392) / 4)), backgroundColor: tokens.surfaceHi, borderColor: tokens.border, opacity: pressed ? 0.7 : 1 }]}><Text style={[styles.keyLabel, { color: tokens.text }]}>{key}</Text></Pressable>)}</View>)}</View>
-    <Pressable onPressIn={handleConfirm} onPress={handleConfirm} accessibilityRole="button" accessibilityLabel={`Set ${title.replace(/^set\s+/i, '')}`} style={({ pressed }) => [styles.confirm, { backgroundColor: tokens.accent, opacity: pressed ? 0.76 : 1 }]}><Text style={styles.confirmLabel}>Set duration</Text></Pressable>
+    <Pressable onPressIn={handleConfirm} onPress={handleConfirm} accessibilityRole="button" accessibilityLabel={`Set ${title.replace(/^set\s+/i, '')}`} style={({ pressed }) => [styles.confirm, { backgroundColor: tokens.accent, opacity: pressed ? 0.76 : 1 }]}><Text style={styles.confirmLabel}>{clockTime ? 'Set time' : 'Set duration'}</Text></Pressable>
   </BottomSheet>
 }
 

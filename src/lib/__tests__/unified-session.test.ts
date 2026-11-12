@@ -4,7 +4,7 @@ import type { UnifiedTimerProgram } from '../../types'
 import { defaultAppTimerSettings } from '../timerV2'
 import { nextUnifiedProgramEvent, unifiedCueIdentity } from '../unified-timeline'
 import { iterationMuteFor } from '../runtimeV2'
-import { clearUnifiedTimerSession, loadUnifiedTimerSession, parseUnifiedTimerSession, saveUnifiedTimerSession, UNIFIED_SESSION_KEY, type UnifiedTimerSession } from '../unified-session'
+import { clearUnifiedTimerRun, clearUnifiedTimerSession, loadUnifiedTimerRuns, loadUnifiedTimerSession, parseUnifiedTimerSession, saveUnifiedTimerRun, saveUnifiedTimerSession, UNIFIED_RUNS_KEY, UNIFIED_SESSION_KEY, type UnifiedTimerSession } from '../unified-session'
 import type { AsyncKeyValueStorage } from '../unified-storage'
 
 function session(id = 'accepted'): UnifiedTimerSession {
@@ -18,6 +18,33 @@ class Store implements AsyncKeyValueStorage {
 }
 
 describe('accepted unified session persistence', () => {
+  it('recovers a legacy run alongside a new run and isolates updates and Stop by run ID', async () => {
+    const store = new Store()
+    const first = session('first')
+    const second = { ...session('second'), sourcePreset: { id: '__proto__', name: 'Second timer', createdAt: 1000 } }
+    await saveUnifiedTimerSession(store, first)
+    expect(await saveUnifiedTimerRun(store, second, 'start')).toEqual({ ok: true })
+    const updated = { ...second, pausedAt: 2000, alarmBehavior: 'once' as const, mute: { mutedUntil: 5000 } }
+    expect(await saveUnifiedTimerRun(store, updated, 'update')).toEqual({ ok: true })
+    expect(await loadUnifiedTimerRuns(store)).toEqual({ status: 'loaded', sessions: [first, updated] })
+    expect((await saveUnifiedTimerRun(store, { ...second, sessionId: 'duplicate' }, 'start')).ok).toBe(false)
+    await clearUnifiedTimerRun(store, first.sessionId)
+    expect((await saveUnifiedTimerRun(store, first, 'update')).ok).toBe(false)
+    expect(await loadUnifiedTimerRuns(store)).toEqual({ status: 'loaded', sessions: [updated] })
+    await clearUnifiedTimerRun(store, second.sessionId)
+    expect(await loadUnifiedTimerRuns(store)).toEqual({ status: 'loaded', sessions: [] })
+  })
+
+  it('keeps future collection data intact instead of falling back to the old active run', async () => {
+    const store = new Store()
+    const raw = '{"schemaVersion":2,"sessions":[]}'
+    await saveUnifiedTimerSession(store, session())
+    store.records.set(UNIFIED_RUNS_KEY, raw)
+    expect(await loadUnifiedTimerRuns(store)).toMatchObject({ status: 'recovery-required', raw })
+    expect((await clearUnifiedTimerRun(store, 'accepted')).ok).toBe(false)
+    expect((await saveUnifiedTimerRun(store, session('new'), 'start')).ok).toBe(false)
+    expect(store.records.get(UNIFIED_RUNS_KEY)).toBe(raw)
+  })
   it('retains long namespaced playback cursors and unusual authored identities', async () => {
     const store = new Store()
     const source = session()

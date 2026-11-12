@@ -10,7 +10,7 @@ interface Props {
   visible: boolean
   mode: 'pattern' | 'sequence'
   controlSettings: Pick<AppTimerSettings, 'advancedModeEnabled' | 'runningControlIds'>
-  onRunningControlIdsChange: (ids: NonNullable<AppTimerSettings['runningControlIds']>) => void
+  onRunningControlIdsChange: (id: NonNullable<AppTimerSettings['runningControlIds']>[number], enabled: boolean) => void
   onClose: () => void
 }
 

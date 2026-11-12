@@ -1,9 +1,16 @@
 // Icons ported 1:1 from legacy-web (inline SVG) using react-native-svg.
 import Svg, { Circle, Line, Path } from 'react-native-svg'
 
-export function TimerTransportIcon({ kind, color }: { kind: 'pause' | 'play' | 'previous' | 'next'; color: string }) {
-  return <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
-    {kind === 'pause' ? <><Path d="M6 4h4v16H6z" fill={color} /><Path d="M14 4h4v16h-4z" fill={color} /></> :
+export function SearchIcon({ color, size = 18 }: { color: string; size?: number }) {
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round">
+    <Circle cx={10.5} cy={10.5} r={6.5} /><Line x1={16} y1={16} x2={21} y2={21} />
+  </Svg>
+}
+
+export function TimerTransportIcon({ kind, color, size = 18 }: { kind: 'pause' | 'play' | 'previous' | 'next' | 'stop'; color: string; size?: number }) {
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    {kind === 'stop' ? <Path d="M5 5h14v14H5z" fill={color} /> :
+      kind === 'pause' ? <><Path d="M6 4h4v16H6z" fill={color} /><Path d="M14 4h4v16h-4z" fill={color} /></> :
       kind === 'play' ? <Path d="M7 4v16l13-8L7 4z" fill={color} /> :
       kind === 'previous' ? <><Path d="M8 12 20 4v16L8 12z" fill={color} /><Path d="M4 4v16" stroke={color} strokeWidth={2.5} strokeLinecap="round" /></> :
       <><Path d="m16 12-12-8v16l12-8z" fill={color} /><Path d="M20 4v16" stroke={color} strokeWidth={2.5} strokeLinecap="round" /></>}

@@ -82,7 +82,7 @@ object FocusModeController {
   fun query(context: Context): NativeFocusState = queryInternal(context).also(FocusStateRegistry::notify)
 
   /** Applies a real timer, active-hours, or preference transition. */
-  fun reconcile(context: Context, config: TimerConfig? = TimerStateStore.load(context), forceApply: Boolean = false) {
+  fun reconcile(context: Context, config: TimerConfig? = TimerRuns.focusConfig(context), forceApply: Boolean = false) {
     if (config != null) setAutomationEnabled(context, config.focusModeEnabled)
     val desired = config != null && config.timerV2PausedAt == 0L && automationEnabled(context) && ActiveHours.isActive(config)
     val previous = requestedActive(context)
@@ -136,7 +136,7 @@ object FocusModeController {
       enableOwnedRule(context)
     }
     setAutomationEnabled(context, enabled)
-    TimerStateStore.load(context)?.let { TimerStateStore.save(context, it.copy(focusModeEnabled = enabled)) }
+    TimerRuns.setFocusForAll(context, enabled)
     reconcile(context)
   }
 
@@ -147,7 +147,7 @@ object FocusModeController {
       NotificationManager.AUTOMATIC_RULE_STATUS_ACTIVATED -> {
         setPausedByAndroid(context, false)
         setAutomationEnabled(context, true)
-        TimerStateStore.load(context)?.let { TimerStateStore.save(context, it.copy(focusModeEnabled = true)) }
+        TimerRuns.setFocusForAll(context, true)
       }
       NotificationManager.AUTOMATIC_RULE_STATUS_DEACTIVATED -> {
         // Android 15 defines this status as a user snooze, but some devices can
@@ -159,7 +159,7 @@ object FocusModeController {
           shouldTreatDeactivationAsPause(
             requestedActive = requestedActive(context),
             automationEnabled = automationEnabled(context),
-            timerRunning = TimerStateStore.load(context) != null,
+            timerRunning = TimerRuns.focusConfig(context) != null,
           ),
         )
       }
@@ -171,7 +171,7 @@ object FocusModeController {
       }
       NotificationManager.AUTOMATIC_RULE_STATUS_ENABLED -> {
         setAutomationEnabled(context, true)
-        TimerStateStore.load(context)?.let { TimerStateStore.save(context, it.copy(focusModeEnabled = true)) }
+        TimerRuns.setFocusForAll(context, true)
         reconcile(context)
         return
       }
@@ -186,7 +186,7 @@ object FocusModeController {
   private fun queryInternal(context: Context): NativeFocusState {
     val access = hasPolicyAccess(context)
     var automation = automationEnabled(context)
-    val config = TimerStateStore.load(context)
+    val config = TimerRuns.focusConfig(context)
     val timerRunning = config != null
     var requested = requestedActive(context)
     var paused = pausedByAndroid(context)
@@ -277,7 +277,7 @@ object FocusModeController {
   private fun disableAutomationFromAndroid(context: Context) {
     setAutomationEnabled(context, false)
     setRequestedActive(context, false)
-    TimerStateStore.load(context)?.let { TimerStateStore.save(context, it.copy(focusModeEnabled = false)) }
+    TimerRuns.setFocusForAll(context, false)
   }
 
   private fun publishCondition(context: Context, active: Boolean, createIfMissing: Boolean) {

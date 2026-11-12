@@ -2,11 +2,63 @@ import { describe, expect, it } from 'vitest'
 import fixture from '../../../fixtures/timer-unified-timeline.json'
 import type { UnifiedTimerProgram } from '../../types'
 import { unifiedCueIdentity, unifiedIterationEnd, unifiedProgramDurationMs, unifiedRunEndAt, unifiedSkipTarget, unifiedTimelinePosition, nextUnifiedProgramEvent } from '../unified-timeline'
+import { seekStepTarget, timelinePosition } from '../timeline'
 
 const base = fixture.program as UnifiedTimerProgram
 const query = (now: number, program = base, visibleOnly = false) => nextUnifiedProgramEvent(program, fixture.anchor, now, fixture.anchor, null, fixture.randomSeed, visibleOnly)
 
 describe('unified timer timeline', () => {
+  it('scrubs within the current step and keeps a fixed end time', () => {
+    const now = 71_000
+    const program: UnifiedTimerProgram = { ...base, runPolicy: { ...base.runPolicy, kind: 'duration' } }
+    const target = seekStepTarget(program, 1_000, now, 1_000, 130_000, 0.5)!
+    expect(target.terminalAt).toBe(130_000)
+    expect(timelinePosition(program, target.anchor, now, target.startedAt, target.terminalAt)).toMatchObject({ currentStepIndex: 1, stepProgress: 0.5 })
+  })
+
+  it('mutes a main sound while keeping its alarm and sound choice', () => {
+    const program = structuredClone(base)
+    program.steps[0].endCue.soundMuted = true
+    program.steps[0].endAlarmEnabled = true
+    expect(query(fixture.anchor + program.steps[0].durationSeconds * 1000 - 1, program)?.winner)
+      .toMatchObject({ alarmEnabled: true, sound: program.steps[0].endCue.sound, volume: 0 })
+  })
+  it('plays both step markers ahead of coincident cadence cues', () => {
+    const program = structuredClone(base)
+    const step = program.steps[0]
+    step.durationSeconds = 300
+    const [cadence, marker] = step.subBellTracks
+    cadence.selectedOffsetsSeconds = [120, 180]
+    cadence.repeatEnabled = true
+    marker.repeatEnabled = false
+    marker.afterStartSeconds = 120
+    marker.beforeEndSeconds = 120
+    for (const seconds of [120, 180]) {
+      const event = query(fixture.anchor + seconds * 1_000 - 1, program)
+      expect(event?.at).toBe(fixture.anchor + seconds * 1_000)
+      expect(event?.candidates).toHaveLength(2)
+      expect(event?.winner.trackId).toBe(marker.id)
+    }
+  })
+
+  it('uses the next local occurrence of Until and ends between step boundaries', () => {
+    const program = structuredClone(base)
+    const startedAt = new Date(2026, 10, 6, 23, 59, 55).getTime()
+    program.runPolicy = { ...program.runPolicy, kind: 'until', untilMinutes: 0 }
+    const midnight = new Date(2026, 10, 7).getTime()
+    expect(unifiedRunEndAt(program, startedAt, startedAt)).toBe(midnight)
+    expect(nextUnifiedProgramEvent(program, startedAt, midnight - 1, startedAt)).toMatchObject({ at: midnight, completesRun: true })
+    expect(nextUnifiedProgramEvent(program, startedAt, midnight, startedAt)).toBeNull()
+  })
+
+  it('keeps ending alarms attached to the correct step in a 10s then 5s sequence', () => {
+    const program = structuredClone(base)
+    Object.assign(program.steps[0], { durationSeconds: 10, subBellsEnabled: false, endAlarmEnabled: true })
+    Object.assign(program.steps[1], { durationSeconds: 5, subBellsEnabled: false, endAlarmEnabled: false })
+    expect(query(fixture.anchor, program)).toMatchObject({ at: fixture.anchor + 10_000, stepIndex: 0, winner: { alarmEnabled: true } })
+    expect(query(fixture.anchor + 10_000, program)).toMatchObject({ at: fixture.anchor + 15_000, stepIndex: 1 })
+    expect(query(fixture.anchor + 10_000, program)?.winner.alarmEnabled).toBeUndefined()
+  })
   it('matches the independent step/collision/visibility fixture', () => {
     for (const expected of fixture.queries) {
       const event = query(expected.now)

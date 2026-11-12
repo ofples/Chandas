@@ -5,7 +5,7 @@ import { scheduleRangeCountForDay, scheduleRenderedBoundaryMinutesForDay, schedu
 import { useTheme } from '../../theme/ThemeContext'
 import { tapHaptic } from '../../lib/haptics'
 
-export function ScheduleTimelinePreview({ value, onPress }: { value: AvailabilityPolicy; onPress: () => void }) {
+export function ScheduleTimelinePreview({ value, onPress }: { value: AvailabilityPolicy; onPress?: () => void }) {
   const { tokens } = useTheme()
   const reducedMotion = useAppReducedMotion()
   const day = new Date().getDay()
@@ -22,11 +22,11 @@ export function ScheduleTimelinePreview({ value, onPress }: { value: Availabilit
         : `Today · ${activeRangeCount} active ${activeRangeCount === 1 ? 'range' : 'ranges'}`
 
   return <Pressable
-    onPress={() => { tapHaptic(); onPress() }}
+    onPress={onPress ? () => { tapHaptic(); onPress() } : undefined}
     hitSlop={6}
-    accessibilityRole="button"
-    accessibilityLabel={`Edit schedule. ${summary}`}
-    accessibilityHint="Opens the Schedule editor"
+    accessibilityRole={onPress ? 'button' : undefined}
+    accessibilityLabel={onPress ? `Edit schedule. ${summary}` : undefined}
+    accessibilityHint={onPress ? 'Opens the Schedule editor' : undefined}
     style={({ pressed }) => [styles.preview, { opacity: pressed ? 0.7 : 1, transform: [{ scale: pressed && !reducedMotion ? 0.995 : 1 }] }]}
   >
     <View style={styles.timeline}>
@@ -37,7 +37,7 @@ export function ScheduleTimelinePreview({ value, onPress }: { value: Availabilit
       </View>
       {boundaries.map((minute, index) => <Text key={`label:${minute}`} style={[styles.boundaryLabel, boundaryLabelPosition(minute), labelLanes[index] === 1 && styles.secondLabelLane, { color: tokens.textMuted }]}>{formatBoundary(minute)}</Text>)}
     </View>
-    <View style={styles.summaryRow}><Text style={[styles.summary, { color: tokens.textMuted }]}>{summary}</Text><Text style={[styles.chevron, { color: tokens.accent }]}>›</Text></View>
+    <View style={styles.summaryRow}><Text style={[styles.summary, { color: tokens.textMuted }]}>{summary}</Text>{onPress ? <Text style={[styles.chevron, { color: tokens.accent }]}>›</Text> : null}</View>
   </Pressable>
 }
 
