@@ -16,6 +16,7 @@ import { BUILT_IN_SOUNDS, sourceForSound } from '../lib/soundLibrary'
 import { normalizeNativeFocusState } from '../lib/focusState'
 
 export type TimerAudioOutput = 'phone' | 'external' | 'headphones'
+export type TimerAudioMixMode = 'default' | 'mix' | 'duck' | 'pause'
 
 export interface NativeTimerConfig {
   mainMs: number
@@ -168,6 +169,7 @@ export interface NativeTimerCapabilities {
   supportsSecondPrecision?: boolean
   supportsSubBellSecondPrecision?: boolean
   supportsUntilRunLength?: boolean
+  supportsNoMainInterval?: boolean
   supportsMuteSecondPrecision?: boolean
   supportsDualLiveCountdown?: boolean
   supportsProgramClockAlignment?: boolean
@@ -278,6 +280,8 @@ interface ChandasTimerServiceModule {
   previewSoundForUse?(soundId: string, fallbackSoundId: BuiltInSoundId, volume: number, alarm: boolean, request: number): Promise<boolean>
   getAudioOutputs?(): TimerAudioOutput[] | null
   setAudioOutputs?(outputs: TimerAudioOutput[]): boolean
+  getAudioMixMode?(): TimerAudioMixMode | null
+  setAudioMixMode?(mode: TimerAudioMixMode): boolean
   previewHaptic?(pattern: HapticPattern, strength: HapticStrength): boolean
   cacheBuiltInSound?(id: string, sourceUri: string, revision: string): Promise<boolean>
   stopSoundPreview(): void
@@ -353,6 +357,12 @@ export const ChandasTimerService = {
   },
   setAudioOutputs(outputs: TimerAudioOutput[]): boolean {
     return native?.setAudioOutputs?.(outputs) ?? false
+  },
+  getAudioMixMode(): TimerAudioMixMode | null {
+    return native?.getAudioMixMode?.() ?? null
+  },
+  setAudioMixMode(mode: TimerAudioMixMode): boolean {
+    return native?.setAudioMixMode?.(mode) ?? false
   },
   getCapabilities(): NativeTimerCapabilities | null {
     try {

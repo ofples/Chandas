@@ -134,6 +134,10 @@ object TimerSoundPlayer {
     shorten: Boolean,
     finish: () -> Unit,
   ) {
+    if (!TimerAudioFocus.holdForCue(context, alarmAttributes(), player, finish)) {
+      finish()
+      return
+    }
     val duration = runCatching { player.duration }.getOrDefault(-1)
     val clip = if (shorten) minOf(SHORT_CUE_MS, duration.takeIf { it > 0 }?.toLong() ?: SHORT_CUE_MS) else 0L
     output.start()
@@ -169,6 +173,7 @@ object TimerSoundPlayer {
   internal fun releaseOneShot(player: MediaPlayer) {
     completionHandler.removeCallbacksAndMessages(player)
     runCatching { player.release() }
+    TimerAudioFocus.releaseCue(player)
   }
 
   fun canOpen(context: Context, soundId: String): Boolean = runCatching {

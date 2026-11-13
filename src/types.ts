@@ -180,6 +180,8 @@ export interface UnifiedTimerStep {
 export interface UnifiedTimerProgram {
   schemaVersion: 4
   mode: 'unified'
+  /** A single step whose bells run from the timer anchor without main boundaries. */
+  noMainInterval?: boolean
   steps: UnifiedTimerStep[]
   alignment: TimerAlignment
   completionCue: CueSettings | null
@@ -278,7 +280,7 @@ export interface AppTimerSettings {
   alarmDurationSeconds: number
 }
 
-export type RunningControlId = 'restart' | 'clock' | 'alarm' | 'stepAlarm' | 'focus' | 'sound'
+export type RunningControlId = 'restart' | 'clock' | 'alarm' | 'stepAlarm' | 'focus' | 'sound' | 'scrub'
 
 export type AlarmBehavior = 'off' | 'once' | 'locked'
 

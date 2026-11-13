@@ -5,11 +5,16 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import kotlin.math.min
 
 object TimerScheduler {
   private const val TIMER_REQUEST = 8201
   private const val MAX_NATIVE_INTERVAL_MS = NativeTimerContract.MAX_PROGRAM_CYCLE_MS
+  private const val SHORT_CUE_WINDOW_MS = 5_000L
+  private val cueHandler = Handler(Looper.getMainLooper())
+  private val shortCues = mutableMapOf<String?, Runnable>()
 
   @Synchronized
   fun floatingOverlayAction(context: Context, action: String): android.os.Bundle = FloatingTimerActions.perform(context, action)
@@ -317,6 +322,12 @@ object TimerScheduler {
     val searchFrom = if (pausedUntil && now < active.timerV2EndsAt) active.timerV2EndsAt - 1L else now
     var v2Event = active.timerV2Program?.let { TimerV2Timeline.next(it, active.timerV2Anchor, searchFrom, active.timerV2StartedAt, active.timerV2EndsAt, active.timerV2RandomSeed.takeIf { seed -> seed != 0L } ?: active.timerV2Anchor) }
     if (active.timerV2Program != null && v2Event == null) {
+      if (TimerV2Timeline.noMainInterval(active.timerV2Program) && active.timerV2EndsAt == 0L) {
+        cancelScheduledEvent(context)
+        TimerNotifications.postRunning(context, active)
+        TimerStateRegistry.notify(context, TimerScheduleState(true, active.timerV2Anchor, 0L, null, canScheduleExactAlarms(context)))
+        return true
+      }
       completeSession(context)
       return false
     }
@@ -410,6 +421,30 @@ object TimerScheduler {
       stop(context)
       return false
     }
+    cancelShortCue(context)
+    val delay = triggerAt - System.currentTimeMillis()
+    if (type == TimerEventType.V2 && delay <= SHORT_CUE_WINDOW_MS) {
+      // Android can defer even exact alarms that are less than five seconds away.
+      // Deliver on time in a live process and keep the durable alarm as backup.
+      val runId = TimerRuns.id(context)
+      val cue = object : Runnable {
+        override fun run(): Unit = synchronized(TimerScheduler) {
+          if (shortCues[runId] !== this) return@synchronized
+          val remaining = triggerAt - System.currentTimeMillis()
+          if (remaining > 0L) {
+            cueHandler.postDelayed(this, remaining.coerceAtMost(SHORT_CUE_WINDOW_MS))
+            return@synchronized
+          }
+          try {
+            handleTriggered(context, triggerAt, type, logicalId, generation) {}
+          } catch (_: Exception) {
+            runCatching { restore(context, resetRinging = false) }
+          }
+        }
+      }
+      shortCues[runId] = cue
+      cueHandler.postDelayed(cue, delay.coerceAtLeast(0L))
+    }
     TimerNotifications.postRunning(context, active)
     TimerStateRegistry.notify(context, TimerScheduleState(true, active.timerV2Anchor, triggerAt, logicalId, true))
     return true
@@ -430,6 +465,7 @@ object TimerScheduler {
       return
     }
 
+    cancelShortCue(context)
     ChandasAlarmService.expireAtBoundary(context, triggerAt)
     TimerStateStore.clearNext(context)
     val realignment = reconcileLocalClock(context, stored, System.currentTimeMillis())
@@ -519,6 +555,7 @@ object TimerScheduler {
         val stored = TimerStateStore.load(peer)
         if (generation != null && logicalId != null && stored != null &&
           TimerStateStore.matchesNext(peer, triggerAt, TimerEventType.V2, logicalId, generation)) {
+          cancelShortCue(peer)
           ChandasAlarmService.expireAtBoundary(peer, triggerAt)
           TimerStateStore.clearNext(peer)
           val peerConfig = reconcileLocalClock(peer, stored, System.currentTimeMillis()).config
@@ -745,6 +782,7 @@ object TimerScheduler {
 
   @Synchronized
   fun cancelScheduledEvent(context: Context) {
+    cancelShortCue(context)
     val operation = PendingIntent.getBroadcast(
       context,
       TIMER_REQUEST,
@@ -757,5 +795,9 @@ object TimerScheduler {
       operation.cancel()
     }
     TimerStateStore.clearNext(context)
+  }
+
+  private fun cancelShortCue(context: Context) {
+    shortCues.remove(TimerRuns.id(context))?.let(cueHandler::removeCallbacks)
   }
 }

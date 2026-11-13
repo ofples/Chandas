@@ -26,6 +26,7 @@ interface Props {
   position: TimelinePosition | null
   progress: number
   eventPulse: number
+  scrubbing?: boolean
   size: number
   model: TimerWatchfaceModel
   presentation?: 'running-screen' | 'floating-overlay'
@@ -36,7 +37,7 @@ interface Props {
   onLongPress?: () => void
 }
 
-export function TimerWatchface({ program, position, progress, eventPulse, size, model, presentation = 'running-screen', flashOnMount = false, accessibilityLabel, testID, onPress, onLongPress }: Props) {
+export function TimerWatchface({ program, position, progress, eventPulse, scrubbing, size, model, presentation = 'running-screen', flashOnMount = false, accessibilityLabel, testID, onPress, onLongPress }: Props) {
   const { tokens, theme } = useTheme()
   const accent = program.mode === 'unified' && theme !== 'eink' ? subBellColorValue(timerIdentityColor(program.steps[0].id), 0) : tokens.accent
   const reducedMotion = useAppReducedMotion()
@@ -50,7 +51,7 @@ export function TimerWatchface({ program, position, progress, eventPulse, size, 
     accessibilityRole="button"
     accessibilityLabel={accessibilityLabel}
   >
-    <TimerWatchfaceRings size={size} progress={progress} position={position} program={program} muted={model.muted} eventPulse={eventPulse} edgeToEdge={presentation === 'floating-overlay'} flashOnMount={flashOnMount} />
+    <TimerWatchfaceRings size={size} progress={progress} position={position} program={program} muted={model.muted} eventPulse={eventPulse} edgeToEdge={presentation === 'floating-overlay'} flashOnMount={flashOnMount} scrubbing={scrubbing} />
     <View style={[styles.center, compact && styles.centerCompact, { opacity: theme !== 'eink' && model.runtimeMuted ? 0.72 : 1, pointerEvents: 'none' }]}>
       <Text style={[styles.mainTime, compact && styles.mainTimeCompact, { color: tokens.text }]} adjustsFontSizeToFit numberOfLines={1}>{model.mainLabel}</Text>
       {model.mainCaption ? <Text numberOfLines={1} style={[styles.mainCaption, compact && styles.mainCaptionCompact, { color: tokens.textMuted }]}>{model.mainCaption}</Text> : null}
@@ -64,7 +65,7 @@ export function TimerWatchface({ program, position, progress, eventPulse, size, 
   </Pressable>
 }
 
-export function TimerWatchfaceRings({ size, progress, position, program, muted, eventPulse, edgeToEdge = false, flashOnMount = false, card = false, trackColor }: { size: number; progress: number; position: TimelinePosition | null; program: RuntimeTimerProgram; muted: boolean; eventPulse: number; edgeToEdge?: boolean; flashOnMount?: boolean; card?: boolean; trackColor?: string }) {
+export function TimerWatchfaceRings({ size, progress, position, program, muted, eventPulse, edgeToEdge = false, flashOnMount = false, card = false, trackColor, scrubbing = false }: { size: number; progress: number; position: TimelinePosition | null; program: RuntimeTimerProgram; muted: boolean; eventPulse: number; edgeToEdge?: boolean; flashOnMount?: boolean; card?: boolean; trackColor?: string; scrubbing?: boolean }) {
   const { tokens, theme } = useTheme()
   const accent = program.mode === 'unified' && theme !== 'eink' ? subBellColorValue(timerIdentityColor(program.steps[0].id), 0) : tokens.accent
   const reducedMotion = useAppReducedMotion()
@@ -93,7 +94,7 @@ export function TimerWatchfaceRings({ size, progress, position, program, muted, 
         return offsets.length > 0 ? [{ track, index, offsets }] : []
       })
     }
-    if (program.mode !== 'unified') return []
+    if (program.mode !== 'unified' || program.noMainInterval) return []
     const step = program.steps[position?.currentStepIndex ?? 0]
     if (!step?.subBellsEnabled) return []
     const mainSeconds = step.durationSeconds
@@ -122,7 +123,7 @@ export function TimerWatchfaceRings({ size, progress, position, program, muted, 
       {rings.map((ring, index) => {
         const radius = (card ? 44 * 200 / 112 : edgeToEdge ? 96 : 83) - index * 7
         const strokeWidth = card ? 3 * 200 / 112 : 3
-        return <Fragment key={index}><Circle cx={100} cy={100} r={radius} fill="none" stroke={ring.background} strokeOpacity={theme === 'eink' ? 1 : ring.backgroundOpacity} strokeWidth={strokeWidth} /><SmoothProgressCircle radius={radius} progress={ring.progress} stroke={ring.stroke} strokeWidth={strokeWidth} opacity={theme === 'eink' ? 1 : muted ? 0.3 : Math.max(0.52, 1 - index * 0.08)} reducedMotion={reducedMotion} /></Fragment>
+        return <Fragment key={index}><Circle cx={100} cy={100} r={radius} fill="none" stroke={ring.background} strokeOpacity={theme === 'eink' ? 1 : ring.backgroundOpacity} strokeWidth={strokeWidth} /><SmoothProgressCircle radius={radius} progress={ring.progress} stroke={ring.stroke} strokeWidth={strokeWidth} opacity={theme === 'eink' ? 1 : muted ? 0.3 : Math.max(0.52, 1 - index * 0.08)} reducedMotion={reducedMotion || scrubbing} /></Fragment>
       })}
     </Svg>
   </View>

@@ -66,10 +66,12 @@ export interface UnifiedConfigState {
   configs: UnifiedTimerConfig[]
   drafts: Record<string, UnifiedTimerDraft>
   legacyRecoveries: UnifiedLegacyRecovery[]
+  legacyRecoveryNoticeDismissed?: boolean
   soundLibrary: SoundRef[]
   /** Device-wide schedule shared by every timer and runtime session. */
   globalAvailability: AvailabilityPolicy
   globalRunningControlIds?: RunningControlId[]
+  globalScrubbingEnabled?: boolean
   globalSecondPrecision?: boolean
   alarmDefaults?: AlarmDefaults
   legacyRuntimeMetadata?: { alarmModeEnabled: boolean }
@@ -97,6 +99,7 @@ export type ConfigStateCommand =
   | { type: 'setGlobalAvailability'; availability: AvailabilityPolicy }
   | { type: 'setGlobalRunningControl'; id: RunningControlId; enabled: boolean }
   | { type: 'setGlobalSecondPrecision'; enabled: boolean }
+  | { type: 'dismissLegacyRecoveryNotice' }
 
 export interface ConfigCommandResult {
   state: UnifiedConfigState
@@ -487,9 +490,11 @@ export function parseUnifiedConfigState(input: unknown): UnifiedConfigParseResul
   if (!globalAvailability) return fail('Invalid global availability policy')
   const legacyControls = getDraft(drafts, draftKey(raw.selectedConfigId ?? undefined))?.settings ?? defaultAppTimerSettings()
   if (raw.globalRunningControlIds !== undefined && !validGlobalRunningControls(raw.globalRunningControlIds)) return fail('Invalid global running controls')
-  const globalRunningControlIds = raw.globalRunningControlIds ?? [...enabledRunningControls(legacyControls)]
+  if (raw.globalScrubbingEnabled !== undefined && !boolean(raw.globalScrubbingEnabled)) return fail('Invalid global scrubbing preference')
+  const globalRunningControlIds = (raw.globalRunningControlIds ?? [...enabledRunningControls(legacyControls)]).filter(id => id !== 'scrub')
   if (raw.globalSecondPrecision !== undefined && !boolean(raw.globalSecondPrecision)) return fail('Invalid global seconds preference')
   const globalSecondPrecision = raw.globalSecondPrecision ?? legacyControls.secondPrecisionEnabled
+  if (raw.legacyRecoveryNoticeDismissed !== undefined && !boolean(raw.legacyRecoveryNoticeDismissed)) return fail('Invalid legacy recovery notice preference')
   const legacyRecoveries: UnifiedLegacyRecovery[] = []
   for (const value of raw.legacyRecoveries) {
     if (!record(value) || !idValid(value.id) || (value.sourceMode !== 'pattern' && value.sourceMode !== 'sequence')) return fail('Invalid legacy recovery')
@@ -530,12 +535,20 @@ export function reduceUnifiedConfigCommand(
 ): ConfigCommandResult {
   const now = 'now' in command ? command.now ?? deps.now?.() ?? Date.now() : deps.now?.() ?? Date.now()
   const state = clone(input)
+  if (command.type === 'dismissLegacyRecoveryNotice') {
+    state.legacyRecoveryNoticeDismissed = true
+    return result(state, 'applied')
+  }
   if (command.type === 'setGlobalSecondPrecision') {
     state.globalSecondPrecision = command.enabled
     return result(state, 'applied')
   }
   if (command.type === 'setGlobalRunningControl') {
     if (!RUNNING_CONTROL_DEFINITIONS.some(control => control.id === command.id)) return result(input, 'blocked', 'invalid-name')
+    if (command.id === 'scrub') {
+      state.globalScrubbingEnabled = command.enabled
+      return result(state, 'applied')
+    }
     const controls = new Set(state.globalRunningControlIds ?? enabledRunningControls(defaultAppTimerSettings()))
     if (command.enabled) controls.add(command.id)
     else controls.delete(command.id)

@@ -165,9 +165,51 @@ function completionCandidate(program: UnifiedTimerProgram): UnifiedCueCandidate 
   const cue = program.completionCue ?? last.endCue
   return {
     cueId: 'run-complete', sourceCueId: 'run-complete', stepId: last.id, kind: 'run-complete',
-    sound: cue.sound, volume: cue.soundMuted ? 0 : cue.volume, ...(cue.sounds ? { sounds: cue.sounds } : {}),
-    ...(cue.soundMode ? { soundMode: cue.soundMode } : {}), ...(cue.hapticOverride ? { hapticOverride: cue.hapticOverride } : {}),
+    sound: cue.sound, volume: cue.soundMuted || (program.noMainInterval && !program.completionCue) ? 0 : cue.volume, ...(cue.sounds ? { sounds: cue.sounds } : {}),
+    ...(cue.soundMode ? { soundMode: cue.soundMode } : {}), hapticOverride: program.noMainInterval && !program.completionCue ? 'off' : cue.hapticOverride,
     showOnWatchFace: true, cadencePriority: 0,
+  }
+}
+
+/** Randomized positions with bounded gaps and a direct lookup even after a long restore. */
+function nextUnboundedRandomOffset(id: string, min: number, max: number, elapsed: number, seed: number): number {
+  const spread = Math.floor((max - min) / 2)
+  const stride = min + spread
+  let trackSeed = seed | 0
+  for (let i = 0; i < id.length; i++) trackSeed = Math.imul(trackSeed, 31) + id.charCodeAt(i) | 0
+  const position = (index: number) => {
+    let hash = trackSeed ^ Math.imul(index + 1, 0x9e3779b9)
+    hash = Math.imul(hash ^ (hash >>> 16), 0x45d9f3b)
+    hash = Math.imul(hash ^ (hash >>> 16), 0x45d9f3b)
+    return index * stride + min + ((hash ^ (hash >>> 16)) >>> 0) % (spread + 1)
+  }
+  const index = Math.max(0, Math.floor((elapsed - min) / stride))
+  const at = position(index)
+  return at > elapsed ? at : position(index + 1)
+}
+
+function unboundedBell(program: UnifiedTimerProgram, anchor: number, now: number, randomSeed: number, visibleOnly: boolean): UnifiedScheduledEvent | null {
+  const step = program.steps[0]
+  const elapsed = (now - anchor) / SECOND_MS
+  let offset = Infinity
+  let candidates: UnifiedCueCandidate[] = []
+  step.subBellTracks.forEach((track, index) => {
+    if (!track.enabled || (visibleOnly && !track.showOnWatchFace)) return
+    const fixed = track.repeatEnabled ? Math.max(1, Math.floor(elapsed / track.cadenceSeconds) + 1) * track.cadenceSeconds : Infinity
+    const range = track.randomRepeat
+    const random = range ? nextUnboundedRandomOffset(track.id, range.minSeconds, range.maxSeconds, elapsed, randomSeed) : Infinity
+    const next = Math.min(fixed, random)
+    if (!Number.isFinite(next) || next > offset) return
+    if (next < offset) { offset = next; candidates = [] }
+    const spacing = fixed === next ? track.cadenceSeconds : Math.floor((range!.minSeconds + range!.maxSeconds) / 2)
+    candidates.push({ ...cueCandidate(track, step, 0, track, index), cadenceSeconds: spacing, cadencePriority: spacing })
+  })
+  if (!candidates.length) return null
+  return {
+    at: anchor + offset * SECOND_MS, logicalId: `unified:${anchor}:bells:${offset}`,
+    roundIndex: 0, cycleIndex: 0, stepIndex: 0, stepId: step.id, offsetSeconds: offset,
+    boundary: 'step-offset', isRoundEnd: false, candidates, winner: winnerFor(candidates), collision: candidates.length > 1,
+    completesRun: false, showOnWatchFace: candidates.some(candidate => candidate.showOnWatchFace),
   }
 }
 
@@ -220,9 +262,9 @@ export function nextUnifiedProgramEvent(
   visibleOnly = false,
 ): UnifiedScheduledEvent | null {
   if (terminalAt !== null && now >= terminalAt) return null
-  const natural = naturalEvent(program, anchor, now, randomSeed, visibleOnly)
-  if (!natural || terminalAt === null || natural.at < terminalAt) return natural
-  if (natural.at === terminalAt) {
+  const natural = program.noMainInterval ? unboundedBell(program, anchor, now, randomSeed, visibleOnly) : naturalEvent(program, anchor, now, randomSeed, visibleOnly)
+  if (terminalAt === null || (natural && natural.at < terminalAt)) return natural
+  if (natural?.at === terminalAt) {
     if (!program.completionCue) return { ...natural, completesRun: true, showOnWatchFace: true }
     const winner = completionCandidate(program)
     return { ...natural, candidates: [winner], winner, collision: false, completesRun: true, showOnWatchFace: true }
@@ -231,8 +273,8 @@ export function nextUnifiedProgramEvent(
   const roundDuration = unifiedProgramDurationMs(program)
   return {
     at: terminalAt, logicalId: `unified:${anchor}:complete:${startedAt}:${terminalAt}`,
-    roundIndex: Math.max(0, Math.floor((terminalAt - anchor) / roundDuration)),
-    cycleIndex: Math.max(0, Math.floor((terminalAt - anchor) / roundDuration)),
+    roundIndex: program.noMainInterval ? 0 : Math.max(0, Math.floor((terminalAt - anchor) / roundDuration)),
+    cycleIndex: program.noMainInterval ? 0 : Math.max(0, Math.floor((terminalAt - anchor) / roundDuration)),
     stepIndex: program.steps.length - 1, stepId: program.steps[program.steps.length - 1].id,
     boundary: 'run-complete', isRoundEnd: false, candidates: [winner], winner, collision: false,
     completesRun: true, showOnWatchFace: true,
@@ -247,6 +289,11 @@ export function unifiedTimelinePosition(
   terminalAt = unifiedRunEndAt(program, anchor, startedAt),
   randomSeed = anchor,
 ): UnifiedTimelinePosition {
+  if (program.noMainInterval) return {
+    anchor, randomSeed, roundIndex: 0, cycleIndex: 0, roundProgress: 0,
+    currentStepIndex: 0, currentStepId: program.steps[0].id, stepProgress: 0,
+    nextEvent: nextUnifiedProgramEvent(program, anchor, now, startedAt, terminalAt, randomSeed),
+  }
   const stepDurations = durations(program)
   const roundDuration = stepDurations.reduce((sum, value) => sum + value, 0)
   const roundIndex = roundAt(now, anchor, roundDuration)

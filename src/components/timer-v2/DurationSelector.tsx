@@ -21,9 +21,11 @@ interface Props {
   maxSeconds?: number
   compact?: boolean
   fadeColor?: string
+  infinite?: boolean
+  onInfinity?: () => void
 }
 
-export function DurationSelector({ value, valueSeconds, secondPrecision = false, presets, onChange, onChangeSeconds, label, min = 1, max = 240, minSeconds = secondPrecision ? 1 : min * 60, maxSeconds = max * 60, compact = false, fadeColor }: Props) {
+export function DurationSelector({ value, valueSeconds, secondPrecision = false, presets, onChange, onChangeSeconds, label, min = 1, max = 240, minSeconds = secondPrecision ? 1 : min * 60, maxSeconds = max * 60, compact = false, fadeColor, infinite = false, onInfinity }: Props) {
   const { tokens } = useTheme()
   const [customOpen, setCustomOpen] = useState(false)
   const exactSeconds = valueSeconds ?? value * 60
@@ -33,14 +35,15 @@ export function DurationSelector({ value, valueSeconds, secondPrecision = false,
   const choices = isPreset
     ? validPresets.map(minutes => ({ seconds: minutes * 60, label: `${minutes}m` }))
     : [{ seconds: exactSeconds, label: formatCompactDurationSeconds(exactSeconds) }, ...validPresets.map(minutes => ({ seconds: minutes * 60, label: `${minutes}m` }))]
-  const selectedIndex = choices.findIndex(choice => choice.seconds === exactSeconds)
+  const selectedIndex = infinite && onInfinity ? choices.length : choices.findIndex(choice => choice.seconds === exactSeconds)
   return (
     <View style={styles.wrap}>
       {label ? <SheetSectionTitle>{label}</SheetSectionTitle> : null}
       <View style={styles.choiceRow}>
         <View style={styles.scrollSlot}>
-          <FadedHorizontalScrollView fadeColor={fadeColor ?? tokens.surface} selectedIndex={selectedIndex} itemCount={choices.length} selectionKey={exactSeconds} style={styles.scroller} contentContainerStyle={styles.presets}>
-            {choices.map(choice => <Chip key={choice.seconds} label={choice.label} active={exactSeconds === choice.seconds} onPress={() => chooseSeconds(choice.seconds)} compact={compact} />)}
+          <FadedHorizontalScrollView fadeColor={fadeColor ?? tokens.surface} selectedIndex={selectedIndex} itemCount={choices.length + Number(!!onInfinity)} selectionKey={infinite ? 'infinite' : exactSeconds} style={styles.scroller} contentContainerStyle={styles.presets}>
+            {choices.map(choice => <Chip key={choice.seconds} label={choice.label} active={!infinite && exactSeconds === choice.seconds} onPress={() => chooseSeconds(choice.seconds)} compact={compact} />)}
+            {onInfinity ? <Chip label="∞" accessibilityLabel="No main interval" active={infinite} onPress={onInfinity} compact={compact} /> : null}
           </FadedHorizontalScrollView>
         </View>
         <Chip

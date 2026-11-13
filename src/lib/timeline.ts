@@ -195,7 +195,7 @@ export function hasFollowingStep(program: RuntimeTimerProgram, position: Timelin
 
 export function currentStepDurationMs(program: RuntimeTimerProgram, index: number): number {
   if (program.mode === 'pattern') return patternDurationSeconds(program) * 1_000
-  if (program.mode === 'unified') return (program.steps[index]?.durationSeconds ?? 0) * 1_000
+  if (program.mode === 'unified') return program.noMainInterval ? 0 : (program.steps[index]?.durationSeconds ?? 0) * 1_000
   const step = program.steps[index]
   return step ? sequenceStepDurationSeconds(step) * 1_000 : 0
 }

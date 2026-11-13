@@ -18,6 +18,7 @@ interface Props {
   rounds?: boolean
   secondPrecision?: boolean
   allowUntil?: boolean
+  allowCycles?: boolean
   onChange: (value: RunPolicy) => void
 }
 
@@ -28,14 +29,14 @@ const choices = [
   { value: 'until', label: 'Until' },
 ] as const
 
-export function RunLengthConfig({ mode, rounds = mode === 'sequence', value, cycleDurationSeconds, secondPrecision = false, allowUntil = false, onChange }: Props) {
+export function RunLengthConfig({ mode, rounds = mode === 'sequence', value, cycleDurationSeconds, secondPrecision = false, allowUntil = false, allowCycles = true, onChange }: Props) {
   const { tokens } = useTheme()
   const reducedMotion = useAppReducedMotion()
   const summary = runLengthSummary(mode, value, cycleDurationSeconds, rounds)
 
   return <View style={styles.section}>
     <Text accessibilityLiveRegion="polite" style={[styles.summary, { color: tokens.textMuted }]}>{summary}</Text>
-    <SegmentedControl items={choices.filter(choice => allowUntil || choice.value !== 'until' || value.kind === 'until').map(choice => choice.value === 'cycles' && rounds ? { ...choice, label: 'Rounds' } : choice)} value={value.kind} onChange={kind => {
+    <SegmentedControl items={choices.filter(choice => (allowUntil || choice.value !== 'until' || value.kind === 'until') && (allowCycles || choice.value !== 'cycles')).map(choice => choice.value === 'cycles' && rounds ? { ...choice, label: 'Rounds' } : choice)} value={value.kind} onChange={kind => {
       const now = new Date()
       onChange({ ...value, kind, ...(kind === 'until' ? { untilMinutes: value.untilMinutes ?? (now.getHours() * 60 + now.getMinutes() + 60) % 1440 } : {}) })
     }} accessibilityLabel="Run length" />

@@ -8,6 +8,7 @@ import type { NativeFocusState } from '../native/ChandasTimerService'
 import { ChandasTimerService, isNativeServiceAvailable } from '../native/ChandasTimerService'
 import { Toggle } from '../components/Toggle'
 import { AudioOutputSettings } from '../components/timer-v2/AudioOutputSettings'
+import { AudioMixSettings, audioMixLabel } from '../components/timer-v2/audio-mix-settings'
 import { DraggableSheet } from '../components/timer-v2/DraggableSheet'
 import { BottomSheet } from '../components/timer-v2/BottomSheet'
 import { TimerMuteControls } from '../components/timer-v2/running/TimerMuteControls'
@@ -40,7 +41,7 @@ import { hapticProfileSummary, HAPTIC_PATTERNS, HAPTIC_STRENGTHS } from '../lib/
 import { previewHapticProfile, selectionHaptic, setAppHapticsEnabled, tapHaptic } from '../lib/haptics'
 import { normalizeSubBellColor, subBellColorValue, timerIdentityColor } from '../lib/subBellColors'
 import { soundTitle } from '../lib/soundLibrary'
-import { AlarmIcon, BellIcon, ClockIcon, ConfigurationIcon, DuplicateIcon, EyeIcon, FocusIcon, OverflowIcon, RestartIcon, TimerTransportIcon, TrashIcon, VolumeIcon, LightbulbIcon, SaveIcon } from '../components/Icons'
+import { AlarmIcon, BellIcon, ClockIcon, ConfigurationIcon, DuplicateIcon, EyeIcon, FocusIcon, MixerIcon, OverflowIcon, RestartIcon, TimerTransportIcon, TrashIcon, VolumeIcon, LightbulbIcon, SaveIcon } from '../components/Icons'
 import { parseUnifiedConfigurationTransfer, serializeUnifiedConfiguration } from '../lib/unified-configuration-transfer'
 import { copyConfigurationText, pickConfigurationText, readConfigurationTextFromClipboard, saveConfigurationFile } from '../lib/configuration-transfer-io'
 import { configurationTransferFilename } from '../lib/configuration-transfer'
@@ -96,7 +97,7 @@ interface UnifiedTimerConfigScreenProps {
 
 export type GroupMuteAction = { kind: 'clear' } | { kind: 'seconds' | 'iterations' | 'until'; value: number }
 
-type ExtraAction = 'alignment' | 'run-length' | 'schedule' | 'haptics' | 'alarm' | 'focus' | 'notifications' | 'calls' | 'audio-output' | 'precision' | 'running-controls' | 'system' | 'device'
+type ExtraAction = 'alignment' | 'run-length' | 'schedule' | 'haptics' | 'alarm' | 'focus' | 'notifications' | 'calls' | 'audio-output' | 'precision' | 'running-controls' | 'system' | 'device' | 'audio-mix'
 type CueTarget = { kind: 'step-end'; stepId: string } | { kind: 'track'; stepId: string; trackId: string } | { kind: 'alarm' } | { kind: 'alarm-default' } | { kind: 'completion' } | { kind: 'sound-library' }
 type ModalKind = 'picker' | 'settings' | 'step' | 'subbells' | 'track' | null
 const ACTIONS: ReadonlyArray<{ id: ExtraAction; label: string }> = [
@@ -104,6 +105,7 @@ const ACTIONS: ReadonlyArray<{ id: ExtraAction; label: string }> = [
   { id: 'alarm', label: 'Default alarm' }, { id: 'focus', label: 'Focus' },
   { id: 'audio-output', label: 'Audio output' }, { id: 'notifications', label: 'Notifications' }, { id: 'calls', label: 'Call mute' },
   { id: 'precision', label: 'Seconds' }, { id: 'running-controls', label: 'Running controls' }, { id: 'system', label: 'System access' }, { id: 'device', label: 'Device appearance' },
+  { id: 'audio-mix', label: 'Sound mixing' },
 ]
 const own = (object: object, key: PropertyKey) => Object.prototype.hasOwnProperty.call(object, key)
 
@@ -142,6 +144,8 @@ export function UnifiedTimerConfigScreen({ state, onCommand, onStart, onStartCon
     return applied
   }, [])
   const [settingsAction, setSettingsAction] = useState<ExtraAction | null>(null)
+  const [legacyRecoveryOpen, setLegacyRecoveryOpen] = useState(false)
+  const [audioMixMode, setAudioMixMode] = useState(() => ChandasTimerService.getAudioMixMode())
   const [editingTrackId, setEditingTrackId] = useState<string | null>(null)
   const [stepSheetRetained, setStepSheetRetained] = useState(false)
   const [nameEditing, setNameEditing] = useState(false)
@@ -177,8 +181,10 @@ export function UnifiedTimerConfigScreen({ state, onCommand, onStart, onStartCon
   const draft = storedDraft ? { ...storedDraft, settings: { ...storedDraft.settings, secondPrecisionEnabled: state.globalSecondPrecision ?? storedDraft.settings.secondPrecisionEnabled } } : undefined
   const hasDraftChanges = useMemo(() => !!draft && hasUnifiedDraftChanges(draft), [draft])
   const program = draft?.program
+  const noMainInterval = program?.noMainInterval === true
   const activeStep = program?.steps.find(step => step.id === activeStepId) ?? program?.steps[0]
   const capabilities = ChandasTimerService.getCapabilities()
+  const supportsInfinity = Platform.OS !== 'android' || !isNativeServiceAvailable || capabilities?.supportsNoMainInterval === true
   const nativeSchemaReady = Platform.OS !== 'android' || !isNativeServiceAvailable || (capabilities?.programSchemaMax ?? 0) >= 4
   const factory = defaultAppTimerSettings()
   const alarmDefaults = state.alarmDefaults ?? { sound: factory.alarmSound, durationSeconds: factory.alarmDurationSeconds }
@@ -238,9 +244,16 @@ export function UnifiedTimerConfigScreen({ state, onCommand, onStart, onStartCon
       ? [...(draft.editorOptions.configurationNameIsCustom === false ? defaultUnifiedTimerName(durationSeconds) : draft.name)].slice(0, 60).join('')
       : step.labelIsCustom === false ? defaultUnifiedStepLabel(durationSeconds) : step.label
     const steps = program.steps.map(item => item.id === stepId ? { ...item, durationSeconds, label, subBellTracks: item.subBellTracks.map(track => ({ ...track, ...unifiedTrackDurationPatch(track, item.durationSeconds, durationSeconds) })) } : item)
-    const changes: Partial<Pick<UnifiedTimerDraft, 'name' | 'program'>> = { program: { ...program, steps } }
+    const changes: Partial<Pick<UnifiedTimerDraft, 'name' | 'program'>> = { program: { ...program, steps, ...(noMainInterval ? { noMainInterval: undefined } : {}) } }
     if (program.steps.length === 1 && draft.editorOptions.configurationNameIsCustom === false) changes.name = defaultUnifiedTimerName(durationSeconds)
     edit(changes)
+  }
+  const selectInfinity = () => {
+    if (noMainInterval) return
+    const tracks = activeStep.subBellTracks.length ? activeStep.subBellTracks : [makeNewTrack([], activeStep.durationSeconds)]
+    const runPolicy = program.runPolicy.kind === 'cycles' ? { ...program.runPolicy, kind: 'continuous' as const } : program.runPolicy
+    const name = draft.editorOptions.configurationNameIsCustom === false ? 'Sub-bell timer' : draft.name
+    edit({ name, program: { ...program, noMainInterval: true, alignment: { kind: 'elapsed' }, runPolicy, steps: [{ ...activeStep, label: [...name].slice(0, 60).join(''), subBellsEnabled: true, subBellTracks: tracks }] } })
   }
   const updateConfigurationName = (name: string) => {
     const bounded = [...name].slice(0, 80).join('')
@@ -283,7 +296,7 @@ export function UnifiedTimerConfigScreen({ state, onCommand, onStart, onStartCon
       endCue: cloneCue(program.steps.at(-1)!.endCue), endAlarmEnabled: false, subBellsEnabled: false, subBellTracks: [],
     }
     const previous = program.steps.length === 1 ? [{ ...program.steps[0], label: [...draft.name].slice(0, 60).join(''), labelIsCustom: draft.editorOptions.configurationNameIsCustom !== false }] : program.steps
-    patchProgram({ steps: [...previous, step] })
+    patchProgram({ steps: [...previous, step], noMainInterval: undefined })
     setActiveStepId(step.id)
   }
   const duplicateStep = (step: UnifiedTimerStep) => {
@@ -354,13 +367,23 @@ export function UnifiedTimerConfigScreen({ state, onCommand, onStart, onStartCon
         onFeedback({ title: 'Could not import configuration', message: transferError(imported.error), tone: 'attention' })
         return
       }
-      if (!await performCommand({ type: 'importConfig', config: imported.config, select: false })) return
+      if (!await performCommand({ type: 'importConfig', config: imported.config, select: true })) return
       onFeedback({ title: 'Configuration imported', message: imported.hasDeviceSpecificSounds ? `“${imported.config.name}” was added. Device-specific sounds may need to be selected again.` : `“${imported.config.name}” was added to your configurations.`, tone: 'success' })
       setModal(null)
     } catch {
       onFeedback({ title: 'Could not open that configuration', message: 'Choose a Chandas configuration file or try the clipboard again.', tone: 'attention' })
     } finally { setTransferBusy(false) }
   }
+  const legacyRecoveryActions = state.legacyRecoveries.map(recovery => <SheetTextButton
+    key={recovery.id}
+    label={`Add recovered ${recovery.sourceMode === 'pattern' ? 'Cycle' : 'Sequence'}`}
+    onPress={() => {
+      const { name, program, settings, editorOptions } = recovery.draft
+      const now = Date.now()
+      const config: UnifiedTimerConfig = { id: createProgramId(), name, createdAt: now, updatedAt: now, program, settings, showInRunningSelector: true, editorOptions }
+      void performCommand({ type: 'importConfig', config, select: false })
+    }}
+  />)
   const exportConfig = async (config: Parameters<typeof serializeUnifiedConfiguration>[0]) => {
     if (transferBusy) return
     setTransferBusy(true)
@@ -481,6 +504,7 @@ export function UnifiedTimerConfigScreen({ state, onCommand, onStart, onStartCon
         <OverflowMenu compact label="Configuration actions" items={[
           { label: 'Import from clipboard', disabled: transferBusy, testID: 'unified-config-import-clipboard', onPress: () => void openExternalImport('clipboard') },
           { label: 'Import file', disabled: transferBusy, testID: 'unified-config-import-file', onPress: () => void openExternalImport('file') },
+          ...(state.legacyRecoveries.length && state.legacyRecoveryNoticeDismissed ? [{ label: 'Recovered legacy timers', onPress: () => setLegacyRecoveryOpen(true) }] : []),
         ]} />
       </View>
       <ScrollView ref={libraryScroll} showsVerticalScrollIndicator={false} scrollEnabled={!draggingConfig} onLayout={event => { libraryViewportHeight.current = event.nativeEvent.layout.height }} onContentSizeChange={(_, height) => { libraryContentHeight.current = height }} onScroll={event => { libraryScrollY.current = event.nativeEvent.contentOffset.y }} scrollEventThrottle={16} contentContainerStyle={[styles.libraryContent, { paddingBottom: insets.bottom + 144 }]}>
@@ -500,12 +524,21 @@ export function UnifiedTimerConfigScreen({ state, onCommand, onStart, onStartCon
             return config ? renderConfig(config, run) : renderUnnamed(run)
           })}</View>
         </View> : null}
+        {newestRuns.length > 0 && (savedConfigs.length > 0 || (unnamedDraft && !unnamedRun)) ? <View style={[styles.libraryDivider, { backgroundColor: tokens.border }]} /> : null}
         <View style={styles.section}>
           <View style={styles.configurationGrid} onLayout={event => setGridWidth(event.nativeEvent.layout.width)}>{!unnamedRun ? renderUnnamed() : null}{savedConfigs.map(config => renderConfig(config))}</View>
           {savedConfigs.length === 0 && (unnamedRun || !unnamedDraft) ? <Text style={[styles.helperText, { color: tokens.textMuted }]}>Saved timers will appear here.</Text> : null}
         </View>
-        {state.legacyRecoveries.length ? <View style={[styles.notice, { borderColor: tokens.warm }]}><Text style={[styles.rowTitle, { color: tokens.text }]}>Recovered legacy timers</Text><Text style={[styles.helperText, { color: tokens.textMuted }]}>Both original working copies are preserved here. Add either as a saved configuration.</Text>{state.legacyRecoveries.map(recovery => <SheetTextButton key={recovery.id} label={`Add recovered ${recovery.sourceMode === 'pattern' ? 'Cycle' : 'Sequence'}`} onPress={() => { const config: UnifiedTimerConfig = { id: createProgramId(), name: recovery.draft.name, createdAt: Date.now(), updatedAt: Date.now(), program: recovery.draft.program, settings: recovery.draft.settings, showInRunningSelector: true, editorOptions: recovery.draft.editorOptions }; void performCommand({ type: 'importConfig', config, select: false }) }} />)}</View> : null}
+        {state.legacyRecoveries.length && !state.legacyRecoveryNoticeDismissed ? <View style={[styles.notice, { borderColor: tokens.warm }]}>
+          <View style={styles.row}>
+            <Text style={[styles.rowTitle, styles.flex, { color: tokens.text }]}>Recovered legacy timers</Text>
+            <Pressable accessibilityRole="button" accessibilityLabel="Dismiss legacy timer notice" onPress={() => void performCommand({ type: 'dismissLegacyRecoveryNotice' })} style={styles.libraryHeaderButton}><Text style={{ color: tokens.textMuted, fontSize: 22 }}>×</Text></Pressable>
+          </View>
+          <Text style={[styles.helperText, { color: tokens.textMuted }]}>Add either of your original working copies as a saved configuration.</Text>
+          {legacyRecoveryActions}
+        </View> : null}
       </ScrollView>
+      <BottomSheet visible={legacyRecoveryOpen} fitContent title="Recovered legacy timers" onClose={() => setLegacyRecoveryOpen(false)}>{legacyRecoveryActions}</BottomSheet>
       <BottomSheet visible={groupSheet === 'align' && newestRuns.length > 0} title="Align timers to clock" fitContent onClose={() => { if (!groupAligning) setGroupSheet(null) }}>
         <Text style={[styles.helperText, { color: tokens.textMuted }]}>{newestRuns.some(run => run.paused) ? 'Choose a clock offset for all active timers. Paused timers will resume.' : 'Choose a clock offset for all active timers.'}</Text>
         <ClockSnapSelector cycleDurationSeconds={groupCycleSeconds} value={null} disabled={groupAligning} onChange={offset => void alignGroup(offset)} />
@@ -531,7 +564,7 @@ export function UnifiedTimerConfigScreen({ state, onCommand, onStart, onStartCon
 
       {!currentRun ? <>
       {program.steps.length > 1 ? <TimerControlRail singleStep={program.steps.length === 1} showGlobal={true} program={program} settings={{ ...draft.settings, ...effectiveAlarm }} onAlarmSound={() => setCueTarget({ kind: 'alarm' })} step={activeStep} cycleDurationSeconds={cycleDurationSeconds} onProgram={patchProgram} onSettings={patchSettings} onOpenMixer={() => setMixerOpen(true)} onCueHaptics={hapticOverride => patchStep(activeStep.id, { endCue: { ...activeStep.endCue, hapticOverride } })} onAlarm={endAlarmEnabled => patchStep(activeStep.id, { endAlarmEnabled })} /> : null}
-      {program.steps.length === 1 ? <UnifiedIntervalEditor step={activeStep} secondPrecision={draft.settings.secondPrecisionEnabled} onDuration={seconds => updateStepDuration(activeStep.id, seconds)} onSound={() => setCueTarget({ kind: 'step-end', stepId: activeStep.id })} onToggleSound={() => patchStep(activeStep.id, { endCue: { ...activeStep.endCue, soundMuted: !activeStep.endCue.soundMuted } })} onSubBells={() => { setStepSheetRetained(false); setModal('subbells') }} onSubBellsEnabled={subBellsEnabled => patchStep(activeStep.id, { subBellsEnabled })} controls={<TimerControlRail singleStep={program.steps.length === 1} showGlobal={true} program={program} settings={{ ...draft.settings, ...effectiveAlarm }} onAlarmSound={() => setCueTarget({ kind: 'alarm' })} step={activeStep} cycleDurationSeconds={cycleDurationSeconds} onProgram={patchProgram} onSettings={patchSettings} onOpenMixer={() => setMixerOpen(true)} onCueHaptics={hapticOverride => patchStep(activeStep.id, { endCue: { ...activeStep.endCue, hapticOverride } })} onAlarm={endAlarmEnabled => patchStep(activeStep.id, { endAlarmEnabled })} />} /> : <View style={styles.section}>
+      {program.steps.length === 1 ? <UnifiedIntervalEditor noMainInterval={noMainInterval} onInfinity={supportsInfinity || noMainInterval ? selectInfinity : undefined} step={activeStep} secondPrecision={draft.settings.secondPrecisionEnabled} onDuration={seconds => updateStepDuration(activeStep.id, seconds)} onSound={() => setCueTarget({ kind: 'step-end', stepId: activeStep.id })} onToggleSound={() => patchStep(activeStep.id, { endCue: { ...activeStep.endCue, soundMuted: !activeStep.endCue.soundMuted } })} onSubBells={() => { setStepSheetRetained(false); setModal('subbells') }} onSubBellsEnabled={subBellsEnabled => patchStep(activeStep.id, { subBellsEnabled })} controls={<TimerControlRail singleStep={program.steps.length === 1} showGlobal={true} program={program} settings={{ ...draft.settings, ...effectiveAlarm }} onAlarmSound={() => setCueTarget({ kind: 'alarm' })} step={activeStep} cycleDurationSeconds={cycleDurationSeconds} onProgram={patchProgram} onSettings={patchSettings} onOpenMixer={() => setMixerOpen(true)} onCueHaptics={hapticOverride => patchStep(activeStep.id, { endCue: { ...activeStep.endCue, hapticOverride } })} onAlarm={endAlarmEnabled => patchStep(activeStep.id, { endAlarmEnabled })} />} /> : <View style={styles.section}>
         <View style={{ gap: 12 }}>{program.steps.map((step, index) => <UnifiedStepCard key={step.id} step={step} index={index} itemCount={program.steps.length} preview={reorderPreview} onPreview={setReorderPreview} onAutoScroll={autoScrollSteps} onMove={moveStep} onDuplicate={program.steps.length < MAX_SEQUENCE_STEPS ? () => duplicateStep(step) : undefined} onDelete={program.steps.length > 1 ? () => removeStep(step) : undefined} onEdit={() => { setActiveStepId(step.id); setStepSheetRetained(false); setModal('step') }} />)}</View>
 
       </View>}
@@ -563,13 +596,25 @@ export function UnifiedTimerConfigScreen({ state, onCommand, onStart, onStartCon
     </>}>
       <View style={styles.settingsMenu}>
         {[{ id: 'sound-library', label: 'Sound library', detail: `${state.soundLibrary.length} shared imported sounds` }, ...ACTIONS.filter(action => (action.id !== 'audio-output' || ChandasTimerService.getAudioOutputs() !== null)
-          && (action.id !== 'system' || Platform.OS === 'android' && !androidAccess.checking && (!androidAccess.exactAlarms || !androidAccess.fullScreenAlarms))).map(action => ({ id: action.id, label: action.label, detail: settingsDetail(action.id, { ...draft.settings, alarmDurationSeconds: alarmDefaults.durationSeconds, runningControlIds: state.globalRunningControlIds }, program, state.globalAvailability) }))].map(item => <Pressable key={item.id} testID={`unified-settings-${item.id}`} accessibilityRole="button" onPress={() => item.id === 'sound-library' ? setCueTarget({ kind: 'sound-library' }) : setSettingsAction(item.id as ExtraAction)} style={[styles.settingsRow, { borderColor: tokens.border }]}><View style={[styles.settingIcon, { borderColor: tokens.border }]}>{settingsRowIcon(item.id, tokens.textMuted)}</View><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>{item.label}</Text><Text style={[styles.helperText, { color: tokens.textMuted }]}>{item.detail}</Text></View><Text style={{ color: tokens.accent }}>›</Text></Pressable>)}
+          && (action.id !== 'audio-mix' || audioMixMode !== null)
+          && (action.id !== 'system' || Platform.OS === 'android' && !androidAccess.checking && (!androidAccess.exactAlarms || !androidAccess.fullScreenAlarms))).map(action => {
+          const { id, label } = action
+          return { id, label, detail: id === 'audio-mix' ? audioMixLabel(audioMixMode) : settingsDetail(id, { ...draft.settings, alarmDurationSeconds: alarmDefaults.durationSeconds, runningControlIds: state.globalRunningControlIds }, program, state.globalAvailability) }
+        })].map(item => <Pressable key={item.id} testID={`unified-settings-${item.id}`} accessibilityRole="button" onPress={() => item.id === 'sound-library' ? setCueTarget({ kind: 'sound-library' }) : setSettingsAction(item.id as ExtraAction)} style={[styles.settingsRow, { borderColor: tokens.border }]}><View style={[styles.settingIcon, { borderColor: tokens.border }]}>{settingsRowIcon(item.id, tokens.textMuted)}</View><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>{item.label}</Text><Text style={[styles.helperText, { color: tokens.textMuted }]}>{item.detail}</Text></View><Text style={{ color: tokens.accent }}>›</Text></Pressable>)}
 
       </View>
     </DraggableSheet>
 
-    <DraggableSheet visible={modal === 'settings' && settingsAction !== null} title={ACTIONS.find(action => action.id === settingsAction)?.label ?? 'Settings'} testID="unified-settings-detail-sheet" presentation={settingsAction === 'schedule' || settingsAction === 'running-controls' ? 'bottom' : 'center'} partialHeightFraction={settingsAction === 'schedule' || settingsAction === 'running-controls' || settingsAction === 'alarm' || settingsAction === 'system' ? 0.85 : 0.64} onClose={() => setSettingsAction(null)}>
-      {settingsAction ? <SettingsSection alarmDefaults={alarmDefaults} onDefaultAlarmDuration={durationSeconds => { void onCommand({ type: 'setAlarmDefaults', changes: { durationSeconds } }) }} action={settingsAction!} draft={draft} program={program} availability={state.globalAvailability} runningControlIds={state.globalRunningControlIds} onRunningControls={(id, enabled) => { void onCommand({ type: 'setGlobalRunningControl', id, enabled }) }} cycleDurationSeconds={cycleDurationSeconds} focusState={focusState} androidAccess={androidAccess} floatingOverlay={floatingOverlay} floatingAvailable={floatingAvailable} theme={theme} tokens={tokens} onSettings={patchSettings} onProgram={patchProgram} onAvailability={availability => onCommand({ type: 'setGlobalAvailability', availability })} onCue={kind => setCueTarget(kind === 'alarm' ? { kind: 'alarm-default' } : { kind: 'completion' })} onFocusAutomationChange={onFocusAutomationChange} onOpenFocusSettings={onOpenFocusSettings} onOpenFocusRuleSettings={onOpenFocusRuleSettings} onOpenExactAlarmSettings={onOpenExactAlarmSettings} onOpenFullScreenIntentSettings={onOpenFullScreenIntentSettings} onRequestCallMuteAccess={onRequestCallMuteAccess} onRequestNotificationAccess={onRequestNotificationAccess} onFloatingChange={setFloatingOverlay} onFeedback={onFeedback} accentColor={accentColor} setAccentColor={setAccentColor} themeLongPressed={themeLongPressed} setThemeLongPressed={setThemeLongPressed} toggleTheme={toggleTheme} useEinkTheme={useEinkTheme} /> : null}
+    <DraggableSheet visible={modal === 'settings' && settingsAction === 'audio-mix' && audioMixMode !== null} title="Sound mixing" presentation="center" onClose={() => setSettingsAction(null)}>
+      {audioMixMode !== null ? <AudioMixSettings mode={audioMixMode} onChange={mode => {
+        if (!ChandasTimerService.setAudioMixMode(mode)) return false
+        setAudioMixMode(mode)
+        return true
+      }} /> : null}
+    </DraggableSheet>
+
+    <DraggableSheet visible={modal === 'settings' && settingsAction !== null && settingsAction !== 'audio-mix'} title={ACTIONS.find(action => action.id === settingsAction)?.label ?? 'Settings'} testID="unified-settings-detail-sheet" presentation={settingsAction === 'schedule' || settingsAction === 'running-controls' ? 'bottom' : 'center'} partialHeightFraction={settingsAction === 'schedule' || settingsAction === 'running-controls' || settingsAction === 'alarm' || settingsAction === 'system' ? 0.85 : 0.64} onClose={() => setSettingsAction(null)}>
+      {settingsAction ? <SettingsSection alarmDefaults={alarmDefaults} onDefaultAlarmDuration={durationSeconds => { void onCommand({ type: 'setAlarmDefaults', changes: { durationSeconds } }) }} action={settingsAction!} draft={draft} program={program} availability={state.globalAvailability} runningControlIds={state.globalRunningControlIds} scrubbingEnabled={state.globalScrubbingEnabled} onRunningControls={(id, enabled) => { void onCommand({ type: 'setGlobalRunningControl', id, enabled }) }} cycleDurationSeconds={cycleDurationSeconds} focusState={focusState} androidAccess={androidAccess} floatingOverlay={floatingOverlay} floatingAvailable={floatingAvailable} theme={theme} tokens={tokens} onSettings={patchSettings} onProgram={patchProgram} onAvailability={availability => onCommand({ type: 'setGlobalAvailability', availability })} onCue={kind => setCueTarget(kind === 'alarm' ? { kind: 'alarm-default' } : { kind: 'completion' })} onFocusAutomationChange={onFocusAutomationChange} onOpenFocusSettings={onOpenFocusSettings} onOpenFocusRuleSettings={onOpenFocusRuleSettings} onOpenExactAlarmSettings={onOpenExactAlarmSettings} onOpenFullScreenIntentSettings={onOpenFullScreenIntentSettings} onRequestCallMuteAccess={onRequestCallMuteAccess} onRequestNotificationAccess={onRequestNotificationAccess} onFloatingChange={setFloatingOverlay} onFeedback={onFeedback} accentColor={accentColor} setAccentColor={setAccentColor} themeLongPressed={themeLongPressed} setThemeLongPressed={setThemeLongPressed} toggleTheme={toggleTheme} useEinkTheme={useEinkTheme} /> : null}
     </DraggableSheet>
 
     <DraggableSheet visible={modal === 'step' || ((modal === 'subbells' || modal === 'track') && stepSheetRetained)} title={activeStep.label} showTitle={false} pinnedContent={<View style={[styles.row, { zIndex: 30 }]}><TextInput testID={`unified-config-step-name-${activeStep.id}`} accessibilityLabel="Step name" value={stepNameDraft} onChangeText={value => { const label = [...value].slice(0, 60).join(''); setStepNameDraft(label); if (label.trim()) patchStep(activeStep.id, { label, labelIsCustom: true }) }} onBlur={() => { const label = stepNameDraft.trim() || activeStep.label; setStepNameDraft(label); if (label !== activeStep.label) patchStep(activeStep.id, { label, labelIsCustom: true }) }} placeholder="Step name" placeholderTextColor={tokens.textMuted} style={[styles.trackNameInput, styles.flex, { borderBottomColor: tokens.accent, color: tokens.text }]} /><OverflowMenu label="Step options" items={[{ label: 'Duplicate', icon: 'duplicate', disabled: program.steps.length >= MAX_SEQUENCE_STEPS, onPress: () => duplicateStep(activeStep) }, { label: 'Delete', icon: 'delete', disabled: program.steps.length <= 1, destructive: true, onPress: () => void removeStep(activeStep) }]} /></View>} testID="unified-step-sheet" onClose={() => { setModal(null); setStepSheetRetained(false) }}>
@@ -577,11 +622,11 @@ export function UnifiedTimerConfigScreen({ state, onCommand, onStart, onStartCon
     </DraggableSheet>
 
     <DraggableSheet visible={modal === 'subbells' || modal === 'track'} title="Sub-bells" testID="unified-subbells-sheet" onClose={() => { setModal(stepSheetRetained ? 'step' : null); setStepSheetRetained(false) }}>
-      <View style={styles.subBellHeader}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Sub-bells in {program.steps.length > 1 ? activeStep.label : 'this interval'}</Text><Text style={[styles.helperText, { color: tokens.textMuted }]}>Each sub-bell keeps its own sound and timing.</Text></View><Toggle value={activeStep.subBellsEnabled} onChange={subBellsEnabled => patchStep(activeStep.id, { subBellsEnabled })} accessibilityLabel="Enable sub-bells" /></View>
-      <PatternTimelinePreview tracks={asPatternTracks(activeStep.subBellsEnabled ? activeStep.subBellTracks : [])} mainDurationSeconds={activeStep.durationSeconds} />
+      {!noMainInterval ? <View style={styles.subBellHeader}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Sub-bells in {program.steps.length > 1 ? activeStep.label : 'this interval'}</Text><Text style={[styles.helperText, { color: tokens.textMuted }]}>Each sub-bell keeps its own sound and timing.</Text></View><Toggle value={activeStep.subBellsEnabled} onChange={subBellsEnabled => patchStep(activeStep.id, { subBellsEnabled })} accessibilityLabel="Enable sub-bells" /></View> : null}
+      {!noMainInterval ? <PatternTimelinePreview tracks={asPatternTracks(activeStep.subBellsEnabled ? activeStep.subBellTracks : [])} mainDurationSeconds={activeStep.durationSeconds} /> : null}
       {activeStep.subBellTracks.map((track, index) => <SwipeActionRow key={track.id} testID={`unified-track-swipe-${track.id}`} accessibilityLabel={track.label} onDuplicate={activeStep.subBellTracks.length < MAX_PATTERN_TRACKS ? () => { duplicateTrack(track) } : undefined} onDelete={() => removeTrack(track)}>{canPress => <View testID={`unified-track-row-${track.id}`} style={[styles.trackListRow, { borderColor: tokens.border, backgroundColor: tokens.surface }]}>
         <Pressable accessibilityRole="button" accessibilityLabel={`Edit ${track.label}`} onPress={() => { if (canPress()) { setEditingTrackId(track.id); setModal('track') } }} style={[styles.trackListEdit, styles.flex]}>
-          <View style={[styles.trackDot, { backgroundColor: subBellColorValue(track.color, index, theme === 'eink') }]} /><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>{track.label}</Text><Text style={[styles.helperText, { color: tokens.textMuted }]}><SoundSummary cue={track} /> · {trackTimingSummary(track)}</Text></View>
+          <View style={[styles.trackDot, { backgroundColor: subBellColorValue(track.color, index, theme === 'eink') }]} /><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>{track.label}</Text><Text style={[styles.helperText, { color: tokens.textMuted }]}><SoundSummary cue={track} /> · {trackTimingSummary(track, noMainInterval)}</Text></View>
         </Pressable>
         <Toggle value={track.enabled} onChange={enabled => { if (canPress()) patchTrack(activeStep.id, track.id, { enabled }) }} accessibilityLabel={`Enable ${track.label}`} /><Text accessible={false} style={{ color: tokens.accent }}>›</Text>
       </View>}</SwipeActionRow>)}
@@ -589,18 +634,18 @@ export function UnifiedTimerConfigScreen({ state, onCommand, onStart, onStartCon
     </DraggableSheet>
 
     <DraggableSheet visible={modal === 'track'} title={editingTrackId ? activeStep.subBellTracks.find(track => track.id === editingTrackId)?.label ?? 'Sub-bell' : 'Sub-bell'} showTitle={false} pinnedContent={(() => { const track = activeStep.subBellTracks.find(item => item.id === editingTrackId); return track ? <TrackNameHeader key={track.id} track={track} onRename={label => patchTrack(activeStep.id, track.id, { label })} onDuplicate={() => { const id = duplicateTrack(track); if (id) setEditingTrackId(id) }} onDelete={() => void removeTrack(track)} /> : null })()} testID="unified-track-sheet" onClose={() => setModal('subbells')}>
-      {(() => { const track = activeStep.subBellTracks.find(item => item.id === editingTrackId); return track ? <TrackDetail track={track} durationSeconds={activeStep.durationSeconds} secondPrecision={draft.settings.secondPrecisionEnabled} settings={draft.settings} onPatch={changes => patchTrack(activeStep.id, track.id, changes)} onOpenSound={() => setCueTarget({ kind: 'track', stepId: activeStep.id, trackId: track.id })} /> : null })()}
+      {(() => { const track = activeStep.subBellTracks.find(item => item.id === editingTrackId); return track ? <TrackDetail noMainInterval={noMainInterval} track={track} durationSeconds={activeStep.durationSeconds} secondPrecision={draft.settings.secondPrecisionEnabled} settings={draft.settings} onPatch={changes => patchTrack(activeStep.id, track.id, changes)} onOpenSound={() => setCueTarget({ kind: 'track', stepId: activeStep.id, trackId: track.id })} /> : null })()}
     </DraggableSheet>
 
     <DraggableSheet visible={mixerOpen} title="Volume mixer" initialSnap={program.steps.length > 1 || activeStep.subBellTracks.length > 2 ? "full" : "partial"} testID="unified-volume-mixer" onClose={() => setMixerOpen(false)}>
-      <VolumeControl cue={activeStep.endCue} masterVolume={draft.settings.masterVolume} masterControl label="Overall volume" value={draft.settings.masterVolume} onChange={masterVolume => patchSettings({ masterVolume })} />
+      <VolumeControl cue={noMainInterval ? activeStep.subBellTracks[0] ?? activeStep.endCue : activeStep.endCue} masterVolume={draft.settings.masterVolume} masterControl label="Overall volume" value={draft.settings.masterVolume} onChange={masterVolume => patchSettings({ masterVolume })} />
       {program.steps.map(step => <View key={step.id} style={styles.section}>
         {program.steps.length > 1 ? <Text style={[styles.helperText, { color: tokens.textMuted, fontSize: 13, paddingTop: 8 }]}>{step.label}</Text> : null}
-        <VolumeControl accessibilityLabel={`${step.label} ending cue`} cue={step.endCue} masterVolume={draft.settings.masterVolume} label="At the end" value={step.endCue.volume} onChange={volume => patchStep(step.id, { endCue: { ...step.endCue, volume } })} />
+        {!noMainInterval ? <VolumeControl accessibilityLabel={`${step.label} ending cue`} cue={step.endCue} masterVolume={draft.settings.masterVolume} label="At the end" value={step.endCue.volume} onChange={volume => patchStep(step.id, { endCue: { ...step.endCue, volume } })} /> : null}
         {step.subBellTracks.map(track => <VolumeControl key={track.id} accessibilityLabel={`${step.label}, ${track.label}`} cue={track} masterVolume={draft.settings.masterVolume} label={track.label} value={track.volume} onChange={volume => patchTrack(step.id, track.id, { volume })} />)}
       </View>)}
       {program.completionCue ? <VolumeControl cue={program.completionCue} masterVolume={draft.settings.masterVolume} label="Completion sound" value={program.completionCue.volume} onChange={volume => patchProgram({ completionCue: { ...program.completionCue!, volume } })} /> : null}
-      <VolumeControl cue={{ sound: effectiveAlarm.alarmSound, volume: draft.settings.alarmVolume }} masterVolume={draft.settings.masterVolume} alarmPreview label="Alarm" value={draft.settings.alarmVolume} onChange={alarmVolume => patchSettings({ alarmVolume })} />
+      {!noMainInterval ? <VolumeControl cue={{ sound: effectiveAlarm.alarmSound, volume: draft.settings.alarmVolume }} masterVolume={draft.settings.masterVolume} alarmPreview label="Alarm" value={draft.settings.alarmVolume} onChange={alarmVolume => patchSettings({ alarmVolume })} /> : null}
     </DraggableSheet>
 
     {soundPickerCue && cueTarget ? <SoundPickerSheet visible title={cueTarget.kind === 'alarm-default' ? 'Default alarm sound' : cueTarget.kind === 'alarm' ? 'Alarm sound' : cueTarget.kind === 'completion' ? 'Completion cue' : cueTarget.kind === 'track' ? 'Sub-bell sound' : cueTarget.kind === 'sound-library' ? 'Sound library' : 'Step ending cue'} cue={soundPickerCue} soundLibrary={state.soundLibrary} masterVolume={draft.settings.masterVolume} advanced={cueTarget.kind !== 'sound-library' && cueTarget.kind !== 'alarm-default' && cueTarget.kind !== 'alarm'} alarmPreview={cueTarget.kind === 'alarm' || cueTarget.kind === 'alarm-default'} volumeLabel={cueTarget.kind === 'sound-library' ? 'Preview volume' : undefined} onChange={patchCue} onClose={() => setCueTarget(null)} onFeedback={onFeedback} /> : null}
@@ -625,14 +670,15 @@ function SoundSummary({ cue }: { cue: CueSettings }) {
   return <SoundName cue={cue} />
 }
 
-function trackTimingSummary(track: UnifiedSubBellTrack): string {
+function trackTimingSummary(track: UnifiedSubBellTrack, noMainInterval = false): string {
+  if (noMainInterval) return [track.repeatEnabled ? `Every ${formatCompactDurationSeconds(track.cadenceSeconds)}` : '', track.randomRepeat ? 'Random' : ''].filter(Boolean).join(' · ') || 'No timing selected'
   const modes = [track.repeatEnabled ? `Repeat ${formatCompactDurationSeconds(track.cadenceSeconds)}` : 'One time', track.randomRepeat ? 'Random' : '', track.afterStartSeconds !== undefined ? `After ${formatCompactDurationSeconds(track.afterStartSeconds)}` : '', track.beforeEndSeconds !== undefined ? `Before ${formatCompactDurationSeconds(track.beforeEndSeconds)}` : ''].filter(Boolean)
   return modes.join(' · ')
 }
 
-function SettingsSection({ alarmDefaults, onDefaultAlarmDuration, action, draft, program, availability, runningControlIds, onRunningControls, cycleDurationSeconds, focusState, androidAccess, floatingOverlay, floatingAvailable, theme, tokens, onSettings, onProgram, onAvailability, onCue, onFocusAutomationChange, onOpenFocusSettings, onOpenFocusRuleSettings, onOpenExactAlarmSettings, onOpenFullScreenIntentSettings, onRequestCallMuteAccess, onRequestNotificationAccess, onFloatingChange, onFeedback, accentColor, setAccentColor, themeLongPressed, setThemeLongPressed, toggleTheme, useEinkTheme }: {
+function SettingsSection({ alarmDefaults, onDefaultAlarmDuration, action, draft, program, availability, runningControlIds, scrubbingEnabled, onRunningControls, cycleDurationSeconds, focusState, androidAccess, floatingOverlay, floatingAvailable, theme, tokens, onSettings, onProgram, onAvailability, onCue, onFocusAutomationChange, onOpenFocusSettings, onOpenFocusRuleSettings, onOpenExactAlarmSettings, onOpenFullScreenIntentSettings, onRequestCallMuteAccess, onRequestNotificationAccess, onFloatingChange, onFeedback, accentColor, setAccentColor, themeLongPressed, setThemeLongPressed, toggleTheme, useEinkTheme }: {
   alarmDefaults: { sound: AppTimerSettings['alarmSound']; durationSeconds: number }; onDefaultAlarmDuration: (duration: number) => void;
-  action: ExtraAction; draft: UnifiedTimerDraft; program: UnifiedTimerProgram; availability: AvailabilityPolicy; runningControlIds: AppTimerSettings['runningControlIds']; onRunningControls: (id: NonNullable<AppTimerSettings['runningControlIds']>[number], enabled: boolean) => void; cycleDurationSeconds: number; focusState: NativeFocusState;
+  action: ExtraAction; draft: UnifiedTimerDraft; program: UnifiedTimerProgram; availability: AvailabilityPolicy; runningControlIds: AppTimerSettings['runningControlIds']; scrubbingEnabled?: boolean; onRunningControls: (id: NonNullable<AppTimerSettings['runningControlIds']>[number], enabled: boolean) => void; cycleDurationSeconds: number; focusState: NativeFocusState;
   androidAccess: UnifiedTimerConfigScreenProps['androidAccess']; floatingOverlay: ReturnType<typeof ChandasTimerService.getFloatingOverlayState>; floatingAvailable: boolean;
   theme: string; tokens: ReturnType<typeof useTheme>['tokens']; onSettings: (changes: Partial<AppTimerSettings>) => void; onProgram: (changes: Partial<UnifiedTimerProgram>) => void; onAvailability: (availability: AvailabilityPolicy) => void; onCue: (kind: 'alarm' | 'completion') => void;
   onFocusAutomationChange: (enabled: boolean) => void; onOpenFocusSettings: () => void; onOpenFocusRuleSettings: () => void; onOpenExactAlarmSettings: () => void; onOpenFullScreenIntentSettings: () => void;
@@ -652,7 +698,7 @@ function SettingsSection({ alarmDefaults, onDefaultAlarmDuration, action, draft,
       case 'audio-output': return <AudioOutputSettings onSaveError={() => onFeedback({ tone: 'attention', title: 'Could not change the audio output' })} />
       case 'calls': return <Panel title="During calls" tokens={tokens}><View style={styles.row}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Mute timer cues during calls</Text><Text style={[styles.helperText, { color: tokens.textMuted }]}>{androidAccess.callMute ? 'Available' : 'Phone access may be needed.'}</Text></View><Toggle value={draft.settings.muteDuringCallsEnabled} onChange={enabled => { onSettings({ muteDuringCallsEnabled: enabled }); if (enabled && Platform.OS === 'android' && !androidAccess.callMute) onRequestCallMuteAccess() }} accessibilityLabel="Mute timer during calls" /></View></Panel>
       case 'precision': return <Panel title="Precision" tokens={tokens}><View style={styles.row}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Edit in seconds</Text><Text style={[styles.helperText, { color: tokens.textMuted }]}>Keep exact seconds visible in duration controls.</Text></View><Toggle value={draft.settings.secondPrecisionEnabled} onChange={secondPrecisionEnabled => onSettings({ secondPrecisionEnabled })} accessibilityLabel="Use exact seconds" /></View></Panel>
-      case 'running-controls': return <Panel title="Running controls" tokens={tokens}><RunningControlSettingsList settings={{ advancedModeEnabled: false, runningControlIds }} onChange={onRunningControls} /></Panel>
+      case 'running-controls': return <Panel title="Running controls" tokens={tokens}><RunningControlSettingsList settings={{ advancedModeEnabled: false, runningControlIds, scrubbingEnabled }} onChange={onRunningControls} /></Panel>
       case 'system': return <Panel title="Device access" tokens={tokens}>{!androidAccess.exactAlarms ? <Pressable accessibilityRole="button" accessibilityLabel="Set up exact timing" onPress={onOpenExactAlarmSettings} style={[styles.settingsRow, { borderColor: tokens.border }]}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Exact timing</Text><Text style={[styles.helperText, { color: tokens.warm }]}>Set up</Text></View><Text style={{ color: tokens.accent }}>›</Text></Pressable> : null}{!androidAccess.fullScreenAlarms ? <Pressable accessibilityRole="button" accessibilityLabel="Set up full-screen alarms" onPress={onOpenFullScreenIntentSettings} style={[styles.settingsRow, { borderColor: tokens.border }]}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Full-screen alarms</Text><Text style={[styles.helperText, { color: tokens.warm }]}>Set up</Text></View><Text style={{ color: tokens.accent }}>›</Text></Pressable> : null}<Text style={[styles.helperText, { color: tokens.textMuted }]}>{androidAccess.checking ? 'Checking access…' : androidAccess.pending ? 'Waiting for Android…' : `Notifications ${androidAccess.notifications ? 'available' : 'not granted'} · calls ${androidAccess.callMute ? 'available' : 'not granted'}`}</Text></Panel>
       case 'device': return <Panel title="Appearance and overlay" tokens={tokens}><ColorSelector label="Accent color" detail="Applies across the app." value={accentColor} onChange={setAccentColor} accessibilityLabel="Accent color" trailing={<Pressable onPress={() => { if (themeLongPressed) return; toggleTheme() }} onLongPress={() => { setThemeLongPressed(true); useEinkTheme() }} onPressOut={() => setTimeout(() => setThemeLongPressed(false), 0)} delayLongPress={550} accessibilityRole="button" accessibilityLabel={`Change appearance from ${theme}`} style={[styles.themeButton, { borderColor: tokens.border }]}><LightbulbIcon color={tokens.accent} /></Pressable>} />{floatingAvailable ? <FloatingOverlaySettings state={floatingOverlay} onChange={onFloatingChange} onFeedback={onFeedback} /> : null}</Panel>
       default: return null
@@ -661,26 +707,26 @@ function SettingsSection({ alarmDefaults, onDefaultAlarmDuration, action, draft,
   return <View style={styles.section}>{setting(action)}</View>
 }
 
-function TrackDetail({ track, durationSeconds, secondPrecision, settings, onPatch, onOpenSound }: {
-  track: UnifiedSubBellTrack; durationSeconds: number; secondPrecision: boolean; settings: AppTimerSettings; onPatch: (changes: Partial<UnifiedSubBellTrack>) => void; onOpenSound: () => void
+function TrackDetail({ noMainInterval, track, durationSeconds, secondPrecision, settings, onPatch, onOpenSound }: {
+  noMainInterval: boolean; track: UnifiedSubBellTrack; durationSeconds: number; secondPrecision: boolean; settings: AppTimerSettings; onPatch: (changes: Partial<UnifiedSubBellTrack>) => void; onOpenSound: () => void
 }) {
   const { tokens } = useTheme()
   const [panel, setPanel] = useState<'color' | 'offsets' | 'haptics' | 'visibility' | 'random' | 'after' | 'before' | null>(null)
   const modes = [
     { id: 'repeat', label: 'Repeat', summary: track.repeatEnabled ? formatCompactDurationSeconds(track.cadenceSeconds) : 'Off', active: track.repeatEnabled, press: () => onPatch({ repeatEnabled: !track.repeatEnabled }) },
     { id: 'random', label: 'Random', summary: track.randomRepeat ? `${formatCompactDurationSeconds(track.randomRepeat.minSeconds)}–${formatCompactDurationSeconds(track.randomRepeat.maxSeconds)}` : undefined, active: !!track.randomRepeat, press: () => { if (!track.randomRepeat) onPatch({ randomRepeat: { minSeconds: 30, maxSeconds: 60 } }); setPanel('random') } },
-    { id: 'after', label: track.afterStartSeconds === undefined ? 'After start' : `${formatCompactDurationSeconds(track.afterStartSeconds)} after start`, summary: undefined, active: track.afterStartSeconds !== undefined, press: () => { if (track.afterStartSeconds === undefined) onPatch({ afterStartSeconds: Math.max(1, Math.min(30, durationSeconds - 1)) }); setPanel('after') } },
-    { id: 'before', label: track.beforeEndSeconds === undefined ? 'Before end' : `${formatCompactDurationSeconds(track.beforeEndSeconds)} before end`, summary: undefined, active: track.beforeEndSeconds !== undefined, press: () => { if (track.beforeEndSeconds === undefined) onPatch({ beforeEndSeconds: Math.max(1, Math.min(30, durationSeconds - 1)) }); setPanel('before') } },
+    { id: 'after', label: track.afterStartSeconds === undefined ? 'After start' : `${formatCompactDurationSeconds(track.afterStartSeconds)} after start`, summary: undefined, active: track.afterStartSeconds !== undefined, press: () => { if (!noMainInterval && track.afterStartSeconds === undefined) onPatch({ afterStartSeconds: Math.max(1, Math.min(30, durationSeconds - 1)) }); setPanel('after') } },
+    { id: 'before', label: track.beforeEndSeconds === undefined ? 'Before end' : `${formatCompactDurationSeconds(track.beforeEndSeconds)} before end`, summary: undefined, active: track.beforeEndSeconds !== undefined, press: () => { if (!noMainInterval && track.beforeEndSeconds === undefined) onPatch({ beforeEndSeconds: Math.max(1, Math.min(30, durationSeconds - 1)) }); setPanel('before') } },
   ]
   const choosePanel = (value: typeof panel) => setPanel(panel === value ? null : value)
   const inactiveOffsets = track.selectedOffsetsSeconds.filter(offset => offset >= durationSeconds)
   return <View style={styles.trackDetail}>
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.actionRail} accessibilityLabel="Sub-bell controls">{modes.map(mode => <ActionChip key={mode.id} label={mode.label} summary={mode.summary} active={mode.active} tokens={tokens} onPress={mode.press} />)}{([{ id: 'color', label: 'Color' }, { id: 'offsets', label: 'Offsets' }, { id: 'haptics', label: 'Haptics' }, { id: 'visibility', label: 'Watch face' }] as const).filter(option => option.id !== 'offsets' || track.repeatEnabled && (track.cadenceSeconds < durationSeconds || inactiveOffsets.length > 0)).map(option => <ActionChip key={option.id} label={option.label} active={panel === option.id} tokens={tokens} onPress={() => choosePanel(option.id)} />)}</ScrollView>
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.actionRail} accessibilityLabel="Sub-bell controls">{modes.filter(mode => !noMainInterval || mode.id === 'repeat' || mode.id === 'random').map(mode => <ActionChip key={mode.id} label={mode.label} summary={mode.summary} active={mode.active} tokens={tokens} onPress={mode.press} />)}{([{ id: 'color', label: 'Color' }, { id: 'offsets', label: 'Offsets' }, { id: 'haptics', label: 'Haptics' }, { id: 'visibility', label: 'Watch face' }] as const).filter(option => option.id !== 'offsets' || !noMainInterval && track.repeatEnabled && (track.cadenceSeconds < durationSeconds || inactiveOffsets.length > 0)).map(option => <ActionChip key={option.id} label={option.label} active={panel === option.id} tokens={tokens} onPress={() => choosePanel(option.id)} />)}</ScrollView>
     <Pressable accessibilityRole="button" onPress={onOpenSound} style={[styles.soundSummary, { borderColor: tokens.border }]}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Sound</Text><SoundName cue={track} style={styles.soundName} /></View><Text style={{ color: tokens.accent }}>›</Text></Pressable>
-    {track.repeatEnabled ? <DurationSelector label="Repeat every" value={Math.ceil(track.cadenceSeconds / 60)} valueSeconds={track.cadenceSeconds} secondPrecision={secondPrecision} presets={[1, 2, 3, 5, 10, 15, 20, 30, 60]} minSeconds={1} maxSeconds={MAX_CUE_DURATION_SECONDS} onChange={minutes => onPatch(unifiedTrackCadencePatch(track, durationSeconds, minutes * 60))} onChangeSeconds={cadenceSeconds => onPatch(unifiedTrackCadencePatch(track, durationSeconds, cadenceSeconds))} /> : <Text style={[styles.helperText, { color: tokens.textMuted }]}>One time · repeat interval and selected offsets are retained.</Text>}
+    {track.repeatEnabled ? <DurationSelector label="Repeat every" value={Math.ceil(track.cadenceSeconds / 60)} valueSeconds={track.cadenceSeconds} secondPrecision={secondPrecision} presets={[1, 2, 3, 5, 10, 15, 20, 30, 60]} minSeconds={1} maxSeconds={MAX_CUE_DURATION_SECONDS} onChange={minutes => onPatch(unifiedTrackCadencePatch(track, durationSeconds, minutes * 60))} onChangeSeconds={cadenceSeconds => onPatch(unifiedTrackCadencePatch(track, durationSeconds, cadenceSeconds))} /> : <Text style={[styles.helperText, { color: tokens.textMuted }]}>{noMainInterval ? (track.randomRepeat ? null : 'Set a repeat interval or random gaps.') : 'One time · repeat interval and selected offsets are retained.'}</Text>}
     <VolumeControl cue={track} masterVolume={settings.masterVolume} label="Volume" value={track.volume} onChange={volume => onPatch({ volume })} />
     <DraggableSheet visible={panel !== null} title={panel === 'random' ? 'Random gaps' : panel === 'after' ? 'After start' : panel === 'before' ? 'Before end' : panel === 'color' ? 'Sub-bell color' : panel === 'offsets' ? 'Cue selection' : panel === 'haptics' ? 'Cue vibration' : 'Watch face'} testID="unified-track-option-sheet" presentation="center" initialSnap="partial" partialHeightFraction={0.62} onClose={() => setPanel(null)}>
-      {panel === 'random' ? <View style={styles.randomBox}>{track.randomRepeat && track.randomRepeat.minSeconds >= durationSeconds ? <Text style={[styles.helperText, { color: tokens.warm }]}>No random bell fits until this interval is lengthened.</Text> : null}<Text style={[styles.helperText, { color: tokens.textMuted }]}>Gap range · {formatCompactDurationSeconds(track.randomRepeat?.minSeconds ?? 30)}–{formatCompactDurationSeconds(track.randomRepeat?.maxSeconds ?? 60)}</Text><DurationSelector compact label="Shortest gap" value={Math.ceil((track.randomRepeat?.minSeconds ?? 30) / 60)} valueSeconds={track.randomRepeat?.minSeconds ?? 30} secondPrecision={secondPrecision} minSeconds={5} maxSeconds={MAX_CUE_DURATION_SECONDS} presets={[1, 2, 3, 5, 10]} onChange={minutes => onPatch({ randomRepeat: { minSeconds: Math.max(5, minutes * 60), maxSeconds: Math.max(minutes * 60, track.randomRepeat?.maxSeconds ?? 60) } })} onChangeSeconds={minSeconds => onPatch({ randomRepeat: { minSeconds: Math.max(5, minSeconds), maxSeconds: Math.max(minSeconds, track.randomRepeat?.maxSeconds ?? 60) } })} /><DurationSelector compact label="Longest gap" value={Math.ceil((track.randomRepeat?.maxSeconds ?? 60) / 60)} valueSeconds={track.randomRepeat?.maxSeconds ?? 60} secondPrecision={secondPrecision} minSeconds={5} maxSeconds={MAX_CUE_DURATION_SECONDS} presets={[1, 2, 3, 5, 10]} onChange={minutes => onPatch({ randomRepeat: { minSeconds: Math.min(track.randomRepeat?.minSeconds ?? 30, minutes * 60), maxSeconds: Math.max(5, minutes * 60) } })} onChangeSeconds={maxSeconds => onPatch({ randomRepeat: { minSeconds: Math.min(track.randomRepeat?.minSeconds ?? 30, maxSeconds), maxSeconds: Math.max(5, maxSeconds) } })} /></View> : null}
+      {panel === 'random' ? <View style={styles.randomBox}>{!noMainInterval && track.randomRepeat && track.randomRepeat.minSeconds >= durationSeconds ? <Text style={[styles.helperText, { color: tokens.warm }]}>No random bell fits until this interval is lengthened.</Text> : null}<Text style={[styles.helperText, { color: tokens.textMuted }]}>Gap range · {formatCompactDurationSeconds(track.randomRepeat?.minSeconds ?? 30)}–{formatCompactDurationSeconds(track.randomRepeat?.maxSeconds ?? 60)}</Text><DurationSelector compact label="Shortest gap" value={Math.ceil((track.randomRepeat?.minSeconds ?? 30) / 60)} valueSeconds={track.randomRepeat?.minSeconds ?? 30} secondPrecision={secondPrecision} minSeconds={5} maxSeconds={MAX_CUE_DURATION_SECONDS} presets={[1, 2, 3, 5, 10]} onChange={minutes => onPatch({ randomRepeat: { minSeconds: Math.max(5, minutes * 60), maxSeconds: Math.max(minutes * 60, track.randomRepeat?.maxSeconds ?? 60) } })} onChangeSeconds={minSeconds => onPatch({ randomRepeat: { minSeconds: Math.max(5, minSeconds), maxSeconds: Math.max(minSeconds, track.randomRepeat?.maxSeconds ?? 60) } })} /><DurationSelector compact label="Longest gap" value={Math.ceil((track.randomRepeat?.maxSeconds ?? 60) / 60)} valueSeconds={track.randomRepeat?.maxSeconds ?? 60} secondPrecision={secondPrecision} minSeconds={5} maxSeconds={MAX_CUE_DURATION_SECONDS} presets={[1, 2, 3, 5, 10]} onChange={minutes => onPatch({ randomRepeat: { minSeconds: Math.min(track.randomRepeat?.minSeconds ?? 30, minutes * 60), maxSeconds: Math.max(5, minutes * 60) } })} onChangeSeconds={maxSeconds => onPatch({ randomRepeat: { minSeconds: Math.min(track.randomRepeat?.minSeconds ?? 30, maxSeconds), maxSeconds: Math.max(5, maxSeconds) } })} /></View> : null}
       {panel === 'random' || panel === 'after' || panel === 'before' ? <Pressable accessibilityRole="button" style={[styles.secondaryButton, { borderColor: tokens.border }]} onPress={() => {
         if (panel === 'random') onPatch({ randomRepeat: undefined })
         else if (panel === 'after') onPatch({ afterStartSeconds: undefined })
@@ -720,13 +766,13 @@ function TimerControlRail({ singleStep, showGlobal, program, settings, step, cyc
   useEffect(() => {
     if (showGlobal && !singleStep && active === 'haptics') setActive(null)
   }, [singleStep, showGlobal, active])
-  const actions: Array<ExtraAction | 'volume'> = !showGlobal ? ['volume', 'haptics', 'alarm'] : singleStep ? ['run-length', 'alignment', 'volume', 'haptics', 'alarm'] : ['run-length', 'alignment', 'volume', 'alarm']
+  const actions: Array<ExtraAction | 'volume'> = program.noMainInterval ? ['run-length', 'volume'] : !showGlobal ? ['volume', 'haptics', 'alarm'] : singleStep ? ['run-length', 'alignment', 'volume', 'haptics', 'alarm'] : ['run-length', 'alignment', 'volume', 'alarm']
   return <View style={styles.section}>
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.actionRail} accessibilityLabel="Timer controls">
       {actions.map(action => <ActionChip key={action} label={action === 'run-length' ? 'Run length' : action === 'alignment' ? 'Align to clock' : action === 'volume' ? 'Volume' : action === 'haptics' ? 'Haptics' : 'Alarm'} summary={mainActionSummary(action, program, settings, step.endAlarmEnabled, step.endCue.hapticOverride)} active={active === action} tokens={tokens} onPress={() => action === 'volume' ? onOpenMixer() : setActive(active === action ? null : action)} />)}
     </ScrollView>
     <DraggableSheet visible={active !== null} title={active === 'run-length' ? 'Run length' : active === 'alignment' ? 'Align to clock' : active === 'haptics' ? 'Ending cue vibration' : active === 'alarm' ? 'Alarm' : 'Timer control'} testID="unified-timer-control-sheet" presentation="center" initialSnap="partial" partialHeightFraction={active === 'alarm' ? 0.68 : active === 'run-length' ? 0.65 : 0.48} onClose={() => setActive(null)}>
-      {active === 'run-length' ? <RunLengthConfig mode={singleStep ? 'pattern' : 'sequence'} allowUntil={!isNativeServiceAvailable || ChandasTimerService.getCapabilities()?.supportsUntilRunLength === true} rounds value={program.runPolicy} cycleDurationSeconds={cycleDurationSeconds} secondPrecision={settings.secondPrecisionEnabled} onChange={runPolicy => onProgram({ runPolicy })} /> : null}
+      {active === 'run-length' ? <RunLengthConfig allowCycles={!program.noMainInterval} mode={singleStep ? 'pattern' : 'sequence'} allowUntil={!isNativeServiceAvailable || ChandasTimerService.getCapabilities()?.supportsUntilRunLength === true} rounds value={program.runPolicy} cycleDurationSeconds={cycleDurationSeconds} secondPrecision={settings.secondPrecisionEnabled} onChange={runPolicy => onProgram({ runPolicy })} /> : null}
       {active === 'alignment' ? <><View style={styles.row}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Align to local clock</Text><Text style={[styles.helperText, { color: tokens.textMuted }]}>{program.alignment.kind === 'local-clock' ? `Offset ${program.alignment.offsetMinutes} min` : 'Start from elapsed time'}</Text></View><Toggle value={program.alignment.kind === 'local-clock'} onChange={enabled => onProgram({ alignment: enabled ? { kind: 'local-clock', offsetMinutes: 0 } : { kind: 'elapsed' } })} accessibilityLabel="Align timer rounds to clock" /></View>{program.alignment.kind === 'local-clock' ? <ClockSnapSelector cycleDurationSeconds={cycleDurationSeconds} value={program.alignment.offsetMinutes} onChange={offsetMinutes => onProgram({ alignment: { kind: 'local-clock', offsetMinutes } })} /> : null}</> : null}
       {(singleStep || !showGlobal) && active === 'haptics' ? <CueHapticsEditor cue={step.endCue} inherited={settings.haptics.main} inheritedEnabled={settings.haptics.enabled} onChange={onCueHaptics} /> : null}
       {active === 'alarm' ? <>
@@ -838,10 +884,11 @@ function settingsRowIcon(id: string, color: string) {
   if (id === 'notifications' || id === 'haptics') return <BellIcon on color={color} />
   if (id === 'device') return <LightbulbIcon color={color} />
   if (id === 'sound-library' || id === 'audio-output') return <VolumeIcon muted={false} color={color} />
+  if (id === 'audio-mix') return <MixerIcon color={color} />
   return <ConfigurationIcon color={color} size={17} />
 }
 
-function settingsDetail(action: ExtraAction, settings: AppTimerSettings, program: UnifiedTimerProgram, availability: AvailabilityPolicy): string {
+function settingsDetail(action: Exclude<ExtraAction, 'audio-mix'>, settings: AppTimerSettings, program: UnifiedTimerProgram, availability: AvailabilityPolicy): string {
   switch (action) {
     case 'alignment': return program.alignment.kind === 'local-clock' ? 'Aligned to local clock' : 'Elapsed from start'
     case 'run-length': return program.runPolicy.kind === 'continuous' ? 'Runs continuously' : program.runPolicy.kind === 'cycles' ? `${program.runPolicy.cycleCount} ${program.runPolicy.cycleCount === 1 ? 'round' : 'rounds'}` : program.runPolicy.kind === 'until' ? `Until ${formatClockTime(program.runPolicy.untilMinutes ?? 0)}` : 'Stops after a duration'
@@ -967,7 +1014,7 @@ function ConfigurationTile({ name, program, tileWidth, defaultAlignment, onRunRe
   const radius = 44
   const circumference = 2 * Math.PI * radius
   let elapsed = 0
-  const durationLabel = run
+  const durationLabel = program.noMainInterval ? '∞' : run
     ? formatCompactDurationSeconds(run.program.steps[run.position?.currentStepIndex ?? 0]?.durationSeconds ?? duration)
     : program.steps.length <= 3 ? program.steps.map(step => formatCompactDurationSeconds(step.durationSeconds)).join(' · ') : `${program.steps.length} steps · ${formatCompactDurationSeconds(duration)}`
   const tile = <Animated.View ref={reorder?.bind} collapsable={false} layout={reducedMotion || reorder ? undefined : LinearTransition.duration(240)} entering={run && !reducedMotion ? FadeIn.duration(260) : undefined} style={[styles.configurationTile, dragStyle, { width: tileWidth, borderColor: run || selected || reorder?.active ? accent : tokens.border, backgroundColor: run ? tokens.surfaceHi : tokens.surface, zIndex: reorder?.active ? 3 : 0, elevation: reorder?.active ? 8 : 0 }]}>
@@ -983,14 +1030,14 @@ function ConfigurationTile({ name, program, tileWidth, defaultAlignment, onRunRe
       <View pointerEvents="none" style={StyleSheet.absoluteFill}>
         {run ? <TimerWatchfaceRings size={ringSize} position={run.position} program={run.program} progress={run.progress} eventPulse={run.eventPulse} muted={run.muted} card trackColor={tokens.border} /> : <Svg width="100%" height="100%" viewBox="0 0 112 112">
           <Circle cx={56} cy={56} r={radius} stroke={tokens.border} strokeWidth={3} fill="none" />
-          {program.steps.map(step => {
+          {!program.noMainInterval && program.steps.map(step => {
             const offset = elapsed
             elapsed += step.durationSeconds
             const length = circumference * step.durationSeconds / duration
             const gap = program.steps.length > 1 ? Math.min(3, length * 0.35) : 0
             return <Circle key={step.id} cx={56} cy={56} r={radius} transform="rotate(-90 56 56)" fill="none" stroke={accent} strokeWidth={3} strokeDasharray={`${length - gap} ${circumference}`} strokeDashoffset={-circumference * offset / duration} />
           })}
-          {program.steps.flatMap((step, index) => {
+          {!program.noMainInterval && program.steps.flatMap((step, index) => {
             if (!step.subBellsEnabled) return []
             const start = program.steps.slice(0, index).reduce((sum, item) => sum + item.durationSeconds, 0)
             return asPatternTracks(step.subBellTracks).flatMap((track, trackIndex) => {
@@ -1011,7 +1058,7 @@ function ConfigurationTile({ name, program, tileWidth, defaultAlignment, onRunRe
     </View>
     <View style={[styles.tileFooter, run && styles.liveTileFooter]} pointerEvents="box-none">
       <Text pointerEvents="none" numberOfLines={1} style={[styles.tileStatus, { color: tokens.text, opacity: 0.66 }]}>{run ? `${run.paused ? 'Paused' : program.steps.length > 1 ? program.steps[run.position?.currentStepIndex ?? 0]?.label || 'Running' : 'Running'} · ${durationLabel}` : dirty && menuLabel !== 'Working copy options' ? `${durationLabel} · Modified` : durationLabel}</Text>
-      {run ? <OverflowMenu compact label={`Controls for ${name}`} trigger={<RestartIcon color={tokens.textMuted} />} items={[
+      {run ? <OverflowMenu compact label={`Controls for ${name}`} trigger={<MixerIcon color={tokens.text} />} items={[
         ...(onRunReset ? [{ label: 'Reset', icon: 'reset' as const, onPress: () => onRunReset(run.id) }] : []),
         ...(onRunSnap && defaultAlignment?.kind === 'local-clock' ? [{ label: 'Snap to clock', icon: 'snap' as const, onPress: () => onRunSnap(run.id, defaultAlignment.offsetMinutes) }] : []),
         ...(onStop ? [{ label: 'Stop', icon: 'stop' as const, onPress: onStop }] : []),
@@ -1093,6 +1140,7 @@ const styles = StyleSheet.create({
   runningShortcut: { minHeight: 44, borderWidth: 1, borderRadius: 14, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 9, alignSelf: 'flex-start' },
   configDropTarget: { position: 'absolute', left: 16, right: 16, height: 52, borderWidth: 1, borderRadius: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, zIndex: 20 },
   configurationGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-start', gap: 10 },
+  libraryDivider: { height: StyleSheet.hairlineWidth, marginVertical: -12 },
   configurationTile: { minWidth: 0, paddingHorizontal: 8, paddingBottom: 8, borderWidth: 1, borderRadius: 16 },
   tileTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: 44 },
   tileMenu: { width: 40, height: 44, borderWidth: 0, marginRight: -5 },

@@ -82,7 +82,8 @@ export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClo
     }
   }, [visible, presentationKey, exitProgress, reducedMotion])
   const [bodyHeight, setBodyHeight] = useState(0)
-  const fitFraction = fitContent && bodyHeight > 0 ? Math.min(partialHeightFraction ?? 0.64, (bodyHeight + 100 + Math.max(insets.bottom, 16)) / windowHeight) : partialHeightFraction
+  const [pinnedHeight, setPinnedHeight] = useState(0)
+  const fitFraction = fitContent && bodyHeight > 0 ? Math.min(partialHeightFraction ?? 0.64, (bodyHeight + (pinnedContent ? pinnedHeight + 16 : 0) + 100 + Math.max(insets.bottom, 16)) / windowHeight) : partialHeightFraction
   const sheet = useSheetSnap({ visible, initialSnap, onClose: requestClose, windowHeight, topInset, minHeight: minHeight ?? (fitContent ? 150 : styles.sheet.minHeight), partialMinHeight: minHeight ?? (fitContent ? 150 : 220), partialHeightFraction: fitFraction, maxHeightFraction: 0.92, topMargin, reducedMotion })
   useEffect(() => {
     setSheetVisible?.(sheetId, visible)
@@ -127,7 +128,7 @@ export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClo
               {titleAction}
             </View>
             <ContextualHelp>{presented.help}</ContextualHelp>
-            {presented.pinnedContent}
+            {fitContent && presented.pinnedContent ? <View onLayout={event => setPinnedHeight(event.nativeEvent.layout.height)}>{presented.pinnedContent}</View> : presented.pinnedContent}
             {body}
             {presented.footer}
           </Animated.View>

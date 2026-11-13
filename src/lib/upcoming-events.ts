@@ -60,7 +60,7 @@ export function programEventLabel(program: RuntimeTimerProgram, event: Scheduled
   if (program.mode === 'unified') {
     const step = program.steps.find(step => step.id === event.stepId)
     if (event.winner.kind === 'pattern-track') return step?.subBellTracks.find(track => track.id === event.winner.trackId)?.label ?? 'Sub-bell'
-    if (event.winner.kind === 'run-complete') return 'End gong'
+    if (event.winner.kind === 'run-complete') return program.noMainInterval ? 'Timer ends' : 'End gong'
     return step?.label || 'Step cue'
   }
   if (program.mode === 'pattern') {

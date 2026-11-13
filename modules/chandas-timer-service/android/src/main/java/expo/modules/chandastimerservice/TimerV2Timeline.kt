@@ -129,6 +129,8 @@ object TimerV2Timeline {
   }.getOrNull()
 
   /** Persisted deadlines must be exactly the deadline implied by the run policy. */
+  fun noMainInterval(serialized: String?): Boolean = serialized?.let { runCatching { JSONObject(it).optBoolean("noMainInterval") }.getOrDefault(false) } == true
+
   fun isUntil(serialized: String?): Boolean = runCatching {
     val root = JSONObject(serialized ?: return false)
     root.optString("mode") == "unified" && root.optJSONObject("runPolicy")?.optString("kind") == "until"
@@ -240,6 +242,7 @@ object TimerV2Timeline {
 
   fun seekStepTarget(serialized: String, anchor: Long, now: Long, startedAt: Long, endsAt: Long, fraction: Int): TimerV2SkipTarget? = runCatching {
     val root = JSONObject(serialized)
+    if (root.optBoolean("noMainInterval")) return@runCatching null
     val total = cycleDuration(root)
     if (total <= 0L || (endsAt > 0L && now >= endsAt)) return@runCatching null
     val elapsed = Math.floorMod(now - anchor, total)
@@ -325,6 +328,7 @@ object TimerV2Timeline {
     val root = JSONObject(serialized)
     when (root.optString("mode")) {
       "unified" -> {
+        if (root.optBoolean("noMainInterval")) return@runCatching null
         val steps = root.getJSONArray("steps")
         currentSequenceContext(steps, anchor, now)?.let { if (steps.length() == 1) it.copy(compactIdentity = "") else it }
       }

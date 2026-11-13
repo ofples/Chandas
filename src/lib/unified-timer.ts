@@ -101,6 +101,8 @@ function validateProgram(value: unknown): string | null {
   if (value.alignment.kind === 'local-clock' && !isIntIn(value.alignment.offsetMinutes, 0, 59)) return 'Invalid clock alignment offset'
   if (value.completionCue !== null && !validCue(value.completionCue)) return 'Invalid completion cue'
   if (!validRunPolicy(value.runPolicy)) return 'Invalid run policy'
+  if (value.noMainInterval !== undefined && typeof value.noMainInterval !== 'boolean') return 'Invalid main interval mode'
+  if (value.noMainInterval && (value.steps.length !== 1 || value.alignment.kind !== 'elapsed' || (value.runPolicy as RunPolicy).kind === 'cycles')) return 'Invalid timer without a main interval'
   if (value.alarmBehavior !== undefined && value.alarmBehavior !== 'off' && value.alarmBehavior !== 'once' && value.alarmBehavior !== 'locked') return 'Invalid alarm behavior'
   if (value.alarmOverrides !== undefined) {
     const overrides = value.alarmOverrides

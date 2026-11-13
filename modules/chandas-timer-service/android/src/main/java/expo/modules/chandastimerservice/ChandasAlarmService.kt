@@ -8,7 +8,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
-import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaPlayer
 import android.os.Build
@@ -145,7 +144,7 @@ class ChandasAlarmService : Service() {
 
   private var player: MediaPlayer? = null
   private var audioOutput: TimerAudioOutput.Playback? = null
-  private var audioFocusRequest: AudioFocusRequest? = null
+  private var releaseAudioFocus: (() -> Unit)? = null
   private val audioFocusListener = AudioManager.OnAudioFocusChangeListener { change ->
     when (change) {
       AudioManager.AUDIOFOCUS_GAIN -> if (canPlay()) runCatching { audioOutput?.start() } else Unit
@@ -415,33 +414,13 @@ class ChandasAlarmService : Service() {
   }
 
   private fun requestAudioFocus(attributes: AudioAttributes): Boolean {
-    val manager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-    val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-      audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
-        .setAudioAttributes(attributes)
-        .setOnAudioFocusChangeListener(audioFocusListener)
-        .build()
-      manager.requestAudioFocus(audioFocusRequest!!)
-    } else {
-      @Suppress("DEPRECATION")
-      manager.requestAudioFocus(
-        audioFocusListener,
-        AudioManager.STREAM_ALARM,
-        AudioManager.AUDIOFOCUS_GAIN_TRANSIENT,
-      )
-    }
-    return result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+    releaseAudioFocus = TimerAudioFocus.acquire(this, attributes, alarm = true, audioFocusListener::onAudioFocusChange)
+    return releaseAudioFocus != null
   }
 
   private fun abandonAudioFocus() {
-    val manager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-      audioFocusRequest?.let { manager.abandonAudioFocusRequest(it) }
-      audioFocusRequest = null
-    } else {
-      @Suppress("DEPRECATION")
-      manager.abandonAudioFocus(audioFocusListener)
-    }
+    releaseAudioFocus?.invoke()
+    releaseAudioFocus = null
   }
 
   override fun onDestroy() {

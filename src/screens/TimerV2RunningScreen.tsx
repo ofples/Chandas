@@ -32,6 +32,8 @@ import { formatEventLocalTime } from '../lib/upcoming-events'
 import { TimerWatchface, type TimerWatchfaceModel } from '../components/timer-v2/running/TimerWatchface'
 import { TimerControlButton } from '../components/timer-v2/running/TimerControlButton'
 
+const DIAL_HOLD_MS = 1000
+
 interface Props {
   onOpenConfigurations?: () => void
   runId?: string
@@ -75,7 +77,7 @@ interface Props {
   masterVolume: number
   onMasterVolumeChange: (value: number) => void
   onCueVolumeChange: (cueId: string, volume: number) => void
-  controlSettings: Pick<AppTimerSettings, 'advancedModeEnabled' | 'runningControlIds'>
+  controlSettings: Pick<AppTimerSettings, 'advancedModeEnabled' | 'runningControlIds'> & { scrubbingEnabled?: boolean }
   onChangeRunningControlIds: (id: RunningControlId, enabled: boolean) => void
   focusEnabled: boolean
   focusActive: boolean
@@ -119,6 +121,7 @@ export function TimerV2RunningScreen(props: Props) {
   const tooltipTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const helpLongPressed = useRef(false)
   const size = Math.min(width * 0.79, 342, Math.max(132, height - 330))
+  const ringRadius = size * 83 / 200
   const ringTop = Math.max(10, height * 0.47 - size / 2 - insets.top - 102)
   const [scrub, setScrub] = useState<number | null>(null)
   const runtimeMuted = props.mute.mutedUntil > Date.now() || Boolean(props.mute.iteration)
@@ -143,19 +146,22 @@ export function TimerV2RunningScreen(props: Props) {
   const currentStep = multiStep ? steps[sequenceIndex] : null
   const stepDuration = currentStepDurationMs(props.program, sequenceIndex)
   const stepIdentity = `${props.runId}:${props.position?.anchor}:${props.position?.cycleIndex}:${sequenceIndex}`
-  const canScrub = controlsVisible && stepDuration > 0 && !props.isAlarmRinging && !props.realigning && !props.activeHoursPaused
+  const runningControls = enabledRunningControls(props.controlSettings)
+  const scrubbingEnabled = props.controlSettings.scrubbingEnabled !== false
+  const noMainInterval = props.program.mode === 'unified' && !!props.program.noMainInterval
+  const canScrub = scrubbingEnabled && controlsVisible && stepDuration > 0 && !props.isAlarmRinging && !props.realigning && !props.activeHoursPaused
   const oneStepUnified = unified && steps.length === 1
   const followsStep = hasFollowingStep(props.program, props.position, props.runEndsAt)
   const nextCueColor = nextTrackColor(props.program, props.position?.nextEvent?.winner, theme === 'eink', tokens.accent)
   const enhancedClockAlignmentSupported = !isNativeServiceAvailable || ChandasTimerService.getCapabilities()?.supportsProgramClockAlignment === true
   const cycleDurationSeconds = programCycleDurationMs(props.program) / 1_000
-  const clockAlignmentAvailable = props.program.mode === 'pattern' || oneStepUnified
+  const clockAlignmentAvailable = !noMainInterval && (props.program.mode === 'pattern' || oneStepUnified
     ? cycleDurationSeconds % 60 === 0 || enhancedClockAlignmentSupported
-    : enhancedClockAlignmentSupported
-  const showNextCue = !props.activeHoursPaused && (props.program.mode === 'pattern' || oneStepUnified) && props.position?.nextEvent?.boundary !== 'pattern-main'
+    : enhancedClockAlignmentSupported)
+  const showNextCue = !noMainInterval && !props.activeHoursPaused && (props.program.mode === 'pattern' || oneStepUnified) && props.position?.nextEvent?.boundary !== 'pattern-main'
   const watchfaceModel: TimerWatchfaceModel = {
     mainLabel: scrub === null ? mainLabel : formatDuration(Math.ceil(stepDuration * (1 - scrub) / 1000)),
-    mainCaption: scrub !== null ? 'Adjust interval' : props.isPaused ? 'Paused' : endsBeforeResume ? 'Session ends quietly' : props.activeHoursPaused ? (hasResume ? 'Quiet until' : 'Schedule is quiet') : undefined,
+    mainCaption: scrub !== null ? 'Adjust interval' : props.isPaused ? 'Paused' : endsBeforeResume ? 'Session ends quietly' : props.activeHoursPaused ? (hasResume ? 'Quiet until' : 'Schedule is quiet') : noMainInterval ? props.nextCueLabel || 'No upcoming bells' : undefined,
     nextLabel: props.activeHoursPaused && nextAudibleSummary ? 'NEXT AUDIBLE' : undefined,
     nextName: scrub !== null ? undefined : props.activeHoursPaused && nextAudibleSummary ? nextAudibleSummary : showNextCue ? props.nextCueLabel : undefined,
     nextTime: showNextCue ? props.nextCueCountdown : undefined,
@@ -181,7 +187,6 @@ export function TimerV2RunningScreen(props: Props) {
   }
 
   const focusPaused = props.focusReason === 'paused-by-android'
-  const runningControls = enabledRunningControls(props.controlSettings)
   const revealControls = () => { setControlsVisible(true); if (tooltip) dismissTooltip() }
   const clearMuteFromTimer = () => {
     if (props.masterVolume <= 0) props.onMasterVolumeChange(lastNonzeroVolume.current)
@@ -239,17 +244,33 @@ export function TimerV2RunningScreen(props: Props) {
   gestureActions.current = actions
   const scrubState = useRef({ canScrub, progress: 0, identity: stepIdentity, duration: stepDuration, seek: props.onSeekStep })
   scrubState.current = { canScrub, progress: props.position?.stepProgress ?? props.progress, identity: stepIdentity, duration: stepDuration, seek: props.onSeekStep }
-  const touch = useRef<{ x: number; y: number; ring: boolean; activated: boolean; angle: number; turns: number; initial: number; fraction: number; tick: number; identity: string } | null>(null)
+  const touch = useRef<{ ring: boolean; activated: boolean; angle: number; turns: number; initial: number; fraction: number; tick: number; identity: string } | null>(null)
+  const armScrub = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (armScrub.current) clearTimeout(armScrub.current) }, [])
   const swipeEnabled = !!page
   const stageGesture = useMemo(() => Gesture.Pan().enabled(swipeEnabled || canScrub).minDistance(7).maxPointers(1).runOnJS(true)
     .onBegin(event => {
       const x = event.x - width / 2
       const y = event.y - size / 2
       const state = scrubState.current
-      const ring = state.canScrub && Math.abs(Math.hypot(x, y) - size / 2) <= 30
+      const ring = state.canScrub && Math.abs(Math.hypot(x, y) - ringRadius) <= 24
       if (!ring && !gestureActions.current.canSwipe()) return
       const initial = state.progress
-      touch.current = { x, y, ring, activated: false, angle: Math.atan2(y, x), turns: 0, initial, fraction: initial, tick: Math.floor(initial * 24), identity: state.identity }
+      const active = { ring, activated: false, angle: Math.atan2(y, x), turns: 0, initial, fraction: initial, tick: Math.floor(initial * 24), identity: state.identity }
+      touch.current = active
+      if (ring) {
+        armScrub.current = setTimeout(() => {
+          armScrub.current = null
+          const latest = scrubState.current
+          if (touch.current !== active || !latest.canScrub || latest.identity !== active.identity) return
+          active.activated = true
+          active.initial = active.fraction = latest.progress
+          active.tick = Math.floor(latest.progress * 24)
+          lastSwipe.current = Date.now()
+          selectionHaptic()
+          setScrub(active.fraction)
+        }, DIAL_HOLD_MS)
+      }
     })
     .onUpdate(event => {
       const active = touch.current
@@ -261,6 +282,11 @@ export function TimerV2RunningScreen(props: Props) {
         }
         active.activated ||= Math.abs(event.translationX) > 18
         if (active.activated && gestureActions.current.canSwipe()) gestureActions.current.update(event.translationX)
+        return
+      }
+      if (!active.activated) {
+        if (armScrub.current) clearTimeout(armScrub.current)
+        armScrub.current = null
         return
       }
       const state = scrubState.current
@@ -280,10 +306,16 @@ export function TimerV2RunningScreen(props: Props) {
       lastSwipe.current = Date.now()
       if (active?.ring) {
         const state = scrubState.current
-        if (success && state.canScrub && state.identity === active.identity && Math.abs(active.fraction - active.initial) > 0.002) state.seek(active.fraction)
+        if (success && active.activated && state.canScrub && state.identity === active.identity && Math.abs(active.fraction - active.initial) > 0.002) state.seek(active.fraction)
       } else if (active?.activated && gestureActions.current.canSwipe()) gestureActions.current.finish(success ? event.translationX : 0)
     })
-    .onFinalize(() => { touch.current = null; setScrub(null) }), [swipeEnabled, canScrub, width, size])
+    .onFinalize(() => {
+      if (armScrub.current) clearTimeout(armScrub.current)
+      armScrub.current = null
+      if (touch.current?.activated) lastSwipe.current = Date.now()
+      touch.current = null
+      setScrub(null)
+    }), [swipeEnabled, canScrub, width, size, ringRadius])
   const openConfigurations = useRef(props.onOpenConfigurations)
   openConfigurations.current = props.onOpenConfigurations
   const canOpenConfigurations = !!props.onOpenConfigurations
@@ -318,12 +350,12 @@ export function TimerV2RunningScreen(props: Props) {
               {!reducedMotion && page?.adjacent.map(run => <View key={run.id} testID="adjacent-watchface" pointerEvents="none" importantForAccessibility="no-hide-descendants" accessibilityElementsHidden style={[styles.adjacentRing, { width: size, left: (width - size) / 2 + run.direction * width }]}>
                 <TimerWatchface size={size} program={run.program} position={run.position} progress={run.progress} eventPulse={0} model={{ mainLabel: run.countdown, mainCaption: run.paused ? 'Paused' : undefined, muted: run.muted, runtimeMuted: run.muted }} accessibilityLabel="" />
               </View>)}
-              <TimerWatchface testID="running-watchface" program={props.program} position={scrub !== null && props.position ? { ...props.position, stepProgress: scrub } : props.position} progress={scrub ?? (unified ? props.position?.stepProgress ?? props.progress : props.progress)} eventPulse={props.eventPulse} size={size} model={watchfaceModel} onPress={pressTimerSurface} accessibilityLabel={muted ? 'Muted timer. Tap to unmute.' : controlsVisible ? 'Hide timer controls' : 'Show timer controls'} />
-              {scrub !== null ? <View pointerEvents="none" style={styles.scrubMarker}><Svg width={size} height={size}><Circle cx={size / 2 + (size / 2 - 7) * Math.sin(scrub * 2 * Math.PI)} cy={size / 2 - (size / 2 - 7) * Math.cos(scrub * 2 * Math.PI)} r={5} fill={tokens.text} /></Svg></View> : null}
+              <TimerWatchface testID="running-watchface" program={props.program} position={scrub !== null && props.position ? { ...props.position, stepProgress: scrub } : props.position} progress={scrub ?? (unified ? props.position?.stepProgress ?? props.progress : props.progress)} scrubbing={scrub !== null} eventPulse={props.eventPulse} size={size} model={watchfaceModel} onPress={pressTimerSurface} accessibilityLabel={muted ? 'Muted timer. Tap to unmute.' : controlsVisible ? 'Hide timer controls' : 'Show timer controls'} />
+              {scrub !== null ? <View pointerEvents="none" style={styles.scrubMarker}><Svg width={size} height={size}><Circle cx={size / 2 + ringRadius * Math.sin(scrub * 2 * Math.PI)} cy={size / 2 - ringRadius * Math.cos(scrub * 2 * Math.PI)} r={5} fill={tokens.text} /></Svg></View> : null}
             </RNAnimated.View>
           </View>
         </GestureDetector>
-        {multiStep && currentStep ? <RunningStepStrip steps={steps} index={sequenceIndex} position={props.position} program={props.program} endsAt={props.runEndsAt} enabled={controlsVisible && !props.isAlarmRinging && !props.realigning} onSelect={props.onSkipStep} /> : <View style={{ height: 40 }} />}
+        {multiStep && currentStep ? <RunningStepStrip steps={steps} index={sequenceIndex} position={props.position} program={props.program} endsAt={props.runEndsAt} identity={stepIdentity} scrubbingEnabled={scrubbingEnabled} enabled={controlsVisible && !props.isAlarmRinging && !props.realigning} onSelect={props.onSkipStep} /> : <View style={{ height: 40 }} />}
         <View style={styles.underTimer}>
           <View pointerEvents={controlsVisible ? 'auto' : 'none'} importantForAccessibility={controlsVisible ? 'auto' : 'no-hide-descendants'} accessibilityElementsHidden={!controlsVisible} style={[styles.transport, { opacity: controlsVisible ? 1 : 0 }]}>
             {multiStep ? <TimerControlButton size={48} label="Previous step" tooltip="Skip to previous step" disabled={props.isAlarmRinging || props.realigning || (sequenceIndex === 0 && props.position?.cycleIndex === 0 && props.runEndsAt > 0)} onPress={() => props.onSkipStep('previous')}><TimerTransportIcon kind="previous" color={tokens.accent} /></TimerControlButton> : null}
@@ -346,7 +378,7 @@ export function TimerV2RunningScreen(props: Props) {
       <View style={styles.controls}>
         {runningControls.has('restart') ? <TimerControlButton size={48} label="Reset interval" tooltip={props.program.alignment.kind === 'local-clock' ? 'Unsnap from clock and reset the cycle' : 'Reset the cycle'} disabled={props.realigning} onPress={props.onRestartUnsynced} onTooltip={showTooltip}><RestartIcon color={tokens.accent} /></TimerControlButton> : null}
         {clockAlignmentAvailable && runningControls.has('clock') ? <TimerControlButton size={48} label="Snap to clock" tooltip="Snap the repeating cycle to the clock" active={props.program.alignment.kind === 'local-clock'} disabled={props.realigning} onPress={() => setSnapOpen(true)} onTooltip={showTooltip}><ClockIcon color={tokens.accent} /></TimerControlButton> : null}
-        {runningControls.has('alarm') && (props.program.mode === 'pattern' || oneStepUnified) ? <TimerControlButton size={48} label={props.alarmBehavior === 'locked' ? 'Alarm locked' : props.alarmBehavior === 'once' ? 'Next main gong alarm' : 'Alarm off'} tooltip="Tap once to enable the alarm at the end of the current main interval. Tap twice to enable it for every main interval." active={props.alarmBehavior !== 'off'} badge={props.alarmBehavior === 'locked' ? '∞' : props.alarmBehavior === 'once' ? '1' : undefined} onPress={props.onPressAlarm} onTooltip={showTooltip}><AlarmIcon color={props.alarmBehavior !== 'off' ? tokens.accent : tokens.textMuted} /></TimerControlButton> : null}
+        {!noMainInterval && runningControls.has('alarm') && (props.program.mode === 'pattern' || oneStepUnified) ? <TimerControlButton size={48} label={props.alarmBehavior === 'locked' ? 'Alarm locked' : props.alarmBehavior === 'once' ? 'Next main gong alarm' : 'Alarm off'} tooltip="Tap once to enable the alarm at the end of the current main interval. Tap twice to enable it for every main interval." active={props.alarmBehavior !== 'off'} badge={props.alarmBehavior === 'locked' ? '∞' : props.alarmBehavior === 'once' ? '1' : undefined} onPress={props.onPressAlarm} onTooltip={showTooltip}><AlarmIcon color={props.alarmBehavior !== 'off' ? tokens.accent : tokens.textMuted} /></TimerControlButton> : null}
         {runningControls.has('stepAlarm') && multiStep && currentStep ? <TimerControlButton size={48} label={`${stepAlarmEnabled(currentStep) ? 'Turn off' : 'Turn on'} alarm for ${currentStep.label}`} tooltip="Toggle the alarm at this step's end, including future rounds of this run." active={stepAlarmEnabled(currentStep)} onPress={() => props.onToggleCurrentStepAlarm(currentStep.id)} onTooltip={showTooltip}><AlarmIcon color={stepAlarmEnabled(currentStep) ? tokens.accent : tokens.textMuted} /></TimerControlButton> : null}
         {runningControls.has('focus') && Platform.OS === 'android' ? <TimerControlButton size={48} label="Chandas Focus" tooltip={!props.focusPolicyAccess ? 'Set up Android Do Not Disturb access' : focusPaused ? 'Chandas Focus was paused in Android settings' : props.focusEnabled ? 'Turn off Chandas Focus automation' : 'Let Chandas manage its own Do Not Disturb rule'} active={props.focusEnabled && props.focusPolicyAccess && !focusPaused} onPress={!props.focusPolicyAccess || props.focusReason === 'rule-disabled' ? props.onOpenFocusSettings : props.onToggleFocus} onTooltip={showTooltip}><FocusIcon color={props.focusEnabled && props.focusPolicyAccess && !focusPaused ? tokens.accent : tokens.textMuted} /></TimerControlButton> : null}
         <View style={styles.spacer} />
@@ -356,12 +388,12 @@ export function TimerV2RunningScreen(props: Props) {
     </Animated.View> : <><Pressable onPress={pressTimerSurface} style={styles.revealSurface} accessibilityRole="button" accessibilityLabel={muted ? 'Muted timer. Tap to unmute.' : 'Show timer controls'} accessibilityHint={muted ? 'Clears the timer mute and keeps timer controls visible' : 'Shows the hidden timer controls'} /><Text pointerEvents="none" style={[styles.revealHint, { color: tokens.textMuted }]}>{muted ? 'Tap anywhere to unmute' : 'Tap to show controls'}</Text></>}
 
     {props.focusActive ? <Animated.View entering={reducedMotion ? undefined : FadeIn.duration(180)} exiting={reducedMotion ? undefined : FadeOut.duration(140)} pointerEvents="none" style={[styles.focusBorder, { borderColor: tokens.accent }]} /> : null}
-    <RunningMixerSheet visible={mixerOpen} onClose={() => setMixerOpen(false)} program={props.program} masterVolume={props.masterVolume} onMasterVolumeChange={props.onMasterVolumeChange} onCueVolumeChange={props.onCueVolumeChange} mute={props.mute} muted={muted} onMuteIterations={props.onMuteForIterations} onClearMute={clearMuteFromTimer} secondPrecision={props.secondPrecision} onMuteForSeconds={props.onMuteForSeconds} onMuteUntil={props.onMuteUntil} />
+    <RunningMixerSheet visible={mixerOpen} onClose={() => setMixerOpen(false)} program={props.program} masterVolume={props.masterVolume} onMasterVolumeChange={props.onMasterVolumeChange} onCueVolumeChange={props.onCueVolumeChange} mute={props.mute} muted={muted} onMuteIterations={noMainInterval ? undefined : props.onMuteForIterations} onClearMute={clearMuteFromTimer} secondPrecision={props.secondPrecision} onMuteForSeconds={props.onMuteForSeconds} onMuteUntil={props.onMuteUntil} />
     <SnapSheet visible={snapOpen} cycleDurationSeconds={cycleDurationSeconds} current={props.program.alignment.kind === 'local-clock' ? props.program.alignment.offsetMinutes : null} onSelect={props.onSnapToClock} onClose={() => setSnapOpen(false)} />
     <ConfigurationPickerSheet visible={configurationPickerOpen} configurations={props.configurations} activeId={props.activeConfigurationId} selectingId={selectingConfiguration} onClose={() => setConfigurationPickerOpen(false)} onSelect={async id => { setSelectingConfiguration(id); try { if (await props.onSelectConfiguration(id)) setConfigurationPickerOpen(false) } finally { setSelectingConfiguration(null) } }} />
     <TimerHelpSheet
       visible={helpOpen}
-      mode={multiStep ? 'sequence' : 'pattern'}
+      mode={noMainInterval ? 'bells' : multiStep ? 'sequence' : 'pattern'}
       controlSettings={props.controlSettings}
       onRunningControlIdsChange={props.onChangeRunningControlIds}
       onClose={() => setHelpOpen(false)}
@@ -370,13 +402,15 @@ export function TimerV2RunningScreen(props: Props) {
   </View>
 }
 
-function RunningStepStrip({ steps, index, position, program, endsAt, enabled, onSelect }: {
-  steps: { id: string; label: string }[]; index: number; position: TimelinePosition | null; program: RuntimeTimerProgram; endsAt: number; enabled: boolean; onSelect: (distance: number) => boolean
+function RunningStepStrip({ steps, index, position, program, endsAt, identity, scrubbingEnabled, enabled, onSelect }: {
+  steps: { id: string; label: string }[]; index: number; position: TimelinePosition | null; program: RuntimeTimerProgram; endsAt: number; identity: string; scrubbingEnabled: boolean; enabled: boolean; onSelect: (distance: number) => boolean
 }) {
   const { tokens } = useTheme()
   const [selected, setSelected] = useState(0)
   const travel = useRef(new RNAnimated.Value(0)).current
   const detent = useRef(0)
+  const heldStep = useRef<string | null>(null)
+  const lastDrag = useRef(0)
   const slot = 94
   const count = steps.length
   const cycle = position?.cycleIndex ?? 0
@@ -390,10 +424,12 @@ function RunningStepStrip({ steps, index, position, program, endsAt, enabled, on
       targetAt += currentStepDurationMs(program, (index + forward) % count)
     }
   }
-  const limits = useRef({ back, forward, onSelect })
-  limits.current = { back, forward, onSelect }
-  const gesture = useMemo(() => Gesture.Pan().enabled(enabled).activeOffsetX([-10, 10]).failOffsetY([-13, 13]).runOnJS(true)
+  const limits = useRef({ back, forward, onSelect, identity })
+  limits.current = { back, forward, onSelect, identity }
+  const gesture = useMemo(() => Gesture.Pan().enabled(enabled && scrubbingEnabled).activateAfterLongPress(DIAL_HOLD_MS).maxPointers(1).runOnJS(true)
+    .onStart(() => { heldStep.current = limits.current.identity; selectionHaptic() })
     .onUpdate(({ translationX }) => {
+      if (heldStep.current !== limits.current.identity) return
       const turns = -translationX / slot
       const { back: min, forward: max } = limits.current
       const next = Math.max(-min, Math.min(max, Math.sign(turns) * Math.floor(Math.abs(turns) + 0.42)))
@@ -401,23 +437,26 @@ function RunningStepStrip({ steps, index, position, program, endsAt, enabled, on
       travel.setValue(Math.max(-slot / 4, Math.min(slot / 4, -(turns - next) * slot * 0.36)))
     })
     .onEnd((_, success) => {
-      if (success && detent.current) limits.current.onSelect(detent.current)
+      if (success && detent.current && heldStep.current === limits.current.identity) limits.current.onSelect(detent.current)
     })
-    .onFinalize(() => { detent.current = 0; setSelected(0); travel.setValue(0) }), [enabled, travel])
+    .onFinalize(() => {
+      if (heldStep.current !== null) lastDrag.current = Date.now()
+      heldStep.current = null
+      detent.current = 0
+      setSelected(0)
+      travel.setValue(0)
+    }), [enabled, scrubbingEnabled, travel])
   return <GestureDetector gesture={gesture} touchAction="pan-y">
-    <View testID="running-step-strip" style={styles.stepStrip} accessible accessibilityRole="adjustable"
-      accessibilityLabel={`Current step, ${steps[index]?.label}`}
-      accessibilityActions={[{ name: 'increment', label: 'Next step' }, { name: 'decrement', label: 'Previous step' }]}
-      onAccessibilityAction={({ nativeEvent }) => {
-        if (!enabled) return
-        if (nativeEvent.actionName === 'increment' && forward > 0) onSelect(1)
-        if (nativeEvent.actionName === 'decrement' && back > 0) onSelect(-1)
-      }}>
+    <View testID="running-step-strip" style={styles.stepStrip}>
       <RNAnimated.View style={{ flexDirection: 'row', justifyContent: 'center', transform: [{ translateX: travel }] }}>
         {[-1, 0, 1].map(offset => {
           const distance = selected + offset
           const step = distance >= -back && distance <= forward ? steps[(index + distance + count) % count] : undefined
-          return <View key={offset} style={[styles.stepStripItem, { width: slot }]}><Text numberOfLines={1} style={[styles.stepStripLabel, { color: offset === 0 ? (selected ? tokens.accent : tokens.text) : tokens.textMuted }]}>{step?.label}</Text></View>
+          const label = <Text numberOfLines={1} accessibilityLabel={offset === 0 ? `Current step, ${step?.label}` : undefined} style={[styles.stepStripLabel, { color: offset === 0 ? (selected ? tokens.accent : tokens.text) : tokens.textMuted }]}>{step?.label}</Text>
+          const style = [styles.stepStripItem, { width: slot }]
+          return step && offset !== 0
+            ? <Pressable key={offset} style={style} disabled={!enabled || selected !== 0} accessibilityRole="button" accessibilityLabel={`Skip to ${step.label}, ${offset < 0 ? 'previous step' : 'next step'}`} onPress={() => { if (heldStep.current === null && Date.now() - lastDrag.current > 180 && onSelect(distance)) selectionHaptic() }}>{label}</Pressable>
+            : <View key={offset} style={style}>{label}</View>
         })}
       </RNAnimated.View>
       <View pointerEvents="none" style={StyleSheet.absoluteFill}><ScrollEdgeFade side="left" color={tokens.bg} /><ScrollEdgeFade side="right" color={tokens.bg} /></View>
@@ -463,7 +502,7 @@ function BoundedRunBar({ width, progress, segments, muted }: { width: number; pr
 
 const AnimatedLine = RNAnimated.createAnimatedComponent(Line)
 
-function RunningMixerSheet({ visible, onClose, program, masterVolume, onMasterVolumeChange, onCueVolumeChange, mute, muted, onMuteIterations, onClearMute, secondPrecision, onMuteForSeconds, onMuteUntil }: { visible: boolean; onClose: () => void; program: RuntimeTimerProgram; masterVolume: number; onMasterVolumeChange: (value: number) => void; onCueVolumeChange: (cueId: string, value: number) => void; mute: RuntimeMuteState; muted: boolean; onMuteIterations: (count: number) => void; onClearMute: () => void; secondPrecision: boolean; onMuteForSeconds: (seconds: number) => void; onMuteUntil: (deadline: number) => void }) {
+function RunningMixerSheet({ visible, onClose, program, masterVolume, onMasterVolumeChange, onCueVolumeChange, mute, muted, onMuteIterations, onClearMute, secondPrecision, onMuteForSeconds, onMuteUntil }: { visible: boolean; onClose: () => void; program: RuntimeTimerProgram; masterVolume: number; onMasterVolumeChange: (value: number) => void; onCueVolumeChange: (cueId: string, value: number) => void; mute: RuntimeMuteState; muted: boolean; onMuteIterations?: (count: number) => void; onClearMute: () => void; secondPrecision: boolean; onMuteForSeconds: (seconds: number) => void; onMuteUntil: (deadline: number) => void }) {
   const { tokens } = useTheme()
   const reducedMotion = useAppReducedMotion()
   const [previewError, setPreviewError] = useState<string | null>(null)
@@ -474,7 +513,7 @@ function RunningMixerSheet({ visible, onClose, program, masterVolume, onMasterVo
     : program.mode === 'sequence'
       ? program.steps.map((step, index) => ({ id: step.id, title: `${index + 1}. ${step.label}`, cue: step }))
       : program.steps.flatMap((step, index) => [
-        { id: unifiedCueIdentity(step.id), title: `${index + 1}. ${step.label}`, cue: step.endCue },
+        ...(program.noMainInterval ? [] : [{ id: unifiedCueIdentity(step.id), title: `${index + 1}. ${step.label}`, cue: step.endCue }]),
         ...step.subBellTracks.map(track => ({ id: unifiedCueIdentity(step.id, track.id), title: `${index + 1}. ${track.label}`, cue: track })),
       ])
   if (program.runPolicy.kind !== 'continuous' && program.completionCue) channels.push({ id: '__chandas_completion__', title: 'End gong', cue: program.completionCue })
@@ -489,7 +528,7 @@ function RunningMixerSheet({ visible, onClose, program, masterVolume, onMasterVo
   const channel = ({ id, title, cue }: typeof channels[number]) => <View key={id} style={styles.channel}><View style={styles.channelLabel}><Text numberOfLines={1} style={[styles.channelTitle, { color: tokens.text }]}>{title}</Text><SoundName cue={cue} style={styles.channelSound} /></View><View style={styles.channelControl}><Slider style={styles.channelSlider} minimumValue={0} maximumValue={1} step={0.05} value={cue.volume} onValueChange={value => onCueVolumeChange(id, value)} minimumTrackTintColor={tokens.accent} maximumTrackTintColor={tokens.surfaceHi} thumbTintColor={tokens.accent} accessibilityLabel={`${title} volume`} accessibilityValue={{ min: 0, max: 100, now: Math.round(cue.volume * 100), text: `${Math.round(cue.volume * 100)} percent` }} /><Pressable hitSlop={7} onPress={() => void preview(title, cue)} style={[styles.previewMini, { borderColor: tokens.border }]} accessibilityRole="button" accessibilityLabel={`Preview ${title}`}><Text style={[styles.previewGlyph, { color: tokens.accent }]}>▶</Text></Pressable></View></View>
   const close = () => { ChandasTimerService.stopSoundPreview(); setPreviewError(null); onClose() }
   const masterControl = <View style={styles.masterBlock}><Text style={[styles.channelTitle, { color: tokens.text }]}>Volume</Text><View style={styles.channelControl}><Slider style={styles.masterSlider} minimumValue={0} maximumValue={1} step={0.05} value={masterVolume} onValueChange={onMasterVolumeChange} minimumTrackTintColor={tokens.accent} maximumTrackTintColor={tokens.surfaceHi} thumbTintColor={tokens.accent} accessibilityLabel="Volume" accessibilityValue={{ min: 0, max: 100, now: Math.round(masterVolume * 100), text: `${Math.round(masterVolume * 100)} percent` }} /><Pressable hitSlop={7} onPress={() => { tapHaptic(); setChannelsOpen(value => !value) }} style={({ pressed }) => [styles.mixerButton, { borderColor: channelsOpen ? tokens.accent : tokens.border, backgroundColor: channelsOpen || pressed ? tokens.accentGlow : 'transparent', transform: [{ scale: pressed && !reducedMotion ? 0.92 : 1 }] }]} accessibilityRole="button" accessibilityLabel={channelsOpen ? 'Hide mixer' : 'Open mixer'} accessibilityState={{ expanded: channelsOpen }}><MixerIcon color={tokens.accent} /></Pressable></View></View>
-  return <BottomSheet visible={visible} title="Sound & mute" onClose={close} pinnedContent={masterControl}>
+  return <BottomSheet visible={visible} title="Sound & mute" fitContent onClose={close} pinnedContent={masterControl}>
     {previewError ? <GentleNotice title="Preview stayed quiet" message={previewError} tone="attention" /> : null}
     {channelsOpen ? <Animated.View entering={reducedMotion ? undefined : FadeIn.duration(140)} exiting={reducedMotion ? undefined : FadeOut.duration(100)} style={styles.channels}><View style={[styles.divider, { backgroundColor: tokens.border }]} />{channels.map(channel)}</Animated.View> : null}
     {visible ? <TimerMuteControls muted={muted} timedUntil={mute.mutedUntil} iterationCount={mute.iteration?.iterations} secondPrecision={secondPrecision} onMuteIterations={onMuteIterations} onMuteForSeconds={onMuteForSeconds} onMuteUntil={onMuteUntil} onClearMute={onClearMute} /> : null}
@@ -577,8 +616,8 @@ const styles = StyleSheet.create({
   scrubMarker: { position: 'absolute', top: 0 },
   watchViewport: { width: '100%', overflow: 'hidden' },
   underTimer: { width: '100%', minHeight: 120, alignItems: 'center', gap: 6 },
-  stepStrip: { width: '100%', maxWidth: 340, alignSelf: 'center', position: 'relative' },
-  stepStripItem: { height: 40, justifyContent: 'center', paddingHorizontal: 4 },
+  stepStrip: { width: '100%', maxWidth: 340, alignSelf: 'center', position: 'relative', marginBottom: 10 },
+  stepStripItem: { height: 44, justifyContent: 'center', paddingHorizontal: 4 },
   stepStripLabel: { fontSize: 13, textAlign: 'center' },
   runPager: { flexDirection: 'row', alignItems: 'center', gap: 16, height: 32 },
   runPageLabel: { fontSize: 13 },

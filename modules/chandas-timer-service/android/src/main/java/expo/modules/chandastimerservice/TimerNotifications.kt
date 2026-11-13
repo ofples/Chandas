@@ -27,7 +27,7 @@ object TimerNotifications {
     if (config.timerV2PausedAt > 0L) return "Paused"
     val program = config.timerV2Program
     val event = program?.let { TimerV2Timeline.nextVisible(it, config.timerV2Anchor, now, config.timerV2StartedAt, config.timerV2EndsAt, config.timerV2RandomSeed.takeIf { seed -> seed != 0L } ?: config.timerV2Anchor) }
-    if (program != null && event == null) return null
+    if (program != null && event == null) return if (TimerV2Timeline.noMainInterval(program) && config.timerV2EndsAt == 0L) "∞" else null
     val current = program?.let { TimerV2Timeline.notificationContext(it, config.timerV2Anchor, now) }
     val next = event?.at ?: TimerMath.nextTick(now, config.mainMs, config.phase)
     val activeNow = ActiveHours.isActive(config, now)
@@ -135,8 +135,9 @@ object TimerNotifications {
     val program = config.timerV2Program
     val event = program?.let { TimerV2Timeline.nextVisible(it, config.timerV2Anchor, effectiveNow, config.timerV2StartedAt, config.timerV2EndsAt, config.timerV2RandomSeed.takeIf { seed -> seed != 0L } ?: config.timerV2Anchor) }
     val notificationContext = program?.let { TimerV2Timeline.notificationContext(it, config.timerV2Anchor, effectiveNow) }
-    val completedProgram = config.timerV2Program != null && event == null
-    val next = event?.at ?: if (completedProgram) 0L else TimerMath.nextTick(now, config.mainMs, config.phase)
+    val waitingForBell = event == null && TimerV2Timeline.noMainInterval(program) && config.timerV2EndsAt == 0L
+    val completedProgram = program != null && event == null && !waitingForBell
+    val next = event?.at ?: if (program != null) 0L else TimerMath.nextTick(now, config.mainMs, config.phase)
     val activeNow = ActiveHours.isActive(config, now)
     val activeAtNext = next > now && ActiveHours.allowsCue(config, next)
     val resumesAt = if (!completedProgram && (!activeNow || !activeAtNext)) ActiveHours.nextStart(config, if (activeNow) next else now) else 0L
@@ -151,6 +152,7 @@ object TimerNotifications {
     val content = when {
       config.timerV2PausedAt > 0L -> "Paused · ${event?.let { TimerCountdownText.forProgram("", false, it.at, 0L, false, effectiveNow) } ?: "--:--"} to next cue"
       completedProgram -> copy.sessionEnds(formatTime(config.timerV2EndsAt.takeIf { it > 0L } ?: now))
+      waitingForBell && activeNow -> "No upcoming bells"
       event?.completesRun == true -> copy.sessionEnds(formatTime(next))
       endsBeforeResume -> copy.sessionEnds(formatTime(config.timerV2EndsAt))
       activeNow && activeAtNext -> notificationContext?.label ?: copy.nextCue(formatTime(next))

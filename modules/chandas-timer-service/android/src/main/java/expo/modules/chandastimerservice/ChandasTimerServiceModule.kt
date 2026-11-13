@@ -145,6 +145,7 @@ class ChandasTimerServiceModule : Module() {
         "supportsSecondPrecision" to true,
         "supportsSubBellSecondPrecision" to true,
         "supportsUntilRunLength" to true,
+        "supportsNoMainInterval" to true,
         "supportsMuteSecondPrecision" to true,
         "supportsDualLiveCountdown" to true,
         "supportsProgramClockAlignment" to true,
@@ -330,6 +331,14 @@ class ChandasTimerServiceModule : Module() {
 
     Function("getAudioOutputs") {
       appContext.reactContext?.let(TimerAudioOutput::get)
+    }
+
+    Function("getAudioMixMode") {
+      appContext.reactContext?.let(TimerAudioFocus::get)
+    }
+
+    Function("setAudioMixMode") { mode: String ->
+      appContext.reactContext?.let { TimerAudioFocus.set(it, mode) } ?: false
     }
 
     Function("setAudioOutputs") { outputs: List<String> ->

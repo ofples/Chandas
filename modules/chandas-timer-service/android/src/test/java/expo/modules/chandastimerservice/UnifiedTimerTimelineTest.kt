@@ -12,6 +12,30 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class UnifiedTimerTimelineTest {
+  @Test fun independentBellsIgnoreMainCueAndFiniteOffsets() {
+    val program = fixtures.getJSONObject("fixture").getJSONObject("program")
+    val step = program.getJSONArray("steps").getJSONObject(0).put("durationSeconds", 60).put("endAlarmEnabled", true)
+    val tracks = step.getJSONArray("subBellTracks")
+    for (i in 0 until 2) tracks.getJSONObject(i).apply {
+      put("enabled", true).put("repeatEnabled", true).put("cadenceSeconds", if (i == 0) 60 else 300)
+      put("selectedOffsetsSeconds", JSONArray()).put("afterStartSeconds", 5).remove("randomRepeat")
+    }
+    val encoded = program.put("steps", JSONArray().put(step)).put("noMainInterval", true)
+      .put("alignment", JSONObject().put("kind", "elapsed")).put("runPolicy", JSONObject().put("kind", "continuous").put("durationSeconds", 30).put("cycleCount", 1))
+      .put("completionCue", JSONObject.NULL).toString()
+    assertTrue(UnifiedTimerTimeline.isValid(encoded))
+    val next = requireNotNull(UnifiedTimerTimeline.next(encoded, 1_000L, 300_999L, terminalAt = null))
+    assertEquals(301_000L, next.at)
+    assertEquals(2, next.candidates.size)
+    assertEquals(tracks.getJSONObject(1).getString("id"), next.winner.trackId)
+    assertFalse(next.winner.alarmEnabled)
+    val done = requireNotNull(UnifiedTimerTimeline.next(encoded, 1_000L, 1_000L, terminalAt = 31_000L))
+    assertTrue(done.completesRun)
+    assertTrue(done.winner.hapticsOff)
+    assertEquals(0f, done.winner.volume, 0f)
+    assertNull(TimerV2Timeline.seekStepTarget(encoded, 1_000L, 1_000L, 1_000L, 0L, 5000))
+  }
+
   @Test fun seekWithinStepKeepsFixedEndTime() {
     val program = fixtures.getJSONObject("fixture").getJSONObject("program")
     program.put("runPolicy", JSONObject().put("kind", "duration").put("durationSeconds", 130))

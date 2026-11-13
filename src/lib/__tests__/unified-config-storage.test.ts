@@ -102,10 +102,24 @@ describe('unified config drafts', () => {
       weeklyWindows: [{ id: 'portable-window', enabled: true, startMinutes: 600, endMinutes: 900, days: 127 }],
       overrides: [],
     }
-    const result = reduceUnifiedConfigCommand(state, { type: 'importConfig', config: imported })
+    const result = reduceUnifiedConfigCommand(state, { type: 'importConfig', config: imported, select: true })
     expect(result.status).toBe('applied')
+    expect(result.state.selectedConfigId).toBe('imported')
+    expect(result.state.drafts.first).toEqual(state.drafts.first)
     expect(result.state.globalAvailability).toEqual(state.globalAvailability)
     expect(result.state.configs.find(config => config.id === 'imported')?.settings.availability).toEqual({ enabled: false, weeklyWindows: [], overrides: [] })
+  })
+
+  it('keeps the recovery notice dismissed after reloading without losing the recovered timers', async () => {
+    const storage = new MemoryStorage()
+    setV2(storage)
+    const loaded = await bootstrapUnifiedConfigState(storage)
+    if (loaded.status !== 'loaded') throw new Error('Legacy timers did not load')
+    expect(loaded.state.legacyRecoveries.length).toBeGreaterThan(0)
+    const dismissed = reduceUnifiedConfigCommand(loaded.state, { type: 'dismissLegacyRecoveryNotice' })
+    await saveUnifiedConfigState(storage, dismissed.state)
+    const reloaded = await bootstrapUnifiedConfigState(storage)
+    expect(reloaded).toMatchObject({ status: 'loaded', state: { legacyRecoveryNoticeDismissed: true, legacyRecoveries: loaded.state.legacyRecoveries } })
   })
 
   it('recovers the active schedule when loading a pre-global state', () => {

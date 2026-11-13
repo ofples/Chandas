@@ -147,6 +147,16 @@ export function timerV2DisplayFor(program: TimerProgram, settings: AppTimerSetti
   }
   const position = timelinePosition(programForVisibleCues(program), anchor, now, startedAt, terminalAt, randomSeed)
   const next = position.nextEvent
+  if (program.mode === 'unified' && program.noMainInterval) {
+    return {
+      mainCountdown: next ? formatCountdown(next.at - now) : '∞',
+      nextCueCountdown: next ? formatCountdown(next.at - now) : '--:--',
+      nextCueLabel: next ? programEventLabel(program, next) : '',
+      progress: 0, position, activeHoursPaused: false, activeHoursResumeAt: 0,
+      ...audibleFields, runEndsAt: endAt, runRemainingMs: endAt ? Math.max(0, endAt - now) : 0,
+      runProgress: boundedRunProgress(startedAt, terminalAt, now),
+    }
+  }
   if (!next) {
     return {
       mainCountdown: '00:00', nextCueCountdown: '00:00', nextCueLabel: 'Complete', progress: 1,
@@ -554,7 +564,8 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings, so
     }
     let event = nextProgramEvent(activeProgram, anchorRef.current, now, startedAtRef.current, endsAtRef.current, randomSeedRef.current || anchorRef.current)
     if (!event) {
-      finishJsRun()
+      if (activeProgram.mode === 'unified' && activeProgram.noMainInterval && endsAtRef.current === null) refreshDisplay()
+      else finishJsRun()
       return
     }
     const availability = effectiveAvailabilityForProgram(activeProgram, activeSettings.availability)
@@ -613,9 +624,10 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings, so
     const randomSeed = restored?.randomSeed ?? acceptedAt
     const startedAt = restored?.startedAt ?? (typeof restore === 'number' ? restore : acceptedAt)
     const endsAt = restored?.endsAt && restored.endsAt > 0 ? restored.endsAt : runEndAt(acceptedProgram, anchor, startedAt)
-    const acceptedAlarmBehavior: AlarmBehavior = restored?.alarmBehavior ?? (acceptedProgram.mode === 'unified' ? acceptedProgram.alarmBehavior : 'off')
+    const acceptedAlarmBehavior: AlarmBehavior = acceptedProgram.mode === 'unified' && acceptedProgram.noMainInterval ? 'off' : restored?.alarmBehavior ?? (acceptedProgram.mode === 'unified' ? acceptedProgram.alarmBehavior : 'off')
     if (!hasAvailableTime(effectiveAvailabilityForProgram(acceptedProgram, acceptedSettings.availability), acceptedAt)) return false
-    if (nextProgramEvent(acceptedProgram, anchor, restored?.pausedAt ?? acceptedAt, startedAt, endsAt, randomSeed) === null) return false
+    if (nextProgramEvent(acceptedProgram, anchor, restored?.pausedAt ?? acceptedAt, startedAt, endsAt, randomSeed) === null
+      && !(acceptedProgram.mode === 'unified' && acceptedProgram.noMainInterval && endsAt === null)) return false
     if (service && (!service.canScheduleExactAlarms() || !supportsProgram(acceptedProgram))) return false
     if (service && requiresExactSubBellRuntime(acceptedProgram) && service.getCapabilities()?.supportsSubBellSecondPrecision !== true) return false
     if (service) await service.prepareBuiltInSounds(builtInSoundsFor(acceptedProgram, acceptedSettings.alarmSound))

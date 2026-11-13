@@ -34,7 +34,7 @@ export const EVENT_FRESHNESS_WINDOW_MS = 5_000
 export function alarmBehaviorForReanchor(program: RuntimeTimerProgram, current: AlarmBehavior, selectedTimerDefault?: AlarmBehavior): AlarmBehavior {
   if (program.mode === 'sequence') return 'off'
   if (program.mode === 'unified') {
-    if (program.steps.length > 1) return 'off'
+    if (program.steps.length > 1 || program.noMainInterval) return 'off'
     return selectedTimerDefault ?? current
   }
   return current

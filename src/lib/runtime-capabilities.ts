@@ -10,6 +10,7 @@ export function requiresExactSubBellRuntime(program: RuntimeTimerProgram): boole
 export function nativeSupportsRuntimeProgram(program: RuntimeTimerProgram, capabilities: NativeTimerCapabilities | null): boolean {
   if (!capabilities || capabilities.programSchemaMin > program.schemaVersion || capabilities.programSchemaMax < program.schemaVersion) return false
   if (program.runPolicy.kind === 'until' && capabilities.supportsUntilRunLength !== true) return false
+  if (program.mode === 'unified' && program.noMainInterval && capabilities.supportsNoMainInterval !== true) return false
   if (program.mode === 'unified' && (capabilities.supportsUnifiedSteps !== true || capabilities.supportsStepSubBells !== true || capabilities.supportsSecondPrecision !== true)) return false
   const cues = program.mode === 'unified'
     ? [...program.steps.flatMap(step => [step.endCue, ...step.subBellTracks]), program.completionCue]

@@ -80,6 +80,8 @@ object UnifiedTimerTimeline {
     if (steps.length() !in 1..MAX_STEPS || !root.has("completionCue") || !root.has("runPolicy") || !validRunPolicy(root.optJSONObject("runPolicy"))) return@runCatching false
     val alignment = root.optJSONObject("alignment") ?: return@runCatching false
     val alignmentKind = alignment.opt("kind") as? String ?: return@runCatching false
+    if (root.has("noMainInterval") && root.opt("noMainInterval") !is Boolean) return@runCatching false
+    if (root.optBoolean("noMainInterval") && (steps.length() != 1 || alignmentKind != "elapsed" || root.getJSONObject("runPolicy").optString("kind") == "cycles")) return@runCatching false
     if (alignmentKind !in setOf("elapsed", "local-clock") || (alignmentKind == "local-clock" && (exactLong(alignment, "offsetMinutes") ?: return@runCatching false) !in 0L..59L)) return@runCatching false
     if (!root.isNull("completionCue") && root.has("completionCue") && !validCue(root.optJSONObject("completionCue"))) return@runCatching false
     val ids = mutableSetOf<String>()
@@ -163,23 +165,67 @@ object UnifiedTimerTimeline {
   fun next(serialized: String, anchor: Long, now: Long, startedAt: Long = anchor, terminalAt: Long? = runEndAt(serialized, anchor, startedAt), randomSeed: Long = anchor, visibleOnly: Boolean = false): UnifiedTimelineEvent? = runCatching {
     val root = JSONObject(serialized)
     if (terminalAt != null && now >= terminalAt) return@runCatching null
-    val natural = natural(root, anchor, now, randomSeed, visibleOnly) ?: return@runCatching null
-    if (terminalAt == null || natural.at < terminalAt) return@runCatching natural
-    if (natural.at == terminalAt) {
+    val unbounded = root.optBoolean("noMainInterval")
+    val natural = if (unbounded) unboundedBell(root, anchor, now, randomSeed, visibleOnly) else natural(root, anchor, now, randomSeed, visibleOnly)
+    if (terminalAt == null || (natural != null && natural.at < terminalAt)) return@runCatching natural
+    if (natural != null && natural.at == terminalAt) {
       val custom = customCompletion(root)
       return@runCatching if (custom == null) natural.copy(completesRun = true, showOnWatchFace = true) else natural.copy(candidates = listOf(custom), winner = custom, collision = false, completesRun = true, showOnWatchFace = true)
     }
     val candidate = completionCandidate(root) ?: return@runCatching null
     val length = duration(root)
-    val round = max(0L, Math.floorDiv(terminalAt - anchor, length))
+    val round = if (unbounded) 0L else max(0L, Math.floorDiv(terminalAt - anchor, length))
     UnifiedTimelineEvent(terminalAt, "unified:$anchor:complete:$startedAt:$terminalAt", round, round, root.getJSONArray("steps").length() - 1, root.getJSONArray("steps").getJSONObject(root.getJSONArray("steps").length() - 1).getString("id"), null, "run-complete", false, listOf(candidate), candidate, false, true, true)
   }.getOrNull()
+
+  private fun nextUnboundedRandomOffset(id: String, min: Long, max: Long, elapsed: Long, seed: Long): Long {
+    val spread = (max - min) / 2
+    val stride = min + spread
+    var trackSeed = seed.toInt()
+    for (character in id) trackSeed = trackSeed * 31 + character.code
+    fun position(index: Long): Long {
+      var hash = trackSeed xor ((index + 1).toInt() * 0x9e3779b9.toInt())
+      hash = (hash xor (hash ushr 16)) * 0x45d9f3b
+      hash = (hash xor (hash ushr 16)) * 0x45d9f3b
+      return index * stride + min + ((hash xor (hash ushr 16)).toLong() and 0xffffffffL) % (spread + 1)
+    }
+    val index = maxOf(0L, Math.floorDiv(elapsed - min, stride))
+    val at = position(index)
+    return if (at > elapsed) at else position(index + 1)
+  }
+
+  private fun unboundedBell(root: JSONObject, anchor: Long, now: Long, seed: Long, visibleOnly: Boolean): UnifiedTimelineEvent? {
+    val step = root.getJSONArray("steps").getJSONObject(0)
+    val stepId = step.getString("id")
+    val tracks = step.getJSONArray("subBellTracks")
+    val elapsed = Math.floorDiv(now - anchor, SECOND)
+    var offset = Long.MAX_VALUE
+    val candidates = mutableListOf<UnifiedTimelineCandidate>()
+    for (index in 0 until tracks.length()) {
+      val track = tracks.getJSONObject(index)
+      val visible = track.optBoolean("showOnWatchFace", true)
+      if (!track.optBoolean("enabled", true) || (visibleOnly && !visible)) continue
+      val id = track.getString("id")
+      val cadence = track.getLong("cadenceSeconds")
+      val fixed = if (track.optBoolean("repeatEnabled", true)) maxOf(1L, Math.floorDiv(elapsed, cadence) + 1) * cadence else Long.MAX_VALUE
+      val range = track.optJSONObject("randomRepeat")
+      val random = range?.let { nextUnboundedRandomOffset(id, it.getLong("minSeconds"), it.getLong("maxSeconds"), elapsed, seed) } ?: Long.MAX_VALUE
+      val next = minOf(fixed, random)
+      if (next == Long.MAX_VALUE || next > offset) continue
+      if (next < offset) { candidates.clear(); offset = next }
+      val spacing = if (fixed == next) cadence else (range!!.getLong("minSeconds") + range.getLong("maxSeconds")) / 2
+      candidates.add(candidate(track, id, stepId, id, "sub-bell", false, visible, spacing, spacing, index))
+    }
+    val winner = candidates.maxByOrNull { it.cadencePriority } ?: return null
+    return UnifiedTimelineEvent(anchor + offset * SECOND, "unified:$anchor:bells:$offset", 0, 0, 0, stepId, offset, "step-offset", false, candidates, winner, candidates.size > 1, false, candidates.any { it.showOnWatchFace })
+  }
 
   fun nextVisible(serialized: String, anchor: Long, now: Long, startedAt: Long = anchor, terminalAt: Long? = runEndAt(serialized, anchor, startedAt), randomSeed: Long = anchor): UnifiedTimelineEvent? = next(serialized, anchor, now, startedAt, terminalAt, randomSeed, visibleOnly = true)
 
   fun position(serialized: String, anchor: Long, now: Long, startedAt: Long = anchor, terminalAt: Long? = runEndAt(serialized, anchor, startedAt), randomSeed: Long = anchor): UnifiedTimelinePosition? = runCatching {
     val root = JSONObject(serialized)
     val steps = root.optJSONArray("steps") ?: return@runCatching null
+    if (root.optBoolean("noMainInterval")) return@runCatching UnifiedTimelinePosition(anchor, randomSeed, 0, 0, 0f, 0, steps.getJSONObject(0).getString("id"), 0f, next(serialized, anchor, now, startedAt, terminalAt, randomSeed))
     val length = duration(root)
     if (length <= 0L) return@runCatching null
     val round = roundAt(now, anchor, length)
@@ -309,7 +355,8 @@ object UnifiedTimerTimeline {
     customCompletion(root)?.let { return it }
     val steps = root.optJSONArray("steps") ?: return null
     val last = steps.optJSONObject(steps.length() - 1) ?: return null
-    return candidate(last.optJSONObject("endCue"), "run-complete", last.getString("id"), null, "run-complete", false, true, null, 0L, null)
+    val fallback = candidate(last.optJSONObject("endCue"), "run-complete", last.getString("id"), null, "run-complete", false, true, null, 0L, null)
+    return if (root.optBoolean("noMainInterval")) fallback.copy(volume = 0f, hapticsOff = true) else fallback
   }
 
   private fun customCompletion(root: JSONObject): UnifiedTimelineCandidate? {

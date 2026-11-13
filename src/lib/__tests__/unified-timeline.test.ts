@@ -8,6 +8,37 @@ const base = fixture.program as UnifiedTimerProgram
 const query = (now: number, program = base, visibleOnly = false) => nextUnifiedProgramEvent(program, fixture.anchor, now, fixture.anchor, null, fixture.randomSeed, visibleOnly)
 
 describe('unified timer timeline', () => {
+  it('keeps bells on their own cadence past the stored finite interval', () => {
+    const step = structuredClone(base.steps[0])
+    step.durationSeconds = 60
+    step.endAlarmEnabled = true
+    const [minute, five] = step.subBellTracks
+    Object.assign(minute, { repeatEnabled: true, enabled: true, cadenceSeconds: 60, selectedOffsetsSeconds: [], afterStartSeconds: 5, randomRepeat: undefined })
+    Object.assign(five, { repeatEnabled: true, enabled: true, cadenceSeconds: 300, selectedOffsetsSeconds: [], beforeEndSeconds: 10, randomRepeat: undefined })
+    const program: UnifiedTimerProgram = { ...base, steps: [step], noMainInterval: true, alignment: { kind: 'elapsed' }, completionCue: null }
+    expect(query(fixture.anchor, program)?.at).toBe(fixture.anchor + 60_000)
+    expect(query(fixture.anchor + 299_999, program)?.winner).toMatchObject({ trackId: five.id, kind: 'sub-bell' })
+    const done = nextUnifiedProgramEvent(program, fixture.anchor, fixture.anchor, fixture.anchor, fixture.anchor + 30_000)
+    expect(done).toMatchObject({ completesRun: true, winner: { volume: 0, hapticOverride: 'off' } })
+    expect(seekStepTarget(program, fixture.anchor, fixture.anchor, fixture.anchor, null, 0.5)).toBeNull()
+  })
+
+  it('can find deterministic bounded random gaps after a long restore', () => {
+    const step = structuredClone(base.steps[0])
+    const [track] = step.subBellTracks
+    Object.assign(track, { enabled: true, repeatEnabled: false, randomRepeat: { minSeconds: 30, maxSeconds: 73 } })
+    step.subBellTracks = [track]
+    const program: UnifiedTimerProgram = { ...base, steps: [step], noMainInterval: true, alignment: { kind: 'elapsed' } }
+    let at = query(fixture.anchor + 100 * 86_400_000, program)!.at
+    for (let i = 0; i < 40; i++) {
+      const next = query(at, program)!.at
+      expect(next - at).toBeGreaterThanOrEqual(30_000)
+      expect(next - at).toBeLessThanOrEqual(73_000)
+      expect(query(next - 1, program)?.at).toBe(next)
+      at = next
+    }
+  })
+
   it('scrubs within the current step and keeps a fixed end time', () => {
     const now = 71_000
     const program: UnifiedTimerProgram = { ...base, runPolicy: { ...base.runPolicy, kind: 'duration' } }
