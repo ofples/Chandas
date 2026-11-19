@@ -33,6 +33,15 @@ final class ChandasTimerEngine: NSObject, UNUserNotificationCenterDelegate {
     let center = UNUserNotificationCenter.current()
     previousNotificationDelegate = center.delegate
     center.delegate = self
+    if ledger.failure != nil || kernel == nil {
+      // Preserve unreadable source records, but fail closed at the OS too.
+      // AlarmManager exposes this app's alarms only; notification cleanup is
+      // restricted to our namespace and leaves other Expo notifications alone.
+      center.getPendingNotificationRequests { requests in
+        center.removePendingNotificationRequests(withIdentifiers: requests.map(\.identifier).filter { $0.hasPrefix("chandas.") })
+      }
+      if let owned = try? alarms.scheduled() { for id in owned { try? alarms.cancel(id) } }
+    }
     alarms.changed = { [weak self] values in self?.alarmChanged(values) }
     alarms.observe()
     NotificationCenter.default.addObserver(self, selector: #selector(becameActive), name: UIApplication.didBecomeActiveNotification, object: nil)
