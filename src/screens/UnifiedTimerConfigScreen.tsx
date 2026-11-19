@@ -1009,7 +1009,7 @@ function settingsDetail(action: Exclude<SettingsAction, 'audio-mix'>, settings: 
     case 'precision': return settings.secondPrecisionEnabled ? 'Exact seconds' : 'Minute controls'
     case 'running-controls': return settings.runningControlIds ? `${settings.runningControlIds.length} optional controls shown` : 'Choose running controls'
     case 'system': return 'Permissions and device access'
-    case 'device': return 'Theme and floating timer'
+    case 'device': return Platform.OS === 'ios' ? 'Theme' : 'Theme and floating timer'
   }
 }
 

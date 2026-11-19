@@ -11,13 +11,14 @@ export interface IOSKernelRun {
   id: string
   name: string
   config: NativeTimerConfig
+  effectiveFrom?: number
   soundState?: { sequence: Record<string, number>; randomPrevious: Record<string, number> }
 }
 
 export interface IOSKernelEvent {
   runId: string
   name: string
-  event: ScheduledProgramEvent
+  event: Pick<ScheduledProgramEvent, 'at' | 'logicalId' | 'cycleIndex' | 'boundary' | 'collision' | 'completesRun' | 'stepId' | 'stepIndex'> & { winner: { cueId: string } }
   alarm: boolean
   audible: boolean
   volume: number
@@ -26,7 +27,7 @@ export interface IOSKernelEvent {
   winner: boolean
   label: string
   alarmExpiresAt: number
-  nextConfig: NativeTimerConfig
+  nextConfig: Partial<NativeTimerConfig>
   nextSoundState: NonNullable<IOSKernelRun['soundState']>
 }
 
@@ -71,8 +72,11 @@ function alarmFor(config: NativeTimerConfig): AlarmBehavior {
 }
 
 function withGate(config: NativeTimerConfig, mute: RuntimeMuteState, alarm: AlarmBehavior): NativeTimerConfig {
-  return { ...config, alarmModeEnabled: alarm === 'locked', alarmOnceArmed: alarm === 'once', mutedUntil: mute.mutedUntil,
-    mutedIterationEndId: mute.iteration?.endsAtLogicalId, mutedIterationEndAt: mute.iteration?.endsAt,
+  return { ...config, ...gatePatch(mute, alarm) }
+}
+function gatePatch(mute: RuntimeMuteState, alarm: AlarmBehavior): Partial<NativeTimerConfig> {
+  return { alarmModeEnabled: alarm === 'locked', alarmOnceArmed: alarm === 'once', mutedUntil: mute.mutedUntil,
+    mutedIterationEndId: mute.iteration?.endsAtLogicalId ?? '', mutedIterationEndAt: mute.iteration?.endsAt ?? 0,
     mutedIterationCount: mute.iteration?.iterations ?? 0 }
 }
 
@@ -123,13 +127,15 @@ function projected(run: IOSKernelRun, event: ScheduledProgramEvent): IOSKernelEv
   const cap = event.boundary === 'sequence-step' || event.boundary === 'sequence-cycle' ? currentStepEndAt(p, position) : Infinity
   const volume = c.volume * (alarm ? c.alarmVolume ?? 1 : event.winner.volume)
   return {
-    runId: run.id, name: run.name, event, alarm, audible: allowed && gate.shouldPlay && volume > 0, volume,
+    runId: run.id, name: run.name, event: { at: event.at, logicalId: event.logicalId, cycleIndex: event.cycleIndex, boundary: event.boundary,
+      collision: event.collision, completesRun: event.completesRun, stepId: event.stepId, stepIndex: event.stepIndex, winner: { cueId: event.winner.cueId } },
+    alarm, audible: allowed && gate.shouldPlay && volume > 0, volume,
     soundId: alarm ? c.alarmSoundId ?? 'alarm-tone' : soundID(sounds[index]),
     rarity: event.completesRun ? Number.MAX_SAFE_INTEGER : event.winner.occurrencesPerRound ? programCycleDurationMs(p) / event.winner.occurrencesPerRound
       : event.winner.cadenceSeconds ? event.winner.cadenceSeconds * 1_000 : programCycleDurationMs(p),
     winner: false, label: p.steps[event.stepIndex ?? 0]?.label ?? run.name,
     alarmExpiresAt: Math.min(event.at + c.alarmDurationSeconds * 1_000, cap, c.timerV2EndsAt || Infinity),
-    nextConfig: withGate(c, gate.nextMute, gate.nextAlarmBehavior),
+    nextConfig: gatePatch(gate.nextMute, gate.nextAlarmBehavior),
     nextSoundState: soundState,
   }
 }
@@ -142,7 +148,7 @@ export function iosEventBatches(runs: IOSKernelRun[], after: number, batchLimit 
   while (batches.length < Math.max(1, Math.min(64, batchLimit)) && scans++ < MAX_SCAN) {
     const upcoming = working.map(run => {
       const c = run.config
-      return { run, event: nextProgramEvent(programFor(c), c.timerV2Anchor!, cursor, c.timerV2StartedAt!, c.timerV2EndsAt || null, c.timerV2RandomSeed ?? c.timerV2Anchor!) }
+      return { run, event: nextProgramEvent(programFor(c), c.timerV2Anchor!, Math.max(cursor, c.timerV2StartedAt!, run.effectiveFrom ?? 0), c.timerV2StartedAt!, c.timerV2EndsAt || null, c.timerV2RandomSeed ?? c.timerV2Anchor!) }
     }).filter((value): value is { run: IOSKernelRun; event: ScheduledProgramEvent } => value.event !== null)
     if (!upcoming.length) break
     const at = Math.min(...upcoming.map(value => value.event.at))
@@ -150,7 +156,7 @@ export function iosEventBatches(runs: IOSKernelRun[], after: number, batchLimit 
     const batch = upcoming.filter(value => value.event.at === at).map(({ run, event }) => projected(run, event))
     const winner = batch.filter(value => value.audible).sort((a, b) => Number(b.alarm) - Number(a.alarm) || b.rarity - a.rarity || (a.runId < b.runId ? -1 : a.runId > b.runId ? 1 : 0))[0]
     if (winner) winner.winner = true
-    batch.forEach(item => { const run = working.find(run => run.id === item.runId)!; run.config = item.nextConfig; if (item.winner && !item.alarm) run.soundState = item.nextSoundState })
+    batch.forEach(item => { const run = working.find(run => run.id === item.runId)!; run.config = { ...run.config, ...item.nextConfig }; if (item.winner && !item.alarm) run.soundState = item.nextSoundState })
     batches.push(batch)
     cursor = at
   }

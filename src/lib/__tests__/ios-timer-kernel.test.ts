@@ -68,6 +68,13 @@ describe('iOS canonical native kernel', () => {
     expect(plan.truncated).toBe(true)
     expect(plan.coveredThrough).toBe(anchor + 28 * 7_000)
   })
+  it('does not replay cues from before a newly joined or edited run became effective', () => {
+    const r = run('joined', stepped())
+    r.config.timerV2StartedAt = anchor + 6_000
+    expect(iosEventBatches([r], anchor, 1).batches[0][0].event.at).toBe(anchor + 7_000)
+    r.effectiveFrom = anchor + 13_000
+    expect(iosEventBatches([r], anchor, 1).batches[0][0].event.at).toBe(anchor + 14_000)
+  })
   it('supports pause, seek and exact end without changing the source configuration', () => {
     const r = run('seek', stepped()), before = JSON.stringify(r)
     const sought = iosRunAction(r, 'seek-step:5000', 0, anchor + 1_000)!

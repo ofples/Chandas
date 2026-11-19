@@ -8,7 +8,7 @@ final class ChandasLiveActivity {
     revision += 1
     let ticket = revision
     Task { @MainActor [weak self] in
-      guard let self = self else { return }
+      guard let self = self, ticket == self.revision else { return }
       let activities = Activity<ChandasActivityAttributes>.activities
       guard let run = run, let state = state, ActivityAuthorizationInfo().areActivitiesEnabled else {
         for activity in activities { await activity.end(nil, dismissalPolicy: .immediate) }

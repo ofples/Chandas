@@ -1018,13 +1018,15 @@ var ChandasKernel = (() => {
     return config.alarmModeEnabled ? "locked" : config.alarmOnceArmed ? "once" : "off";
   }
   function withGate(config, mute, alarm) {
+    return { ...config, ...gatePatch(mute, alarm) };
+  }
+  function gatePatch(mute, alarm) {
     return {
-      ...config,
       alarmModeEnabled: alarm === "locked",
       alarmOnceArmed: alarm === "once",
       mutedUntil: mute.mutedUntil,
-      mutedIterationEndId: mute.iteration?.endsAtLogicalId,
-      mutedIterationEndAt: mute.iteration?.endsAt,
+      mutedIterationEndId: mute.iteration?.endsAtLogicalId ?? "",
+      mutedIterationEndAt: mute.iteration?.endsAt ?? 0,
       mutedIterationCount: mute.iteration?.iterations ?? 0
     };
   }
@@ -1084,7 +1086,17 @@ var ChandasKernel = (() => {
     return {
       runId: run.id,
       name: run.name,
-      event,
+      event: {
+        at: event.at,
+        logicalId: event.logicalId,
+        cycleIndex: event.cycleIndex,
+        boundary: event.boundary,
+        collision: event.collision,
+        completesRun: event.completesRun,
+        stepId: event.stepId,
+        stepIndex: event.stepIndex,
+        winner: { cueId: event.winner.cueId }
+      },
       alarm,
       audible: allowed && gate.shouldPlay && volume > 0,
       volume,
@@ -1093,7 +1105,7 @@ var ChandasKernel = (() => {
       winner: false,
       label: p.steps[event.stepIndex ?? 0]?.label ?? run.name,
       alarmExpiresAt: Math.min(event.at + c.alarmDurationSeconds * 1e3, cap, c.timerV2EndsAt || Infinity),
-      nextConfig: withGate(c, gate.nextMute, gate.nextAlarmBehavior),
+      nextConfig: gatePatch(gate.nextMute, gate.nextAlarmBehavior),
       nextSoundState: soundState
     };
   }
@@ -1104,7 +1116,7 @@ var ChandasKernel = (() => {
     while (batches.length < Math.max(1, Math.min(64, batchLimit)) && scans++ < MAX_SCAN) {
       const upcoming = working.map((run) => {
         const c = run.config;
-        return { run, event: nextProgramEvent(programFor(c), c.timerV2Anchor, cursor, c.timerV2StartedAt, c.timerV2EndsAt || null, c.timerV2RandomSeed ?? c.timerV2Anchor) };
+        return { run, event: nextProgramEvent(programFor(c), c.timerV2Anchor, Math.max(cursor, c.timerV2StartedAt, run.effectiveFrom ?? 0), c.timerV2StartedAt, c.timerV2EndsAt || null, c.timerV2RandomSeed ?? c.timerV2Anchor) };
       }).filter((value) => value.event !== null);
       if (!upcoming.length) break;
       const at = Math.min(...upcoming.map((value) => value.event.at));
@@ -1114,7 +1126,7 @@ var ChandasKernel = (() => {
       if (winner) winner.winner = true;
       batch.forEach((item) => {
         const run = working.find((run2) => run2.id === item.runId);
-        run.config = item.nextConfig;
+        run.config = { ...run.config, ...item.nextConfig };
         if (item.winner && !item.alarm) run.soundState = item.nextSoundState;
       });
       batches.push(batch);

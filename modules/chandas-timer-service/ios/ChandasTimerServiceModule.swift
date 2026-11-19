@@ -77,7 +77,7 @@ public final class ChandasTimerServiceModule: Module {
       "maxRunCycles": 100000, "maxRunDurationSeconds": 31536000, "maxMuteIterations": 9999,
       "maxMuteMinutes": 10080, "maxNotificationPresentationCharacters": 65536]
     for key in ["supportsCachedBuiltInSounds", "supportsNotificationPresentation", "supportsLiveCountdown", "supportsAlarmSound", "supportsAlarmVolume", "supportsSecondPrecision", "supportsSubBellSecondPrecision", "supportsUntilRunLength", "supportsNoMainInterval", "supportsBellPoints", "supportsMuteSecondPrecision", "supportsProgramClockAlignment", "supportsRandomRepeat", "supportsStepAlarms", "supportsUnifiedSteps", "supportsStepSubBells", "supportsTransportControls", "supportsUnlimitedSounds"] { value[key] = true }
-    value["supportsRawFocusState"] = false; value["supportsFloatingOverlay"] = false; value["supportsHapticProfiles"] = false
+    value["supportsRawFocusState"] = false; value["supportsFloatingOverlay"] = false; value["supportsHapticProfiles"] = false; value["supportsAlarmVolume"] = false
     return value
   }
 }

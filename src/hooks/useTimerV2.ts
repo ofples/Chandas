@@ -621,10 +621,10 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings, so
     const acceptedSessionId = restored?.sessionId ?? runKey ?? createProgramId()
     setSessionPersistenceError(null)
     const acceptedAt = Date.now()
-    const anchor = typeof restore === 'number' ? restore : restored?.anchor ?? alignedAnchorForStart(acceptedProgram, acceptedAt)
+    let anchor = typeof restore === 'number' ? restore : restored?.anchor ?? alignedAnchorForStart(acceptedProgram, acceptedAt)
     const randomSeed = restored?.randomSeed ?? acceptedAt
-    const startedAt = restored?.startedAt ?? (typeof restore === 'number' ? restore : acceptedAt)
-    const endsAt = restored?.endsAt && restored.endsAt > 0 ? restored.endsAt : runEndAt(acceptedProgram, anchor, startedAt)
+    let startedAt = restored?.startedAt ?? (typeof restore === 'number' ? restore : acceptedAt)
+    let endsAt = restored?.endsAt && restored.endsAt > 0 ? restored.endsAt : runEndAt(acceptedProgram, anchor, startedAt)
     const acceptedAlarmBehavior: AlarmBehavior = acceptedProgram.mode === 'unified' && acceptedProgram.noMainInterval ? 'off' : restored?.alarmBehavior ?? (acceptedProgram.mode === 'unified' ? acceptedProgram.alarmBehavior : 'off')
     if (!hasAvailableTime(effectiveAvailabilityForProgram(acceptedProgram, acceptedSettings.availability), acceptedAt)) return false
     if (nextProgramEvent(acceptedProgram, anchor, restored?.pausedAt ?? acceptedAt, startedAt, endsAt, randomSeed) === null
@@ -649,6 +649,15 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings, so
       if (service && !await service.prepareForStart(nativeConfig)) { releaseDisplayWakeLock(wakeLockTag); return false }
     } catch (error) { releaseDisplayWakeLock(wakeLockTag); throw error }
     if (request !== reanchorRequestRef.current) { releaseDisplayWakeLock(wakeLockTag); return false }
+    if (Platform.OS === 'ios' && service && !restored && typeof restore !== 'number') {
+      // Permission dialogs may remain open for minutes. Start the accepted run
+      // only after they finish; restoring an existing run keeps its original clock.
+      startedAt = Date.now(); anchor = alignedAnchorForStart(acceptedProgram, startedAt)
+      endsAt = runEndAt(acceptedProgram, anchor, startedAt)
+      nativeConfig.timerV2Anchor = anchor; nativeConfig.timerV2StartedAt = startedAt
+      if (endsAt !== null) nativeConfig.timerV2EndsAt = endsAt
+      else delete nativeConfig.timerV2EndsAt
+    }
     programRef.current = acceptedProgram
     settingsRef.current = acceptedSettings
     sourcePresetRef.current = acceptedSource
@@ -954,10 +963,10 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings, so
     if (service) await service.prepareBuiltInSounds(builtInSoundsFor(nextProgram, nextSettings.alarmSound))
     if (request !== reanchorRequestRef.current || !runningRef.current) return false
     if (service && service.getState().ringing) return false
-    const anchor = alignToClock ? alignedAnchorForStart(nextProgram, Date.now()) : Date.now()
+    let anchor = alignToClock ? alignedAnchorForStart(nextProgram, Date.now()) : Date.now()
     const randomSeed = Date.now()
-    const startedAt = Date.now()
-    const endsAt = nextProgram.runPolicy.kind === 'until' && alarmBehaviorForNewTimer === undefined
+    let startedAt = Date.now()
+    let endsAt = nextProgram.runPolicy.kind === 'until' && alarmBehaviorForNewTimer === undefined
       ? endsAtRef.current
       : runEndAt(nextProgram, anchor, startedAt)
     if (endsAt !== null && endsAt <= startedAt) return false
@@ -974,6 +983,14 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings, so
     config.mutedIterationCount = nextMute.iteration?.iterations
     if (service && !await service.prepareForStart(config)) return false
     if (request !== reanchorRequestRef.current || !runningRef.current) return false
+    if (Platform.OS === 'ios' && service) {
+      startedAt = Date.now(); anchor = alignToClock ? alignedAnchorForStart(nextProgram, startedAt) : startedAt
+      if (nextProgram.runPolicy.kind !== 'until' || alarmBehaviorForNewTimer !== undefined) endsAt = runEndAt(nextProgram, anchor, startedAt)
+      if (endsAt !== null && endsAt <= startedAt) return false
+      config.timerV2Anchor = anchor; config.timerV2StartedAt = startedAt
+      if (endsAt !== null) config.timerV2EndsAt = endsAt
+      else delete config.timerV2EndsAt
+    }
     if (!service && nextProgram.mode === 'unified') {
       const session = {
         schemaVersion: 3 as const, sessionId: sessionIdRef.current!, randomAlgorithmVersion: 1 as const,

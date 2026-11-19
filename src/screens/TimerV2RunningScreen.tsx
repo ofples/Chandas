@@ -361,7 +361,7 @@ export function TimerV2RunningScreen(props: Props) {
           </RNAnimated.View>
         </Pressable>
         <View style={styles.topRight}>{props.onOpenConfigurations ? <Pressable accessibilityRole="button" accessibilityLabel="Configurations" onPress={props.onOpenConfigurations} style={[styles.helpButton, { borderColor: tokens.border }]}><ConfigurationIcon color={tokens.text} /></Pressable> : null}{props.realigning ? <Animated.View entering={FadeIn.duration(120)} exiting={FadeOut.duration(100)} style={styles.syncing}><ActivityIndicator size="small" color={tokens.accent} /><Text style={[styles.focusStatus, { color: tokens.textMuted }]}>UPDATING</Text></Animated.View> : null}{focusPaused ? <Animated.Text entering={FadeIn.duration(160)} exiting={FadeOut.duration(120)} style={[styles.focusStatus, { color: tokens.warm }]}>FOCUS PAUSED</Animated.Text> : null}<Pressable hitSlop={7} onPressIn={() => { helpLongPressed.current = false }} onLongPress={() => { helpLongPressed.current = true; showTooltip('Open Timer help') }} onPressOut={() => setTimeout(() => { helpLongPressed.current = false }, 0)} onPress={() => { if (!helpLongPressed.current) { tapHaptic(); setHelpOpen(true) } }} style={({ pressed }) => [styles.helpButton, { borderColor: tokens.border, transform: [{ scale: pressed && !reducedMotion ? 0.94 : 1 }] }]} accessibilityRole="button" accessibilityLabel="Timer help"><Text style={[styles.helpGlyph, { color: tokens.text }]}>?</Text></Pressable>{props.onOpenSettings ? <SettingsButton onPress={props.onOpenSettings} /> : null}</View>
-      </View><IOSIntegrationStatus compact /></View>
+      </View>{Platform.OS === 'ios' ? <View importantForAccessibility={controlsVisible ? 'auto' : 'no-hide-descendants'} accessibilityElementsHidden={!controlsVisible} style={{ height: 20, justifyContent: 'center', opacity: controlsVisible ? 1 : 0 }}><IOSIntegrationStatus compact /></View> : null}</View>
 
       <View style={[styles.runPager, { opacity: controlsVisible && page ? 1 : 0 }]} pointerEvents={controlsVisible && page ? 'auto' : 'none'}>
         {controlsVisible && page ? <>
@@ -370,7 +370,7 @@ export function TimerV2RunningScreen(props: Props) {
           <Pressable accessibilityRole="button" accessibilityLabel="Next running timer" disabled={page.index === page.count - 1} onPress={() => movePage(1)} hitSlop={8}><Text style={[styles.runPageLabel, { color: page.index === page.count - 1 ? tokens.textMuted : tokens.text }]}>›</Text></Pressable>
         </> : null}
       </View>
-      <View style={[styles.watchArea, { marginTop: ringTop }]}>
+      <View style={[styles.watchArea, { marginTop: Platform.OS === 'ios' ? Math.max(0, ringTop - 20) : ringTop }]}>
         <GestureDetector gesture={stageGesture} touchAction="none">
           <View testID="running-timer-stage" style={[styles.watchViewport, { height: size }]}>
             <RNAnimated.View style={{ alignItems: 'center', width: '100%', height: size, transform: [{ translateX: travel }] }}>

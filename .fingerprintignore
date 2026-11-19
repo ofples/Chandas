@@ -1,0 +1,3 @@
+# Generated Android CMake staging/backup folders are not native source inputs.
+# Keep real library source included in both Android and iOS fingerprints.
+**/android/.cxx-*/**

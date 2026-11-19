@@ -15,9 +15,9 @@ export function IOSIntegrationStatus({ compact = false }: { compact?: boolean })
   if (Platform.OS !== 'ios') return null
   if (compact && !status?.error && (!status?.activeCount || !status.backgroundScheduledThrough)) return null
   const coverage = status?.backgroundScheduledThrough
-  const summary = status?.error ?? (coverage === -1 ? 'Background bells repeat automatically' : coverage ? `Background bells scheduled until ${new Date(coverage).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Allow notifications to hear bells while Chandas is closed.')
+  const summary = status?.error ?? (coverage === -1 ? 'Background bells repeat automatically' : coverage ? `Background bells scheduled until ${new Date(coverage).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : status?.activeCount ? 'No background bells are scheduled yet.' : status?.notifications ? 'Notifications are allowed. Start a timer to schedule bells.' : status ? 'Allow notifications to hear bells while Chandas is closed.' : 'Background bells require an installed iPhone build.')
   return <View style={styles.section} accessibilityLiveRegion="polite">
-    <Text style={[compact ? styles.compact : styles.body, { color: status?.error ? tokens.warm : tokens.textMuted }]}>{summary}</Text>
+    <Text numberOfLines={compact ? 1 : undefined} style={[compact ? styles.compact : styles.body, { color: status?.error ? tokens.warm : tokens.textMuted }]}>{summary}</Text>
     {!compact ? <>
       <Text style={[styles.body, { color: tokens.textMuted }]}>Regular bell patterns can repeat automatically. Other timers have a limited background schedule; reopening Chandas extends it. Background bells appear as notifications and follow your iPhone’s alert volume, silent mode and Focus. iPhone controls background vibration. Sound excerpts are limited to 29 seconds; previews play the full source.</Text>
       <Text style={[styles.body, { color: tokens.textMuted }]}>{status?.alarmKit ? `System alarms ${status.alarmsAuthorized ? 'are allowed' : 'need separate permission'}. They can sound through silent mode and Focus and ring until dismissed. Automatic ring duration is controlled by iOS.` : 'Prominent interval alarms require iOS 26 or later. Ordinary bells remain available.'}</Text>

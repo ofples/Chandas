@@ -18,6 +18,7 @@ final class ChandasTimerEngine: NSObject, UNUserNotificationCenterDelegate {
   private var lastTick = chandasNow()
   private var lastRefresh = 0.0
   private var scheduling: Task<Void, Never>?
+  private var backgroundTask = UIBackgroundTaskIdentifier.invalid
   private var notificationAccess = false
   private var previousNotificationDelegate: UNUserNotificationCenterDelegate?
   private var ringing = Set<String>()
@@ -39,7 +40,8 @@ final class ChandasTimerEngine: NSObject, UNUserNotificationCenterDelegate {
     NotificationCenter.default.addObserver(self, selector: #selector(interrupted), name: AVAudioSession.interruptionNotification, object: nil)
     NotificationCenter.default.addObserver(self, selector: #selector(routeChanged), name: AVAudioSession.routeChangeNotification, object: nil)
     NotificationCenter.default.addObserver(self, selector: #selector(becameActive), name: UIApplication.significantTimeChangeNotification, object: nil)
-    timer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in self?.tick() }
+    let driver = Timer(timeInterval: 0.2, repeats: true) { [weak self] _ in self?.tick() }
+    RunLoop.main.add(driver, forMode: .common); timer = driver
     refreshAccess()
     reconcilePast()
     requestSchedule()
@@ -53,7 +55,14 @@ final class ChandasTimerEngine: NSObject, UNUserNotificationCenterDelegate {
     guard let run = ledger.runs[id] else { return ["active": false, "ringing": false] }
     do {
       var value = try invoke(["method": "state", "run": run, "now": chandasNow()]) as? [String: Any] ?? [:]
-      value["ringing"] = ledger.delivery.contains { ringing.contains($0.key) && $0.value["runId"] as? String == id }
+      let liveRinging = alarms.ringing()
+      value["ringing"] = ledger.delivery.contains { liveRinging.contains($0.key) && $0.value["runId"] as? String == id }
+      // A terminal system alarm keeps its run available for dismissal. Never
+      // cancel the final alarm merely because its logical countdown reached zero.
+      if !flag(value["active"]) {
+        let live = (try? alarms.scheduled()) ?? []
+        if ledger.delivery.contains(where: { $0.value["runId"] as? String == id && flag($0.value["alarm"]) && flag($0.value["winner"]) && number($0.value["at"]) <= chandasNow() && live.contains($0.key) }) { value["active"] = true }
+      }
       value["sessionGeneration"] = run["generation"]
       value["backgroundScheduledThrough"] = coverage
       return value
@@ -63,7 +72,7 @@ final class ChandasTimerEngine: NSObject, UNUserNotificationCenterDelegate {
     try ledger.save(runs: runs, focused: focused ?? ledger.focused)
   }
   func start(id: String, name: String, config: [String: Any]) -> Bool {
-    let run: [String: Any] = ["id": id, "name": name, "config": config, "generation": UUID().uuidString, "scheduleVersion": UUID().uuidString]
+    let run: [String: Any] = ["id": id, "name": name, "config": config, "generation": UUID().uuidString, "scheduleVersion": UUID().uuidString, "viewedAt": ledger.runs[id]?["viewedAt"] ?? 0]
     do {
       guard try invoke(["method": "validate", "run": run]) as? Bool == true else { return false }
       if requiresAlarm(config) && !alarms.authorized { lastError = "Interval alarms require iOS 26 and alarm access"; return false }
@@ -71,9 +80,9 @@ final class ChandasTimerEngine: NSObject, UNUserNotificationCenterDelegate {
       revision += 1
       if ledger.runs[id] != nil { try cancelOwned(id: id) }
       var runs = ledger.runs; runs[id] = run
-      try save(runs, focused: id)
-      lastTick = max(lastTick, chandasNow() - 1)
-      requestSchedule(); emitState(id); return true
+      let focus = ledger.focused.flatMap { runs[$0] != nil ? $0 : nil } ?? id
+      try save(runs, focused: focus)
+      updateActivity(); requestSchedule(); emitState(id); return true
     } catch { lastError = error.localizedDescription; return false }
   }
   func update(id: String, patch: [String: Any]) {
@@ -82,6 +91,7 @@ final class ChandasTimerEngine: NSObject, UNUserNotificationCenterDelegate {
       for (key, value) in patch { config[key] = value }
       run["config"] = config
       run["scheduleVersion"] = UUID().uuidString
+      run["effectiveFrom"] = chandasNow()
       guard try invoke(["method": "validate", "run": run]) as? Bool == true else { throw ChandasError.invalid("Invalid timer update") }
       guard !requiresAlarm(config) || alarms.authorized else { throw ChandasError.invalid("Allow Chandas alarms in Settings") }
       var runs = ledger.runs; runs[id] = run; try save(runs)
@@ -92,23 +102,31 @@ final class ChandasTimerEngine: NSObject, UNUserNotificationCenterDelegate {
     guard let run = ledger.runs[id] else { return ["success": false] }
     do {
       if name == "dismiss" { try cancelOwned(id: id, onlyRinging: true); return ["success": true] }
-      if name == "stop" {
+      if name == "stop" || name == "complete" {
         revision += 1
         try cancelOwned(id: id)
-        var runs = ledger.runs; runs.removeValue(forKey: id); try save(runs, focused: ledger.focused == id ? runs.keys.sorted().first : ledger.focused)
-        audio.stop(); requestSchedule(); emitState(id)
+        var runs = ledger.runs; runs.removeValue(forKey: id)
+        try ledger.save(runs: runs, focused: ledger.focused == id ? preferredRun(runs) : ledger.focused)
+        if name == "stop" { audio.stop() }; requestSchedule(); emitState(id)
         return ["success": true]
       }
       let result = try invoke(["method": "action", "run": run, "action": name, "amount": amount, "now": chandasNow()])
       guard var next = result as? [String: Any] else { return ["success": false] }
       next["generation"] = run["generation"]
       next["scheduleVersion"] = UUID().uuidString
+      next["effectiveFrom"] = chandasNow()
       var runs = ledger.runs; runs[id] = next; try save(runs)
       if name == "pause" { try cancelOwned(id: id); audio.stop() }
       requestSchedule(); emitState(id); return ["success": true]
     } catch { fail(error); return ["success": false, "error": error.localizedDescription] }
   }
-  func focus(_ id: String) { guard ledger.runs[id] != nil else { return }; do { try save(ledger.runs, focused: id); updateActivity() } catch { fail(error) } }
+  func focus(_ id: String) {
+    guard var run = ledger.runs[id] else { return }
+    do {
+      run["viewedAt"] = chandasNow(); var runs = ledger.runs; runs[id] = run
+      try save(runs, focused: id); updateActivity()
+    } catch { fail(error) }
+  }
   func setMute(id: String, until: Double) { update(id: id, patch: ["mutedUntil": until, "mutedIterationEndAt": 0, "mutedIterationCount": 0, "mutedIterationEndId": ""]) }
   func requiresAlarm(_ config: [String: Any]) -> Bool {
     if flag(config["alarmModeEnabled"]) || flag(config["alarmOnceArmed"]) { return true }
@@ -193,21 +211,24 @@ final class ChandasTimerEngine: NSObject, UNUserNotificationCenterDelegate {
       let batches = plan["batches"] as? [[[String: Any]]] ?? []
       for batch in batches { for item in batch {
         guard let id = item["runId"] as? String, var run = ledger.runs[id], let event = item["event"] as? [String: Any] else { continue }
-        run["config"] = item["nextConfig"]
+        var config = run["config"] as? [String: Any] ?? [:]
+        for (key, value) in item["nextConfig"] as? [String: Any] ?? [:] { config[key] = value }
+        run["config"] = config
         if flag(item["winner"]) && !flag(item["alarm"]) { run["soundState"] = item["nextSoundState"] }
         var runs = ledger.runs; runs[id] = run; try save(runs)
         let fresh = now - number(event["at"]) <= 1000
         if fresh && flag(item["winner"]) && !flag(item["alarm"]) {
+          previewAudio.stop()
           _ = audio.play(item["soundId"] as? String ?? "", volume: number(item["volume"]))
         }
         var signal = event; signal["runId"] = id; signal["firedAt"] = now; signal["suppressed"] = !flag(item["winner"]) || !fresh
         signal["winnerCueId"] = (event["winner"] as? [String: Any])?["cueId"] ?? ""; signal["suppressionReason"] = "none"
         emit?("onTimerEventFired", signal)
         emitState(id)
-        if flag(event["completesRun"]) { _ = action(id: id, name: "stop", amount: 0) }
+        if flag(event["completesRun"]) && !flag(state(id)["active"]) { _ = action(id: id, name: "complete", amount: 0) }
       } }
       lastTick = now
-      for id in Array(ledger.runs.keys) where !flag(state(id)["active"]) { _ = action(id: id, name: "stop", amount: 0) }
+      for id in Array(ledger.runs.keys) where !flag(state(id)["active"]) { _ = action(id: id, name: "complete", amount: 0) }
       if !batches.isEmpty || now - lastRefresh >= 30_000 { requestSchedule() }
     } catch { lastTick = now; fail(error) }
   }
@@ -224,7 +245,7 @@ final class ChandasTimerEngine: NSObject, UNUserNotificationCenterDelegate {
       if flag(record["winner"]) && !flag(record["alarm"]) { run["soundState"] = record["nextSoundState"]; runs[id] = run }
     }
     do { try save(runs) } catch { fail(error) }
-    for id in Array(ledger.runs.keys) where !flag(state(id)["active"]) { _ = action(id: id, name: "stop", amount: 0) }
+    for id in Array(ledger.runs.keys) where !flag(state(id)["active"]) { _ = action(id: id, name: "complete", amount: 0) }
   }
   private func identifier(_ text: String) -> String {
     var bytes = Array(SHA256.hash(data: Data(text.utf8)).prefix(16)); bytes[6] = (bytes[6] & 15) | 0x40; bytes[8] = (bytes[8] & 63) | 0x80
@@ -238,9 +259,31 @@ final class ChandasTimerEngine: NSObject, UNUserNotificationCenterDelegate {
     try save(ledger.runs); alarmChanged(alarms.ringing())
   }
   private func requestSchedule() {
-    revision += 1; let ticket = revision
-    scheduling?.cancel()
-    scheduling = Task { @MainActor [weak self] in await self?.schedule(ticket) }
+    revision += 1
+    if UIApplication.shared.applicationState == .background && backgroundTask == .invalid {
+      backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Finish timer scheduling") { [weak self] in
+        guard let self = self else { return }
+        self.coverage = 0; self.lastError = "Reopen Chandas to finish updating background bells."
+        self.endBackgroundWork()
+      }
+    }
+    guard scheduling == nil else { return }
+    scheduling = Task { @MainActor [weak self] in
+      guard let self = self else { return }
+      // Coalesce mutations through one worker. Never overlap two OS transactions
+      // for the same request ID across an await (including stop/start races).
+      while !Task.isCancelled {
+        let ticket = self.revision
+        await self.schedule(ticket)
+        if ticket == self.revision { break }
+      }
+      self.scheduling = nil; self.endBackgroundWork()
+    }
+  }
+  private func endBackgroundWork() {
+    if backgroundTask != .invalid {
+      UIApplication.shared.endBackgroundTask(backgroundTask); backgroundTask = .invalid
+    }
   }
   private func schedule(_ ticket: Int) async {
     lastRefresh = chandasNow()
@@ -252,9 +295,12 @@ final class ChandasTimerEngine: NSObject, UNUserNotificationCenterDelegate {
       let otherRequests = pending.filter { !$0.hasPrefix("chandas.") }.count
       let repeating = try invoke(["method": "repeating", "runs": Array(ledger.runs.values), "now": now]) as? [[String: Any]]
       let useRepeating = repeating != nil && repeating!.count + otherRequests <= 63
-      let plan = try invoke(["method": "plan", "runs": Array(ledger.runs.values), "after": now, "limit": 56]) as? [String: Any] ?? [:]
+      let plan = try invoke(["method": "plan", "runs": Array(ledger.runs.values), "after": now, "limit": max(1, min(56, 63 - otherRequests))]) as? [String: Any] ?? [:]
       let batches = useRepeating ? repeating!.map { [$0] } : plan["batches"] as? [[[String: Any]]] ?? []
-      var desired: [String: [String: Any]] = [:]
+      // Keep due, still-owned terminal alarms through a foreground replan, even
+      // before AlarmKit's asynchronous alerting update reaches our observer.
+      let liveAtStart = try alarms.scheduled()
+      var desired = ledger.delivery.filter { flag($0.value["alarm"]) && number($0.value["at"]) <= now && liveAtStart.contains($0.key) }
       for batch in batches { for var item in batch {
         guard let runId = item["runId"] as? String, let run = ledger.runs[runId], let event = item["event"] as? [String: Any] else { continue }
         let eventKey = useRepeating ? "hour:\(Int(number(event["at"]).truncatingRemainder(dividingBy: 3_600_000) / 1000))" : "\(event["logicalId"] ?? "")"
@@ -269,10 +315,11 @@ final class ChandasTimerEngine: NSObject, UNUserNotificationCenterDelegate {
         center.removePendingNotificationRequests(withIdentifiers: ["chandas.\(key)"])
         if flag(old["alarm"]) && live.contains(key) { try alarms.cancel(key) }
       }
-      var accepted: [String: [String: Any]] = ledger.delivery.filter { ringing.contains($0.key) }
+      var accepted: [String: [String: Any]] = ledger.delivery.filter { ringing.contains($0.key) || flag($0.value["alarm"]) && number($0.value["at"]) <= now && liveAtStart.contains($0.key) }
       var scheduledThrough = now
       for (key, item) in desired.sorted(by: { number($0.value["at"]) < number($1.value["at"]) }) {
         guard ticket == revision, !Task.isCancelled else { return }
+        if !useRepeating && number(item["at"]) <= chandasNow() { continue }
         if flag(item["winner"]) {
           guard let sound = audio.backgroundName(item["soundId"] as? String ?? "") else { throw ChandasError.invalid("A background sound is unavailable. Choose an included or supported audio file.") }
           // Journal intent before handing ownership to an asynchronous OS API.
@@ -306,7 +353,15 @@ final class ChandasTimerEngine: NSObject, UNUserNotificationCenterDelegate {
         accepted[key] = item; scheduledThrough = max(scheduledThrough, number(item["at"]))
       }
       guard ticket == revision, !Task.isCancelled else { return }
-      ledger.delivery = accepted; coverage = ledger.runs.isEmpty ? 0 : useRepeating ? -1 : scheduledThrough
+      let actualPending = Set(await center.pendingNotificationRequests().map(\.identifier))
+      let actualAlarms = try alarms.scheduled()
+      guard ticket == revision, !Task.isCancelled else { return }
+      for (key, item) in accepted where flag(item["winner"]) && (flag(item["repeating"]) || number(item["at"]) > chandasNow() + 1_000) {
+        guard flag(item["alarm"]) ? actualAlarms.contains(key) : actualPending.contains("chandas.\(key)") else {
+          throw ChandasError.invalid("iPhone did not retain the complete bell schedule. Reopen Chandas to retry.")
+        }
+      }
+      ledger.delivery = accepted; coverage = ledger.runs.isEmpty ? 0 : useRepeating ? -1 : scheduledThrough > now ? scheduledThrough : 0
       try save(ledger.runs)
       center.removePendingNotificationRequests(withIdentifiers: ["chandas.coverage"])
       if !ledger.runs.isEmpty && flag(plan["truncated"]) && coverage > now {
@@ -314,11 +369,18 @@ final class ChandasTimerEngine: NSObject, UNUserNotificationCenterDelegate {
         try await center.add(UNNotificationRequest(identifier: "chandas.coverage", content: reminder, trigger: UNTimeIntervalNotificationTrigger(timeInterval: max(1, (coverage - now) / 1000 - 30), repeats: false)))
       }
       lastError = nil; updateActivity(); emit?("onIOSSystemStatus", systemStatus())
-    } catch { coverage = now; fail(error) }
+    } catch { if ticket == revision { coverage = now; fail(error) } }
   }
   private func updateActivity() {
-    let id = ledger.focused.flatMap { ledger.runs[$0] != nil ? $0 : nil } ?? ledger.runs.keys.sorted().first
+    let id = ledger.focused.flatMap { ledger.runs[$0] != nil ? $0 : nil } ?? preferredRun(ledger.runs)
     activity.update(run: id.flatMap { ledger.runs[$0] }, state: id.map(state), count: ledger.runs.count, coverage: coverage)
+  }
+  private func preferredRun(_ runs: [String: [String: Any]]) -> String? {
+    runs.keys.sorted { left, right in
+      let l = max(number(runs[left]?["viewedAt"]), number((runs[left]?["config"] as? [String: Any])?["timerV2StartedAt"]))
+      let r = max(number(runs[right]?["viewedAt"]), number((runs[right]?["config"] as? [String: Any])?["timerV2StartedAt"]))
+      return l == r ? left < right : l > r
+    }.first
   }
   func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
     if notification.request.identifier.hasPrefix("chandas.") { completionHandler([]) }

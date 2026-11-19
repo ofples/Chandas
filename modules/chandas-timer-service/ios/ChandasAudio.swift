@@ -67,10 +67,13 @@ final class ChandasAudio: NSObject, AVAudioPlayerDelegate {
     } catch { stop(); return false }
   }
   func stop() {
+    guard player != nil || finish != nil else { return }
+    let callback = finish
     player?.stop(); player = nil; finish = nil
     try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    callback?()
   }
   func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-    let callback = finish; stop(); callback?()
+    stop()
   }
 }

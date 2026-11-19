@@ -21,7 +21,7 @@ cd ..
 set -o pipefail
 xcodebuild -workspace ios/Chandas.xcworkspace -scheme Chandas -configuration Release \
   -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
-  -derivedDataPath artifacts/ios/DerivedData CODE_SIGNING_ALLOWED=NO \
+  -derivedDataPath artifacts/ios/DerivedData CODE_SIGNING_ALLOWED=NO ARCHS="$(uname -m)" ONLY_ACTIVE_ARCH=YES \
   build 2>&1 | tee artifacts/ios/xcodebuild.log | xcbeautify
 app="$(find artifacts/ios/DerivedData/Build/Products/Release-iphonesimulator -maxdepth 1 -name '*.app' -print -quit)"
 test -n "$app"
