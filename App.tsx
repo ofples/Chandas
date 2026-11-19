@@ -22,7 +22,7 @@ import { GuidedTourProvider, GuidedTourOverlay, useGuidedTour } from './src/comp
 import { StarterTimersSheet } from './src/components/timer-v2/StarterTimersSheet'
 import { TimerV2RunningScreen } from './src/screens/TimerV2RunningScreen'
 import { AlarmRingingScreen } from './src/screens/AlarmRingingScreen'
-import { ChandasTimerService, consumeNativeRunDestination, focusNativeTimerRun, isNativeServiceAvailable, nativeTimerRun, nativeTimerRunIds, supportsNativeTimerRuns, type NativeFocusState } from './src/native/ChandasTimerService'
+import { ChandasTimerService, consumeNativeRunDestination, focusNativeTimerRun, isNativeServiceAvailable, nativeTimerRun, nativeTimerRunIds, supportsNativeTimerRuns, type NativeFocusState, type NativeTimerConfig } from './src/native/ChandasTimerService'
 import { AppLoadingScreen, type AppNotice } from './src/components/timer-v2/experience-feedback'
 import { FeedbackLayerProvider, RootFeedbackOverlay } from './src/components/timer-v2/feedback-layer'
 import { AppErrorBoundary } from './src/components/timer-v2/app-error-boundary'
@@ -171,6 +171,7 @@ function Root() {
   const noticeSequence = useRef(0)
   const sessionWarningShown = useRef<string | null>(null)
   const fullScreenGuidanceShown = useRef(false)
+  const iosAlarmPermissionPending = useRef(false)
   const handledCompletionPulse = useRef(0)
   const [focusedRunId, setFocusedRunId] = useState<string | null>(null)
   const [runEnterDirection, setRunEnterDirection] = useState(0)
@@ -357,6 +358,21 @@ function Root() {
     if (!ready || !supportsNativeTimerRuns) return
     openNativeDestination()
   }, [openNativeDestination, pool.views, ready])
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return
+    const open = (url: string | null) => {
+      if (!url?.startsWith('chandas://run/')) return
+      try {
+        const id = decodeURIComponent(url.slice('chandas://run/'.length).split(/[?#]/)[0])
+        if (!id || id.length > 200) return
+        nativeDestination.current = { id, panel: 'clock' }
+        openNativeDestination()
+      } catch { /* An invalid external link cannot change a run. */ }
+    }
+    void Linking.getInitialURL().then(open)
+    const subscription = Linking.addEventListener('url', ({ url }) => open(url))
+    return () => subscription.remove()
+  }, [openNativeDestination])
   useEffect(() => {
     if (!supportsNativeTimerRuns) return
     const subscription = NativeAppState.addEventListener('change', next => {
@@ -987,7 +1003,7 @@ function Root() {
         return
       }
       void launchRun({ ...acceptedSnapshot, program: acceptedSnapshot.program }).then(id => {
-        if (!id) showNotice({ title: 'The timer did not start', message: 'Check its timing settings and try again.', tone: 'attention' })
+        if (!id) showNotice({ title: 'The timer did not start', message: Platform.OS === 'ios' ? ChandasTimerService.getIOSSystemStatus()?.error ?? 'Check iPhone notification and alarm access.' : 'Check its timing settings and try again.', tone: 'attention' })
         else if (!fromLibrary) {
           pendingFocusRef.current = id
           focusRun(id)
@@ -1155,7 +1171,27 @@ function Root() {
     commitActiveRun({ ...current, program: nextProgram })
   }
 
+  const requestIOSAlarmAction = (perform: () => void) => {
+    const id = focusedRunRef.current
+    const service = id ? nativeTimerRun(id) : ChandasTimerService
+    const snapshot = service?.getState()
+    if (!snapshot?.active || iosAlarmPermissionPending.current) return
+    if (!ChandasTimerService.getIOSSystemStatus()?.alarmKit) {
+      showNotice({ title: 'Interval alarms require iOS 26', message: 'Ordinary timer bells are still available.', tone: 'attention' })
+      return
+    }
+    iosAlarmPermissionPending.current = true
+    void service!.prepareForStart({ ...snapshot, alarmOnceArmed: true } as NativeTimerConfig).then(allowed => {
+      if (allowed && focusedRunRef.current === id && service?.getState().active) perform()
+    }).catch(() => showNotice({ title: 'Alarm access is needed', message: ChandasTimerService.getIOSSystemStatus()?.error ?? 'Allow Chandas alarms in iPhone Settings.', tone: 'attention', actionLabel: 'Open settings', onAction: ChandasTimerService.openNotificationSettings }))
+      .finally(() => { iosAlarmPermissionPending.current = false })
+  }
+
   const pressAlarm = () => {
+    if (Platform.OS === 'ios' && timer.alarmBehavior === 'off' && !ChandasTimerService.getIOSSystemStatus()?.alarmsAuthorized) {
+      requestIOSAlarmAction(pressAlarm)
+      return
+    }
     const wasOff = timer.alarmBehavior === 'off'
     const wasLocked = timer.alarmBehavior === 'locked'
     const next = timer.pressAlarm()
@@ -1183,6 +1219,10 @@ function Root() {
   const toggleCurrentStepAlarm = (stepId: string) => {
     const current = activeRunRef.current
     if (!current || realigningRef.current) return
+    if (Platform.OS === 'ios' && current.program.mode === 'unified' && !current.program.steps.find(step => step.id === stepId)?.endAlarmEnabled && !ChandasTimerService.getIOSSystemStatus()?.alarmsAuthorized) {
+      requestIOSAlarmAction(() => toggleCurrentStepAlarm(stepId))
+      return
+    }
     const service = focusedRunRef.current ? nativeTimerRun(focusedRunRef.current) : isNativeServiceAvailable ? ChandasTimerService : null
     if (service && !service.floatingOverlayAction(`toggle-step-alarm:${stepId}`).success) return
     if (current.program.mode === 'unified') {

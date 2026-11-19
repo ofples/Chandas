@@ -154,7 +154,10 @@ export function iosEventBatches(runs: IOSKernelRun[], after: number, batchLimit 
 export function iosRunAction(run: IOSKernelRun, action: string, amount: number, now: number): IOSKernelRun | null {
   const p = programFor(run.config), c = { ...run.config }
   const time = c.timerV2PausedAt || now
-  if (action === 'pause') { if (!c.timerV2PausedAt) c.timerV2PausedAt = now }
+  if (action === 'pause') {
+    if (!c.timerV2PausedAt) c.timerV2PausedAt = now
+    if (p.alignment.kind === 'local-clock') c.timerV2Program = JSON.stringify({ ...p, alignment: { kind: 'elapsed' } })
+  }
   else if (action === 'resume') {
     if (c.timerV2PausedAt) {
       const shift = now - c.timerV2PausedAt
@@ -167,6 +170,11 @@ export function iosRunAction(run: IOSKernelRun, action: string, amount: number, 
   else if (action === 'mute-iterations') return { ...run, config: withGate(c, { mutedUntil: 0, iteration: iterationMuteFor(p, c.timerV2Anchor!, time, amount) }, alarmFor(c)) }
   else if (action === 'clear-mute') return { ...run, config: withGate(c, { mutedUntil: 0 }, alarmFor(c)) }
   else if (action === 'alarm-once') c.alarmOnceArmed = !c.alarmOnceArmed
+  else if (action.startsWith('toggle-step-alarm:')) {
+    const id = action.slice('toggle-step-alarm:'.length)
+    if (p.noMainInterval || !p.steps.some(step => step.id === id)) return null
+    c.timerV2Program = JSON.stringify({ ...p, steps: p.steps.map(step => step.id === id ? { ...step, endAlarmEnabled: !step.endAlarmEnabled } : step) })
+  }
   else {
     let target
     if (action.startsWith('seek-step:')) target = seekStepTarget(p, c.timerV2Anchor!, time, c.timerV2StartedAt!, c.timerV2EndsAt || null, Number(action.slice(10)) / 10_000)

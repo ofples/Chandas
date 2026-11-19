@@ -44,9 +44,11 @@ public final class ChandasTimerServiceModule: Module {
     AsyncFunction("prepareForStart") { (config: [String: Any]) async throws -> Bool in
       try await Task { @MainActor in try await self.engine.prepare(config) }.value
     }
-    for method in ["openNotificationSettings", "openExactAlarmSettings", "openFullScreenIntentSettings", "openNotificationPolicySettings", "openFocusRuleSettings"] {
-      Function(method) { DispatchQueue.main.async { if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } } }
-    }
+    Function("openNotificationSettings") { Self.openSettings() }
+    Function("openExactAlarmSettings") { Self.openSettings() }
+    Function("openFullScreenIntentSettings") { Self.openSettings() }
+    Function("openNotificationPolicySettings") { Self.openSettings() }
+    Function("openFocusRuleSettings") { Self.openSettings() }
     Function("hasNotificationPolicyAccess") { false }
     Function("isFocusModeActive") { false }
     Function("getFocusState") { ["policyAccess": false, "automationEnabled": false, "ruleExists": false, "ruleEnabled": false, "actual": "inactive", "reason": "off"] as [String: Any] }
@@ -65,6 +67,9 @@ public final class ChandasTimerServiceModule: Module {
     } }
     Function("stopSoundPreview") { chandasOnMain { self.engine.previewAudio.stop() } }
     Function("isSoundAvailable") { (id: String) in chandasOnMain { self.engine.audio.source(id) != nil } }
+  }
+  private static func openSettings() {
+    DispatchQueue.main.async { if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } }
   }
   private static var capabilities: [String: Any] {
     var value: [String: Any] = ["contractVersion": 15, "programSchemaMin": 4, "programSchemaMax": 4,

@@ -1001,7 +1001,7 @@ function settingsDetail(action: Exclude<SettingsAction, 'audio-mix'>, settings: 
   switch (action) {
     case 'schedule': return availability.enabled ? 'Schedule enabled' : 'No active schedule'
     case 'haptics': return settings.haptics.enabled ? 'Haptics enabled' : 'Haptics off'
-    case 'alarm': return formatCompactDurationSeconds(settings.alarmDurationSeconds) + ' ring duration'
+    case 'alarm': return Platform.OS === 'ios' ? 'Sound for system alarms' : formatCompactDurationSeconds(settings.alarmDurationSeconds) + ' ring duration'
     case 'focus': return settings.focusAutomationEnabled ? 'Enabled' : 'Off'
     case 'notifications': return Platform.OS === 'ios' ? 'Background bells and Live Activities' : 'Active timers and Live Updates'
     case 'audio-output': return 'Choose where Chandas plays sound'

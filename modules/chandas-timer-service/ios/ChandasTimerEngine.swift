@@ -1,12 +1,11 @@
 import Foundation
 import UIKit
 import UserNotifications
-import ExpoNotifications
 import CryptoKit
 import AVFoundation
 
 /// Main-queue owner; system APIs may suspend, so every async result has a revision.
-final class ChandasTimerEngine: NSObject, NotificationDelegate {
+final class ChandasTimerEngine: NSObject, UNUserNotificationCenterDelegate {
   static let shared = ChandasTimerEngine()
   let ledger = ChandasLedger()
   let audio = ChandasAudio()
@@ -20,6 +19,7 @@ final class ChandasTimerEngine: NSObject, NotificationDelegate {
   private var lastRefresh = 0.0
   private var scheduling: Task<Void, Never>?
   private var notificationAccess = false
+  private var previousNotificationDelegate: UNUserNotificationCenterDelegate?
   private var ringing = Set<String>()
   private(set) var coverage = 0.0
   private(set) var lastError: String?
@@ -29,7 +29,9 @@ final class ChandasTimerEngine: NSObject, NotificationDelegate {
     super.init()
     do { kernel = try ChandasKernel() } catch { lastError = error.localizedDescription }
     if let failure = ledger.failure { lastError = failure }
-    NotificationCenterManager.shared.addDelegate(self)
+    let center = UNUserNotificationCenter.current()
+    previousNotificationDelegate = center.delegate
+    center.delegate = self
     alarms.changed = { [weak self] values in self?.alarmChanged(values) }
     alarms.observe()
     NotificationCenter.default.addObserver(self, selector: #selector(becameActive), name: UIApplication.didBecomeActiveNotification, object: nil)
@@ -114,6 +116,31 @@ final class ChandasTimerEngine: NSObject, NotificationDelegate {
     return (program["steps"] as? [[String: Any]] ?? []).contains { flag($0["endAlarmEnabled"]) }
   }
   func prepare(_ config: [String: Any]) async throws -> Bool {
+    do { return try await prepareAuthorized(config) }
+    catch { fail(error); throw error }
+  }
+  private func prepareAuthorized(_ config: [String: Any]) async throws -> Bool {
+    var ids = Set<String>()
+    func visit(_ value: Any) {
+      if let record = value as? [String: Any] {
+        if record["kind"] as? String == "builtin", let id = record["id"] as? String { ids.insert(id) }
+        if ["document", "android"].contains(record["kind"] as? String ?? ""), let uri = record["uri"] as? String { ids.insert(uri) }
+        for child in record.values { visit(child) }
+      } else if let list = value as? [Any] { for child in list { visit(child) } }
+    }
+    if let text = config["timerV2Program"] as? String, let data = text.data(using: .utf8), let program = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+      func audibleCue(_ cue: [String: Any]) { if !flag(cue["soundMuted"]) && number(cue["volume"]) > 0 { visit(cue) } }
+      for step in program["steps"] as? [[String: Any]] ?? [] {
+        if !flag(program["noMainInterval"]), let cue = step["endCue"] as? [String: Any] { audibleCue(cue) }
+        if flag(step["subBellsEnabled"]) { for track in step["subBellTracks"] as? [[String: Any]] ?? [] where flag(track["enabled"]) { audibleCue(track) } }
+      }
+      if let cue = program["completionCue"] as? [String: Any] { audibleCue(cue) }
+    }
+    if requiresAlarm(config), let id = config["alarmSoundId"] as? String { ids.insert(id) }
+    for id in ids {
+      guard let source = audio.source(id) else { throw ChandasError.invalid("A selected sound is unavailable on this iPhone. Choose an included sound or import its audio file.") }
+      if audio.backgroundName(id) == nil { try audio.prepare(id, uri: source.absoluteString) }
+    }
     let allowed = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge, .timeSensitive])
     notificationAccess = allowed
     guard allowed else { throw ChandasError.invalid("Allow notifications in iPhone Settings to hear background bells") }
@@ -131,6 +158,9 @@ final class ChandasTimerEngine: NSObject, NotificationDelegate {
   private func refreshAccess() {
     UNUserNotificationCenter.current().getNotificationSettings { [weak self] settings in DispatchQueue.main.async {
       self?.notificationAccess = settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional
+      if let self = self, !self.notificationAccess && !self.ledger.runs.isEmpty {
+        self.coverage = 0; self.lastError = "Notifications are disabled. Background bells cannot sound."
+      }
       self?.emit?("onIOSSystemStatus", self?.systemStatus() ?? [:])
     } }
   }
@@ -170,6 +200,7 @@ final class ChandasTimerEngine: NSObject, NotificationDelegate {
         if flag(event["completesRun"]) { _ = action(id: id, name: "stop", amount: 0) }
       } }
       lastTick = now
+      for id in Array(ledger.runs.keys) where !flag(state(id)["active"]) { _ = action(id: id, name: "stop", amount: 0) }
       if !batches.isEmpty || now - lastRefresh >= 30_000 { requestSchedule() }
     } catch { lastTick = now; fail(error) }
   }
@@ -186,6 +217,7 @@ final class ChandasTimerEngine: NSObject, NotificationDelegate {
       if flag(record["winner"]) && !flag(record["alarm"]) { run["soundState"] = record["nextSoundState"]; runs[id] = run }
     }
     do { try save(runs) } catch { fail(error) }
+    for id in Array(ledger.runs.keys) where !flag(state(id)["active"]) { _ = action(id: id, name: "stop", amount: 0) }
   }
   private func identifier(_ text: String) -> String {
     var bytes = Array(SHA256.hash(data: Data(text.utf8)).prefix(16)); bytes[6] = (bytes[6] & 15) | 0x40; bytes[8] = (bytes[8] & 63) | 0x80
@@ -264,13 +296,20 @@ final class ChandasTimerEngine: NSObject, NotificationDelegate {
     let id = ledger.focused.flatMap { ledger.runs[$0] != nil ? $0 : nil } ?? ledger.runs.keys.sorted().first
     activity.update(run: id.flatMap { ledger.runs[$0] }, state: id.map(state), count: ledger.runs.count, coverage: coverage)
   }
-  func willPresent(_ notification: UNNotification, completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) -> Bool {
-    guard notification.request.identifier.hasPrefix("chandas.") else { return false }
-    completionHandler([]); return true // Foreground driver owns normal cue playback.
+  func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+    if notification.request.identifier.hasPrefix("chandas.") { completionHandler([]) }
+    else if let previous = previousNotificationDelegate, previous.responds(to: #selector(UNUserNotificationCenterDelegate.userNotificationCenter(_:willPresent:withCompletionHandler:))) {
+      previous.userNotificationCenter?(center, willPresent: notification, withCompletionHandler: completionHandler)
+    } else { completionHandler([]) }
   }
-  func didReceive(_ response: UNNotificationResponse, completionHandler: @escaping () -> Void) -> Bool {
-    guard let id = response.notification.request.content.userInfo["chandasRunId"] as? String else { return false }
-    DispatchQueue.main.async { self.destination = id; self.focus(id) }
-    return true
+  func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
+    if let id = response.notification.request.content.userInfo["chandasRunId"] as? String {
+      DispatchQueue.main.async { self.destination = id; self.focus(id) }; completionHandler()
+    } else if let previous = previousNotificationDelegate, previous.responds(to: #selector(UNUserNotificationCenterDelegate.userNotificationCenter(_:didReceive:withCompletionHandler:))) {
+      previous.userNotificationCenter?(center, didReceive: response, withCompletionHandler: completionHandler)
+    } else { completionHandler() }
+  }
+  func userNotificationCenter(_ center: UNUserNotificationCenter, openSettingsFor notification: UNNotification?) {
+    previousNotificationDelegate?.userNotificationCenter?(center, openSettingsFor: notification)
   }
 }

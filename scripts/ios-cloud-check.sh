@@ -12,7 +12,8 @@ xcrun swiftc -typecheck -sdk "$(xcrun --sdk iphonesimulator --show-sdk-path)" -t
   modules/chandas-timer-service/ios/ChandasAudio.swift \
   modules/chandas-timer-service/ios/ChandasAlarms.swift \
   modules/chandas-timer-service/ios/Shared/ChandasActivityAttributes.swift \
-  modules/chandas-timer-service/ios/ChandasLiveActivity.swift
+  modules/chandas-timer-service/ios/ChandasLiveActivity.swift \
+  modules/chandas-timer-service/ios/ChandasTimerEngine.swift
 CI=1 npx expo prebuild --platform ios --no-install
 cd ios
 pod install

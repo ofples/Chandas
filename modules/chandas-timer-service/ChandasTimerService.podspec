@@ -10,7 +10,6 @@ Pod::Spec.new do |s|
   s.source = { :git => 'https://github.com/ofples/Chandas.git' }
   s.static_framework = true
   s.dependency 'ExpoModulesCore'
-  s.dependency 'ExpoNotifications'
   s.source_files = 'ios/**/*.{h,m,mm,swift}'
   s.exclude_files = 'ios/Widget/**'
   s.resource_bundles = { 'ChandasTimerService' => ['ios/Resources/*'] }

@@ -1,0 +1,25 @@
+build:
+  name: Unsigned iPhone build for personal signing
+  steps:
+    - eas/checkout
+    - eas/install_node_modules
+    - run: npm run ios:kernel:check
+    - eas/prebuild
+    - eas/configure_eas_update
+    - run:
+        name: Install CocoaPods
+        working_directory: ios
+        command: pod install
+    - run:
+        name: Compile and package unsigned device app
+        command: |
+          set -euo pipefail
+          xcodebuild -workspace ios/Chandas.xcworkspace -scheme Chandas -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath /tmp/chandas-ios-device CODE_SIGNING_ALLOWED=NO build
+          mkdir -p /tmp/chandas-unsigned/Payload
+          cp -R /tmp/chandas-ios-device/Build/Products/Release-iphoneos/Chandas.app /tmp/chandas-unsigned/Payload/
+          cd /tmp/chandas-unsigned
+          zip -qr /tmp/chandas-unsigned.ipa Payload
+    - eas/upload_artifact:
+        inputs:
+          type: application-archive
+          path: /tmp/chandas-unsigned.ipa

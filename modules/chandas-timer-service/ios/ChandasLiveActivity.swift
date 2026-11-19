@@ -10,7 +10,7 @@ final class ChandasLiveActivity {
     Task { @MainActor [weak self] in
       guard let self = self else { return }
       let activities = Activity<ChandasActivityAttributes>.activities
-      guard let run = run, let state = state, flag(state["notificationsEnabled"]), ActivityAuthorizationInfo().areActivitiesEnabled else {
+      guard let run = run, let state = state, ActivityAuthorizationInfo().areActivitiesEnabled else {
         for activity in activities { await activity.end(nil, dismissalPolicy: .immediate) }
         return
       }

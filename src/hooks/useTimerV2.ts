@@ -645,7 +645,9 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings, so
       nativeConfig.mutedIterationEndAt = restored.mute.iteration?.endsAt
       nativeConfig.mutedIterationCount = restored.mute.iteration?.iterations
     }
-    if (service && !await service.prepareForStart(nativeConfig)) { releaseDisplayWakeLock(wakeLockTag); return false }
+    try {
+      if (service && !await service.prepareForStart(nativeConfig)) { releaseDisplayWakeLock(wakeLockTag); return false }
+    } catch (error) { releaseDisplayWakeLock(wakeLockTag); throw error }
     if (request !== reanchorRequestRef.current) { releaseDisplayWakeLock(wakeLockTag); return false }
     programRef.current = acceptedProgram
     settingsRef.current = acceptedSettings
@@ -1090,7 +1092,10 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings, so
       if (shouldSurfaceTimerSignal(event, Date.now(), AppState.currentState === 'active') && matchesSession && programEventIsVisible(programRef.current, projected)) {
         // Android performs cue haptics beside its exact alarm so background and
         // foreground behavior match without producing a double vibration here.
-        if (Platform.OS !== 'android') timerCueHaptic(event.boundary, settingsRef.current.haptics)
+        if (Platform.OS !== 'android' && settingsRef.current.haptics.enabled && projected.winner.hapticOverride !== 'off') {
+          if (projected.winner.hapticOverride) cueHapticProfile(projected.winner.hapticOverride)
+          else timerCueHaptic(event.boundary, settingsRef.current.haptics)
+        }
         setEventPulse(value => value + 1)
       }
       if (event.completesRun && matchesSession && projected.completesRun) setCompletionPulse(value => value + 1)

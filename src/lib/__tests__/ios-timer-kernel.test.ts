@@ -82,4 +82,27 @@ describe('iOS canonical native kernel', () => {
     expect(validateIOSRun({ ...r, config: { ...r.config, timerV2Program: '{"schemaVersion":99}' } })).toBe(false)
     expect(validateIOSRun({ ...r, config: { ...r.config, timerV2Anchor: NaN } })).toBe(false)
   })
+  it('changes only the selected step alarm and keeps the source program intact', () => {
+    const r = run('toggle', stepped())
+    const changed = iosRunAction(r, 'toggle-step-alarm:two', 0, anchor)!
+    const p = JSON.parse(changed.config.timerV2Program!)
+    expect(p.steps.map((step: { endAlarmEnabled: boolean }) => step.endAlarmEnabled)).toEqual([true, true])
+    expect(JSON.parse(r.config.timerV2Program!).steps[1].endAlarmEnabled).toBe(false)
+    expect(iosRunAction(r, 'toggle-step-alarm:missing', 0, anchor)).toBeNull()
+  })
+  it('honors an Until deadline even while paused', () => {
+    const p = stepped(); p.runPolicy.kind = 'until'; p.runPolicy.untilMinutes = 0
+    const r = run('until', p)
+    r.config.timerV2EndsAt = anchor + 10_000; r.config.timerV2PausedAt = anchor + 1_000
+    expect(iosRunState(r, anchor + 11_000).active).toBe(false)
+  })
+  it('cycles sound lists from the first choice and avoids adjacent random repeats', () => {
+    const p = stepped(); p.steps = [p.steps[1]]
+    p.steps[0].endCue = { ...p.steps[0].endCue, sounds: [{ kind: 'builtin', id: 'clear-bell' }, { kind: 'builtin', id: 'temple-gong' }], soundMode: 'sequence' }
+    const sequence = iosEventBatches([run('sequence', p)], anchor, 4).batches.map(batch => batch[0].soundId)
+    expect(sequence).toEqual(['clear-bell', 'temple-gong', 'clear-bell', 'temple-gong'])
+    p.steps[0].endCue.soundMode = 'random'
+    const random = iosEventBatches([run('random', p)], anchor, 20).batches.map(batch => batch[0].soundId)
+    expect(random.every((sound, index) => !index || sound !== random[index - 1])).toBe(true)
+  })
 })
