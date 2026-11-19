@@ -79,7 +79,7 @@ export function iosRunState(run: IOSKernelRun, now: number) {
   const p = programFor(c)
   const paused = c.timerV2PausedAt ?? 0
   const time = paused || now
-  const active = !(c.timerV2EndsAt && time >= c.timerV2EndsAt)
+  const active = !(c.timerV2EndsAt && (p.runPolicy.kind === 'until' ? now : time) >= c.timerV2EndsAt)
   const next = active ? nextProgramEvent(p, c.timerV2Anchor!, time, c.timerV2StartedAt!, c.timerV2EndsAt || null, c.timerV2RandomSeed ?? c.timerV2Anchor!) : null
   const position = timelinePosition(p, c.timerV2Anchor!, time, c.timerV2StartedAt!, c.timerV2EndsAt || null, c.timerV2RandomSeed ?? c.timerV2Anchor!)
   const step = p.steps[position.currentStepIndex ?? 0]

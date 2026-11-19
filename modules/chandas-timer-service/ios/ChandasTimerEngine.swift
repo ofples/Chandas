@@ -126,7 +126,7 @@ final class ChandasTimerEngine: NSObject, NotificationDelegate {
   func systemStatus() -> [String: Any] {
     ["platform": "ios", "notifications": notificationAccess, "alarmKit": alarms.supported,
      "alarmsAuthorized": alarms.authorized, "backgroundScheduledThrough": coverage,
-     "activeCount": ledger.runs.count, "error": lastError ?? NSNull(), "recoveryRequired": ledger.failure != nil]
+     "activeCount": ledger.runs.count, "error": lastError as Any? ?? NSNull(), "recoveryRequired": ledger.failure != nil]
   }
   private func refreshAccess() {
     UNUserNotificationCenter.current().getNotificationSettings { [weak self] settings in DispatchQueue.main.async {
@@ -141,7 +141,7 @@ final class ChandasTimerEngine: NSObject, NotificationDelegate {
     emit?("onControlStateChanged", value.merging(["runId": id]) { _, new in new })
   }
   @objc private func becameActive() { reconcilePast(); lastTick = chandasNow(); refreshAccess(); alarmChanged(alarms.ringing()); requestSchedule() }
-  @objc private func wentBackground() { audio.stop(); requestSchedule() }
+  @objc private func wentBackground() { audio.stop(); previewAudio.stop(); requestSchedule() }
   @objc private func interrupted() { audio.stop() }
   @objc private func routeChanged() { audio.stop() }
   private func alarmChanged(_ values: Set<String>) {

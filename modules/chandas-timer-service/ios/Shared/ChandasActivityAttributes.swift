@@ -1,4 +1,5 @@
 import ActivityKit
+import Foundation
 
 struct ChandasActivityAttributes: ActivityAttributes {
   struct ContentState: Codable, Hashable {

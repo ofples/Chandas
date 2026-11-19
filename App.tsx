@@ -614,7 +614,7 @@ function Root() {
           }
           if (nativeIds.size) {
             setSessionRecovery({ reason: 'Android has an active timer without its saved working copy.' })
-            showNotice({ title: 'A running timer needs recovery', message: 'Android kept its active schedule.', tone: 'attention', persistent: true })
+            showNotice({ title: 'A running timer needs recovery', message: 'The phone kept its active schedule.', tone: 'attention', persistent: true })
           } else {
             setSessionRecovery(null)
           }
@@ -1025,7 +1025,7 @@ function Root() {
       }
     }).catch(() => {
       commitActiveRun(null)
-      showNotice({ title: 'The timer did not start yet', message: 'Check Android access or try once more.', tone: 'attention', actionLabel: 'Try again', onAction: () => start(configurationId) })
+      showNotice({ title: 'The timer did not start yet', message: Platform.OS === 'ios' ? ChandasTimerService.getIOSSystemStatus()?.error ?? 'Check iPhone access or try once more.' : 'Check Android access or try once more.', tone: 'attention', actionLabel: 'Try again', onAction: () => start(configurationId) })
     })
       .finally(() => {
         startingRef.current = false
