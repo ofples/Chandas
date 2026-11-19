@@ -127,9 +127,12 @@ export function TimerV2RunningScreen(props: Props) {
   }, [props.masterVolume, props.runId])
   const tooltipTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const helpLongPressed = useRef(false)
-  const size = Math.min(width * 0.79, 342, Math.max(132, height - 330))
+  // Reserve room for the header, step strip, transport and fixed bottom controls.
+  // A screen-height-only cap lets the footer cover Pause on shorter phones.
+  const verticalRoom = height - insets.top - insets.bottom
+  const size = Math.min(width * 0.79, 342, Math.max(132, verticalRoom - 400))
   const ringRadius = size * 83 / 200
-  const ringTop = Math.max(10, height * 0.47 - size / 2 - insets.top - 102)
+  const ringTop = Math.max(10, Math.min(height * 0.47 - size / 2 - insets.top - 102, verticalRoom - size - 400))
   const [scrub, setScrub] = useState<number | null>(null)
   const runtimeMuted = props.mute.mutedUntil > Date.now() || Boolean(props.mute.iteration)
   const muted = props.masterVolume <= 0 || runtimeMuted
