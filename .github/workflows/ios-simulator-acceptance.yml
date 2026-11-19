@@ -1,10 +1,13 @@
 name: iOS simulator acceptance
 on:
+  push:
+    branches: [codex/ios-support]
+    paths: ['.github/workflows/ios-simulator-acceptance.yml', 'scripts/ios-ui-smoke.yaml']
   workflow_dispatch:
     inputs:
       artifact_url:
         description: EAS simulator tar.gz artifact URL
-        required: true
+        required: false
 permissions:
   contents: read
 jobs:
@@ -22,7 +25,7 @@ jobs:
           java-version: '17'
       - name: Install EAS app and exercise real controls
         env:
-          ARTIFACT_URL: ${{ inputs.artifact_url }}
+          ARTIFACT_URL: ${{ inputs.artifact_url || vars.CHANDAS_IOS_SIMULATOR_ARTIFACT_URL }}
         run: |
           set -euo pipefail
           case "$ARTIFACT_URL" in https://artifacts.eascdn.net/*|https://expo.dev/artifacts/*) ;; *) echo 'Expected an Expo artifact URL'; exit 1 ;; esac
