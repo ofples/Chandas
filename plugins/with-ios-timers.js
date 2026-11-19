@@ -9,6 +9,9 @@ module.exports = function withIOSTimers(config) {
     value.modResults.NSAlarmKitUsageDescription = 'Chandas schedules the interval alarms you enable, including when your iPhone is locked.'
     value.modResults.NSSupportsLiveActivities = true
     // Ordinary bells use local notifications, not silent/background audio.
+    const modes = (value.modResults.UIBackgroundModes || []).filter(mode => mode !== 'audio')
+    if (modes.length) value.modResults.UIBackgroundModes = modes
+    else delete value.modResults.UIBackgroundModes
     return value
   })
   config = withPodfileProperties(config, value => {
