@@ -14,6 +14,8 @@ import { stopAndVerifyNativeTimer } from '../lib/verifiedTimerStop'
 import type { BuiltInSoundId, HapticPattern, HapticProfile, HapticStrength, SoundRef } from '../types'
 import { BUILT_IN_SOUNDS, sourceForSound } from '../lib/soundLibrary'
 import { normalizeNativeFocusState } from '../lib/focusState'
+import * as DocumentPicker from 'expo-document-picker'
+import * as FileSystem from 'expo-file-system/legacy'
 
 export type TimerAudioOutput = 'phone' | 'external' | 'headphones'
 export type TimerAudioMixMode = 'default' | 'mix' | 'duck' | 'pause'
@@ -233,6 +235,8 @@ interface EventSubscription {
 }
 
 interface ChandasTimerServiceModule {
+  prepareForStart?(config: NativeTimerConfig): Promise<boolean>
+  getIOSSystemStatus?(): IOSSystemStatus
   getCapabilities?(): NativeTimerCapabilities
   getRunIds?(): string[]
   consumeRunDestination?(): { id: string; panel?: 'clock' | 'sound' } | null
@@ -295,9 +299,21 @@ interface ChandasTimerServiceModule {
   addListener(eventName: 'onFloatingOverlayStateChanged', listener: (event: NativeFloatingOverlayState) => void): EventSubscription
   addListener(eventName: 'onFloatingOverlaySnapshot', listener: (event: NativeFloatingOverlaySnapshot) => void): EventSubscription
   addListener(eventName: 'onSoundPreviewFinished', listener: (event: { request: number }) => void): EventSubscription
+  addListener(eventName: 'onIOSSystemStatus', listener: (event: IOSSystemStatus) => void): EventSubscription
 }
 
-const native = Platform.OS === 'android'
+export interface IOSSystemStatus {
+  platform: 'ios'
+  notifications: boolean
+  alarmKit: boolean
+  alarmsAuthorized: boolean
+  backgroundScheduledThrough: number
+  activeCount: number
+  recoveryRequired: boolean
+  error: string | null
+}
+
+const native = Platform.OS === 'android' || Platform.OS === 'ios'
   ? requireOptionalNativeModule<ChandasTimerServiceModule>('ChandasTimerService')
   : null
 
@@ -309,7 +325,7 @@ const nativeResourceSounds = new Set<BuiltInSoundId>(['alarm-tone', 'temple-gong
 const soundCacheRequests = new Map<BuiltInSoundId, { revision: string; promise: Promise<boolean> }>()
 
 async function cacheBuiltInSound(id: BuiltInSoundId): Promise<boolean> {
-  if (!native || nativeResourceSounds.has(id)) return true
+  if (!native || Platform.OS === 'android' && nativeResourceSounds.has(id)) return true
   if (typeof native.cacheBuiltInSound !== 'function') return false
   const definition = BUILT_IN_SOUNDS.find(sound => sound.id === id)
   if (!definition) return false
@@ -353,6 +369,13 @@ AppState.addEventListener('change', state => {
 })
 
 export const ChandasTimerService = {
+  async prepareForStart(config: NativeTimerConfig): Promise<boolean> {
+    return native?.prepareForStart ? native.prepareForStart(config) : true
+  },
+  getIOSSystemStatus(): IOSSystemStatus | null { return native?.getIOSSystemStatus?.() ?? null },
+  addIOSSystemStatusListener(listener: (status: IOSSystemStatus) => void): EventSubscription | null {
+    return Platform.OS === 'ios' ? native?.addListener('onIOSSystemStatus', listener) ?? null : null
+  },
   getAudioOutputs(): TimerAudioOutput[] | null {
     return native?.getAudioOutputs?.() ?? null
   },
@@ -493,6 +516,19 @@ export const ChandasTimerService = {
     return native?.pickDeviceSound(kind) ?? null
   },
   async pickAudioDocument(): Promise<{ uri: string; title: string; mimeType?: string } | null> {
+    if (Platform.OS === 'ios') {
+      const result = await DocumentPicker.getDocumentAsync({ type: 'audio/*', copyToCacheDirectory: true, multiple: false })
+      if (result.canceled) return null
+      const picked = result.assets[0]
+      if (!FileSystem.documentDirectory) return null
+      const directory = `${FileSystem.documentDirectory}sounds/`
+      await FileSystem.makeDirectoryAsync(directory, { intermediates: true })
+      const extension = picked.name.match(/\.[a-zA-Z0-9]{1,8}$/)?.[0] ?? '.audio'
+      const uri = `${directory}${Date.now()}-${Math.random().toString(36).slice(2)}${extension}`
+      await FileSystem.copyAsync({ from: picked.uri, to: uri })
+      if (native?.cacheBuiltInSound && !await native.cacheBuiltInSound(uri, uri, 'import')) throw new Error('This audio file cannot be used on iPhone')
+      return { uri, title: picked.name, mimeType: picked.mimeType }
+    }
     return native?.pickAudioDocument() ?? null
   },
   async previewSound(sound: SoundRef, volume: number, { alarm = false, onFinished }: { alarm?: boolean; onFinished?: () => void } = {}): Promise<boolean> {
@@ -503,6 +539,7 @@ export const ChandasTimerService = {
     const soundId = sound.kind === 'builtin' ? sound.id : sound.uri
     if (native) {
       if (sound.kind === 'builtin') await cacheBuiltInSound(sound.id)
+      else if (Platform.OS === 'ios' && sound.kind === 'document') await native.cacheBuiltInSound?.(sound.uri, sound.uri, 'document')
       if (request !== soundPreviewGeneration || AppState.currentState !== 'active') return false
       const subscription = native.previewSoundForUse && onFinished ? native.addListener('onSoundPreviewFinished', event => {
         if (event.request !== request) return

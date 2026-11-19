@@ -1,5 +1,9 @@
 {
-  "platforms": ["android"],
+  "platforms": ["android", "apple"],
+  "apple": {
+    "modules": ["ChandasTimerServiceModule"],
+    "appDelegateSubscribers": ["ChandasAppDelegateSubscriber"]
+  },
   "android": {
     "modules": ["expo.modules.chandastimerservice.ChandasTimerServiceModule"]
   }

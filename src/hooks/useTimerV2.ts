@@ -645,6 +645,8 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings, so
       nativeConfig.mutedIterationEndAt = restored.mute.iteration?.endsAt
       nativeConfig.mutedIterationCount = restored.mute.iteration?.iterations
     }
+    if (service && !await service.prepareForStart(nativeConfig)) { releaseDisplayWakeLock(wakeLockTag); return false }
+    if (request !== reanchorRequestRef.current) { releaseDisplayWakeLock(wakeLockTag); return false }
     programRef.current = acceptedProgram
     settingsRef.current = acceptedSettings
     sourcePresetRef.current = acceptedSource
@@ -968,6 +970,8 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings, so
     config.mutedIterationEndId = nextMute.iteration?.endsAtLogicalId
     config.mutedIterationEndAt = nextMute.iteration?.endsAt
     config.mutedIterationCount = nextMute.iteration?.iterations
+    if (service && !await service.prepareForStart(config)) return false
+    if (request !== reanchorRequestRef.current || !runningRef.current) return false
     if (!service && nextProgram.mode === 'unified') {
       const session = {
         schemaVersion: 3 as const, sessionId: sessionIdRef.current!, randomAlgorithmVersion: 1 as const,

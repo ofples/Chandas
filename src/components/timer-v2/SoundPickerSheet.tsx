@@ -20,7 +20,9 @@ import { useConfirmation } from './ConfirmationDialog'
 import { SearchIcon } from '../Icons'
 
 type SoundTab = 'built-in' | 'android' | 'device'
-const SOUND_TABS = [{ value: 'built-in', label: 'Included' }, { value: 'android', label: 'Android' }, { value: 'device', label: 'Device' }] as const
+const SOUND_TABS = Platform.OS === 'ios'
+  ? [{ value: 'built-in', label: 'Included' }, { value: 'device', label: 'Files' }] as const
+  : [{ value: 'built-in', label: 'Included' }, { value: 'android', label: 'Android' }, { value: 'device', label: 'Device' }] as const
 
 interface Props {
   visible: boolean
@@ -54,7 +56,7 @@ export function SoundPickerSheet({ visible, title, cue, soundLibrary, masterVolu
 
   useEffect(() => () => { previewRequest.current += 1; ChandasTimerService.stopSoundPreview() }, [])
   useEffect(() => {
-    if (visible) setTab(cue.sound.kind === 'builtin' ? 'built-in' : cue.sound.kind === 'android' ? 'android' : 'device')
+    if (visible) setTab(cue.sound.kind === 'builtin' ? 'built-in' : cue.sound.kind === 'android' && Platform.OS !== 'ios' ? 'android' : 'device')
     else { previewRequest.current += 1; ChandasTimerService.stopSoundPreview(); setPreviewing(null); setMessage(null); setChoicesOpen(false) }
   }, [cue.sound.kind, visible])
 

@@ -34,6 +34,7 @@ import { formatEventLocalTime, type CueMuteSuggestion } from '../lib/upcoming-ev
 import { SettingsButton } from './UnifiedTimerConfigScreen'
 import { TimerWatchface, type TimerWatchfaceModel } from '../components/timer-v2/running/TimerWatchface'
 import { TimerControlButton } from '../components/timer-v2/running/TimerControlButton'
+import { IOSIntegrationStatus } from '../components/timer-v2/IOSIntegrationStatus'
 
 const DIAL_HOLD_MS = 500
 
@@ -360,7 +361,7 @@ export function TimerV2RunningScreen(props: Props) {
           </RNAnimated.View>
         </Pressable>
         <View style={styles.topRight}>{props.onOpenConfigurations ? <Pressable accessibilityRole="button" accessibilityLabel="Configurations" onPress={props.onOpenConfigurations} style={[styles.helpButton, { borderColor: tokens.border }]}><ConfigurationIcon color={tokens.text} /></Pressable> : null}{props.realigning ? <Animated.View entering={FadeIn.duration(120)} exiting={FadeOut.duration(100)} style={styles.syncing}><ActivityIndicator size="small" color={tokens.accent} /><Text style={[styles.focusStatus, { color: tokens.textMuted }]}>UPDATING</Text></Animated.View> : null}{focusPaused ? <Animated.Text entering={FadeIn.duration(160)} exiting={FadeOut.duration(120)} style={[styles.focusStatus, { color: tokens.warm }]}>FOCUS PAUSED</Animated.Text> : null}<Pressable hitSlop={7} onPressIn={() => { helpLongPressed.current = false }} onLongPress={() => { helpLongPressed.current = true; showTooltip('Open Timer help') }} onPressOut={() => setTimeout(() => { helpLongPressed.current = false }, 0)} onPress={() => { if (!helpLongPressed.current) { tapHaptic(); setHelpOpen(true) } }} style={({ pressed }) => [styles.helpButton, { borderColor: tokens.border, transform: [{ scale: pressed && !reducedMotion ? 0.94 : 1 }] }]} accessibilityRole="button" accessibilityLabel="Timer help"><Text style={[styles.helpGlyph, { color: tokens.text }]}>?</Text></Pressable>{props.onOpenSettings ? <SettingsButton onPress={props.onOpenSettings} /> : null}</View>
-      </View></View>
+      </View><IOSIntegrationStatus compact /></View>
 
       <View style={[styles.runPager, { opacity: controlsVisible && page ? 1 : 0 }]} pointerEvents={controlsVisible && page ? 'auto' : 'none'}>
         {controlsVisible && page ? <>

@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from 'react-native'
+import { Platform, StyleSheet, Text, View } from 'react-native'
 import { Toggle } from '../Toggle'
 import { AlarmIcon, ClockIcon, FocusIcon, RestartIcon, VolumeIcon } from '../Icons'
 import Svg, { Circle, Path } from 'react-native-svg'
@@ -12,7 +12,7 @@ export function RunningControlSettingsList({ settings, onChange }: {
 }) {
   const { tokens } = useTheme()
   const selected = enabledRunningControls(settings)
-  return <View style={styles.list}>{RUNNING_CONTROL_DEFINITIONS.map(control => {
+  return <View style={styles.list}>{RUNNING_CONTROL_DEFINITIONS.filter(control => control.id !== 'focus' || Platform.OS === 'android').map(control => {
     const enabled = control.id === 'scrub' ? settings.scrubbingEnabled !== false : selected.has(control.id)
     const color = tokens.textMuted
     const icon = control.icon === 'restart' ? <RestartIcon color={color} />

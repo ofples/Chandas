@@ -52,6 +52,7 @@ import { UNNAMED_DRAFT_KEY, defaultUnifiedTimerName, effectiveAlarmSettings, has
 import { useKeyboardVisible } from '../hooks/use-keyboard-visible'
 import { insertUnifiedStepAfter, unifiedCadenceOffsets, unifiedTrackCadencePatch, unifiedTrackDurationPatch } from '../lib/unified-editing'
 import { RunningControlSettingsList } from '../components/timer-v2/RunningControlSettingsList'
+import { IOSIntegrationStatus } from '../components/timer-v2/IOSIntegrationStatus'
 import { TimerWatchfaceRings } from '../components/timer-v2/running/TimerWatchface'
 import { TimerControlButton } from '../components/timer-v2/running/TimerControlButton'
 import type { TimelinePosition } from '../lib/timeline'
@@ -890,7 +891,7 @@ function AlarmSoundAndDuration({ sound, duration, secondPrecision, onSound, onDu
   const { tokens } = useTheme()
   return <View style={styles.section}>
     <Pressable accessibilityRole="button" accessibilityLabel="Choose alarm sound" onPress={onSound} style={[styles.soundSummary, { borderColor: tokens.border }]}><View style={styles.flex}><Text style={[styles.rowTitle, { color: tokens.text }]}>Alarm sound</Text><SoundName cue={{ sound, volume: 1 }} style={styles.helperText} /></View><Text style={{ color: tokens.accent }}>›</Text></Pressable>
-    <DurationSelector label="Ring duration" value={Math.ceil(duration / 60)} valueSeconds={duration} secondPrecision={secondPrecision} presets={[1, 2, 5, 10, 15, 30, 60]} minSeconds={5} maxSeconds={3600} onChange={minutes => onDuration(minutes * 60)} onChangeSeconds={onDuration} />
+    {Platform.OS === 'ios' ? <Text style={[styles.helperText, { color: tokens.textMuted }]}>iPhone system alarms ring until dismissed. iOS controls their volume and vibration. Requires iOS 26 and alarm access.</Text> : <DurationSelector label="Ring duration" value={Math.ceil(duration / 60)} valueSeconds={duration} secondPrecision={secondPrecision} presets={[1, 2, 5, 10, 15, 30, 60]} minSeconds={5} maxSeconds={3600} onChange={minutes => onDuration(minutes * 60)} onChangeSeconds={onDuration} />}
   </View>
 }
 

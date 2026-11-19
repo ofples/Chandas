@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Pressable, StyleSheet, Text, View } from 'react-native'
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import { CheckIcon } from '../Icons'
 import { ChandasTimerService, type TimerAudioMixMode } from '../../native/ChandasTimerService'
 import { useTheme } from '../../theme/ThemeContext'
@@ -30,7 +30,7 @@ export function AudioMixSettings({ mode, onChange }: { mode: TimerAudioMixMode; 
     >
       <View style={styles.copy}>
         <Text style={[styles.label, { color: tokens.text }]}>{label}</Text>
-        <Text style={[styles.detail, { color: tokens.textMuted }]}>{detail}</Text>
+        <Text style={[styles.detail, { color: tokens.textMuted }]}>{Platform.OS === 'ios' ? `${detail.replaceAll('Android', 'iOS')} Applies to foreground audio; system alerts follow iPhone settings.` : detail}</Text>
       </View>
       <View style={styles.check}>{mode === id ? <CheckIcon color={tokens.accent} /> : null}</View>
     </Pressable>)}

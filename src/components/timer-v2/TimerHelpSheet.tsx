@@ -4,6 +4,7 @@ import { BellIcon, ConfigurationIcon, TimerTransportIcon } from '../Icons'
 import { useTheme } from '../../theme/ThemeContext'
 import { BottomSheet } from './BottomSheet'
 import { RunningControlSettingsList } from './RunningControlSettingsList'
+import { IOSIntegrationStatus } from './IOSIntegrationStatus'
 import type { AppTimerSettings } from '../../types'
 
 interface Props {
@@ -28,6 +29,7 @@ export function TimerHelpSheet({ visible, mode, controlSettings, onRunningContro
     {mode === 'sequence' ? item(<TimerTransportIcon kind="next" color={tokens.accent} />, 'Move between steps', 'Tap a neighboring step or use the buttons beside Pause. Hold the step strip for half a second before dragging farther.') : null}
     {item(<ConfigurationIcon color={tokens.accent} />, 'Your configurations', 'Swipe down or tap Configurations to see your timers. When several timers are running, swipe sideways through the center of the timer to switch between them.')}
     <View style={styles.controlSettings}><Text style={[styles.controlTitle, { color: tokens.text }]}>Show running controls</Text><Text style={[styles.body, { color: tokens.textMuted }]}>Applies to all timers. Each control appears where it can be used. Hold a control to see what it does.</Text><RunningControlSettingsList settings={controlSettings} onChange={onRunningControlIdsChange} /></View>
+    <IOSIntegrationStatus />
   </BottomSheet>
 }
 
