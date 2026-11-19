@@ -110,8 +110,7 @@ object TimerNotifications {
       return
     }
     ensureChannels(context)
-    val promotedAvailable = config.liveCountdownEnabled &&
-      Build.VERSION.SDK_INT >= 36 &&
+    val promotedAvailable = Build.VERSION.SDK_INT >= 36 &&
       NotificationManagerCompat.from(context).areNotificationsEnabled() &&
       manager.canPostPromotedNotifications()
     val notification = buildRunning(context, config, includeCompactStatus = promotedAvailable)
@@ -202,12 +201,14 @@ object TimerNotifications {
         .setCategory(NotificationCompat.CATEGORY_STOPWATCH)
         .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
         .setPriority(NotificationCompat.PRIORITY_LOW)
-    if (config.liveCountdownEnabled) {
+    // The old per-configuration liveCountdownEnabled flag is retained for
+    // storage compatibility; ongoing status follows notificationsEnabled.
+    if (config.notificationsEnabled) {
       builder.setRequestPromotedOngoing(true)
       val compact = compactStatus(config, now) ?: "Running"
       if (includeCompactStatus || countdownAt <= now || config.timerV2PausedAt > 0L) builder.setShortCriticalText(compact)
     }
-    if (config.liveCountdownEnabled && config.timerV2PausedAt == 0L && countdownAt > now) {
+    if (config.notificationsEnabled && config.timerV2PausedAt == 0L && countdownAt > now) {
       builder
         .setWhen(countdownAt)
         .setShowWhen(true)

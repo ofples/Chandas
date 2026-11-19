@@ -31,7 +31,9 @@ class ChandasCountdownService : Service() {
     @Volatile private var instance: ChandasCountdownService? = null
 
     private fun promotedAvailable(context: Context, config: TimerConfig?): Boolean {
-      if (config?.liveCountdownEnabled != true || Build.VERSION.SDK_INT < 36) return false
+      // Timer status is automatic now. Retained legacy live-countdown preferences
+      // must not silently hide it for newly started or restored timers.
+      if (config?.notificationsEnabled != true || Build.VERSION.SDK_INT < 36) return false
       val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
       return NotificationManagerCompat.from(context).areNotificationsEnabled() && manager.canPostPromotedNotifications()
     }
