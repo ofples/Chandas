@@ -5,6 +5,8 @@ const plist = require('@expo/plist').default
 const targetName = 'ChandasWidgets'
 
 module.exports = function withIOSTimers(config) {
+  // Register before expo-audio in app.json. Expo's simple mods execute in
+  // reverse plugin order, so this removes its default audio mode last.
   config = withInfoPlist(config, value => {
     value.modResults.NSAlarmKitUsageDescription = 'Chandas schedules the interval alarms you enable, including when your iPhone is locked.'
     value.modResults.NSSupportsLiveActivities = true

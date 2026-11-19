@@ -16,7 +16,9 @@
         "NSPrivacyAccessedAPITypes": [
           {
             "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
-            "NSPrivacyAccessedAPITypeReasons": ["CA92.1"]
+            "NSPrivacyAccessedAPITypeReasons": [
+              "CA92.1"
+            ]
           }
         ]
       },
@@ -55,6 +57,7 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      "./plugins/with-ios-timers.js",
       [
         "expo-audio",
         {
@@ -72,7 +75,6 @@
       ],
       "./modules/chandas-timer-service/app.plugin.js",
       "./plugins/with-development-identity.js",
-      "./plugins/with-ios-timers.js",
       "expo-asset",
       [
         "expo-splash-screen",
