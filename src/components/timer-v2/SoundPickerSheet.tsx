@@ -115,7 +115,7 @@ export function SoundPickerSheet({ visible, title, cue, soundLibrary, masterVolu
     const request = ++previewRequest.current
     let finished = false
     try {
-      const didStart = await ChandasTimerService.previewSound(sound, masterVolume * cue.volume, {
+      const didStart = await ChandasTimerService.previewSound(sound, Platform.OS === 'ios' && alarmPreview ? 1 : masterVolume * cue.volume, {
         alarm: alarmPreview,
         onFinished: () => {
           finished = true
@@ -123,12 +123,12 @@ export function SoundPickerSheet({ visible, title, cue, soundLibrary, masterVolu
         },
       })
       if (request !== previewRequest.current) return
-      if (!didStart && Platform.OS === 'android') setMessage({ title: 'That sound could not be previewed', detail: 'Choose another sound, or reselect the file if it moved.' })
+      if (!didStart) setMessage({ title: 'That sound could not be previewed', detail: 'Choose another sound, or reselect the file if it moved.' })
       setPreviewing(didStart && !finished ? key : null)
     } catch {
       if (request !== previewRequest.current) return
       setPreviewing(null)
-      setMessage({ title: 'Preview stayed quiet', detail: 'Nothing changed. Try another sound or check the phone’s Alarm volume.' })
+      setMessage({ title: 'Preview stayed quiet', detail: Platform.OS === 'ios' ? 'Try another sound or check your iPhone’s volume.' : 'Nothing changed. Try another sound or check the phone’s Alarm volume.' })
     }
   }
 
@@ -182,8 +182,10 @@ export function SoundPickerSheet({ visible, title, cue, soundLibrary, masterVolu
     </Pressable> : <View style={styles.selected}>
       <Text numberOfLines={1} style={[styles.optionTitle, styles.selectedTitle, { color: selectedAvailable ? tokens.text : tokens.accent }]}>{soundTitle(cue.sound)}{selectedAvailable ? '' : ' · unavailable'}</Text>
     </View>}
+    {Platform.OS === 'ios' && alarmPreview ? <View style={styles.volumeRow}><Text style={[styles.helper, { color: tokens.textMuted, flex: 1 }]}>iPhone controls system alarm volume.</Text><Pressable onPress={() => void preview(cue.sound)} style={[styles.preview, { borderColor: tokens.border }]} accessibilityRole="button" accessibilityLabel={`${previewing === selectedKey ? 'Stop' : 'Preview'} selected sound`}><Text style={[styles.previewText, { color: tokens.accent }]}>{previewing === selectedKey ? '■' : '▶'}</Text></Pressable></View> : <>
     <View style={styles.volumeHeader}><SheetSectionTitle>{volumeLabel}</SheetSectionTitle><Text style={[styles.value, { color: tokens.text }]}>{Math.round(cue.volume * 100)}%</Text></View>
     <View style={styles.volumeRow}><Slider style={styles.slider} minimumValue={0} maximumValue={1} step={0.05} value={cue.volume} onSlidingStart={stopPreview} onValueChange={volume => onChange({ volume })} minimumTrackTintColor={tokens.accent} maximumTrackTintColor={tokens.surfaceHi} thumbTintColor={tokens.accent} accessibilityLabel={`${title} volume`} accessibilityValue={{ min: 0, max: 100, now: Math.round(cue.volume * 100), text: `${Math.round(cue.volume * 100)} percent` }} /><Pressable onPress={() => void preview(cue.sound)} style={[styles.preview, { borderColor: tokens.border }]} accessibilityRole="button" accessibilityLabel={`${previewing === selectedKey ? 'Stop' : 'Preview'} selected sound`}><Text style={[styles.previewText, { color: tokens.accent }]}>{previewing === selectedKey ? '■' : '▶'}</Text></Pressable></View>
+    </>}
   </View>
 
   return (

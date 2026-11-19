@@ -1,0 +1,26 @@
+appId: com.yukti.chandas
+---
+- launchApp:
+    clearState: true
+- tapOn:
+    text: Skip tour
+    optional: true
+- takeScreenshot: artifacts/ios/01-configurations
+- tapOn: New configuration
+- assertVisible: Start timer
+- takeScreenshot: artifacts/ios/02-setup
+- tapOn: Start timer
+- tapOn:
+    text: Allow
+    optional: true
+- assertVisible:
+    id: running-screen
+- takeScreenshot: artifacts/ios/03-running
+- tapOn: Pause timer
+- assertVisible: Resume timer
+- takeScreenshot: artifacts/ios/04-paused
+- tapOn: Resume timer
+- assertVisible: Pause timer
+- tapOn: Configurations
+- assertVisible: New configuration
+- takeScreenshot: artifacts/ios/05-running-library

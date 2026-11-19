@@ -129,4 +129,19 @@ describe('iOS canonical native kernel', () => {
     const irregular = stepped(); irregular.steps.forEach(step => { step.endAlarmEnabled = false })
     expect(iosRepeatingSchedule([run('seven-seconds', irregular)], anchor)).toBeNull()
   })
+  it('ends a bounded run exactly once and retains its terminal cue', () => {
+    const p = stepped(); p.runPolicy = { ...p.runPolicy, kind: 'cycles', cycleCount: 1 }
+    const r = run('bounded', p); r.config.timerV2EndsAt = anchor + 7_000
+    const events = iosEventBatches([r], anchor, 20).batches.flat()
+    expect(events.map(item => item.event.at - anchor)).toEqual([5_000, 7_000])
+    expect(events[1].event.completesRun).toBe(true)
+    expect(iosEventBatches([r], anchor + 7_000).batches).toEqual([])
+  })
+  it('keeps quiet-hours progression silent without suppressing another eligible timer', () => {
+    const quiet = run('quiet', stepped()), audible = run('audible', stepped())
+    quiet.config.availabilityPolicy = JSON.stringify({ enabled: true, weeklyWindows: [], overrides: [] })
+    const batch = iosEventBatches([quiet, audible], anchor, 1).batches[0]
+    expect(batch.find(item => item.runId === 'quiet')?.audible).toBe(false)
+    expect(batch.filter(item => item.winner).map(item => item.runId)).toEqual(['audible'])
+  })
 })

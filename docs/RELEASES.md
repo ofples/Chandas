@@ -168,3 +168,39 @@ The rollback command is intentionally interactive because EAS needs the exact pr
 - `.easignore` excludes generated native folders, local mockups, documentation, build artifacts, and secrets from uploads. EAS regenerates Android from `app.json` and the checked-in config plugin.
 - EAS Update code signing can be added later if the threat model requires an application-owned signing key. Its private key must live outside the repository and be available to every update-publishing workflow; enabling or rotating it requires a new native runtime and store build.
 - Do not publish OTA updates from an uncommitted or ambiguous working tree. Release metadata and rollback diagnosis are only dependable when every update maps to an exact commit.
+
+## iPhone preview builds
+
+The iOS port has its own `ios-preview` channel. Its research, platform limits and
+acceptance criteria are in [the iOS plan](ios-port-plan.md). Android channels and
+release profiles remain separate. Do not publish a version tag merely to build
+an iPhone preview; version tags trigger the existing Android release workflow.
+
+Run `npm run release:check` and `npm run ios:kernel:check` before building. The
+checked-in kernel is a compiled resource from the canonical TypeScript timeline,
+not a separate handwritten recurrence implementation. A native kernel change
+requires a new binary/fingerprint; it cannot be delivered as a JavaScript-only
+update to an older iPhone engine.
+
+Use `npm run build:ios:simulator` for an EAS simulator app without Apple
+credentials. It cannot be installed on a phone. Use `npm run build:ios:unsigned`
+for an unsigned arm64 IPA, also without Apple credentials. It is an input for
+personal signing, not an installable or App Store distribution artifact. Use
+only the account's included capacity; do not enable paid overages or upgrade.
+
+The public repository's standard macOS GitHub runners provide free clean native
+compilation and simulator launch. The `iOS simulator acceptance` workflow can
+also download an EAS simulator artifact and exercise setup, start, pause/resume
+and the running configuration library with Maestro, saving screenshots. A cloud
+simulator does not prove notification audio, AlarmKit on the lock screen, or
+free-profile installation on an actual phone.
+
+Without an Apple Developer membership, TestFlight and App Store distribution are
+unavailable. For eventual device testing, re-sign locally with a free Apple
+account using a Windows-compatible tool such as Sideloadly/AltStore Classic.
+Enter account credentials directly into that tool. Free profiles expire after
+seven days and have app/device limits. Confirm that the profile and installed
+app retain the Live Activity extension and permit AlarmKit; do not strip them
+and report full functionality. Physical testing must include background/locked
+bells, permission changes, several 5/2 rounds, alarm dismissal, simultaneous
+timers, restoration and Live Activity focus before calling the port accepted.
