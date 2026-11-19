@@ -40,7 +40,7 @@ jobs:
           xcrun simctl install "$device" "$app"
           MAESTRO_VERSION=2.12.1 curl -fsSL https://get.maestro.mobile.dev -o /tmp/maestro-install.sh
           MAESTRO_VERSION=2.12.1 bash /tmp/maestro-install.sh
-          "$HOME/.maestro/bin/maestro" --device "$device" test --debug-output artifacts/ios/maestro scripts/ios-ui-smoke.yaml
+          "$HOME/.maestro/bin/maestro" --device "$device" test --debug-output artifacts/ios/maestro --test-output-dir artifacts/ios/flows scripts/ios-ui-smoke.yaml
           xcrun simctl spawn "$device" launchctl list > artifacts/ios/processes.txt
           xcrun simctl shutdown "$device"
       - uses: actions/upload-artifact@v4
@@ -48,4 +48,5 @@ jobs:
         with:
           name: ios-ui-acceptance-${{ github.run_number }}
           path: artifacts/ios/
+          include-hidden-files: true
           retention-days: 3

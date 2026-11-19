@@ -129,9 +129,12 @@ final class ChandasTimerEngine: NSObject, UNUserNotificationCenterDelegate {
   }
   func setMute(id: String, until: Double) { update(id: id, patch: ["mutedUntil": until, "mutedIterationEndAt": 0, "mutedIterationCount": 0, "mutedIterationEndId": ""]) }
   func requiresAlarm(_ config: [String: Any]) -> Bool {
-    if flag(config["alarmModeEnabled"]) || flag(config["alarmOnceArmed"]) { return true }
     guard let text = config["timerV2Program"] as? String, let data = text.data(using: .utf8),
           let program = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+    // Infinity keeps the old ending-cue settings for switching back. Hidden
+    // step flags must not require AlarmKit for a bells-only timer on iOS 18.
+    if flag(program["noMainInterval"]) { return false }
+    if flag(config["alarmModeEnabled"]) || flag(config["alarmOnceArmed"]) { return true }
     return (program["steps"] as? [[String: Any]] ?? []).contains { flag($0["endAlarmEnabled"]) }
   }
   func prepare(_ config: [String: Any]) async throws -> Bool {

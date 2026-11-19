@@ -5,10 +5,12 @@ appId: com.yukti.chandas
 - tapOn:
     text: Skip tour
     optional: true
-- takeScreenshot: artifacts/ios/01-configurations
+- takeScreenshot: 01-initial-setup
+- tapOn: Configurations
+- takeScreenshot: 02-configurations
 - tapOn: New configuration
 - assertVisible: Start timer
-- takeScreenshot: artifacts/ios/02-setup
+- takeScreenshot: 03-setup
 - tapOn: Start timer
 - tapOn:
     text: Allow
@@ -17,12 +19,12 @@ appId: com.yukti.chandas
     visible:
       id: running-screen
     timeout: 60000
-- takeScreenshot: artifacts/ios/03-running
+- takeScreenshot: 04-running
 - tapOn: Pause timer
 - assertVisible: Resume timer
-- takeScreenshot: artifacts/ios/04-paused
+- takeScreenshot: 05-paused
 - tapOn: Resume timer
 - assertVisible: Pause timer
 - tapOn: Configurations
 - assertVisible: New configuration
-- takeScreenshot: artifacts/ios/05-running-library
+- takeScreenshot: 06-running-library
