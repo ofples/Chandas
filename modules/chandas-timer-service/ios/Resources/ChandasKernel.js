@@ -25,6 +25,7 @@ var ChandasKernel = (() => {
     IOS_NOTIFICATION_BUDGET: () => IOS_NOTIFICATION_BUDGET,
     invokeIOSKernel: () => invokeIOSKernel,
     iosEventBatches: () => iosEventBatches,
+    iosRepeatingSchedule: () => iosRepeatingSchedule,
     iosRunAction: () => iosRunAction,
     iosRunState: () => iosRunState,
     validateIOSRun: () => validateIOSRun
@@ -984,9 +985,16 @@ var ChandasKernel = (() => {
   var IOS_NOTIFICATION_BUDGET = 56;
   var IOS_MAX_PLANNING_MS = 24 * 60 * 60 * 1e3;
   var MAX_SCAN = 2e4;
+  var programCache = /* @__PURE__ */ new Map();
   function programFor(config) {
+    const source = config.timerV2Program;
+    if (typeof source !== "string" || source.length > 1048576) throw new Error("Invalid iOS program size");
+    const cached = programCache.get(source);
+    if (cached) return cached;
     const result = parseUnifiedTimerProgram(config.timerV2Program);
     if (!result.ok) throw new Error(`Invalid iOS timer program: ${result.reason}`);
+    if (programCache.size >= 16) programCache.delete(programCache.keys().next().value);
+    programCache.set(source, result.value);
     return result.value;
   }
   function validateIOSRun(run) {
@@ -1114,6 +1122,27 @@ var ChandasKernel = (() => {
     }
     return { batches, coveredThrough: cursor, truncated: batches.length >= batchLimit || scans >= MAX_SCAN };
   }
+  function iosRepeatingSchedule(runs, now) {
+    const hour = 36e5;
+    const active = runs.filter((run) => !run.config.timerV2PausedAt);
+    if (!active.length || active.some((run) => !validateIOSRun(run))) return null;
+    for (const run of active) {
+      const c = run.config, p = programFor(c);
+      if (p.runPolicy.kind !== "continuous" || c.timerV2EndsAt || c.alarmModeEnabled || c.alarmOnceArmed || c.mutedUntil && c.mutedUntil > now || c.mutedIterationEndAt && c.mutedIterationEndAt > now || availability(c, p).enabled || p.steps.some((step) => step.endAlarmEnabled)) return null;
+      if (!p.noMainInterval && hour % programCycleDurationMs(p) !== 0) return null;
+      const cues = p.steps.flatMap((step) => [step.endCue, ...step.subBellTracks.filter((track) => step.subBellsEnabled && track.enabled)]);
+      if (cues.some((cue) => cueSounds(cue).length > 1 && cue.soundMode !== "single")) return null;
+      for (const step of p.steps) for (const track of step.subBellTracks.filter((track2) => step.subBellsEnabled && track2.enabled)) {
+        if (track.randomRepeat || p.noMainInterval && hour % (track.cadenceSeconds * 1e3) !== 0) return null;
+      }
+    }
+    const base = Math.ceil(Math.max(now, ...active.map((run) => run.config.timerV2StartedAt)) / hour) * hour;
+    const plan = iosEventBatches(active, base, 64, base + hour);
+    if (plan.truncated) return null;
+    const events = plan.batches.flat().filter((event) => event.winner);
+    if (new Set(events.map((event) => Math.floor(event.event.at % hour / 1e3))).size !== events.length) return null;
+    return events.length > 0 && events.length <= 63 ? events : null;
+  }
   function iosRunAction(run, action, amount, now) {
     const p = programFor(run.config), c = { ...run.config };
     const time = c.timerV2PausedAt || now;
@@ -1165,7 +1194,7 @@ var ChandasKernel = (() => {
   }
   function invokeIOSKernel(request) {
     const input = JSON.parse(request);
-    const result = input.method === "validate" ? validateIOSRun(input.run) : input.method === "state" ? iosRunState(input.run, input.now) : input.method === "action" ? iosRunAction(input.run, input.action, input.amount ?? 0, input.now) : input.method === "plan" ? iosEventBatches(input.runs, input.after, input.limit, input.through) : (() => {
+    const result = input.method === "validate" ? validateIOSRun(input.run) : input.method === "state" ? iosRunState(input.run, input.now) : input.method === "action" ? iosRunAction(input.run, input.action, input.amount ?? 0, input.now) : input.method === "plan" ? iosEventBatches(input.runs, input.after, input.limit, input.through) : input.method === "repeating" ? iosRepeatingSchedule(input.runs, input.now) : (() => {
       throw new Error("Unknown iOS kernel method");
     })();
     return JSON.stringify(result);

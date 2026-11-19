@@ -33,10 +33,17 @@ export interface IOSKernelEvent {
 export const IOS_NOTIFICATION_BUDGET = 56
 export const IOS_MAX_PLANNING_MS = 24 * 60 * 60 * 1_000
 const MAX_SCAN = 20_000
+const programCache = new Map<string, UnifiedTimerProgram>()
 
 function programFor(config: NativeTimerConfig): UnifiedTimerProgram {
+  const source = config.timerV2Program
+  if (typeof source !== 'string' || source.length > 1_048_576) throw new Error('Invalid iOS program size')
+  const cached = programCache.get(source)
+  if (cached) return cached
   const result = parseUnifiedTimerProgram(config.timerV2Program)
   if (!result.ok) throw new Error(`Invalid iOS timer program: ${result.reason}`)
+  if (programCache.size >= 16) programCache.delete(programCache.keys().next().value!)
+  programCache.set(source, result.value)
   return result.value
 }
 
@@ -150,6 +157,35 @@ export function iosEventBatches(runs: IOSKernelRun[], after: number, batchLimit 
   return { batches, coveredThrough: cursor, truncated: batches.length >= batchLimit || scans >= MAX_SCAN }
 }
 
+/** Exact hourly calendar compression, only when the complete audible pattern repeats.
+ * Unlike a delayed repeating interval trigger, this preserves the accepted phase.
+ * Irregular, bounded, muted and alarm-enabled programs stay on the bounded queue.
+ */
+export function iosRepeatingSchedule(runs: IOSKernelRun[], now: number): IOSKernelEvent[] | null {
+  const hour = 3_600_000
+  const active = runs.filter(run => !run.config.timerV2PausedAt)
+  if (!active.length || active.some(run => !validateIOSRun(run))) return null
+  for (const run of active) {
+    const c = run.config, p = programFor(c)
+    if (p.runPolicy.kind !== 'continuous' || c.timerV2EndsAt || c.alarmModeEnabled || c.alarmOnceArmed
+      || c.mutedUntil && c.mutedUntil > now || c.mutedIterationEndAt && c.mutedIterationEndAt > now
+      || availability(c, p).enabled || p.steps.some(step => step.endAlarmEnabled)) return null
+    if (!p.noMainInterval && hour % programCycleDurationMs(p) !== 0) return null
+    const cues = p.steps.flatMap(step => [step.endCue, ...step.subBellTracks.filter(track => step.subBellsEnabled && track.enabled)])
+    if (cues.some(cue => cueSounds(cue).length > 1 && cue.soundMode !== 'single')) return null
+    for (const step of p.steps) for (const track of step.subBellTracks.filter(track => step.subBellsEnabled && track.enabled)) {
+      if (track.randomRepeat || p.noMainInterval && hour % (track.cadenceSeconds * 1_000) !== 0) return null
+    }
+  }
+  const base = Math.ceil(Math.max(now, ...active.map(run => run.config.timerV2StartedAt!)) / hour) * hour
+  const plan = iosEventBatches(active, base, 64, base + hour)
+  if (plan.truncated) return null
+  const events = plan.batches.flat().filter(event => event.winner)
+  if (new Set(events.map(event => Math.floor((event.event.at % hour) / 1_000))).size !== events.length) return null
+  // Leave at least one slot for other app notifications; native also checks pending requests.
+  return events.length > 0 && events.length <= 63 ? events : null
+}
+
 /** A host command never edits a saved configuration, only this accepted run. */
 export function iosRunAction(run: IOSKernelRun, action: string, amount: number, now: number): IOSKernelRun | null {
   const p = programFor(run.config), c = { ...run.config }
@@ -203,6 +239,7 @@ export function invokeIOSKernel(request: string): string {
     : input.method === 'state' ? iosRunState(input.run, input.now)
       : input.method === 'action' ? iosRunAction(input.run, input.action, input.amount ?? 0, input.now)
         : input.method === 'plan' ? iosEventBatches(input.runs, input.after, input.limit, input.through)
+          : input.method === 'repeating' ? iosRepeatingSchedule(input.runs, input.now)
           : (() => { throw new Error('Unknown iOS kernel method') })()
   return JSON.stringify(result)
 }

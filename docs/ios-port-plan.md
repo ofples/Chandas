@@ -50,6 +50,18 @@ unlimited queue. Conservatively budget below 64 and read actual pending requests
 Do not advertise infinite unattended scheduling. A future server/APNs system
 would add network dependency and still would not guarantee exact delivery.
 
+For a strict subset, avoid that limitation altogether: compile the complete
+global audible pattern into repeating hourly
+[calendar notification triggers](https://developer.apple.com/documentation/usernotifications/uncalendarnotificationtrigger).
+All active runs must be continuous, unmuted, without alarms/random timing or
+sound cycling/availability, and their periods must divide one hour. Resolve
+rarity collisions first and require at most 63 unique second positions, accounting
+for other pending requests. This supports the common aligned 1-minute/5-minute
+bell combination with 60 collision-free repeating requests. Calendar phases
+preserve the accepted anchor; a repeating interval trigger cannot independently
+specify first delay and repeat period. Any unmet precondition uses the honest
+bounded queue instead. System notification timing is not a real-time guarantee.
+
 ### 3. Alarms
 
 [AlarmKit](https://developer.apple.com/documentation/alarmkit) is available from

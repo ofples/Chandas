@@ -9,6 +9,14 @@
     "scheme": "chandas",
     "ios": {
       "supportsTablet": true,
+      "privacyManifests": {
+        "NSPrivacyAccessedAPITypes": [
+          {
+            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
+            "NSPrivacyAccessedAPITypeReasons": ["CA92.1"]
+          }
+        ]
+      },
       "bundleIdentifier": "com.yukti.chandas"
     },
     "android": {

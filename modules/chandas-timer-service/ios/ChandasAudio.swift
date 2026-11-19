@@ -28,8 +28,10 @@ final class ChandasAudio: NSObject, AVAudioPlayerDelegate {
     try FileManager.default.createDirectory(at: notificationDirectory, withIntermediateDirectories: true)
     let name = "\(safeID(id)).\(url.pathExtension.isEmpty ? "audio" : url.pathExtension)"
     let target = directory.appendingPathComponent(name)
+    let handle = try FileHandle(forReadingFrom: url)
+    let length = try handle.seekToEnd(); try handle.close()
+    guard length <= 50 * 1024 * 1024 else { throw ChandasError.invalid("Audio file is larger than 50 MB") }
     let data = try Data(contentsOf: url)
-    guard data.count <= 50 * 1024 * 1024 else { throw ChandasError.invalid("Audio file is larger than 50 MB") }
     if url != target { try data.write(to: target, options: .atomic) }
     let input = try AVAudioFile(forReading: target)
     let format = input.processingFormat

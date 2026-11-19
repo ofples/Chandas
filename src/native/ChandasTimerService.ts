@@ -520,6 +520,7 @@ export const ChandasTimerService = {
       const result = await DocumentPicker.getDocumentAsync({ type: 'audio/*', copyToCacheDirectory: true, multiple: false })
       if (result.canceled) return null
       const picked = result.assets[0]
+      if (picked.size && picked.size > 50 * 1024 * 1024) throw new Error('Choose an audio file smaller than 50 MB')
       if (!FileSystem.documentDirectory) return null
       const directory = `${FileSystem.documentDirectory}sounds/`
       await FileSystem.makeDirectoryAsync(directory, { intermediates: true })

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { convertPatternToUnified } from '../unified-timer'
 import { defaultPatternProgram } from '../timerV2'
-import { iosEventBatches, iosRunAction, iosRunState, validateIOSRun, type IOSKernelRun } from '../ios-timer-kernel'
+import { iosEventBatches, iosRepeatingSchedule, iosRunAction, iosRunState, validateIOSRun, type IOSKernelRun } from '../ios-timer-kernel'
 import type { UnifiedTimerProgram } from '../../types'
 
 const anchor = 1_800_000_000_000
@@ -104,5 +104,22 @@ describe('iOS canonical native kernel', () => {
     p.steps[0].endCue.soundMode = 'random'
     const random = iosEventBatches([run('random', p)], anchor, 20).batches.map(batch => batch[0].soundId)
     expect(random.every((sound, index) => !index || sound !== random[index - 1])).toBe(true)
+  })
+  it('compresses aligned one-minute and five-minute bells into a collision-free hourly pattern', () => {
+    const p = stepped(); p.steps = [p.steps[1]]; p.steps[0].durationSeconds = 60
+    const minute = run('minute', p)
+    p.steps[0].durationSeconds = 300
+    const result = iosRepeatingSchedule([minute, run('five', p)], anchor)!
+    expect(result).toHaveLength(60)
+    expect(result.filter(event => event.runId === 'five')).toHaveLength(12)
+    expect(new Set(result.map(item => item.event.at % 3_600_000)).size).toBe(60)
+  })
+  it('refuses calendar compression when it would change random, mute or alarm behavior', () => {
+    expect(iosRepeatingSchedule([run('alarm', stepped())], anchor)).toBeNull()
+    const p = stepped(); p.steps = [p.steps[1]]; p.steps[0].durationSeconds = 300
+    const r = run('muted', p); r.config.mutedUntil = anchor + 100_000
+    expect(iosRepeatingSchedule([r], anchor)).toBeNull()
+    const irregular = stepped(); irregular.steps.forEach(step => { step.endAlarmEnabled = false })
+    expect(iosRepeatingSchedule([run('seven-seconds', irregular)], anchor)).toBeNull()
   })
 })
