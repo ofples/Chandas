@@ -1,3 +1,4 @@
+import { bellPointOffsets } from '../../../lib/bell-points'
 import { useAppReducedMotion } from '../../../theme/ThemeContext'
 import { Fragment, useEffect, useMemo, useRef } from 'react'
 import { Animated as RNAnimated, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
@@ -39,7 +40,7 @@ interface Props {
 
 export function TimerWatchface({ program, position, progress, eventPulse, scrubbing, size, model, presentation = 'running-screen', flashOnMount = false, accessibilityLabel, testID, onPress, onLongPress }: Props) {
   const { tokens, theme } = useTheme()
-  const accent = program.mode === 'unified' && theme !== 'eink' ? subBellColorValue(timerIdentityColor(program.steps[0].id), 0) : tokens.accent
+  const accent = theme === 'eink' ? tokens.accent : intervalStroke(program, position, tokens.accent)
   const reducedMotion = useAppReducedMotion()
   const compact = presentation === 'floating-overlay'
   return <Pressable
@@ -47,7 +48,7 @@ export function TimerWatchface({ program, position, progress, eventPulse, scrubb
     onPress={event => { event.stopPropagation(); onPress?.() }}
     onLongPress={onLongPress}
     delayLongPress={500}
-    style={({ pressed }) => [styles.ringWrap, { width: size, height: size, transform: [{ scale: pressed && !reducedMotion ? 0.985 : 1 }] }]}
+    style={({ pressed }) => [styles.ringWrap, { width: size, height: size, transform: [{ scale: pressed && !scrubbing && !reducedMotion ? 0.985 : 1 }] }]}
     accessibilityRole="button"
     accessibilityLabel={accessibilityLabel}
   >
@@ -55,7 +56,7 @@ export function TimerWatchface({ program, position, progress, eventPulse, scrubb
     <View style={[styles.center, compact && styles.centerCompact, { opacity: theme !== 'eink' && model.runtimeMuted ? 0.72 : 1, pointerEvents: 'none' }]}>
       <Text style={[styles.mainTime, compact && styles.mainTimeCompact, { color: tokens.text }]} adjustsFontSizeToFit numberOfLines={1}>{model.mainLabel}</Text>
       {model.mainCaption ? <Text numberOfLines={1} style={[styles.mainCaption, compact && styles.mainCaptionCompact, { color: tokens.textMuted }]}>{model.mainCaption}</Text> : null}
-      {model.nextName ? <Animated.View key={`${model.nextLabel ?? ''}:${model.nextName}`} entering={reducedMotion ? undefined : FadeIn.duration(180)} style={[styles.nextCue, compact && styles.nextCueCompact]}>
+      {model.nextName ? <Animated.View key={`${model.nextLabel ?? ''}:${model.nextName}`} entering={reducedMotion ? undefined : FadeIn.duration(180)} style={[styles.nextCue, compact && styles.nextCueCompact, scrubbing && { opacity: 0 }]}>
         {model.nextLabel ? <Text style={[styles.nextLabel, { color: tokens.textMuted }]}>{model.nextLabel}</Text> : null}
         <Text numberOfLines={1} style={[styles.nextCueName, compact && styles.nextCueNameCompact, { color: theme === 'eink' ? tokens.text : model.nextColor ?? tokens.text }]}>{model.nextName}</Text>
         {model.nextTime ? <Text style={[styles.nextCueTime, compact && styles.nextCueTimeCompact, { color: tokens.textMuted }]}>{model.nextTime}</Text> : null}
@@ -67,7 +68,7 @@ export function TimerWatchface({ program, position, progress, eventPulse, scrubb
 
 export function TimerWatchfaceRings({ size, progress, position, program, muted, eventPulse, edgeToEdge = false, flashOnMount = false, card = false, trackColor, scrubbing = false }: { size: number; progress: number; position: TimelinePosition | null; program: RuntimeTimerProgram; muted: boolean; eventPulse: number; edgeToEdge?: boolean; flashOnMount?: boolean; card?: boolean; trackColor?: string; scrubbing?: boolean }) {
   const { tokens, theme } = useTheme()
-  const accent = program.mode === 'unified' && theme !== 'eink' ? subBellColorValue(timerIdentityColor(program.steps[0].id), 0) : tokens.accent
+  const accent = theme === 'eink' ? tokens.accent : intervalStroke(program, position, tokens.accent)
   const reducedMotion = useAppReducedMotion()
   const flash = useRef(new RNAnimated.Value(0)).current
   const lastPulse = useRef(eventPulse)
@@ -129,11 +130,16 @@ export function TimerWatchfaceRings({ size, progress, position, program, muted, 
   </View>
 }
 
+function intervalStroke(program: RuntimeTimerProgram, position: TimelinePosition | null, fallback: string): string {
+  if (program.mode !== 'unified') return fallback
+  const step = program.steps[position?.currentStepIndex ?? 0]
+  return subBellColorValue(step?.color ?? timerIdentityColor(program.steps[0].id), 0)
+}
+
 function unifiedTrackOffsets(track: UnifiedSubBellTrack, durationSeconds: number, roundIndex: number, randomSeed: number): number[] {
   const offsets = track.repeatEnabled ? [...track.selectedOffsetsSeconds] : []
   if (track.randomRepeat) offsets.push(...randomTrackOffsetsSeconds(track.id, track.randomRepeat, durationSeconds, roundIndex, randomSeed))
-  if (track.afterStartSeconds !== undefined) offsets.push(track.afterStartSeconds)
-  if (track.beforeEndSeconds !== undefined) offsets.push(durationSeconds - track.beforeEndSeconds)
+  offsets.push(...bellPointOffsets(track, durationSeconds))
   return [...new Set(offsets.filter(value => Number.isSafeInteger(value) && value > 0 && value < durationSeconds))].sort((left, right) => left - right)
 }
 

@@ -14,7 +14,7 @@ import { ChandasTimerService, isNativeServiceAvailable, type NativeTimerConfig }
 import { cueHapticProfile, selectionHaptic, setAppHapticsEnabled, startRepeatingAlarmHaptic, stopRepeatingAlarmHaptic, tapHaptic, timerCueHaptic } from '../lib/haptics'
 import { alignedClockAnchor } from '../lib/clockAlignment'
 import { createProgramId, cueSounds, patternDurationSeconds, programForVisibleCues, sequenceStepDurationSeconds } from '../lib/timerV2'
-import { nextAudibleProgramEvent, programEventLabel } from '../lib/upcoming-events'
+import { nextAudibleProgramEvent, programEventLabel, upcomingMuteSuggestions, type CueMuteSuggestion } from '../lib/upcoming-events'
 import { clearUnifiedTimerRun, clearUnifiedTimerSession, saveUnifiedTimerRun, saveUnifiedTimerSession } from '../lib/unified-session'
 import { nativeSupportsRuntimeProgram, requiresExactSubBellRuntime } from '../lib/runtime-capabilities'
 
@@ -103,6 +103,7 @@ export interface UseTimerV2Return extends TimerV2Display {
   muteForMinutes: (minutes: number) => void
   muteForSeconds: (seconds: number) => void
   muteUntil: (deadline: number) => void
+  getMuteSuggestions: (now: number, limit?: number) => CueMuteSuggestion[]
   clearMute: () => void
   eventPulse: number
   completionPulse: number
@@ -833,6 +834,13 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings, so
     selectionHaptic()
   }, [updateRuntimeState, service])
 
+  const getMuteSuggestions = useCallback((now: number, limit?: number) => {
+    if (!runningRef.current || pausedAtRef.current !== null || settingsRef.current.masterVolume <= 0) return []
+    const anchor = anchorRef.current
+    return upcomingMuteSuggestions(programRef.current, settingsRef.current.availability, anchor, now,
+      startedAtRef.current, endsAtRef.current, randomSeedRef.current || anchor, alarmBehaviorRef.current, limit)
+  }, [])
+
   const syncNativeClock = useCallback(() => {
     const native = service?.getState()
     if (!native?.active) return false
@@ -1147,6 +1155,7 @@ export function useTimerV2(program: TimerProgram, settings: AppTimerSettings, so
     muteForMinutes,
     muteForSeconds,
     muteUntil,
+    getMuteSuggestions,
     clearMute,
     eventPulse,
     completionPulse,

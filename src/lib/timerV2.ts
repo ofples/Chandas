@@ -1,3 +1,4 @@
+import { bellPointOffsets } from './bell-points'
 import type {
   AppTimerSettings,
   AvailabilityOverride,
@@ -341,12 +342,11 @@ export function randomTrackOffsetsSeconds(trackId: string, range: { minSeconds: 
   return offsets
 }
 
-export function trackEventOffsetsSeconds(track: Pick<PatternTrack, 'id' | 'selectedOffsetsMinutes' | 'selectedOffsetsSeconds' | 'repeatEnabled' | 'afterStartSeconds' | 'beforeEndSeconds' | 'randomRepeat'>, mainDurationSeconds: number, cycleIndex = 0, anchor = 0): number[] {
+export function trackEventOffsetsSeconds(track: Pick<PatternTrack, 'id' | 'selectedOffsetsMinutes' | 'selectedOffsetsSeconds' | 'repeatEnabled' | 'afterStartSeconds' | 'beforeEndSeconds' | 'randomRepeat'> & { points?: import('../types').BellPoint[] }, mainDurationSeconds: number, cycleIndex = 0, anchor = 0): number[] {
   const main = clampCueDurationSeconds(mainDurationSeconds, 60)
   const offsets = track.repeatEnabled === false ? [] : trackSelectedOffsetsSeconds(track)
   if (track.randomRepeat) offsets.push(...randomTrackOffsetsSeconds(track.id, track.randomRepeat, main, cycleIndex, anchor))
-  if (typeof track.afterStartSeconds === 'number') offsets.push(whole(track.afterStartSeconds, -1))
-  if (typeof track.beforeEndSeconds === 'number') offsets.push(main - whole(track.beforeEndSeconds, -1))
+  offsets.push(...bellPointOffsets(track, main))
   return [...new Set(offsets.filter(offset => offset > 0 && offset < main))].sort((left, right) => left - right)
 }
 

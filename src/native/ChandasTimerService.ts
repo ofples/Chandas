@@ -170,6 +170,7 @@ export interface NativeTimerCapabilities {
   supportsSubBellSecondPrecision?: boolean
   supportsUntilRunLength?: boolean
   supportsNoMainInterval?: boolean
+  supportsBellPoints?: boolean
   supportsMuteSecondPrecision?: boolean
   supportsDualLiveCountdown?: boolean
   supportsProgramClockAlignment?: boolean

@@ -1,3 +1,4 @@
+import { bellPointOffsets } from './bell-points'
 import type { CueSettings, SoundRef, UnifiedSubBellTrack, UnifiedTimerProgram, UnifiedTimerStep } from '../types'
 import { alignedClockAnchor } from './clockAlignment'
 import { randomTrackOffsetsSeconds } from './timerV2'
@@ -124,8 +125,7 @@ function randomOffsets(track: UnifiedSubBellTrack, durationSeconds: number, roun
 function offsetsForTrack(track: UnifiedSubBellTrack, durationSeconds: number, roundIndex: number, randomSeed: number): number[] {
   const offsets = track.repeatEnabled ? track.selectedOffsetsSeconds : []
   const values = [...offsets, ...randomOffsets(track, durationSeconds, roundIndex, randomSeed)]
-  if (track.afterStartSeconds !== undefined) values.push(track.afterStartSeconds)
-  if (track.beforeEndSeconds !== undefined) values.push(durationSeconds - track.beforeEndSeconds)
+  values.push(...bellPointOffsets(track, durationSeconds))
   return [...new Set(values.filter(value => Number.isSafeInteger(value) && value > 0 && value < durationSeconds))].sort((a, b) => a - b)
 }
 
@@ -150,7 +150,7 @@ function candidateGroups(program: UnifiedTimerProgram, roundIndex: number, stepI
       const candidates = result.get(at) ?? []
       const candidate = cueCandidate(track, step, stepIndex, track, trackOrder)
       candidate.occurrencesPerRound = offsets.length
-      if (offsetSeconds === track.afterStartSeconds || offsetSeconds === durationSeconds - (track.beforeEndSeconds ?? 0)) {
+      if (bellPointOffsets(track, durationSeconds).includes(offsetSeconds)) {
         candidate.explicitMarker = true
       }
       candidates.push(candidate)

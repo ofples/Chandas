@@ -1,10 +1,46 @@
-import type { AvailabilityPolicy, RuntimeTimerProgram } from '../types'
-import { isCueAllowedByActiveHours, nextActiveHoursStart } from './activeHours'
-import { nextProgramEvent, type ScheduledProgramEvent } from './timeline'
+import type { AlarmBehavior, AvailabilityPolicy, RuntimeTimerProgram } from '../types'
+import { effectiveAvailabilityForProgram, isCueAllowedByActiveHours, nextActiveHoursStart } from './activeHours'
+import { nextProgramEvent, programCycleDurationMs, type ScheduledProgramEvent } from './timeline'
 
 export interface UpcomingProgramEvent {
   event: ScheduledProgramEvent
   scheduleAllows: boolean
+}
+
+export interface CueMuteSuggestion {
+  at: number
+  label: string
+  timerName?: string
+  alarm: boolean
+  rarity: number
+}
+
+export function upcomingMuteSuggestions(program: RuntimeTimerProgram, availability: AvailabilityPolicy, anchor: number, from: number, startedAt: number, terminalAt: number | null, randomSeed: number, alarm: AlarmBehavior, limit = 3): CueMuteSuggestion[] {
+  const visibleProgram = program.mode === 'unified'
+    ? { ...program, steps: program.steps.map(step => ({ ...step, subBellTracks: step.subBellTracks.filter(track => track.showOnWatchFace !== false) })) }
+    : program.mode === 'pattern' ? { ...program, tracks: program.tracks.filter(track => track.showOnWatchFace !== false) } : program
+  const candidates: Array<CueMuteSuggestion & { cueId: string }> = []
+  const schedule = effectiveAvailabilityForProgram(program, availability)
+  const isAlarm = (cue: ScheduledProgramEvent) => !cue.completesRun && (
+    cue.winner.alarmEnabled === true || (cue.boundary === 'pattern-main' && alarm !== 'off')
+  )
+  const round = programCycleDurationMs(program)
+  let cursor = from
+  const distinct = new Set<string>()
+  for (let i = 0; i < Math.max(12, limit) && (limit > 3 || distinct.size < 3); i++) {
+    const event = nextAudibleProgramEvent(visibleProgram, schedule, anchor, cursor, startedAt, terminalAt,
+      cue => cue.winner.volume > 0 || isAlarm(cue), randomSeed)
+    if (!event) break
+    const winner = event.winner
+    const spacing = winner.occurrencesPerRound ? round / winner.occurrencesPerRound : (winner.cadenceSeconds ?? round / 1000) * 1000
+    candidates.push({ at: event.at, label: programEventLabel(program, event), cueId: winner.cueId, alarm: isAlarm(event), rarity: event.completesRun ? Infinity : spacing })
+    distinct.add(event.winner.cueId)
+    cursor = event.at
+  }
+  const firstByCue = candidates.filter((candidate, index) => candidates.findIndex(event => event.cueId === candidate.cueId) === index)
+  const result = limit > 3 ? candidates : [...firstByCue, ...candidates.filter(candidate => !firstByCue.includes(candidate))]
+  return result.slice(0, limit).sort((a, b) => a.at - b.at)
+    .map(({ at, label, alarm: rings, rarity }) => ({ at, label, alarm: rings, rarity }))
 }
 
 /** A short, chronological projection for setup UI. Suppressed events remain visible. */

@@ -1,3 +1,4 @@
+import { validBellPoints } from './bell-points'
 import type {
   AppTimerSettings, CueSettings, PatternProgram, PatternTrack, RunPolicy, SequenceProgram,
   SoundRef, TimerConfig, TimerMode, TimerV2State, UnifiedSubBellTrack, UnifiedTimerProgram,
@@ -7,6 +8,7 @@ import {
   MAX_CUE_DURATION_SECONDS, MAX_RUN_CYCLES, MAX_RUN_DURATION_SECONDS, MAX_SEQUENCE_STEPS,
   MAX_PATTERN_TRACKS, isSupportedSoundRef, normalizePatternProgram, normalizeSequenceProgram, migrateLegacyConfig,
 } from './timerV2'
+import { isTimerColor } from './subBellColors'
 
 export const UNIFIED_TIMER_SCHEMA_VERSION = 4 as const
 
@@ -115,6 +117,7 @@ function validateProgram(value: unknown): string | null {
     stepIds.add(step.id)
     if (typeof step.label !== 'string' || [...step.label].length > 60) return `Invalid step label at index ${index}`
     if (step.labelIsCustom !== undefined && typeof step.labelIsCustom !== 'boolean') return `Invalid label intent at index ${index}`
+    if (step.color !== undefined && !isTimerColor(step.color)) return `Invalid step color at index ${index}`
     if (!isIntIn(step.durationSeconds, 1, MAX_CUE_DURATION_SECONDS)) return `Invalid step duration at index ${index}`
     if (!validCue(step.endCue)) return `Invalid end cue at index ${index}`
     if (typeof step.endAlarmEnabled !== 'boolean' || typeof step.subBellsEnabled !== 'boolean') return `Invalid step settings at index ${index}`
@@ -124,12 +127,13 @@ function validateProgram(value: unknown): string | null {
       if (!isRecord(track) || !validId(track.id) || trackIds.has(track.id)) return `Invalid or duplicate track id at ${index}:${trackIndex}`
       trackIds.add(track.id)
       if (typeof track.label !== 'string' || [...track.label].length > 60 || typeof track.enabled !== 'boolean' || typeof track.showOnWatchFace !== 'boolean') return `Invalid track settings at ${index}:${trackIndex}`
-      if (track.color !== undefined && !['violet', 'blue', 'cyan', 'teal', 'green', 'lime', 'amber', 'orange', 'coral', 'rose'].includes(String(track.color))) return `Invalid track color at ${index}:${trackIndex}`
+      if (track.color !== undefined && !isTimerColor(track.color)) return `Invalid track color at ${index}:${trackIndex}`
       if (!isIntIn(track.cadenceSeconds, 1, MAX_CUE_DURATION_SECONDS) || typeof track.repeatEnabled !== 'boolean') return `Invalid track cadence at ${index}:${trackIndex}`
       if (!Array.isArray(track.selectedOffsetsSeconds) || !track.selectedOffsetsSeconds.every(offset => isIntIn(offset, 1, MAX_CUE_DURATION_SECONDS))) return `Invalid selected offsets at ${index}:${trackIndex}`
       if (track.randomRepeat !== undefined && (!isRecord(track.randomRepeat) || !isIntIn(track.randomRepeat.minSeconds, 5, MAX_CUE_DURATION_SECONDS) || !isIntIn(track.randomRepeat.maxSeconds, track.randomRepeat.minSeconds as number, MAX_CUE_DURATION_SECONDS))) return `Invalid random range at ${index}:${trackIndex}`
       if (track.afterStartSeconds !== undefined && !isIntIn(track.afterStartSeconds, 1, MAX_CUE_DURATION_SECONDS)) return `Invalid after-start offset at ${index}:${trackIndex}`
       if (track.beforeEndSeconds !== undefined && !isIntIn(track.beforeEndSeconds, 1, MAX_CUE_DURATION_SECONDS)) return `Invalid before-end offset at ${index}:${trackIndex}`
+      if (track.points !== undefined && !validBellPoints(track.points)) return `Invalid bell points at ${index}:${trackIndex}`
       if (!validCue(track)) return `Invalid track cue at ${index}:${trackIndex}`
     }
   }
@@ -150,7 +154,7 @@ export function parseUnifiedTimerProgram(input: unknown): UnifiedProgramParseRes
     value: {
       ...program,
       alarmBehavior: program.alarmBehavior ?? 'off',
-      steps: program.steps.map(step => ({ ...step, endCue: cloneCue(step.endCue), subBellTracks: step.subBellTracks.map(track => ({ ...track, selectedOffsetsSeconds: [...track.selectedOffsetsSeconds], ...(track.randomRepeat ? { randomRepeat: { ...track.randomRepeat } } : {}), ...cloneCue(track) })) })),
+      steps: program.steps.map(step => ({ ...step, endCue: cloneCue(step.endCue), subBellTracks: step.subBellTracks.map(track => ({ ...track, ...(track.points ? { points: track.points.map(point => ({ ...point })) } : {}), selectedOffsetsSeconds: [...track.selectedOffsetsSeconds], ...(track.randomRepeat ? { randomRepeat: { ...track.randomRepeat } } : {}), ...cloneCue(track) })) })),
       alignment: { ...program.alignment }, completionCue: program.completionCue ? cloneCue(program.completionCue) : null, runPolicy: { ...program.runPolicy },
     },
   }

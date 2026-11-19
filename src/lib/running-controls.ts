@@ -8,13 +8,13 @@ export const RUNNING_CONTROL_DEFINITIONS: ReadonlyArray<{
   description: string
   icon: 'restart' | 'clock' | 'alarm' | 'focus' | 'volume' | 'scrub'
 }> = [
-  { id: 'restart', title: 'Reset interval', description: 'Restart the current interval from now.', icon: 'restart' },
-  { id: 'clock', title: 'Snap to clock', description: 'Align repeating cycles to a chosen clock time.', icon: 'clock' },
-  { id: 'alarm', title: 'Alarm', description: 'Toggle an alarm at the end of an interval or step.', icon: 'alarm' },
-  { id: 'stepAlarm', title: 'Step alarm', description: 'Toggle an alarm at the end of the current sequence step.', icon: 'alarm' },
+  { id: 'restart', title: 'Reset timer', description: 'Start again immediately from the beginning. Clock alignment turns off.', icon: 'restart' },
+  { id: 'clock', title: 'Snap to clock', description: 'Choose a clock offset for the repeating cycle. Not used for bells-only timers.', icon: 'clock' },
+  { id: 'alarm', title: 'Interval alarm', description: 'For single-interval timers: tap for the next alarm, double-tap for every interval. Tap again to turn it off.', icon: 'alarm' },
+  { id: 'stepAlarm', title: 'Step alarm', description: 'Turn the current step’s alarm on or off, including future rounds.', icon: 'alarm' },
   { id: 'focus', title: 'Chandas Focus', description: 'Let Chandas manage its Android Do Not Disturb rule.', icon: 'focus' },
-  { id: 'sound', title: 'Sound and mute', description: 'Adjust volume, mixer, and mute duration.', icon: 'volume' },
-  { id: 'scrub', title: 'Scrubbing', description: 'Hold for one second to scrub the timer ring or drag the step selector.', icon: 'scrub' },
+  { id: 'sound', title: 'Sound and mute', description: 'Adjust volume and individual sounds, or mute until a duration, time, or bell.', icon: 'volume' },
+  { id: 'scrub', title: 'Scrubbing', description: 'Hold for half a second, then turn the ring or drag the step strip. Holding alone leaves the time unchanged.', icon: 'scrub' },
 ]
 
 export function enabledRunningControls(settings: Pick<AppTimerSettings, 'advancedModeEnabled' | 'runningControlIds'>): ReadonlySet<RunningControlId> {

@@ -17,7 +17,9 @@ import { normalizeAvailabilityPolicy } from './src/lib/timerV2'
 import { legacySessionProgram } from './src/lib/legacy-session-program'
 import { defaultTimerHapticsSettings, normalizeTimerHapticsSettings } from './src/lib/haptic-profiles'
 import { setAppHapticsEnabled, successHaptic, tapHaptic } from './src/lib/haptics'
-import { UnifiedTimerConfigScreen, type GroupMuteAction } from './src/screens/UnifiedTimerConfigScreen'
+import { TimerSettingsSheet, UnifiedTimerConfigScreen, type GroupMuteAction } from './src/screens/UnifiedTimerConfigScreen'
+import { GuidedTourProvider, GuidedTourOverlay, useGuidedTour } from './src/components/timer-v2/guided-tour'
+import { StarterTimersSheet } from './src/components/timer-v2/StarterTimersSheet'
 import { TimerV2RunningScreen } from './src/screens/TimerV2RunningScreen'
 import { AlarmRingingScreen } from './src/screens/AlarmRingingScreen'
 import { ChandasTimerService, consumeNativeRunDestination, focusNativeTimerRun, isNativeServiceAvailable, nativeTimerRun, nativeTimerRunIds, supportsNativeTimerRuns, type NativeFocusState } from './src/native/ChandasTimerService'
@@ -25,6 +27,7 @@ import { AppLoadingScreen, type AppNotice } from './src/components/timer-v2/expe
 import { FeedbackLayerProvider, RootFeedbackOverlay } from './src/components/timer-v2/feedback-layer'
 import { AppErrorBoundary } from './src/components/timer-v2/app-error-boundary'
 import { ConfirmationProvider } from './src/components/timer-v2/ConfirmationDialog'
+import type { CueMuteSuggestion } from './src/lib/upcoming-events'
 import { clockOffsetLabel } from './src/lib/clockAlignment'
 import { unifiedCueIdentity } from './src/lib/unified-timeline'
 import { bootstrapUnifiedConfigState, saveUnifiedConfigState } from './src/lib/unified-storage'
@@ -134,6 +137,7 @@ function legacyRestore(session: TimerV2Session, program = session.program): Pend
 }
 
 function Root() {
+  const tour = useGuidedTour()!
   const { tokens, theme } = useTheme()
   const reducedMotion = useAppReducedMotion()
   const updateState = Updates.useUpdates()
@@ -154,6 +158,10 @@ function Root() {
   const [sessionRecovery, setSessionRecovery] = useState<{ reason: string; raw?: string } | null>(null)
   const [androidAccess, setAndroidAccess] = useState<AndroidAccessState>({ exactAlarms: Platform.OS !== 'android', fullScreenAlarms: Platform.OS !== 'android', callMute: Platform.OS !== 'android', notifications: Platform.OS !== 'android', checking: Platform.OS === 'android', pending: null })
   const [starting, setStarting] = useState(false)
+  const [runningSettingsOpen, setRunningSettingsOpen] = useState(false)
+  const [starterTimersOpen, setStarterTimersOpen] = useState(false)
+  const autoTourShown = useRef(false)
+  useEffect(() => { if (appState !== 'running') setRunningSettingsOpen(false) }, [appState])
   const [realigning, setRealigning] = useState(false)
   const [floatingTimerPanel, setFloatingTimerPanel] = useState<'clock' | 'sound' | null>(null)
   const [notice, setNotice] = useState<AppNotice | null>(null)
@@ -1103,6 +1111,14 @@ function Root() {
     if (target) void onConfigCommand({ type: 'edit', configId, changes: change(target) })
   }
 
+  const changeRunningSettings = ({ secondPrecisionEnabled, ...changes }: Partial<AppTimerSettings>) => {
+    if (secondPrecisionEnabled !== undefined) void onConfigCommand({ type: 'setGlobalSecondPrecision', enabled: secondPrecisionEnabled })
+    const current = activeRunRef.current
+    if (!current || !Object.keys(changes).length) return
+    commitActiveRun({ ...current, settings: { ...current.settings, ...changes } })
+    updateRunDraft(current, draft => ({ settings: { ...draft.settings, ...changes } }))
+  }
+
   const changeMasterVolume = (masterVolume: number) => {
     const current = activeRunRef.current
     if (!current || realigningRef.current) return
@@ -1192,8 +1208,6 @@ function Root() {
     return true
   }
 
-  if (!ready) return <AppLoadingScreen backgroundColor={tokens.bg} accentColor={tokens.accent} textColor={tokens.text} />
-
   const blockingRecovery = Boolean(configRecovery || (sessionRecovery && Platform.OS === 'android' && isNativeServiceAvailable && ChandasTimerService.getState().active))
   const runningConfigurations = (configState?.configs ?? []).filter(config => config.showInRunningSelector)
   const liveRuns = pool.entries.flatMap(entry => {
@@ -1205,6 +1219,7 @@ function Root() {
       program: entry.input.program,
       position: view.position,
       eventPulse: view.eventPulse,
+      mutedUntil: Math.max(view.mute.mutedUntil, view.mute.iteration?.endsAt ?? 0),
       muted: view.mute.mutedUntil > Date.now() || !!view.mute.iteration || entry.input.settings.masterVolume <= 0,
       paused: view.isPaused,
       countdown: view.mainCountdown,
@@ -1225,20 +1240,37 @@ function Root() {
   const groupPause = (paused: boolean) => {
     for (const run of liveRuns) pausePooledRun(run.id, paused)
   }
+  useEffect(() => {
+    if (!ready || autoTourShown.current || configState?.onboardingStatus !== 'pending'
+      || appState !== 'config' || pool.entries.length || activeRun || restoreSession || sessionRecovery || configRecovery || ringingTimer) return
+    autoTourShown.current = true
+    tour.start('duration', finishTutorial)
+  }, [ready, configState?.onboardingStatus, appState, pool.entries.length, activeRun, restoreSession, sessionRecovery, configRecovery, ringingTimer])
+  const openTutorial = () => {
+    setRunningSettingsOpen(false)
+    libraryOriginRun.current = null
+    setOpenLibraryOnMount(true)
+    setAppState('config')
+    tour.start('new', finishTutorial)
+  }
+  const finishTutorial = (completed: boolean) => {
+    void onConfigCommand({ type: 'finishOnboarding', completed })
+  }
+  useEffect(() => { tour.suspend(!!ringingTimer) }, [!!ringingTimer, tour.suspend])
+  useEffect(() => { if (appState === 'running' && tour.step === 'start') tour.advance('start') }, [appState, tour.step, tour.advance])
+  const openStarterTimers = () => { setRunningSettingsOpen(false); setStarterTimersOpen(true) }
   const groupReanchor = async (align: boolean, offsetMinutes = 0, onlyId?: string) => {
     const entries = runEntriesRef.current.filter(entry => (!onlyId || entry.id === onlyId) && (!align || !entry.input.program.noMainInterval))
     const alignment = align ? { kind: 'local-clock' as const, offsetMinutes } : { kind: 'elapsed' as const }
     const results = await Promise.allSettled(entries.map(async entry => {
       const view = runViewsRef.current.get(entry.id)
       if (!view?.isRunning) return true
-      const wasPaused = view.isPaused
       if (!onlyId && align && entry.input.program.alignment.kind === 'local-clock' && entry.input.program.alignment.offsetMinutes === offsetMinutes) return true
       const program = { ...entry.input.program, alignment }
       const updated = await view.reanchor(program, align, entry.input.settings, entry.input.sourcePreset)
       if (updated) {
         patchRun(entry.id, { ...entry.input, program })
         if (align) updateRunDraft(entry.input, draft => ({ program: { ...draft.program, alignment } }))
-        else if (wasPaused) return view.setPaused(true)
       }
       return updated
     }))
@@ -1262,6 +1294,24 @@ function Root() {
     }
   }
 
+  const getGroupMuteSuggestions = (now: number, limit = 3): CueMuteSuggestion[] => {
+    const candidates = liveRuns.flatMap(run => {
+      const timerName = configState?.configs.find(config => config.id === run.configurationId)?.name
+        ?? configState?.drafts[UNNAMED_DRAFT_KEY]?.name
+        ?? run.program.steps[0].label
+      return (runViewsRef.current.get(run.id)?.getMuteSuggestions(now, limit) ?? []).map(cue => ({ ...cue, timerName, runId: run.id }))
+    }).sort((a, b) => a.at - b.at || Number(b.alarm) - Number(a.alarm)
+      || (a.rarity === b.rarity ? 0 : b.rarity - a.rarity) || a.runId.localeCompare(b.runId))
+    const uniqueTimes = candidates.filter((candidate, index) => index === 0 || candidates[index - 1].at !== candidate.at)
+    if (limit > 3) return uniqueTimes.slice(0, limit)
+    const firstForRun = new Map<string, typeof uniqueTimes[number]>()
+    for (const cue of uniqueTimes) if (!firstForRun.has(cue.runId)) firstForRun.set(cue.runId, cue)
+    return [...firstForRun.values(), ...uniqueTimes.filter(cue => firstForRun.get(cue.runId) !== cue)]
+      .slice(0, 3).sort((a, b) => a.at - b.at)
+  }
+
+  if (!ready) return <AppLoadingScreen backgroundColor={tokens.bg} accentColor={tokens.accent} textColor={tokens.text} />
+
   return (
     <FeedbackLayerProvider notice={notice} onDismiss={dismissNotice}>
       <View style={{ flex: 1, backgroundColor: tokens.bg }}>
@@ -1281,12 +1331,23 @@ function Root() {
                 <Pressable accessibilityRole="button" onPress={() => setConfigRetry(value => value + 1)} style={{ alignSelf: 'flex-start', paddingVertical: 12, paddingHorizontal: 16, borderRadius: 12, backgroundColor: tokens.surface, borderColor: tokens.border, borderWidth: 1 }}><Text style={{ color: tokens.text, fontWeight: '500' }}>Retry recovery</Text></Pressable>
               </View>
             ) : appState === 'config' ? (
-              configState ? <UnifiedTimerConfigScreen state={configState} onCommand={onConfigCommand} onStart={start} onStartConfiguration={id => start(id, true)} onDeleteConfiguration={deleteConfiguration} liveRuns={liveRuns} onOpenRun={Platform.OS === 'web' || supportsNativeTimerRuns ? focusRun : undefined} onGroupPause={groupPause} onGroupReset={() => void groupReanchor(false)} onRunReset={id => void groupReanchor(false, 0, id)} onRunSnap={(id, offset) => void groupReanchor(true, offset, id)} onGroupAlign={offset => groupReanchor(true, offset)} onGroupMute={muteLibraryRuns} onStopRuns={stopLibraryRuns} openLibraryOnMount={openLibraryOnMount} libraryOriginRunId={openLibraryOnMount ? libraryOriginRun.current : null} starting={starting} focusState={focusState} onFocusAutomationChange={setFocusAutomation} onOpenFocusSettings={openNotificationPolicySettings} onOpenFocusRuleSettings={openFocusRuleSettings} androidAccess={androidAccess} onOpenExactAlarmSettings={openExactAlarmSettings} onOpenFullScreenIntentSettings={openFullScreenIntentSettings} onRequestCallMuteAccess={() => void requestCallMuteAccess()} onRequestNotificationAccess={() => void requestNotificationAccess()} onFeedback={showNotice} /> : <AppLoadingScreen backgroundColor={tokens.bg} accentColor={tokens.accent} textColor={tokens.text} />
+              configState ? <UnifiedTimerConfigScreen onStartTutorial={openTutorial} onOpenStarterTimers={openStarterTimers} state={configState} onCommand={onConfigCommand} onStart={start} onStartConfiguration={id => start(id, true)} onDeleteConfiguration={deleteConfiguration} liveRuns={liveRuns} onOpenRun={Platform.OS === 'web' || supportsNativeTimerRuns ? focusRun : undefined} onGroupPause={groupPause} onGroupReset={() => void groupReanchor(false)} onRunReset={id => void groupReanchor(false, 0, id)} onRunSkip={(id, direction) => { runViewsRef.current.get(id)?.skipSequenceStep(direction) }} onRunSnap={(id, offset) => void groupReanchor(true, offset, id)} onGroupAlign={offset => groupReanchor(true, offset)} onGroupMute={muteLibraryRuns} getGroupMuteSuggestions={getGroupMuteSuggestions} onStopRuns={stopLibraryRuns} alarmRinging={!!ringingTimer} openLibraryOnMount={openLibraryOnMount} libraryOriginRunId={openLibraryOnMount ? libraryOriginRun.current : null} starting={starting} focusState={focusState} onFocusAutomationChange={setFocusAutomation} onOpenFocusSettings={openNotificationPolicySettings} onOpenFocusRuleSettings={openFocusRuleSettings} androidAccess={androidAccess} onOpenExactAlarmSettings={openExactAlarmSettings} onOpenFullScreenIntentSettings={openFullScreenIntentSettings} onRequestCallMuteAccess={() => void requestCallMuteAccess()} onRequestNotificationAccess={() => void requestNotificationAccess()} onFeedback={showNotice} /> : <AppLoadingScreen backgroundColor={tokens.bg} accentColor={tokens.accent} textColor={tokens.text} />
             ) : (
-              <TimerV2RunningScreen runId={focusedRunId ?? 'legacy'} enterDirection={focusedRunId ? runEnterDirection : 0} onOpenConfigurations={focusedRunId ? openRunLibrary : undefined} runPage={focusedIndex >= 0 && liveRuns.length > 1 ? { index: focusedIndex, count: liveRuns.length, move: moveRun, adjacent: adjacentRuns } : undefined} program={program} configurationName={activeRun?.sourcePreset?.name ?? (focusedRunId ? configState?.drafts[UNNAMED_DRAFT_KEY]?.name : undefined)} mainCountdown={timer.mainCountdown} nextCueCountdown={timer.nextCueCountdown} nextCueLabel={timer.nextCueLabel} progress={timer.progress} position={timer.position} eventPulse={timer.eventPulse} activeHoursPaused={timer.activeHoursPaused} activeHoursResumeAt={timer.activeHoursResumeAt} nextAudibleAt={timer.nextAudibleAt} nextAudibleLabel={timer.nextAudibleLabel} runEndsAt={timer.runEndsAt} runRemainingMs={timer.runRemainingMs} runProgress={timer.runProgress} mute={timer.mute} alarmBehavior={timer.alarmBehavior} realigning={realigning} isPaused={timer.isPaused} isAlarmRinging={timer.isAlarmRinging} onSetPaused={setTimerPaused} onSkipStep={timer.skipSequenceStep} onSeekStep={timer.seekStep} onStop={stop} onRestartUnsynced={() => reanchor(false)} onSnapToClock={offset => reanchor(true, offset)} onPressAlarm={pressAlarm} onToggleCurrentStepAlarm={toggleCurrentStepAlarm} onMuteForIterations={timer.muteForIterations} onMuteForSeconds={timer.muteForSeconds} onMuteUntil={timer.muteUntil} onClearMute={timer.clearMute} secondPrecision={configState?.globalSecondPrecision ?? liveSettings.secondPrecisionEnabled} masterVolume={liveSettings.masterVolume} onMasterVolumeChange={changeMasterVolume} onCueVolumeChange={changeCueVolume} controlSettings={{ advancedModeEnabled: false, runningControlIds: configState?.globalRunningControlIds, scrubbingEnabled: configState?.globalScrubbingEnabled }} onChangeRunningControlIds={(id, enabled) => { void onConfigCommand({ type: 'setGlobalRunningControl', id, enabled }) }} focusEnabled={liveSettings.focusAutomationEnabled} focusActive={focusState.actual === 'active' && !timer.activeHoursPaused} focusPolicyAccess={focusState.policyAccess} focusReason={focusState.reason} onToggleFocus={focusState.reason === 'paused-by-android' ? resumeFocusAutomation : () => setFocusAutomation(!liveSettings.focusAutomationEnabled)} onOpenFocusSettings={focusState.reason === 'rule-disabled' ? openFocusRuleSettings : openNotificationPolicySettings} configurations={runningConfigurations} activeConfigurationId={activeRun?.sourcePreset?.id} onSelectConfiguration={switchRunningConfiguration} externalPanel={floatingTimerPanel} onExternalPanelConsumed={() => setFloatingTimerPanel(null)} />
+              <>
+              <TimerV2RunningScreen onOpenSettings={configState ? () => setRunningSettingsOpen(true) : undefined} getMuteSuggestions={timer.getMuteSuggestions} runId={focusedRunId ?? 'legacy'} enterDirection={focusedRunId ? runEnterDirection : 0} onOpenConfigurations={focusedRunId ? openRunLibrary : undefined} runPage={focusedIndex >= 0 && liveRuns.length > 1 ? { index: focusedIndex, count: liveRuns.length, move: moveRun, adjacent: adjacentRuns } : undefined} program={program} configurationName={activeRun?.sourcePreset?.name ?? (focusedRunId ? configState?.drafts[UNNAMED_DRAFT_KEY]?.name : undefined)} mainCountdown={timer.mainCountdown} nextCueCountdown={timer.nextCueCountdown} nextCueLabel={timer.nextCueLabel} progress={timer.progress} position={timer.position} eventPulse={timer.eventPulse} activeHoursPaused={timer.activeHoursPaused} activeHoursResumeAt={timer.activeHoursResumeAt} nextAudibleAt={timer.nextAudibleAt} nextAudibleLabel={timer.nextAudibleLabel} runEndsAt={timer.runEndsAt} runRemainingMs={timer.runRemainingMs} runProgress={timer.runProgress} mute={timer.mute} alarmBehavior={timer.alarmBehavior} realigning={realigning} isPaused={timer.isPaused} isAlarmRinging={timer.isAlarmRinging} onSetPaused={setTimerPaused} onSkipStep={timer.skipSequenceStep} onSeekStep={timer.seekStep} onStop={stop} onRestartUnsynced={() => reanchor(false)} onSnapToClock={offset => reanchor(true, offset)} onPressAlarm={pressAlarm} onToggleCurrentStepAlarm={toggleCurrentStepAlarm} onMuteForIterations={timer.muteForIterations} onMuteForSeconds={timer.muteForSeconds} onMuteUntil={timer.muteUntil} onClearMute={timer.clearMute} secondPrecision={configState?.globalSecondPrecision ?? liveSettings.secondPrecisionEnabled} masterVolume={liveSettings.masterVolume} onMasterVolumeChange={changeMasterVolume} onCueVolumeChange={changeCueVolume} controlSettings={{ advancedModeEnabled: false, runningControlIds: configState?.globalRunningControlIds, scrubbingEnabled: configState?.globalScrubbingEnabled }} onChangeRunningControlIds={(id, enabled) => { void onConfigCommand({ type: 'setGlobalRunningControl', id, enabled }) }} focusEnabled={liveSettings.focusAutomationEnabled} focusActive={focusState.actual === 'active' && !timer.activeHoursPaused} focusPolicyAccess={focusState.policyAccess} focusReason={focusState.reason} onToggleFocus={focusState.reason === 'paused-by-android' ? resumeFocusAutomation : () => setFocusAutomation(!liveSettings.focusAutomationEnabled)} onOpenFocusSettings={focusState.reason === 'rule-disabled' ? openFocusRuleSettings : openNotificationPolicySettings} configurations={runningConfigurations} activeConfigurationId={activeRun?.sourcePreset?.id} onSelectConfiguration={switchRunningConfiguration} externalPanel={floatingTimerPanel} onExternalPanelConsumed={() => setFloatingTimerPanel(null)} />
+              {configState ? <TimerSettingsSheet onStartTutorial={openTutorial} onOpenStarterTimers={openStarterTimers} state={configState} onCommand={onConfigCommand} visible={runningSettingsOpen && !ringingTimer} onClose={() => setRunningSettingsOpen(false)}
+                settings={{ ...liveSettings, secondPrecisionEnabled: configState.globalSecondPrecision ?? liveSettings.secondPrecisionEnabled }}
+                onSettings={changeRunningSettings} focusState={focusState} onFocusAutomationChange={setFocusAutomation}
+                onOpenFocusSettings={openNotificationPolicySettings} onOpenFocusRuleSettings={openFocusRuleSettings}
+                androidAccess={androidAccess} onOpenExactAlarmSettings={openExactAlarmSettings} onOpenFullScreenIntentSettings={openFullScreenIntentSettings}
+                onRequestCallMuteAccess={() => void requestCallMuteAccess()} onRequestNotificationAccess={() => void requestNotificationAccess()} onFeedback={showNotice}
+              /> : null}
+              </>
             )}
           </Reanimated.View>
         </View>
+        <GuidedTourOverlay />
+        {starterTimersOpen && configState && !ringingTimer ? <StarterTimersSheet configs={configState.configs} onAdd={config => onConfigCommand({ type: 'importConfig', config, select: false })} onClose={() => setStarterTimersOpen(false)} /> : null}
         {ringingTimer && <AlarmRingingScreen key={ringingRun?.[0] ?? 'legacy'} name={ringingName} onDismiss={ringingTimer.dismissAlarm} />}
         <RootFeedbackOverlay hidden={!!ringingTimer} />
       </View>
@@ -1296,5 +1357,5 @@ function Root() {
 
 export default function App() {
   const [fontsLoaded] = useFonts({ 'JetBrainsMono-Light': JetBrainsMono_300Light, 'JetBrainsMono-Regular': JetBrainsMono_400Regular })
-  return <GestureHandlerRootView style={{ flex: 1 }}><SafeAreaProvider><AppErrorBoundary>{fontsLoaded ? <ThemeProvider><ConfirmationProvider><Root /></ConfirmationProvider></ThemeProvider> : <AppLoadingScreen backgroundColor="#0b0c10" accentColor="#7c6ff7" textColor="#e8e8f0" message="Preparing Chandas…" />}</AppErrorBoundary></SafeAreaProvider></GestureHandlerRootView>
+  return <GestureHandlerRootView style={{ flex: 1 }}><SafeAreaProvider><AppErrorBoundary>{fontsLoaded ? <ThemeProvider><ConfirmationProvider><GuidedTourProvider><Root /></GuidedTourProvider></ConfirmationProvider></ThemeProvider> : <AppLoadingScreen backgroundColor="#0b0c10" accentColor="#7c6ff7" textColor="#e8e8f0" message="Preparing Chandas…" />}</AppErrorBoundary></SafeAreaProvider></GestureHandlerRootView>
 }

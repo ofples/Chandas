@@ -107,6 +107,24 @@ object UnifiedTimerTimeline {
         for (offsetIndex in 0 until offsets.length()) if (exactLong(offsets, offsetIndex)?.let { it in 1L..MAX_DURATION_SECONDS } != true) return@runCatching false
         if (track.has("afterStartSeconds") && exactLong(track, "afterStartSeconds")?.let { it in 1L..MAX_DURATION_SECONDS } != true) return@runCatching false
         if (track.has("beforeEndSeconds") && exactLong(track, "beforeEndSeconds")?.let { it in 1L..MAX_DURATION_SECONDS } != true) return@runCatching false
+        if (track.has("points")) {
+          val points = track.optJSONArray("points") ?: return@runCatching false
+          if (points.length() > 32) return@runCatching false
+          val pointIds = mutableSetOf<String>()
+          for (p in 0 until points.length()) {
+            val point = points.optJSONObject(p) ?: return@runCatching false
+            val pointId = point.opt("id") as? String ?: return@runCatching false
+            if (pointId.isEmpty() || pointId.length > 128 || !pointIds.add(pointId)) return@runCatching false
+            when (point.optString("kind")) {
+              "percent" -> {
+                val value = (point.opt("value") as? Number)?.toDouble() ?: return@runCatching false
+                if (!value.isFinite() || value < 0.1 || value > 99.9 || kotlin.math.abs(value * 10 - kotlin.math.round(value * 10)) > 0.000001) return@runCatching false
+              }
+              "start", "end" -> if (exactLong(point, "value")?.let { it in 1L..MAX_DURATION_SECONDS } != true) return@runCatching false
+              else -> return@runCatching false
+            }
+          }
+        }
         val random = track.optJSONObject("randomRepeat")
         if (track.has("randomRepeat") && random == null) return@runCatching false
         if (random != null) {
@@ -323,11 +341,25 @@ object UnifiedTimerTimeline {
       }
       track.optLong("afterStartSeconds", -1L).takeIf { it > 0L && it < durationSeconds }?.let(offsets::add)
       track.optLong("beforeEndSeconds", -1L).takeIf { it > 0L && it < durationSeconds }?.let { offsets.add(durationSeconds - it) }
+      val pointOffsets = mutableSetOf<Long>()
+      track.optJSONArray("points")?.let { points ->
+        for (index in 0 until points.length()) {
+          val point = points.optJSONObject(index) ?: continue
+          val value = point.optDouble("value")
+          val offset = when (point.optString("kind")) {
+            "percent" -> kotlin.math.floor(durationSeconds * value / 100.0 + 0.5).toLong()
+            "end" -> durationSeconds - value.toLong()
+            else -> value.toLong()
+          }
+          if (offset > 0L && offset < durationSeconds) pointOffsets.add(offset)
+        }
+      }
+      offsets.addAll(pointOffsets)
       track.optJSONObject("randomRepeat")?.let { range -> offsets.addAll(randomOffsets(track.optString("id"), range.optLong("minSeconds"), range.optLong("maxSeconds"), durationSeconds, round, randomSeed)) }
       val cadence = track.optLong("cadenceSeconds")
       for (offset in offsets) {
         val at = start + offset * SECOND
-        val explicitMarker = offset == track.optLong("afterStartSeconds", -1L) || offset == durationSeconds - track.optLong("beforeEndSeconds", -1L)
+        val explicitMarker = offset in pointOffsets || offset == track.optLong("afterStartSeconds", -1L) || offset == durationSeconds - track.optLong("beforeEndSeconds", -1L)
         val priority = if (track.optBoolean("repeatEnabled", true)) cadence else 0L
         val bell = candidate(track, track.getString("id"), step.getString("id"), track.getString("id"), "sub-bell", false, visible, cadence, priority, trackOrder)
         groups.getOrPut(at) { mutableListOf() }.add(bell.copy(explicitMarker = explicitMarker, occurrencesPerRound = offsets.size))

@@ -62,6 +62,8 @@ export function effectiveAlarmSettings(program: UnifiedTimerProgram, settings: A
 
 export interface UnifiedConfigState {
   schemaVersion: 3
+  /** Absent on existing installations; the automatic tour is only for fresh installs. */
+  onboardingStatus?: 'pending' | 'dismissed' | 'completed'
   selectedConfigId: string | null
   configs: UnifiedTimerConfig[]
   drafts: Record<string, UnifiedTimerDraft>
@@ -83,6 +85,7 @@ export interface ConfigStateDependencies {
 }
 
 export type ConfigStateCommand =
+  | { type: 'finishOnboarding'; completed: boolean }
   | { type: 'edit'; configId?: string | null; changes: Partial<Pick<UnifiedTimerDraft, 'name' | 'program' | 'settings' | 'editorOptions'>>; now?: number }
   | { type: 'save'; now?: number }
   | { type: 'saveAs'; name: string; id?: string; now?: number }
@@ -100,6 +103,7 @@ export type ConfigStateCommand =
   | { type: 'setGlobalRunningControl'; id: RunningControlId; enabled: boolean }
   | { type: 'setGlobalSecondPrecision'; enabled: boolean }
   | { type: 'dismissLegacyRecoveryNotice' }
+  | { type: 'discardLegacyRecovery'; id: string }
 
 export interface ConfigCommandResult {
   state: UnifiedConfigState
@@ -495,6 +499,7 @@ export function parseUnifiedConfigState(input: unknown): UnifiedConfigParseResul
   if (raw.globalSecondPrecision !== undefined && !boolean(raw.globalSecondPrecision)) return fail('Invalid global seconds preference')
   const globalSecondPrecision = raw.globalSecondPrecision ?? legacyControls.secondPrecisionEnabled
   if (raw.legacyRecoveryNoticeDismissed !== undefined && !boolean(raw.legacyRecoveryNoticeDismissed)) return fail('Invalid legacy recovery notice preference')
+  if (raw.onboardingStatus !== undefined && (typeof raw.onboardingStatus !== 'string' || !['pending', 'dismissed', 'completed'].includes(raw.onboardingStatus))) return fail('Invalid onboarding status')
   const legacyRecoveries: UnifiedLegacyRecovery[] = []
   for (const value of raw.legacyRecoveries) {
     if (!record(value) || !idValid(value.id) || (value.sourceMode !== 'pattern' && value.sourceMode !== 'sequence')) return fail('Invalid legacy recovery')
@@ -535,8 +540,16 @@ export function reduceUnifiedConfigCommand(
 ): ConfigCommandResult {
   const now = 'now' in command ? command.now ?? deps.now?.() ?? Date.now() : deps.now?.() ?? Date.now()
   const state = clone(input)
+  if (command.type === 'finishOnboarding') {
+    if (state.onboardingStatus !== 'completed') state.onboardingStatus = command.completed ? 'completed' : 'dismissed'
+    return result(state, 'applied')
+  }
   if (command.type === 'dismissLegacyRecoveryNotice') {
     state.legacyRecoveryNoticeDismissed = true
+    return result(state, 'applied')
+  }
+  if (command.type === 'discardLegacyRecovery') {
+    state.legacyRecoveries = state.legacyRecoveries.filter(recovery => recovery.id !== command.id)
     return result(state, 'applied')
   }
   if (command.type === 'setGlobalSecondPrecision') {

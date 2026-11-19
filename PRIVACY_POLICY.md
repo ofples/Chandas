@@ -1,6 +1,6 @@
 # Chandas Privacy Policy
 
-**Effective date: July 13, 2026**
+**Effective date: November 19, 2026**
 
 Chandas is a timer application provided by Yukti ("we", "us", or "our"). This Privacy Policy explains how Chandas handles information when you use the application.
 
@@ -14,15 +14,16 @@ Timer settings and session state are stored locally on your device. Chandas make
 
 Chandas stores the following information in the application's private storage:
 
-- Main and sub-interval settings
+- Timer configurations, steps, sub-bells, drafts, and saved templates
 - Snap and reset configuration
 - Volume and temporary mute settings
 - Active-hours configuration
 - Alarm and focus-mode preferences
-- Theme and advanced-settings preferences
-- The state and timing of an active timer session
+- Theme, control visibility, and tutorial preferences
+- The state and timing of active timer sessions
+- Sound files you choose to import, and references to selected device sounds
 
-This information is used only to provide the timer's features and restore an active session after the app or device restarts. It is not uploaded to Yukti or shared with other users.
+This information is used only to provide the timer's features and restore an active session after the app or device restarts. It is not uploaded to Yukti. If you choose to export or share a configuration, Chandas passes the selected configuration to the destination you choose through Android sharing or the clipboard. That destination handles the shared information under its own policies.
 
 Local information remains on your device until you change it, clear Chandas's app data, or uninstall Chandas.
 
@@ -38,12 +39,16 @@ Chandas does not otherwise send your timer settings or session activity over the
 
 Depending on your device and the features you enable, Chandas may request or use the following system capabilities:
 
-- **Notifications:** To show timer status, interval events, and alarm alerts.
+- **Notifications:** To show ongoing timer status and alarm alerts, including optional live countdown updates on supported devices.
 - **Exact alarms and full-screen alarm notifications:** To deliver time-sensitive alarms and display them over the lock screen when alarm mode is enabled.
 - **Background operation and wake locks:** To keep an active timer working when the app is not visible or the screen is locked.
 - **Start after device restart:** To restore an active timer after the device reboots.
 - **Do Not Disturb access:** If you enable a focus session and grant access in Android settings, Chandas creates and controls an automatic Do Not Disturb rule that allows alarms. Chandas does not read the contents of your notifications.
 - **Audio controls:** To play bells, gongs, and alarm sounds. Chandas does not record audio or access your microphone.
+- **Phone state (optional):** If you enable muting during calls, Chandas checks whether a call is active. It does not read telephone numbers, contacts, call logs, or call audio, and does not transmit call state.
+- **Nearby devices / Bluetooth (optional):** To identify a connected audio output as headphones or an external speaker when you choose which outputs may play timer sounds. Device details are used locally and are not uploaded.
+- **Display over other apps (optional):** If enabled, to show a floating timer. Chandas does not read the contents of other apps.
+- **File access selected by you:** Android's document picker lets you choose configurations or sound files to import. Chandas does not request broad access to your files.
 
 You can revoke notifications, alarms, or Do Not Disturb access at any time in Android settings. Some related features may stop working after access is revoked.
 
@@ -69,4 +74,4 @@ We may update this Privacy Policy when Chandas's features or legal obligations c
 
 ## Contact
 
-For privacy questions or requests, contact Yukti using the developer contact details displayed on Chandas's Google Play listing or open a private support request through the contact mechanism provided there.
+For privacy questions or requests, contact Yukti at plesserofer@gmail.com.

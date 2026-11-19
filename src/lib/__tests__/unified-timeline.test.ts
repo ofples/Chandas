@@ -3,11 +3,40 @@ import fixture from '../../../fixtures/timer-unified-timeline.json'
 import type { UnifiedTimerProgram } from '../../types'
 import { unifiedCueIdentity, unifiedIterationEnd, unifiedProgramDurationMs, unifiedRunEndAt, unifiedSkipTarget, unifiedTimelinePosition, nextUnifiedProgramEvent } from '../unified-timeline'
 import { seekStepTarget, timelinePosition } from '../timeline'
+import { upcomingMuteSuggestions } from '../upcoming-events'
 
 const base = fixture.program as UnifiedTimerProgram
 const query = (now: number, program = base, visibleOnly = false) => nextUnifiedProgramEvent(program, fixture.anchor, now, fixture.anchor, null, fixture.randomSeed, visibleOnly)
 
 describe('unified timer timeline', () => {
+  it('suggests resuming at a main cue and a sub-bell, skipping a silent ending', () => {
+    const step = structuredClone(base.steps[0])
+    step.durationSeconds = 120
+    step.endAlarmEnabled = false
+    step.endCue.soundMuted = true
+    step.subBellsEnabled = true
+    const [track] = step.subBellTracks
+    step.subBellTracks = [{ ...track, enabled: true, showOnWatchFace: true, repeatEnabled: true, selectedOffsetsSeconds: [15, 30, 45], randomRepeat: undefined, afterStartSeconds: undefined, beforeEndSeconds: undefined }]
+    const program: UnifiedTimerProgram = { ...base, steps: [step], alignment: { kind: 'elapsed' }, completionCue: null }
+    const suggestions = upcomingMuteSuggestions(program, { enabled: false, weeklyWindows: [], overrides: [] }, fixture.anchor, fixture.anchor, fixture.anchor, null, fixture.randomSeed, 'once')
+    expect(suggestions.map(cue => cue.at - fixture.anchor)).toEqual([15_000, 30_000, 120_000])
+    expect(suggestions[2].alarm).toBe(true)
+    const noMain = upcomingMuteSuggestions({ ...program, noMainInterval: true }, { enabled: false, weeklyWindows: [], overrides: [] }, fixture.anchor, fixture.anchor, fixture.anchor, fixture.anchor + 10_000, fixture.randomSeed, 'off')
+    expect(noMain).toEqual([])
+  })
+  it('offers more chronological bell times while excluding hidden tracks', () => {
+    const step = structuredClone(base.steps[0])
+    step.durationSeconds = 120
+    step.subBellsEnabled = true
+    step.endAlarmEnabled = false
+    const track = { ...step.subBellTracks[0], enabled: true, showOnWatchFace: true, repeatEnabled: true, selectedOffsetsSeconds: [30, 60, 90], randomRepeat: undefined, afterStartSeconds: undefined, beforeEndSeconds: undefined }
+    step.subBellTracks = [track, { ...track, id: 'hidden', label: 'Hidden bell', showOnWatchFace: false, selectedOffsetsSeconds: [15, 45, 75, 105] }]
+    const program: UnifiedTimerProgram = { ...base, steps: [step], alignment: { kind: 'elapsed' }, completionCue: null }
+    const suggestions = upcomingMuteSuggestions(program, { enabled: false, weeklyWindows: [], overrides: [] }, fixture.anchor, fixture.anchor, fixture.anchor, null, fixture.randomSeed, 'off', 12)
+    expect(suggestions).toHaveLength(12)
+    expect(suggestions.every(cue => cue.label !== 'Hidden bell')).toBe(true)
+    expect(suggestions.map(cue => (cue.at - fixture.anchor) / 1000)).toEqual([30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 360])
+  })
   it('keeps bells on their own cadence past the stored finite interval', () => {
     const step = structuredClone(base.steps[0])
     step.durationSeconds = 60

@@ -12,6 +12,33 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class UnifiedTimerTimelineTest {
+  @Test fun percentagePointsAndFixedMarkersResolveAcrossRoundsAndDurations() {
+    val program = fixtures.getJSONObject("fixture").getJSONObject("program")
+    val step = program.getJSONArray("steps").getJSONObject(0).put("durationSeconds", 100)
+    val track = step.getJSONArray("subBellTracks").getJSONObject(0)
+      .put("repeatEnabled", false).put("selectedOffsetsSeconds", JSONArray())
+    track.remove("afterStartSeconds"); track.remove("beforeEndSeconds"); track.remove("randomRepeat")
+    track.put("points", JSONArray().put(JSONObject().put("id", "quarter").put("kind", "percent").put("value", 25))
+      .put(JSONObject().put("id", "fixed").put("kind", "start").put("value", 80))
+      .put(JSONObject().put("id", "last").put("kind", "end").put("value", 10)))
+    step.put("subBellTracks", JSONArray().put(track))
+    program.put("steps", JSONArray().put(step)).put("runPolicy", JSONObject().put("kind", "continuous").put("cycleCount", 1).put("durationSeconds", 1800))
+    assertTrue(UnifiedTimerTimeline.isValid(program.toString()))
+    assertEquals(26_000L, UnifiedTimerTimeline.next(program.toString(), 1000L, 1000L)!!.at)
+    assertEquals(81_000L, UnifiedTimerTimeline.next(program.toString(), 1000L, 26_000L)!!.at)
+    assertEquals(126_000L, UnifiedTimerTimeline.next(program.toString(), 1000L, 101_000L)!!.at)
+    step.put("durationSeconds", 40)
+    assertEquals(11_000L, UnifiedTimerTimeline.next(program.toString(), 1000L, 1000L)!!.at)
+    assertEquals(31_000L, UnifiedTimerTimeline.next(program.toString(), 1000L, 11_000L)!!.at)
+    step.put("durationSeconds", 60)
+    track.put("points", JSONArray().put(JSONObject().put("id", "fraction").put("kind", "percent").put("value", 12.5)))
+    assertEquals(9000L, UnifiedTimerTimeline.next(program.toString(), 1000L, 1000L)!!.at)
+    for (value in listOf(0.0, 100.0, 1.23)) {
+      track.getJSONArray("points").getJSONObject(0).put("value", value)
+      assertFalse(UnifiedTimerTimeline.isValid(program.toString()))
+    }
+  }
+
   @Test fun independentBellsIgnoreMainCueAndFiniteOffsets() {
     val program = fixtures.getJSONObject("fixture").getJSONObject("program")
     val step = program.getJSONArray("steps").getJSONObject(0).put("durationSeconds", 60).put("endAlarmEnabled", true)

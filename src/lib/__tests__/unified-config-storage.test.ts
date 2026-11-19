@@ -122,6 +122,19 @@ describe('unified config drafts', () => {
     expect(reloaded).toMatchObject({ status: 'loaded', state: { legacyRecoveryNoticeDismissed: true, legacyRecoveries: loaded.state.legacyRecoveries } })
   })
 
+  it('keeps a discarded recovered copy hidden after reload and preserves its legacy source', async () => {
+    const storage = new MemoryStorage()
+    setV2(storage)
+    const source = storage.values.get(LEGACY_TIMER_STORAGE_KEYS.workingPrograms)
+    const loaded = await bootstrapUnifiedConfigState(storage)
+    if (loaded.status !== 'loaded') throw new Error('Legacy timers did not load')
+    const [discarded, ...remaining] = loaded.state.legacyRecoveries
+    const next = reduceUnifiedConfigCommand(loaded.state, { type: 'discardLegacyRecovery', id: discarded.id })
+    await saveUnifiedConfigState(storage, next.state)
+    expect(await bootstrapUnifiedConfigState(storage)).toMatchObject({ status: 'loaded', state: { legacyRecoveries: remaining, configs: loaded.state.configs } })
+    expect(storage.values.get(LEGACY_TIMER_STORAGE_KEYS.workingPrograms)).toBe(source)
+  })
+
   it('recovers the active schedule when loading a pre-global state', () => {
     const legacy = createDefaultUnifiedConfigState({ now: () => 100, createId: () => 'first' }) as unknown as Record<string, unknown>
     const schedule = {
@@ -267,7 +280,8 @@ describe('unified config storage migration', () => {
     expect(result.status).toBe('loaded')
     if (result.status !== 'loaded') return
     expect(result.source).toBe('new-install')
-    expect(result.state.configs).toEqual([])
+    expect(result.state.configs.map(config => config.name)).toEqual(['Pomodoro', 'Workout intervals', 'Meditation'])
+    expect(result.state.onboardingStatus).toBe('pending')
     expect(result.state.selectedConfigId).toBeNull()
     expect(result.state.drafts[UNNAMED_DRAFT_KEY]).toMatchObject({ name: '30-minute timer', dirty: true, editorOptions: { configurationNameIsCustom: false } })
     expect(storage.values.has(UNIFIED_MIGRATION_MARKER_KEY)).toBe(true)

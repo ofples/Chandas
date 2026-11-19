@@ -9,11 +9,12 @@ import { useTheme } from '../../theme/ThemeContext'
 interface Props {
   tracks: PatternTrack[]
   mainDurationSeconds: number
+  boundaryColor?: string
   onPress?: () => void
 }
 
 /** Shared cue timeline used by both the editor and saved-configuration review. */
-export function PatternTimelinePreview({ tracks, mainDurationSeconds, onPress }: Props) {
+export function PatternTimelinePreview({ tracks, mainDurationSeconds, boundaryColor, onPress }: Props) {
   const { tokens, theme } = useTheme()
   const reducedMotion = useAppReducedMotion()
   const active = tracks.filter(track => track.enabled)
@@ -27,8 +28,8 @@ export function PatternTimelinePreview({ tracks, mainDurationSeconds, onPress }:
     accessibilityHint={onPress ? 'Opens the Sub-bells editor' : undefined}
   >
     <View style={[styles.timelineLine, { backgroundColor: tokens.border }]} />
-    <View style={[styles.timelineBoundary, { left: 0, backgroundColor: tokens.accent }]} />
-    <View style={[styles.timelineBoundary, { right: 0, backgroundColor: tokens.accent }]} />
+    <View style={[styles.timelineBoundary, { left: 0, backgroundColor: boundaryColor ?? tokens.accent }]} />
+    <View style={[styles.timelineBoundary, { right: 0, backgroundColor: boundaryColor ?? tokens.accent }]} />
     {active.flatMap((track, trackIndex) => trackEventOffsetsSeconds(track, mainDurationSeconds).map(offset =>
       <View key={`${track.id}:${offset}`} style={[styles.timelineCue, { left: `${offset / mainDurationSeconds * 100}%`, top: 8 + trackIndex * 6, backgroundColor: subBellColorValue(track.color, trackIndex, theme === 'eink') }]} />
     ))}

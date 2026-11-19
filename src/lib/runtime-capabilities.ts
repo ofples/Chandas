@@ -17,6 +17,7 @@ export function nativeSupportsRuntimeProgram(program: RuntimeTimerProgram, capab
     : program.mode === 'pattern' ? [program.mainCue, ...program.tracks, program.completionCue] : [...program.steps, program.completionCue]
   if (capabilities.supportsUnlimitedSounds !== true && cues.some(cue => (cue?.sounds?.length ?? 0) > 8)) return false
   const tracks = program.mode === 'unified' ? program.steps.flatMap(step => step.subBellTracks) : program.mode === 'pattern' ? program.tracks : []
+  if (capabilities.supportsBellPoints !== true && program.mode === 'unified' && tracks.some(track => 'points' in track && (track.points?.length ?? 0) > 0)) return false
   if (capabilities.supportsRandomRepeat !== true && tracks.some(track => track.randomRepeat)) return false
   if (capabilities.supportsStepAlarms !== true && (program.mode === 'unified' ? program.steps.some(step => step.endAlarmEnabled) : program.mode === 'sequence' && program.steps.some(step => step.alarmEnabled))) return false
   return !requiresExactSubBellRuntime(program) || capabilities.supportsSubBellSecondPrecision === true

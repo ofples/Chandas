@@ -40,6 +40,22 @@ Local `expo prebuild`, targeted Gradle compile and unit-test tasks, Android Stud
 
 Remote EAS Build remains an option for distributable artifacts and matching the configured release workflow. Expo does not officially support `eas build --local` on Windows; use Expo CLI and the Android toolchain for local builds, or use EAS Build remotely. [Expo local development](https://docs.expo.dev/guides/local-app-development/) · [EAS local build limitations](https://docs.expo.dev/build-reference/local-builds/)
 
+## Bell Points and guided onboarding (native contract 15)
+
+Bell Points adds optional authored percentage, after-start, and before-end positions
+inside each step. Percentages resolve to exact seconds with half-up rounding; fixed
+positions outside a shortened step remain stored and reactivate when lengthened.
+Coincident positions share one event and retain explicit-marker precedence. Existing
+single after/before markers remain readable without rewriting saved configurations.
+The Android engine advertises `supportsBellPoints`; older binaries must refuse a
+program containing points rather than silently omit its cues. This requires a new
+native binary, not a JavaScript-only update.
+
+The first-run Quick tour now highlights actual controls across setup, sub-bells,
+running, saving, and configurations. Skip exits without discarding edits or stopping
+runs. Settings can replay it. Existing starter timers and first-run dismissal state
+remain unchanged.
+
 ## Before every release
 
 ### Unified timer migration (native contract 14)

@@ -146,6 +146,7 @@ class ChandasTimerServiceModule : Module() {
         "supportsSubBellSecondPrecision" to true,
         "supportsUntilRunLength" to true,
         "supportsNoMainInterval" to true,
+        "supportsBellPoints" to true,
         "supportsMuteSecondPrecision" to true,
         "supportsDualLiveCountdown" to true,
         "supportsProgramClockAlignment" to true,

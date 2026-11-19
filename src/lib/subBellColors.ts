@@ -25,6 +25,10 @@ export const SUB_BELL_COLORS: readonly SubBellColorOption[] = [
 
 const IDS = new Set<SubBellColorId>(SUB_BELL_COLORS.map(option => option.id))
 
+export function isTimerColor(value: unknown): value is SubBellColorId {
+  return typeof value === 'string' && IDS.has(value as SubBellColorId)
+}
+
 export function defaultSubBellColor(index: number): SubBellColorId {
   return SUB_BELL_COLORS[Math.abs(index) % SUB_BELL_COLORS.length].id
 }
@@ -39,9 +43,7 @@ export function timerIdentityColor(id: string, occupied: readonly SubBellColorId
 }
 
 export function normalizeSubBellColor(value: unknown, index: number): SubBellColorId {
-  return typeof value === 'string' && IDS.has(value as SubBellColorId)
-    ? value as SubBellColorId
-    : defaultSubBellColor(index)
+  return isTimerColor(value) ? value : defaultSubBellColor(index)
 }
 
 const EINK_RING_SHADES = ['#111111', '#444444', '#777777', '#999999', '#555555', '#222222'] as const

@@ -98,7 +98,7 @@ export function BottomSheet({ visible, title, accessibilityTitle, eyebrow, onClo
   const scrollResetKey = presented.presentationKey === undefined ? visible : `${visible ? 'open' : 'closed'}:${presented.presentationKey}`
   const body = presented.scroll
     ? <FadedVerticalScrollView fadeColor={tokens.surface} resetKey={scrollResetKey} style={styles.scroll} onContentSizeChange={fitContent ? (_, height) => setBodyHeight(height) : undefined} keyboardShouldPersistTaps="handled" keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'} contentContainerStyle={styles.body}>{presented.children}</FadedVerticalScrollView>
-    : <View style={styles.body}>{presented.children}</View>
+    : <View onLayout={fitContent ? event => setBodyHeight(event.nativeEvent.layout.height) : undefined} style={styles.body}>{presented.children}</View>
 
   return (
     <Modal visible={visible} transparent animationType="none" onRequestClose={requestClose} statusBarTranslucent>

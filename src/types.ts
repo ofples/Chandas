@@ -150,6 +150,13 @@ export interface SequenceProgram {
 export type TimerProgram = PatternProgram | SequenceProgram
 
 /** Schema 4: the single authored timer shape used by the unified editor/runtime. */
+export interface BellPoint {
+  id: string
+  kind: 'percent' | 'start' | 'end'
+  /** Percentage (0.1 to 99.9), or an exact number of seconds. */
+  value: number
+}
+
 export interface UnifiedSubBellTrack extends CueSettings {
   id: string
   label: string
@@ -162,11 +169,13 @@ export interface UnifiedSubBellTrack extends CueSettings {
   randomRepeat?: { minSeconds: number; maxSeconds: number }
   afterStartSeconds?: number
   beforeEndSeconds?: number
+  points?: BellPoint[]
 }
 
 export interface UnifiedTimerStep {
   id: string
   label: string
+  color?: SubBellColorId
   /** Retains the Pattern label's automatic/custom intent through migration. */
   labelIsCustom?: boolean
   durationSeconds: number

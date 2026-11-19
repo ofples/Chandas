@@ -30,10 +30,10 @@ export function RunningControlSettingsList({ settings, onChange }: {
 }
 
 const styles = StyleSheet.create({
-  list: { gap: 13 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 11 },
-  icon: { width: 30, height: 30, borderWidth: 1, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
+  list: { gap: 18 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 56 },
+  icon: { width: 36, height: 36, borderWidth: 1, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   copy: { flex: 1, minWidth: 0, gap: 2 },
-  title: { fontSize: 13, lineHeight: 18, fontWeight: '700' },
-  description: { fontSize: 11, lineHeight: 15 },
+  title: { fontSize: 16, lineHeight: 22, fontWeight: '500' },
+  description: { fontSize: 14, lineHeight: 20 },
 })

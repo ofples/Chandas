@@ -9,6 +9,7 @@ import {
   type UnifiedTimerConfig, type UnifiedTimerDraft,
 } from './unified-config-state'
 import { cueSounds, isSupportedSoundRef, soundRefKey } from './timerV2'
+import { addFirstRunStarters } from './starter-timers'
 
 export const UNIFIED_CONFIG_STORAGE_KEY = 'chandas-timer-unified-state-v3'
 export const UNIFIED_MIGRATION_MARKER_KEY = 'chandas-timer-unified-migrated-v3'
@@ -252,7 +253,7 @@ async function bootstrapUnlocked(storage: AsyncKeyValueStorage, deps: UnifiedSto
   if (hasLegacySession || records.get(LEGACY_TIMER_STORAGE_KEYS.v2Marker) !== null) {
     return recoverResult('legacy-session-without-config', legacy, 'Legacy runtime or migration records exist without a recoverable configuration')
   }
-  const state = createUnsavedUnifiedConfigState({ now: deps.now, createId: deps.createId })
+  const state = addFirstRunStarters(createUnsavedUnifiedConfigState({ now: deps.now, createId: deps.createId }), deps.now?.() ?? Date.now())
   return persistMigration(storage, state, 'new-install', legacy)
 }
 

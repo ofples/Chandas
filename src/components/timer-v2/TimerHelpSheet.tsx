@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
-import { BellIcon, TimerTransportIcon } from '../Icons'
+import { BellIcon, ConfigurationIcon, TimerTransportIcon } from '../Icons'
 import { useTheme } from '../../theme/ThemeContext'
 import { BottomSheet } from './BottomSheet'
 import { RunningControlSettingsList } from './RunningControlSettingsList'
@@ -25,8 +25,9 @@ export function TimerHelpSheet({ visible, mode, controlSettings, onRunningContro
         ? item(<BellIcon on color={tokens.accent} />, 'Your timer', 'The timer counts down the current interval. Colored inner rings mark upcoming sub-bells.')
         : item(<BellIcon on color={tokens.accent} />, 'Your steps', 'The timer counts down the current step. Its name appears below the timer.')}
     {item(<TimerTransportIcon kind="pause" color={tokens.accent} />, 'Pause and resume', 'Use the button below the watchface to freeze the countdown, then continue from the same position. Pausing a clock-aligned timer turns off clock alignment.')}
-    {mode === 'sequence' ? item(<TimerTransportIcon kind="next" color={tokens.accent} />, 'Move between steps', 'Tap a neighboring step or use the buttons beside Pause. Hold the step strip for one second before dragging farther.') : null}
-    <View style={styles.controlSettings}><Text style={[styles.controlTitle, { color: tokens.text }]}>Show running controls</Text><RunningControlSettingsList settings={controlSettings} onChange={onRunningControlIdsChange} /></View>
+    {mode === 'sequence' ? item(<TimerTransportIcon kind="next" color={tokens.accent} />, 'Move between steps', 'Tap a neighboring step or use the buttons beside Pause. Hold the step strip for half a second before dragging farther.') : null}
+    {item(<ConfigurationIcon color={tokens.accent} />, 'Your configurations', 'Swipe down or tap Configurations to see your timers. When several timers are running, swipe sideways through the center of the timer to switch between them.')}
+    <View style={styles.controlSettings}><Text style={[styles.controlTitle, { color: tokens.text }]}>Show running controls</Text><Text style={[styles.body, { color: tokens.textMuted }]}>Applies to all timers. Each control appears where it can be used. Hold a control to see what it does.</Text><RunningControlSettingsList settings={controlSettings} onChange={onRunningControlIdsChange} /></View>
   </BottomSheet>
 }
 
@@ -34,8 +35,8 @@ const styles = StyleSheet.create({
   item: { flexDirection: 'row', alignItems: 'flex-start', gap: 11 },
   icon: { width: 28, height: 28, marginTop: -4, borderWidth: 1.5, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   copy: { flex: 1, minWidth: 0, gap: 3 },
-  title: { fontSize: 14, lineHeight: 20, fontWeight: '700' },
-  body: { fontSize: 12, lineHeight: 18 },
+  title: { fontSize: 15, lineHeight: 21, fontWeight: '600' },
+  body: { fontSize: 14, lineHeight: 20 },
   controlSettings: { gap: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#8885', paddingTop: 14 },
-  controlTitle: { fontSize: 14, lineHeight: 20, fontWeight: '700' },
+  controlTitle: { fontSize: 16, lineHeight: 22, fontWeight: '600' },
 })
