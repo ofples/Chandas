@@ -2,7 +2,7 @@ name: iOS simulator acceptance
 on:
   push:
     branches: [codex/ios-support]
-    paths: ['.github/workflows/ios-simulator-acceptance.yml', 'scripts/ios-ui-smoke.yaml']
+    paths: ['.github/workflows/ios-simulator-acceptance.yml', 'scripts/ios-ui-smoke.yaml', 'scripts/ios-simulator-prepare.py']
   workflow_dispatch:
     inputs:
       artifact_url:
@@ -12,10 +12,10 @@ permissions:
   contents: read
 jobs:
   acceptance:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 20
     env:
-      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
       MAESTRO_CLI_NO_ANALYTICS: '1'
     steps:
       - uses: actions/checkout@v4
@@ -35,10 +35,8 @@ jobs:
           app="$(find /tmp/chandas-simulator -name '*.app' -maxdepth 2 -print -quit)"
           test -n "$app"
           test -d "$app/PlugIns/ChandasWidgets.appex"
-          xcrun simctl list devices available -j > /tmp/chandas-devices.json
-          device="$(python3 -c 'import json; v=json.load(open("/tmp/chandas-devices.json")); print(next(d["udid"] for k, ds in v["devices"].items() if "iOS-26" in k for d in ds if "iPhone" in d["name"]))')"
-          xcrun simctl boot "$device"
-          xcrun simctl bootstatus "$device" -b
+          python3 -u scripts/ios-simulator-prepare.py artifacts/ios/device.txt
+          device="$(cat artifacts/ios/device.txt)"
           xcrun simctl install "$device" "$app"
           MAESTRO_VERSION=2.12.1 curl -fsSL https://get.maestro.mobile.dev -o /tmp/maestro-install.sh
           MAESTRO_VERSION=2.12.1 bash /tmp/maestro-install.sh

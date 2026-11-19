@@ -26,10 +26,8 @@ xcodebuild -workspace ios/Chandas.xcworkspace -scheme Chandas -configuration Rel
 app="$(find artifacts/ios/DerivedData/Build/Products/Release-iphonesimulator -maxdepth 1 -name '*.app' -print -quit)"
 test -n "$app"
 test -d "$app/PlugIns/ChandasWidgets.appex"
-xcrun simctl list devices available -j > artifacts/ios/devices.json
-device="$(python3 -c 'import json; v=json.load(open("artifacts/ios/devices.json")); print(next(d["udid"] for k, ds in v["devices"].items() if "iOS-26" in k for d in ds if "iPhone" in d["name"]))')"
-xcrun simctl boot "$device"
-xcrun simctl bootstatus "$device" -b
+python3 -u scripts/ios-simulator-prepare.py artifacts/ios/device.txt
+device="$(cat artifacts/ios/device.txt)"
 xcrun simctl install "$device" "$app"
 xcrun simctl launch "$device" com.yukti.chandas
 sleep 8

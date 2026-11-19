@@ -33,6 +33,11 @@ module.exports = function withIOSTimers(config) {
   }])
   return withXcodeProject(config, value => {
     const project = value.modResults
+    // Podfile's deploymentTarget does not update the generated app target.
+    // Keep the executable's advertised minimum aligned with its native module.
+    for (const entry of Object.values(project.pbxXCBuildConfigurationSection())) {
+      if (entry && typeof entry === 'object' && entry.buildSettings) entry.buildSettings.IPHONEOS_DEPLOYMENT_TARGET = '18.0'
+    }
     if (Object.values(project.pbxNativeTargetSection()).some(target => typeof target === 'object' && String(target.name).replaceAll('"', '') === targetName)) return value
     const target = project.addTarget(targetName, 'app_extension', targetName, `${value.ios.bundleIdentifier}.widgets`)
     const group = project.addPbxGroup([], targetName, targetName)
