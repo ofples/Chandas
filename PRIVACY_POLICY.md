@@ -6,7 +6,7 @@ Chandas is a timer application provided by Yukti ("we", "us", or "our"). This Pr
 
 ## Summary
 
-Chandas does not require an account and does not collect personal information for Yukti. It does not contain advertising or analytics SDKs, and we do not sell user data.
+Chandas does not require an account, show advertising, or sell user data. Your timer configurations and sessions stay on your device. The Expo update service processes limited installation identifiers and update diagnostics, as described below.
 
 Timer settings and session state are stored locally on your device. Chandas makes limited network requests to Expo's update service to check for and download application updates.
 
@@ -29,9 +29,9 @@ Local information remains on your device until you change it, clear Chandas's ap
 
 ## Network communication and application updates
 
-Chandas uses Expo Application Services to check for and download application updates. When an update check occurs, limited technical information is transmitted to Expo over HTTPS. This can include the app version, runtime version, operating-system platform, update identifiers, and standard connection information such as an IP address and request metadata.
+Chandas uses Expo Application Services to check for and download application updates. When an update check occurs, limited technical information is transmitted to Expo over HTTPS. This includes a randomly generated installation identifier, build and update identifiers, platform details, IP address, and request metadata. If an update fails to launch, requests can also include failed-update identifiers and a brief launch-error message. The installation identifier is not derived from a hardware identifier or user account.
 
-This information is used only to select, secure, and deliver the correct application update. Yukti does not use it for advertising, profiling, or analytics. Expo processes this information as our service provider under [Expo's Privacy Policy](https://expo.dev/privacy).
+Expo uses this information to deliver updates, manage rollouts, and measure installations and update failures. It is not used for advertising or cross-app tracking. Expo processes this information as our service provider under [Expo's Privacy Policy](https://expo.dev/privacy).
 
 Chandas does not otherwise send your timer settings or session activity over the internet.
 

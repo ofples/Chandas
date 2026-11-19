@@ -26,6 +26,6 @@ The running controls are yours to choose. Show the ones you use, hide the rest, 
 
 Chandas works in the background and retains active timers across app restarts. Alarm delivery and lock-screen presentation depend on Android permissions and device settings.
 
-No account, advertising or analytics. Your timer settings and sessions stay on your device. The app makes limited network requests to Expo to check for application updates; see the privacy policy for details.
+No accounts or advertising. Your timer settings and sessions stay on your device. Expo processes a random installation ID and limited update diagnostics to deliver and monitor application updates; see the privacy policy for details.
 
 Set your rhythm, put the phone down, and let Chandas mark the passage of time.
