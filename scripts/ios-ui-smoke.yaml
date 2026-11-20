@@ -46,7 +46,9 @@ appId: com.yukti.chandas
     visible: Pause Meditation
     timeout: 60000
 - takeScreenshot: 07-two-running-timers
-- tapOn: Open Meditation
+- tapOn:
+    text: Open Meditation
+    point: '30%,12%'
 - assertVisible:
     id: running-screen
 - assertVisible: '[12] of 2'
