@@ -22,6 +22,10 @@ function stepped(): UnifiedTimerProgram {
 }
 
 describe('iOS canonical native kernel', () => {
+  it('always publishes concrete control defaults for a new native session', () => {
+    expect(iosRunState(run(), anchor)).toMatchObject({ mutedUntil: 0, mutedIterationsRemaining: 0,
+      alarmOnceArmed: false, mutedIterationEndId: '', mutedIterationEndAt: 0 })
+  })
   it('advertises limits that its bundled parser actually admits', () => {
     const p = stepped(); p.steps = [{ ...p.steps[1], durationSeconds: IOS_KERNEL_CAPABILITIES.maxCueDurationSeconds }]
     expect(validateIOSRun(run('at-limit', p))).toBe(true)

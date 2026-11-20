@@ -110,7 +110,9 @@ export function iosRunState(run: IOSKernelRun, now: number) {
   const next = active ? nextProgramEvent(p, c.timerV2Anchor!, time, c.timerV2StartedAt!, c.timerV2EndsAt || null, c.timerV2RandomSeed ?? c.timerV2Anchor!) : null
   const position = timelinePosition(p, c.timerV2Anchor!, time, c.timerV2StartedAt!, c.timerV2EndsAt || null, c.timerV2RandomSeed ?? c.timerV2Anchor!)
   const step = p.steps[position.currentStepIndex ?? 0]
-  return { ...c, active, ringing: false, nextEventAt: paused ? 0 : next?.at ?? 0, nextLogicalId: next?.logicalId ?? '',
+  return { ...c, active, ringing: false, mutedUntil: c.mutedUntil ?? 0, alarmOnceArmed: c.alarmOnceArmed ?? false,
+    mutedIterationEndId: c.mutedIterationEndId ?? '', mutedIterationEndAt: c.mutedIterationEndAt ?? 0,
+    nextEventAt: paused ? 0 : next?.at ?? 0, nextLogicalId: next?.logicalId ?? '',
     mutedIterationsRemaining: c.mutedIterationEndAt && c.mutedIterationEndAt > time ? c.mutedIterationCount ?? 1 : 0,
     currentStepName: p.steps.length > 1 ? step.label : '', currentStepEndAt: currentStepEndAt(p, position),
     stepIndex: position.currentStepIndex ?? 0, activeHoursResumeAt: nextActiveHoursStart(availability(c, p), time) }

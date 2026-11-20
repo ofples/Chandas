@@ -37,11 +37,11 @@ final class ChandasAlarms {
     return []
   }
   func scheduled() throws -> Set<String> {
-    if #available(iOS 26.0, *) { return Set(try AlarmManager.shared.alarms.map { $0.id.uuidString }) }
+    if #available(iOS 26.0, *), authorized { return Set(try AlarmManager.shared.alarms.map { $0.id.uuidString }) }
     return []
   }
   func cancel(_ id: String) throws {
-    if #available(iOS 26.0, *), let uuid = UUID(uuidString: id) {
+    if #available(iOS 26.0, *), authorized, let uuid = UUID(uuidString: id) {
       // Missing alarms have already been stopped by the person/system.
       if try AlarmManager.shared.alarms.contains(where: { $0.id == uuid }) { try AlarmManager.shared.cancel(id: uuid) }
     }
