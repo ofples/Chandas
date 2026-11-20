@@ -11,6 +11,7 @@ private struct ChandasAlarmMetadata: AlarmMetadata {
 
 final class ChandasAlarms {
   private var observer: Task<Void, Never>?
+  private var observationRevision = 0
   var changed: ((Set<String>) -> Void)?
   var supported: Bool { if #available(iOS 26.0, *) { return true }; return false }
   var authorized: Bool {
@@ -26,15 +27,17 @@ final class ChandasAlarms {
     return false
   }
   func observe() {
-    guard authorized else { observer?.cancel(); observer = nil; return }
+    guard authorized else { observationRevision += 1; observer?.cancel(); observer = nil; return }
     guard observer == nil else { return }
     if #available(iOS 26.0, *) {
+      observationRevision += 1
+      let ticket = observationRevision
       observer = Task { @MainActor [weak self] in
         for await alarms in AlarmManager.shared.alarmUpdates {
           guard !Task.isCancelled else { return }
           self?.changed?(Set(alarms.filter { $0.state == .alerting }.map { $0.id.uuidString }))
         }
-        self?.observer = nil
+        if self?.observationRevision == ticket { self?.observer = nil }
       }
     }
   }
