@@ -66,9 +66,11 @@ final class ChandasTimerEngine: NSObject, UNUserNotificationCenterDelegate {
     (try? invoke(["method": "capabilities"]) as? [String: Any]) ?? ["contractVersion": 0, "programSchemaMin": 0, "programSchemaMax": 0]
   }
   func state(_ id: String) -> [String: Any] {
-    guard let run = ledger.runs[id] else { return ["active": false, "ringing": false] }
+    let defaults: [String: Any] = ["active": false, "ringing": false, "mutedUntil": 0, "alarmOnceArmed": false,
+      "mutedIterationsRemaining": 0, "mutedIterationEndId": "", "mutedIterationEndAt": 0]
+    guard let run = ledger.runs[id] else { return defaults }
     do {
-      var value = try invoke(["method": "state", "run": run, "now": chandasNow()]) as? [String: Any] ?? [:]
+      var value = defaults.merging(try invoke(["method": "state", "run": run, "now": chandasNow()]) as? [String: Any] ?? [:]) { _, new in new }
       let liveRinging = alarms.ringing()
       value["ringing"] = ledger.delivery.contains { liveRinging.contains($0.key) && $0.value["runId"] as? String == id }
       // A terminal system alarm keeps its run available for dismissal. Never
@@ -80,7 +82,7 @@ final class ChandasTimerEngine: NSObject, UNUserNotificationCenterDelegate {
       value["sessionGeneration"] = run["generation"]
       value["backgroundScheduledThrough"] = coverage
       return value
-    } catch { lastError = error.localizedDescription; return ["active": true, "ringing": false, "recoveryRequired": true] }
+    } catch { lastError = error.localizedDescription; return defaults.merging(["active": true, "recoveryRequired": true]) { _, new in new } }
   }
   private func save(_ runs: [String: [String: Any]], focused: String? = nil) throws {
     try ledger.save(runs: runs, focused: focused ?? ledger.focused)
