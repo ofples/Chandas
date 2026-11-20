@@ -207,7 +207,7 @@ final class ChandasTimerEngine: NSObject, UNUserNotificationCenterDelegate {
     emit?("onControlStateChanged", value.merging(["runId": id]) { _, new in new })
   }
   @objc private func becameActive() {
-    reconcilePast(); lastTick = chandasNow(); refreshAccess(); alarmChanged(alarms.ringing()); requestSchedule()
+    reconcilePast(); lastTick = chandasNow(); refreshAccess(); alarms.observe(); alarmChanged(alarms.ringing()); requestSchedule()
     UNUserNotificationCenter.current().getDeliveredNotifications { values in
       let ids = values.map { $0.request.identifier }.filter { $0.hasPrefix("chandas.") }
       UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ids)

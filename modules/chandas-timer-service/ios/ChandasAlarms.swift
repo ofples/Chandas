@@ -18,10 +18,15 @@ final class ChandasAlarms {
     return false
   }
   func request() async throws -> Bool {
-    if #available(iOS 26.0, *) { return try await AlarmManager.shared.requestAuthorization() == .authorized }
+    if #available(iOS 26.0, *) {
+      let allowed = try await AlarmManager.shared.requestAuthorization() == .authorized
+      if allowed { observe() }
+      return allowed
+    }
     return false
   }
   func observe() {
+    guard authorized else { observer?.cancel(); observer = nil; return }
     guard observer == nil else { return }
     if #available(iOS 26.0, *) {
       observer = Task { @MainActor [weak self] in
@@ -29,11 +34,12 @@ final class ChandasAlarms {
           guard !Task.isCancelled else { return }
           self?.changed?(Set(alarms.filter { $0.state == .alerting }.map { $0.id.uuidString }))
         }
+        self?.observer = nil
       }
     }
   }
   func ringing() -> Set<String> {
-    if #available(iOS 26.0, *), let alarms = try? AlarmManager.shared.alarms { return Set(alarms.filter { $0.state == .alerting }.map { $0.id.uuidString }) }
+    if #available(iOS 26.0, *), authorized, let alarms = try? AlarmManager.shared.alarms { return Set(alarms.filter { $0.state == .alerting }.map { $0.id.uuidString }) }
     return []
   }
   func scheduled() throws -> Set<String> {
