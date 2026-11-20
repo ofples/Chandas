@@ -50,6 +50,11 @@ unlimited queue. Conservatively budget below 64 and read actual pending requests
 Do not advertise infinite unattended scheduling. A future server/APNs system
 would add network dependency and still would not guarantee exact delivery.
 
+The implementation budgets 56 audible timestamp batches across all runs. Muted
+and unavailable spans do not consume that request budget. A separate bounded
+planning-work limit prevents pathological programs from monopolizing the native
+thread; coverage is reported from accepted OS requests rather than assumptions.
+
 For a strict subset, avoid that limitation altogether: compile the complete
 global audible pattern into repeating hourly
 [calendar notification triggers](https://developer.apple.com/documentation/usernotifications/uncalendarnotificationtrigger).
@@ -129,6 +134,15 @@ Use them for Swift tests, clean prebuild, CocoaPods, unsigned compilation,
 simulator launch, screenshots and focused UI smoke tests. Use simulator/device
 artifacts as separate outputs. No private Apple credentials in CI.
 
+The newer [interactive Expo Simulators service](https://docs.expo.dev/eas/simulators/reference/usage-and-billing/)
+can provide agent-controlled iOS devices from Windows, but requires a paid Expo
+plan. It is outside the user's free-only budget and was not started. Standard
+public GitHub macOS runners provide the permitted alternative. Select the
+currently installed Xcode from the official runner image manifest; the validated
+setup uses macOS 26/Xcode 26.6 and a freshly created iOS 26.5 simulator, with bounded
+startup waits and retained Maestro screenshots/hierarchies. This avoids conflating
+a successful native compilation with a stalled simulator boot.
+
 [EAS custom builds](https://docs.expo.dev/eas/json/#common-properties-for-native-platforms)
 support `withoutCredentials`; package an unsigned arm64 device app separately for
 personal re-signing. Inspect the account's included build allowance before
@@ -144,6 +158,30 @@ not inferred from successful unsigned compilation. Never strip capabilities and
 claim they still work.
 
 ## Architecture decisions
+
+### Capability matrix
+
+| Capability | Android | iPhone implementation |
+| --- | --- | --- |
+| Configurations, drafts, steps, relative Points, repeat/random bells | Canonical schema 4 | Same schema, controls and pure timeline |
+| Multiple timers and simultaneous-cue precedence | Native Kotlin ownership | Native Swift ownership; shared rarity/alarm arbitration |
+| Foreground audio and previews | Full source; native sound handling | Full source through AVAudioPlayer; included sounds and Files imports |
+| Ordinary background bells | Native exact-alarm scheduler | OS notifications; compatible excerpts up to 29 seconds, OS alert policy |
+| Unattended deterministic repeats | Native recurrence | Exact hourly pattern compression for eligible periods, at most 63 requests |
+| Random, availability-aware or other complex background programs | Native recurrence | Earliest-first bounded queue; coverage deadline and refill reminder |
+| Prominent alarms | Per-timer/step alarms with Android lifecycle | AlarmKit on iOS 26+, separate authorization, ring until dismissed |
+| Alarm volume/duration | App controls supported | iOS controls system alarm volume, vibration and dismissal duration |
+| Status surface | Ongoing notification, promoted status | Last-viewed run's Live Activity, elapsed/bounded remaining time and run count; OS lifetime applies |
+| Home Screen widget / floating overlay | Existing Android integrations | No shared-data Home Screen widget or floating overlay in the free-signing baseline |
+| Focus / device output filtering | Android-specific integrations | Managed by iPhone; unsupported app controls hidden |
+| Haptics / audio mix | Native profiles and mix policy | Foreground profiles/mix where supported; background alerts follow iOS |
+| Restoration and clock changes | Native persisted runs | Atomic versioned native journal; reconcile on relaunch/foreground/significant time change |
+| Sharing / testing | APK or Play distribution | Simulator cloud tests; unsigned IPA for expiring free personal signing |
+
+Live Activity counts/selection reflect the latest native reconciliation. Its
+system-rendered clock can continue while the app is suspended, but Chandas does
+not claim that iOS executes app code at every step/completion boundary. Reopening
+the app reconciles completed runs, time-zone changes and future scheduling.
 
 1. Keep Android Kotlin source and Android-only plugin behavior intact. Add Apple
    registration, a podspec and an iOS-only prebuild plugin; no manual generated
