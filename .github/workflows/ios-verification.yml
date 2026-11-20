@@ -23,7 +23,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run release:check
-      - run: bash scripts/ios-cloud-check.sh
+      - run: bash scripts/ios-cloud-check.sh --native-only
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -33,4 +33,28 @@ jobs:
             artifacts/ios/*.log
             artifacts/ios/*.txt
             artifacts/ios/fixture.json
+          retention-days: 1
+  ios-build:
+    needs: ios
+    runs-on: macos-26
+    timeout-minutes: 55
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      CI: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: bash scripts/ios-cloud-check.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-build-${{ github.run_number }}
+          path: |
+            artifacts/ios/*.png
+            artifacts/ios/*.log
+            artifacts/ios/*.txt
           retention-days: 1

@@ -33,7 +33,8 @@ final class ChandasKernel {
   }
 }
 
-func chandasNow() -> Double { Date().timeIntervalSince1970 * 1000 }
+// Match Date.now(): canonical anchors and persisted deadlines are integer ms.
+func chandasNow() -> Double { (Date().timeIntervalSince1970 * 1000).rounded(.down) }
 func number(_ value: Any?) -> Double { (value as? NSNumber)?.doubleValue ?? 0 }
 func flag(_ value: Any?) -> Bool { (value as? NSNumber)?.boolValue ?? false }
 func chandasOnMain<T>(_ block: () throws -> T) rethrows -> T {

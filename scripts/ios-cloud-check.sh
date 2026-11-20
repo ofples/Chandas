@@ -14,6 +14,10 @@ xcrun swiftc -typecheck -sdk "$(xcrun --sdk iphonesimulator --show-sdk-path)" -t
   modules/chandas-timer-service/ios/Shared/ChandasActivityAttributes.swift \
   modules/chandas-timer-service/ios/ChandasLiveActivity.swift \
   modules/chandas-timer-service/ios/ChandasTimerEngine.swift
+if [[ "${1:-}" == "--native-only" ]]; then
+  printf 'Native JavaScriptCore regressions and iOS Swift type checking passed.\n' > artifacts/ios/native-result.txt
+  exit 0
+fi
 CI=1 npx expo prebuild --platform ios --no-install
 cd ios
 pod install
