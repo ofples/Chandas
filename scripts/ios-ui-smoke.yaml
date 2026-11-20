@@ -25,6 +25,11 @@ appId: com.yukti.chandas
     visible:
       id: running-screen
     timeout: 60000
+- runFlow:
+    when:
+      visible: Show timer controls
+    commands:
+      - tapOn: Show timer controls
 - takeScreenshot: 04-running
 - extendedWaitUntil:
     visible: 'Background bells (repeat automatically|scheduled until.*)'
