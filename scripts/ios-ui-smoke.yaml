@@ -20,6 +20,9 @@ appId: com.yukti.chandas
       id: running-screen
     timeout: 60000
 - takeScreenshot: 04-running
+- extendedWaitUntil:
+    visible: 'Background bells (repeat automatically|scheduled until.*)'
+    timeout: 30000
 - tapOn: Pause timer
 - assertVisible: Resume timer
 - takeScreenshot: 05-paused
@@ -28,3 +31,40 @@ appId: com.yukti.chandas
 - tapOn: Configurations
 - assertVisible: New configuration
 - takeScreenshot: 06-running-library
+- scrollUntilVisible:
+    element: Start saved Meditation
+    direction: DOWN
+    timeout: 30000
+- tapOn: Start saved Meditation
+- extendedWaitUntil:
+    visible: Pause Meditation
+    timeout: 60000
+- takeScreenshot: 07-two-running-timers
+- tapOn: Open Meditation
+- assertVisible:
+    id: running-screen
+- assertVisible: '[12] of 2'
+- runFlow:
+    when:
+      visible: '2 of 2'
+    commands:
+      - tapOn: Previous running timer
+- assertVisible: '1 of 2'
+- tapOn: Next running timer
+- assertVisible: '2 of 2'
+- takeScreenshot: 08-multiple-running-pages
+- pressKey: Home
+- takeScreenshot: 09-home-system-surface
+- stopApp
+- launchApp:
+    stopApp: false
+    clearState: false
+- extendedWaitUntil:
+    visible: New configuration
+    timeout: 60000
+- assertVisible: Pause Meditation
+- takeScreenshot: 10-restored-native-timers
+- tapOn: Stop all timers
+- tapOn: Stop all
+- assertNotVisible: Stop all timers
+- takeScreenshot: 11-stopped-library
