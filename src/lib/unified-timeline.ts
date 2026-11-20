@@ -5,7 +5,7 @@ import { randomTrackOffsetsSeconds } from './timerV2'
 import { nextLocalClockTime } from './time-inputs'
 
 const SECOND_MS = 1_000
-const MAX_MUTE_ITERATIONS = 99
+export const MAX_MUTE_ITERATIONS = 99
 
 export type UnifiedEventBoundary = 'step-end' | 'round-end' | 'step-offset' | 'run-complete'
 

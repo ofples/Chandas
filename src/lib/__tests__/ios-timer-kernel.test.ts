@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { convertPatternToUnified } from '../unified-timer'
 import { defaultPatternProgram } from '../timerV2'
-import { iosEventBatches, iosRepeatingSchedule, iosRunAction, iosRunState, validateIOSRun, type IOSKernelRun } from '../ios-timer-kernel'
+import { IOS_KERNEL_CAPABILITIES, iosEventBatches, iosRepeatingSchedule, iosRunAction, iosRunState, validateIOSRun, type IOSKernelRun } from '../ios-timer-kernel'
 import type { UnifiedTimerProgram } from '../../types'
 
 const anchor = 1_800_000_000_000
@@ -22,6 +22,12 @@ function stepped(): UnifiedTimerProgram {
 }
 
 describe('iOS canonical native kernel', () => {
+  it('advertises limits that its bundled parser actually admits', () => {
+    const p = stepped(); p.steps = [{ ...p.steps[1], durationSeconds: IOS_KERNEL_CAPABILITIES.maxCueDurationSeconds }]
+    expect(validateIOSRun(run('at-limit', p))).toBe(true)
+    p.steps[0].durationSeconds += 1
+    expect(validateIOSRun(run('past-limit', p))).toBe(false)
+  })
   it('never inherits the preceding step alarm across 200 rounds', () => {
     const r = run('five-two', stepped())
     for (let round = 0; round < 200; round++) {
@@ -154,5 +160,46 @@ describe('iOS canonical native kernel', () => {
     expect(events.at(-1)?.audible).toBe(true)
     expect(events.slice(0, -1).every(event => !event.audible)).toBe(true)
     expect(iosRunAction(run(), 'mute-seconds', 604_800, anchor)?.config.mutedUntil).toBe(anchor + 604_800_000)
+  })
+  it('allocates background capacity to audible bells rather than muted sub-bells', () => {
+    const p = convertPatternToUnified(defaultPatternProgram())
+    p.runPolicy.kind = 'continuous'; p.steps[0].durationSeconds = 120; p.steps[0].subBellsEnabled = true
+    p.steps[0].subBellTracks = [{ ...p.steps[0].subBellTracks[0], enabled: true, repeatEnabled: true,
+      cadenceSeconds: 1, selectedOffsetsSeconds: Array.from({ length: 119 }, (_, index) => index + 1), volume: 0 }]
+    const r = run('silent-sub', p)
+    expect(iosEventBatches([r], anchor, 1).batches[0][0].event.at).toBe(anchor + 1_000)
+    const audible = iosEventBatches([r], anchor, 2, undefined, true).batches.flat()
+    expect(audible.map(event => event.event.at - anchor)).toEqual([120_000, 240_000])
+    expect(audible.every(event => event.winner)).toBe(true)
+  })
+  it('schedules the next bell after a multi-day mute without needing a refill first', () => {
+    const p = stepped(); p.steps = [{ ...p.steps[1], durationSeconds: 3600 }]
+    const r = run('long', p); r.config.mutedUntil = anchor + 3 * 86_400_000
+    const plan = iosEventBatches([r], anchor, 1, undefined, true)
+    expect(plan.batches[0][0].event.at).toBe(anchor + 3 * 86_400_000)
+  })
+  it('preserves Alarm Once during quiet hours and jumps to the first allowed background bell', () => {
+    const p = stepped(); p.steps = [{ ...p.steps[1], durationSeconds: 60 }]
+    const r = run('quiet-once', p), date = new Date(anchor)
+    const start = (date.getHours() * 60 + date.getMinutes() + 120) % 1440
+    r.config.alarmOnceArmed = true
+    r.config.availabilityPolicy = JSON.stringify({ enabled: true, weeklyWindows: [{ id: 'later', enabled: true,
+      days: 127, startMinutes: start, endMinutes: (start + 30) % 1440 }], overrides: [] })
+    const quiet = iosEventBatches([r], anchor, 1).batches[0][0]
+    expect(quiet.audible).toBe(false)
+    expect(quiet.nextConfig.alarmOnceArmed).toBe(true)
+    const future = iosEventBatches([r], anchor, 1, undefined, true).batches[0][0]
+    expect(future.event.at).toBeGreaterThan(anchor + 90 * 60_000)
+    expect(future.alarm).toBe(true)
+    expect(future.nextConfig.alarmOnceArmed).toBe(false)
+  })
+  it('jumps over long timed mutes and avoids scanning intentionally silent timers', () => {
+    const p = stepped(); p.steps = [{ ...p.steps[1], durationSeconds: 60 }]
+    const r = run('muted-hours', p); r.config.mutedUntil = anchor + 3 * 3_600_000
+    const future = iosEventBatches([r], anchor, 1, undefined, true).batches[0][0]
+    expect(future.event.at).toBe(r.config.mutedUntil)
+    expect(future.nextConfig.mutedUntil).toBe(0)
+    r.config.volume = 0
+    expect(iosEventBatches([r], anchor, 56, undefined, true)).toMatchObject({ batches: [], truncated: false })
   })
 })

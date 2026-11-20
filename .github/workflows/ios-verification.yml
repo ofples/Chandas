@@ -48,7 +48,7 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - run: bash scripts/ios-cloud-check.sh
+      - run: bash scripts/ios-cloud-check.sh --compile-only
       - uses: actions/upload-artifact@v4
         if: always()
         with:

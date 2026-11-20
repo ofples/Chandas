@@ -21,6 +21,7 @@ var ChandasKernel = (() => {
   // src/lib/ios-timer-kernel.ts
   var ios_timer_kernel_exports = {};
   __export(ios_timer_kernel_exports, {
+    IOS_KERNEL_CAPABILITIES: () => IOS_KERNEL_CAPABILITIES,
     IOS_MAX_PLANNING_MS: () => IOS_MAX_PLANNING_MS,
     IOS_NOTIFICATION_BUDGET: () => IOS_NOTIFICATION_BUDGET,
     invokeIOSKernel: () => invokeIOSKernel,
@@ -982,8 +983,43 @@ var ChandasKernel = (() => {
   }
 
   // src/lib/ios-timer-kernel.ts
+  var IOS_KERNEL_CAPABILITIES = {
+    contractVersion: 15,
+    programSchemaMin: 4,
+    programSchemaMax: 4,
+    maxPatternTracks: MAX_PATTERN_TRACKS,
+    maxSequenceSteps: MAX_SEQUENCE_STEPS,
+    maxCueDurationMinutes: MAX_DURATION_MINUTES,
+    maxCueDurationSeconds: MAX_CUE_DURATION_SECONDS,
+    maxRunCycles: MAX_RUN_CYCLES,
+    maxRunDurationSeconds: MAX_RUN_DURATION_SECONDS,
+    maxMuteIterations: MAX_MUTE_ITERATIONS,
+    maxMuteMinutes: 10080,
+    maxNotificationPresentationCharacters: 65536,
+    supportsCachedBuiltInSounds: true,
+    supportsNotificationPresentation: true,
+    supportsLiveCountdown: true,
+    supportsAlarmSound: true,
+    supportsAlarmVolume: false,
+    supportsHapticProfiles: false,
+    supportsSecondPrecision: true,
+    supportsSubBellSecondPrecision: true,
+    supportsUntilRunLength: true,
+    supportsNoMainInterval: true,
+    supportsBellPoints: true,
+    supportsMuteSecondPrecision: true,
+    supportsProgramClockAlignment: true,
+    supportsRandomRepeat: true,
+    supportsStepAlarms: true,
+    supportsUnifiedSteps: true,
+    supportsStepSubBells: true,
+    supportsTransportControls: true,
+    supportsUnlimitedSounds: true,
+    supportsRawFocusState: false,
+    supportsFloatingOverlay: false
+  };
   var IOS_NOTIFICATION_BUDGET = 56;
-  var IOS_MAX_PLANNING_MS = 24 * 60 * 60 * 1e3;
+  var IOS_MAX_PLANNING_MS = 366 * 24 * 60 * 60 * 1e3;
   var MAX_SCAN = 2e4;
   var programCache = /* @__PURE__ */ new Map();
   function programFor(config) {
@@ -1105,18 +1141,38 @@ var ChandasKernel = (() => {
       winner: false,
       label: p.steps[event.stepIndex ?? 0]?.label ?? run.name,
       alarmExpiresAt: Math.min(event.at + c.alarmDurationSeconds * 1e3, cap, c.timerV2EndsAt || Infinity),
-      nextConfig: gatePatch(gate.nextMute, gate.nextAlarmBehavior),
+      nextConfig: gatePatch(gate.nextMute, allowed ? gate.nextAlarmBehavior : alarmFor(c)),
       nextSoundState: soundState
     };
   }
-  function iosEventBatches(runs, after, batchLimit = IOS_NOTIFICATION_BUDGET, through = after + IOS_MAX_PLANNING_MS) {
-    const working = runs.filter(validateIOSRun).filter((run) => !run.config.timerV2PausedAt).map((run) => ({ ...run, config: { ...run.config } }));
+  function iosEventBatches(runs, after, batchLimit = IOS_NOTIFICATION_BUDGET, through = after + IOS_MAX_PLANNING_MS, background = false) {
+    const working = runs.filter(validateIOSRun).filter((run) => !run.config.timerV2PausedAt && (!background || hasBackgroundAudio(run))).map((run) => ({ ...run, config: { ...run.config } }));
     let cursor = after, scans = 0;
     const batches = [];
     while (batches.length < Math.max(1, Math.min(64, batchLimit)) && scans++ < MAX_SCAN) {
       const upcoming = working.map((run) => {
         const c = run.config;
-        return { run, event: nextProgramEvent(programFor(c), c.timerV2Anchor, Math.max(cursor, c.timerV2StartedAt, run.effectiveFrom ?? 0), c.timerV2StartedAt, c.timerV2EndsAt || null, c.timerV2RandomSeed ?? c.timerV2Anchor) };
+        const p = programFor(c);
+        let edge = Math.max(cursor, c.timerV2StartedAt, run.effectiveFrom ?? 0);
+        if (background) edge = Math.max(edge, (c.mutedUntil ?? 0) - 1, (c.mutedIterationEndAt ?? 0) - 1);
+        let event = nextProgramEvent(p, c.timerV2Anchor, edge, c.timerV2StartedAt, c.timerV2EndsAt || null, c.timerV2RandomSeed ?? c.timerV2Anchor);
+        if (background) {
+          const policy = availability(c, p);
+          while (event && policy.enabled && !isCueAllowedByActiveHours(policy, event.at) && scans++ < MAX_SCAN) {
+            const start = nextActiveHoursStart(policy, event.at);
+            if (start <= event.at) {
+              event = null;
+              break;
+            }
+            edge = Math.max(edge, start - 1);
+            event = nextProgramEvent(p, c.timerV2Anchor, edge, c.timerV2StartedAt, c.timerV2EndsAt || null, c.timerV2RandomSeed ?? c.timerV2Anchor);
+            if (event && event.at > through) {
+              event = null;
+              break;
+            }
+          }
+        }
+        return { run, event };
       }).filter((value) => value.event !== null);
       if (!upcoming.length) break;
       const at = Math.min(...upcoming.map((value) => value.event.at));
@@ -1129,10 +1185,15 @@ var ChandasKernel = (() => {
         run.config = { ...run.config, ...item.nextConfig };
         if (item.winner && !item.alarm) run.soundState = item.nextSoundState;
       });
-      batches.push(batch);
+      if (!background || winner) batches.push(batch);
       cursor = at;
     }
     return { batches, coveredThrough: cursor, truncated: batches.length >= batchLimit || scans >= MAX_SCAN };
+  }
+  function hasBackgroundAudio(run) {
+    const c = run.config, p = programFor(c);
+    if (c.volume <= 0) return false;
+    return p.steps.some((step) => !p.noMainInterval && (!step.endCue.soundMuted && step.endCue.volume > 0 || (step.endAlarmEnabled || c.alarmModeEnabled || c.alarmOnceArmed) && (c.alarmVolume ?? 1) > 0) || step.subBellsEnabled && step.subBellTracks.some((track) => track.enabled && !track.soundMuted && track.volume > 0)) || !!p.completionCue && !p.completionCue.soundMuted && p.completionCue.volume > 0;
   }
   function iosRepeatingSchedule(runs, now) {
     const hour = 36e5;
@@ -1210,7 +1271,7 @@ var ChandasKernel = (() => {
   }
   function invokeIOSKernel(request) {
     const input = JSON.parse(request);
-    const result = input.method === "validate" ? validateIOSRun(input.run) : input.method === "state" ? iosRunState(input.run, input.now) : input.method === "action" ? iosRunAction(input.run, input.action, input.amount ?? 0, input.now) : input.method === "plan" ? iosEventBatches(input.runs, input.after, input.limit, input.through) : input.method === "repeating" ? iosRepeatingSchedule(input.runs, input.now) : (() => {
+    const result = input.method === "capabilities" ? IOS_KERNEL_CAPABILITIES : input.method === "validate" ? validateIOSRun(input.run) : input.method === "state" ? iosRunState(input.run, input.now) : input.method === "action" ? iosRunAction(input.run, input.action, input.amount ?? 0, input.now) : input.method === "plan" ? iosEventBatches(input.runs, input.after, input.limit, input.through, input.background === true) : input.method === "repeating" ? iosRepeatingSchedule(input.runs, input.now) : (() => {
       throw new Error("Unknown iOS kernel method");
     })();
     return JSON.stringify(result);

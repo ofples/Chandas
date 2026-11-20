@@ -60,6 +60,11 @@ final class ChandasTimerEngine: NSObject, UNUserNotificationCenterDelegate {
     return try kernel.invoke(input)
   }
   func runIds() -> [String] { ledger.runs.keys.sorted() }
+  func capabilities() -> [String: Any] {
+    // Limits come from the same bundled parser that admits accepted programs.
+    // An unavailable kernel must never advertise a usable native contract.
+    (try? invoke(["method": "capabilities"]) as? [String: Any]) ?? ["contractVersion": 0, "programSchemaMin": 0, "programSchemaMax": 0]
+  }
   func state(_ id: String) -> [String: Any] {
     guard let run = ledger.runs[id] else { return ["active": false, "ringing": false] }
     do {
@@ -307,8 +312,11 @@ final class ChandasTimerEngine: NSObject, UNUserNotificationCenterDelegate {
       let otherRequests = pending.filter { !$0.hasPrefix("chandas.") }.count
       let repeating = try invoke(["method": "repeating", "runs": Array(ledger.runs.values), "now": now]) as? [[String: Any]]
       let useRepeating = repeating != nil && repeating!.count + otherRequests <= 63
-      let plan = try invoke(["method": "plan", "runs": Array(ledger.runs.values), "after": now, "limit": max(1, min(56, 63 - otherRequests))]) as? [String: Any] ?? [:]
+      let plan = try invoke(["method": "plan", "runs": Array(ledger.runs.values), "after": now, "limit": max(1, min(56, 63 - otherRequests)), "background": true]) as? [String: Any] ?? [:]
       let batches = useRepeating ? repeating!.map { [$0] } : plan["batches"] as? [[[String: Any]]] ?? []
+      if !useRepeating && batches.isEmpty && flag(plan["truncated"]) {
+        throw ChandasError.invalid("This bell pattern exceeds iPhone background planning capacity. Simplify its muted cues or keep Chandas open.")
+      }
       // Keep due, still-owned terminal alarms through a foreground replan, even
       // before AlarmKit's asynchronous alerting update reaches our observer.
       let liveAtStart = try alarms.scheduled()

@@ -12,7 +12,7 @@ public final class ChandasTimerServiceModule: Module {
       self.engine.emit = { [weak self] name, value in self?.sendEvent(name, value) }
     } }
     OnDestroy { [weak self] in chandasOnMain { self?.engine.emit = nil; self?.engine.previewAudio.stop() } }
-    Function("getCapabilities") { Self.capabilities }
+    Function("getCapabilities") { chandasOnMain { self.engine.capabilities() } }
     Function("getRunIds") { chandasOnMain { self.engine.runIds() } }
     Function("getRunState") { (id: String) in chandasOnMain { self.engine.state(id) } }
     Function("startRun") { (id: String, name: String, config: [String: Any]) in chandasOnMain { self.engine.start(id: id, name: name, config: config) } }
@@ -70,15 +70,6 @@ public final class ChandasTimerServiceModule: Module {
   }
   private static func openSettings() {
     DispatchQueue.main.async { if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } }
-  }
-  private static var capabilities: [String: Any] {
-    var value: [String: Any] = ["contractVersion": 15, "programSchemaMin": 4, "programSchemaMax": 4,
-      "maxPatternTracks": 32, "maxSequenceSteps": 64, "maxCueDurationMinutes": 10080, "maxCueDurationSeconds": 604800,
-      "maxRunCycles": 100000, "maxRunDurationSeconds": 31536000, "maxMuteIterations": 9999,
-      "maxMuteMinutes": 10080, "maxNotificationPresentationCharacters": 65536]
-    for key in ["supportsCachedBuiltInSounds", "supportsNotificationPresentation", "supportsLiveCountdown", "supportsAlarmSound", "supportsAlarmVolume", "supportsSecondPrecision", "supportsSubBellSecondPrecision", "supportsUntilRunLength", "supportsNoMainInterval", "supportsBellPoints", "supportsMuteSecondPrecision", "supportsProgramClockAlignment", "supportsRandomRepeat", "supportsStepAlarms", "supportsUnifiedSteps", "supportsStepSubBells", "supportsTransportControls", "supportsUnlimitedSounds"] { value[key] = true }
-    value["supportsRawFocusState"] = false; value["supportsFloatingOverlay"] = false; value["supportsHapticProfiles"] = false; value["supportsAlarmVolume"] = false
-    return value
   }
 }
 

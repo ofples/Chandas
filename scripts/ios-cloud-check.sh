@@ -30,6 +30,10 @@ xcodebuild -workspace ios/Chandas.xcworkspace -scheme Chandas -configuration Rel
 app="$(find artifacts/ios/DerivedData/Build/Products/Release-iphonesimulator -maxdepth 1 -name '*.app' -print -quit)"
 test -n "$app"
 test -d "$app/PlugIns/ChandasWidgets.appex"
+if [[ "${1:-}" == "--compile-only" ]]; then
+  printf 'Native kernel, iOS compilation and embedded extension passed. Simulator acceptance is a separate workflow.\n' > artifacts/ios/compile-result.txt
+  exit 0
+fi
 python3 -u scripts/ios-simulator-prepare.py artifacts/ios/device.txt
 device="$(cat artifacts/ios/device.txt)"
 xcrun simctl install "$device" "$app"

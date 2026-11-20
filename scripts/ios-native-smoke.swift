@@ -28,5 +28,11 @@ struct NativeKernelSmoke {
     let afterResume = try kernel.invoke(["method": "plan", "runs": [resumed], "after": now + 11000, "limit": 2]) as! [String: Any]
     precondition((afterResume["batches"] as! [[[String: Any]]]).count == 2, "Resumed timer lost its next bells")
     print("Native host clock: integer timestamps and pause/resume scheduling passed")
+    config["mutedUntil"] = now + 2 * 86400000; run["config"] = config
+    let future = try kernel.invoke(["method": "plan", "runs": [run], "after": now, "limit": 2, "background": true]) as! [String: Any]
+    let futureBatches = future["batches"] as! [[[String: Any]]]
+    precondition(futureBatches.count == 2, "Long mutes must not exhaust the OS request budget")
+    precondition(number((futureBatches[0][0]["event"] as! [String: Any])["at"]) >= now + 2 * 86400000)
+    print("Native background planning: jumps beyond quiet/muted periods passed")
   }
 }

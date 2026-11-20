@@ -15,7 +15,9 @@ export function IOSIntegrationStatus({ compact = false }: { compact?: boolean })
   if (Platform.OS !== 'ios') return null
   if (compact && !status?.error && (!status?.activeCount || !status.backgroundScheduledThrough)) return null
   const coverage = status?.backgroundScheduledThrough
-  const summary = status?.error ?? (coverage === -1 ? 'Background bells repeat automatically' : coverage ? `Background bells scheduled until ${new Date(coverage).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : status?.activeCount ? 'No background bells are scheduled yet.' : status?.notifications ? 'Notifications are allowed. Start a timer to schedule bells.' : status ? 'Allow notifications to hear bells while Chandas is closed.' : 'Background bells require an installed iPhone build.')
+  const deadline = coverage && coverage > 0 ? new Date(coverage) : null
+  const deadlineLabel = deadline?.toLocaleString([], { ...(deadline.toDateString() !== new Date().toDateString() ? { month: 'short', day: 'numeric' } as const : {}), hour: '2-digit', minute: '2-digit' })
+  const summary = status?.error ?? (coverage === -1 ? 'Background bells repeat automatically' : coverage ? `Background bells scheduled until ${deadlineLabel}` : status?.activeCount ? 'No background bells are scheduled yet.' : status?.notifications ? 'Notifications are allowed. Start a timer to schedule bells.' : status ? 'Allow notifications to hear bells while Chandas is closed.' : 'Background bells require an installed iPhone build.')
   return <View style={styles.section} accessibilityLiveRegion="polite">
     <Text numberOfLines={compact ? 1 : undefined} style={[compact ? styles.compact : styles.body, { color: status?.error ? tokens.warm : tokens.textMuted }]}>{summary}</Text>
     {!compact ? <>

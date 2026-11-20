@@ -5,7 +5,23 @@ import { parseUnifiedTimerProgram } from './unified-timer'
 import { currentStepEndAt, nextProgramEvent, programCycleDurationMs, seekStepTarget, sequenceSkipTarget, timelinePosition, type ScheduledProgramEvent } from './timeline'
 import { effectiveAvailabilityForProgram, isCueAllowedByActiveHours, nextActiveHoursStart } from './activeHours'
 import { gateProgramAudio, iterationMuteFor, type RuntimeMuteState } from './runtimeV2'
-import { cueSounds } from './timerV2'
+import { cueSounds, MAX_PATTERN_TRACKS, MAX_SEQUENCE_STEPS, MAX_DURATION_MINUTES, MAX_CUE_DURATION_SECONDS, MAX_RUN_CYCLES, MAX_RUN_DURATION_SECONDS } from './timerV2'
+import { MAX_MUTE_ITERATIONS } from './unified-timeline'
+
+export const IOS_KERNEL_CAPABILITIES = {
+  contractVersion: 15, programSchemaMin: 4, programSchemaMax: 4,
+  maxPatternTracks: MAX_PATTERN_TRACKS, maxSequenceSteps: MAX_SEQUENCE_STEPS,
+  maxCueDurationMinutes: MAX_DURATION_MINUTES, maxCueDurationSeconds: MAX_CUE_DURATION_SECONDS,
+  maxRunCycles: MAX_RUN_CYCLES, maxRunDurationSeconds: MAX_RUN_DURATION_SECONDS,
+  maxMuteIterations: MAX_MUTE_ITERATIONS, maxMuteMinutes: 10_080, maxNotificationPresentationCharacters: 65_536,
+  supportsCachedBuiltInSounds: true, supportsNotificationPresentation: true, supportsLiveCountdown: true,
+  supportsAlarmSound: true, supportsAlarmVolume: false, supportsHapticProfiles: false,
+  supportsSecondPrecision: true, supportsSubBellSecondPrecision: true, supportsUntilRunLength: true,
+  supportsNoMainInterval: true, supportsBellPoints: true, supportsMuteSecondPrecision: true,
+  supportsProgramClockAlignment: true, supportsRandomRepeat: true, supportsStepAlarms: true,
+  supportsUnifiedSteps: true, supportsStepSubBells: true, supportsTransportControls: true,
+  supportsUnlimitedSounds: true, supportsRawFocusState: false, supportsFloatingOverlay: false,
+} as const
 
 export interface IOSKernelRun {
   id: string
@@ -32,7 +48,7 @@ export interface IOSKernelEvent {
 }
 
 export const IOS_NOTIFICATION_BUDGET = 56
-export const IOS_MAX_PLANNING_MS = 24 * 60 * 60 * 1_000
+export const IOS_MAX_PLANNING_MS = 366 * 24 * 60 * 60 * 1_000
 const MAX_SCAN = 20_000
 const programCache = new Map<string, UnifiedTimerProgram>()
 
@@ -135,20 +151,34 @@ function projected(run: IOSKernelRun, event: ScheduledProgramEvent): IOSKernelEv
       : event.winner.cadenceSeconds ? event.winner.cadenceSeconds * 1_000 : programCycleDurationMs(p),
     winner: false, label: p.steps[event.stepIndex ?? 0]?.label ?? run.name,
     alarmExpiresAt: Math.min(event.at + c.alarmDurationSeconds * 1_000, cap, c.timerV2EndsAt || Infinity),
-    nextConfig: gatePatch(gate.nextMute, gate.nextAlarmBehavior),
+    nextConfig: gatePatch(gate.nextMute, allowed ? gate.nextAlarmBehavior : alarmFor(c)),
     nextSoundState: soundState,
   }
 }
 
 /** Globally merged batches, including silent progression. No timestamp is split. */
-export function iosEventBatches(runs: IOSKernelRun[], after: number, batchLimit = IOS_NOTIFICATION_BUDGET, through = after + IOS_MAX_PLANNING_MS) {
-  const working = runs.filter(validateIOSRun).filter(run => !run.config.timerV2PausedAt).map(run => ({ ...run, config: { ...run.config } }))
+export function iosEventBatches(runs: IOSKernelRun[], after: number, batchLimit = IOS_NOTIFICATION_BUDGET, through = after + IOS_MAX_PLANNING_MS, background = false) {
+  const working = runs.filter(validateIOSRun).filter(run => !run.config.timerV2PausedAt && (!background || hasBackgroundAudio(run))).map(run => ({ ...run, config: { ...run.config } }))
   let cursor = after, scans = 0
   const batches: IOSKernelEvent[][] = []
   while (batches.length < Math.max(1, Math.min(64, batchLimit)) && scans++ < MAX_SCAN) {
     const upcoming = working.map(run => {
       const c = run.config
-      return { run, event: nextProgramEvent(programFor(c), c.timerV2Anchor!, Math.max(cursor, c.timerV2StartedAt!, run.effectiveFrom ?? 0), c.timerV2StartedAt!, c.timerV2EndsAt || null, c.timerV2RandomSeed ?? c.timerV2Anchor!) }
+      const p = programFor(c)
+      let edge = Math.max(cursor, c.timerV2StartedAt!, run.effectiveFrom ?? 0)
+      if (background) edge = Math.max(edge, (c.mutedUntil ?? 0) - 1, (c.mutedIterationEndAt ?? 0) - 1)
+      let event = nextProgramEvent(p, c.timerV2Anchor!, edge, c.timerV2StartedAt!, c.timerV2EndsAt || null, c.timerV2RandomSeed ?? c.timerV2Anchor!)
+      if (background) {
+        const policy = availability(c, p)
+        while (event && policy.enabled && !isCueAllowedByActiveHours(policy, event.at) && scans++ < MAX_SCAN) {
+          const start = nextActiveHoursStart(policy, event.at)
+          if (start <= event.at) { event = null; break }
+          edge = Math.max(edge, start - 1)
+          event = nextProgramEvent(p, c.timerV2Anchor!, edge, c.timerV2StartedAt!, c.timerV2EndsAt || null, c.timerV2RandomSeed ?? c.timerV2Anchor!)
+          if (event && event.at > through) { event = null; break }
+        }
+      }
+      return { run, event }
     }).filter((value): value is { run: IOSKernelRun; event: ScheduledProgramEvent } => value.event !== null)
     if (!upcoming.length) break
     const at = Math.min(...upcoming.map(value => value.event.at))
@@ -157,10 +187,21 @@ export function iosEventBatches(runs: IOSKernelRun[], after: number, batchLimit 
     const winner = batch.filter(value => value.audible).sort((a, b) => Number(b.alarm) - Number(a.alarm) || b.rarity - a.rarity || (a.runId < b.runId ? -1 : a.runId > b.runId ? 1 : 0))[0]
     if (winner) winner.winner = true
     batch.forEach(item => { const run = working.find(run => run.id === item.runId)!; run.config = { ...run.config, ...item.nextConfig }; if (item.winner && !item.alarm) run.soundState = item.nextSoundState })
-    batches.push(batch)
+    // The OS budget is for audible requests. Silent sub-bells and quiet/muted
+    // progression must not crowd the actual future bell out of the queue.
+    if (!background || winner) batches.push(batch)
     cursor = at
   }
   return { batches, coveredThrough: cursor, truncated: batches.length >= batchLimit || scans >= MAX_SCAN }
+}
+
+function hasBackgroundAudio(run: IOSKernelRun): boolean {
+  const c = run.config, p = programFor(c)
+  if (c.volume <= 0) return false
+  return p.steps.some(step => !p.noMainInterval && ((!step.endCue.soundMuted && step.endCue.volume > 0)
+    || (step.endAlarmEnabled || c.alarmModeEnabled || c.alarmOnceArmed) && (c.alarmVolume ?? 1) > 0)
+    || step.subBellsEnabled && step.subBellTracks.some(track => track.enabled && !track.soundMuted && track.volume > 0))
+    || !!p.completionCue && !p.completionCue.soundMuted && p.completionCue.volume > 0
 }
 
 /** Exact hourly calendar compression, only when the complete audible pattern repeats.
@@ -245,10 +286,11 @@ export function iosRunAction(run: IOSKernelRun, action: string, amount: number, 
 // A single JSON entry point keeps the Swift boundary small and fixture-testable.
 export function invokeIOSKernel(request: string): string {
   const input = JSON.parse(request)
-  const result = input.method === 'validate' ? validateIOSRun(input.run)
+  const result = input.method === 'capabilities' ? IOS_KERNEL_CAPABILITIES
+    : input.method === 'validate' ? validateIOSRun(input.run)
     : input.method === 'state' ? iosRunState(input.run, input.now)
       : input.method === 'action' ? iosRunAction(input.run, input.action, input.amount ?? 0, input.now)
-        : input.method === 'plan' ? iosEventBatches(input.runs, input.after, input.limit, input.through)
+        : input.method === 'plan' ? iosEventBatches(input.runs, input.after, input.limit, input.through, input.background === true)
           : input.method === 'repeating' ? iosRepeatingSchedule(input.runs, input.now)
           : (() => { throw new Error('Unknown iOS kernel method') })()
   return JSON.stringify(result)
