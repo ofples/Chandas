@@ -8,7 +8,9 @@ appId: com.yukti.chandas
 - takeScreenshot: 01-initial-setup
 - tapOn: Configurations
 - takeScreenshot: 02-configurations
-- tapOn: New configuration
+- tapOn:
+    text: New configuration
+    retryTapIfNoChange: true
 - assertVisible: Start timer
 - takeScreenshot: 03-setup
 - tapOn: Start timer
