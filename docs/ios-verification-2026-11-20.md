@@ -123,6 +123,9 @@ Representative local captures: `artifacts/ios/ios-preview-running.png` and
 **passed** on an iPhone 17 Pro simulator running iOS 26.5, using the exact EAS
 simulator artifact above. The workflow source is `35a0935`; its differences
 from application build source `eac425b` are exclusively the smoke-test YAML.
+[Native verification at the same workflow source](https://github.com/ofples/Chandas/actions/runs/44658602162)
+also completed successfully, including both the fast/native checks and the full
+clean app and extension compilation.
 
 The flow verified cold launch/onboarding dismissal, Configurations and New,
 native start and accepted background scheduling coverage, pause/resume, starting
