@@ -144,4 +144,15 @@ describe('iOS canonical native kernel', () => {
     expect(batch.find(item => item.runId === 'quiet')?.audible).toBe(false)
     expect(batch.filter(item => item.winner).map(item => item.runId)).toEqual(['audible'])
   })
+  it('keeps the requested final mute boundary audible after pause/resume', () => {
+    const muted = iosRunAction(run('iteration', stepped()), 'mute-iterations', 2, anchor)!
+    const paused = iosRunAction(muted, 'pause', 0, anchor + 1_000)!
+    const resumed = iosRunAction(paused, 'resume', 0, anchor + 11_000)!
+    const deadline = resumed.config.mutedIterationEndAt!
+    const events = iosEventBatches([resumed], anchor + 11_000, 20, deadline).batches.flat()
+    expect(events.at(-1)?.event.at).toBe(deadline)
+    expect(events.at(-1)?.audible).toBe(true)
+    expect(events.slice(0, -1).every(event => !event.audible)).toBe(true)
+    expect(iosRunAction(run(), 'mute-seconds', 604_800, anchor)?.config.mutedUntil).toBe(anchor + 604_800_000)
+  })
 })

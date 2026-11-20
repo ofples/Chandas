@@ -1167,10 +1167,14 @@ var ChandasKernel = (() => {
         c.timerV2Anchor += shift;
         c.timerV2StartedAt += shift;
         if (c.timerV2EndsAt && p.runPolicy.kind !== "until") c.timerV2EndsAt += shift;
-        if (c.mutedIterationEndAt) c.mutedIterationEndAt += shift;
+        if (c.mutedIterationEndAt) {
+          c.mutedIterationEndAt += shift;
+          const end = nextProgramEvent(p, c.timerV2Anchor, c.mutedIterationEndAt - 1, c.timerV2StartedAt, c.timerV2EndsAt || null, c.timerV2RandomSeed ?? c.timerV2Anchor);
+          c.mutedIterationEndId = end?.at === c.mutedIterationEndAt ? end.logicalId : void 0;
+        }
         c.timerV2PausedAt = 0;
       }
-    } else if (action === "mute-seconds") return { ...run, config: withGate(c, { mutedUntil: now + Math.max(1, Math.min(86400, amount)) * 1e3 }, alarmFor(c)) };
+    } else if (action === "mute-seconds") return { ...run, config: withGate(c, { mutedUntil: now + Math.max(1, Math.min(604800, amount)) * 1e3 }, alarmFor(c)) };
     else if (action === "mute-iterations") return { ...run, config: withGate(c, { mutedUntil: 0, iteration: iterationMuteFor(p, c.timerV2Anchor, time, amount) }, alarmFor(c)) };
     else if (action === "clear-mute") return { ...run, config: withGate(c, { mutedUntil: 0 }, alarmFor(c)) };
     else if (action === "alarm-once") c.alarmOnceArmed = !c.alarmOnceArmed;

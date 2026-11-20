@@ -584,6 +584,12 @@ function Root() {
       const initialDraft = Object.prototype.hasOwnProperty.call(loaded.state.drafts, loaded.state.selectedConfigId ?? UNNAMED_DRAFT_KEY)
         ? loaded.state.drafts[loaded.state.selectedConfigId ?? UNNAMED_DRAFT_KEY]
         : undefined
+      const iosSystem = Platform.OS === 'ios' ? ChandasTimerService.getIOSSystemStatus() : null
+      if (iosSystem?.recoveryRequired) {
+        setSessionRecovery({ reason: iosSystem.error ?? 'Saved iPhone timers need recovery. Their source records have been kept unchanged.' })
+        setReady(true)
+        return
+      }
       if (Platform.OS === 'web' || (supportsNativeTimerRuns && !ChandasTimerService.getState().active)) {
         const nativeIds = new Set(nativeTimerRunIds())
         const collection = await loadUnifiedTimerRuns(AsyncStorage)
@@ -629,7 +635,7 @@ function Root() {
             })
           }
           if (nativeIds.size) {
-            setSessionRecovery({ reason: 'Android has an active timer without its saved working copy.' })
+            setSessionRecovery({ reason: 'The phone has an active timer without its saved working copy.' })
             showNotice({ title: 'A running timer needs recovery', message: 'The phone kept its active schedule.', tone: 'attention', persistent: true })
           } else {
             setSessionRecovery(null)
@@ -1252,7 +1258,7 @@ function Root() {
     return true
   }
 
-  const blockingRecovery = Boolean(configRecovery || (sessionRecovery && Platform.OS === 'android' && isNativeServiceAvailable && ChandasTimerService.getState().active))
+  const blockingRecovery = Boolean(configRecovery || (sessionRecovery && (Platform.OS === 'ios' || Platform.OS === 'android' && isNativeServiceAvailable && ChandasTimerService.getState().active)))
   const runningConfigurations = (configState?.configs ?? []).filter(config => config.showInRunningSelector)
   const liveRuns = pool.entries.flatMap(entry => {
     const view = pool.views.get(entry.id)
