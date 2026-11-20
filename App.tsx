@@ -968,6 +968,10 @@ function Root() {
   }
 
   const start = (configurationId?: string | null, fromLibrary = false) => {
+    if (Platform.OS === 'ios' && !supportsNativeTimerRuns) {
+      showNotice({ title: 'Install the iPhone build', message: 'This build is missing the native timer engine. Install an updated iPhone build before starting timers.', tone: 'attention' })
+      return
+    }
     // A fast second tap must not replace the just-created native session with
     // a slightly different anchor or open duplicate permission guidance.
     if (startingRef.current) return

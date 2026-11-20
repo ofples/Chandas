@@ -53,7 +53,7 @@
     "test:watch": "vitest",
     "prebuild": "expo prebuild",
     "prebuild:clean": "expo prebuild --clean",
-    "release:check": "expo install --check && tsc --noEmit && npm test",
+    "release:check": "expo install --check && node scripts/check-ios-integration.cjs && tsc --noEmit && npm test",
     "build:android:dev": "eas build --profile development --platform android",
     "build:android:preview": "eas build --profile preview --platform android",
     "build:android:prod": "eas build --profile production --platform android",

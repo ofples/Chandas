@@ -1,6 +1,7 @@
 {
   "platforms": ["android", "apple"],
   "apple": {
+    "podspecPath": "ChandasTimerService.podspec",
     "modules": ["ChandasTimerServiceModule"],
     "appDelegateSubscribers": ["ChandasAppDelegateSubscriber"]
   },

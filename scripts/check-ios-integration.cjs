@@ -1,0 +1,18 @@
+const assert = require('node:assert/strict')
+const { execFileSync } = require('node:child_process')
+const path = require('node:path')
+
+const cli = path.join(path.dirname(require.resolve('expo-modules-autolinking/package.json')), 'bin/expo-modules-autolinking')
+const resolution = JSON.parse(execFileSync(process.execPath, [cli, 'resolve', '--platform', 'apple', '--json'], { encoding: 'utf8' }))
+const moduleInfo = resolution.modules.find(module => module.packageName === 'chandas-timer-service')
+assert(moduleInfo, 'The iPhone timer pod is not discoverable by Expo autolinking')
+assert(moduleInfo.modules.some(module => module.class === 'ChandasTimerServiceModule'), 'Native timer must be registered with JavaScript')
+assert(moduleInfo.appDelegateSubscribers.includes('ChandasAppDelegateSubscriber'), 'Native timer lifecycle subscriber must be registered')
+const expo = path.join(path.dirname(require.resolve('expo/package.json')), 'bin/cli')
+const config = JSON.parse(execFileSync(process.execPath, [expo, 'config', '--type', 'introspect', '--json'], { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 }))
+const info = config._internal.modResults.ios.infoPlist
+assert(info.NSAlarmKitUsageDescription, 'AlarmKit needs a visible usage explanation')
+assert.equal(info.NSSupportsLiveActivities, true)
+assert(!info.UIBackgroundModes?.includes('audio'), 'Timer scheduling must not declare unused background audio')
+assert.equal(config._internal.modResults.ios.podfileProperties['ios.deploymentTarget'], '18.0')
+console.log('iOS registration, lifecycle, permissions and background modes verified')
