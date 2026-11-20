@@ -2,9 +2,13 @@ appId: com.yukti.chandas
 ---
 - launchApp:
     clearState: true
+- extendedWaitUntil:
+    visible: Skip tour
+    timeout: 60000
 - tapOn:
     text: Skip tour
-    optional: true
+    retryTapIfNoChange: true
+- assertNotVisible: Skip tour
 - takeScreenshot: 01-initial-setup
 - tapOn: Configurations
 - takeScreenshot: 02-configurations
